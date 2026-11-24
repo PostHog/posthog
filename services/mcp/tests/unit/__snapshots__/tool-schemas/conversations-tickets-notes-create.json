@@ -11,7 +11,7 @@
             "type": "string"
         },
         "rich_content": {
-            "description": "Optional TipTap rich content JSON for the note. Omit it to show the markdown message."
+            "description": "Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project."
         }
     },
     "required": ["id", "message"],

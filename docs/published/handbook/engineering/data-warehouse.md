@@ -100,11 +100,15 @@ API-key requests and background jobs retain the query runner's existing exemptio
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
-An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
+An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding. Opening a saved query without SQL variables leaves the Edited label hidden until the query changes.
 Views and insights can be saved or updated before running the SQL. Save and update buttons show a warning when the query has not been run successfully. Clicking opens a confirmation near the pointer: **Run latest** runs the current editor SQL without saving, **Show diff** compares it with the saved view or insight (or the latest run for a new query), and **Save anyway** saves without opening a diff. All three choices close the confirmation. The read-only diff lets you review and save the changes or cancel to continue editing. Managed Trino views still require a successful run to determine their columns. View updates use the same change check as the **Edited** label, including saved query filters. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+Choose **Save as cohort** after running a single query against PostHog. Return a column named `person_id`, `actor_id`, or `distinct_id`. A query on the `persons` table can also return `id`. Give the cohort a name to save a static snapshot with the query's filters and variables.
 
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
+
+Saved SQL insight tables keep column headers visible while scrolling through rows or across columns. Tall results scroll inside an area capped at 70% of the window height; short results keep their natural height.
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
@@ -133,7 +137,7 @@ Panes share their value scale by default; **Independent value scales** lets each
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
 The Series panel accepts custom colors for individual breakdown values. The settings button beside a breakdown value lets you change its label without changing the query or grouping; clearing the label restores the original name. Clearing a color keeps the custom label. These controls also work in the SQL editor.
-Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. Value text and background colors can be customized independently of the series color. Clearing a color restores automatic styling; turning off the value background preserves its color for later use. These label controls also work in the SQL editor. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -178,6 +182,11 @@ Direct connections group tables by schema. Search matches table and folder names
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## Moving averages on SQL charts
+
+In a SQL line or area chart, enable **Show moving average** under **Display** to overlay a trailing average on each series.
+The window defaults to three chart points in result order. Each point averages the available numeric values in its window, including the current point.
 
 ## SQL heatmaps
 

@@ -1,25 +1,103 @@
-from clickhouse_driver.errors import ServerException, UnknownTypeError
+from clickhouse_connect.driver.exceptions import (
+    DatabaseError as HttpClientDatabaseError,
+    OperationalError as HttpClientOperationalError,
+    StreamFailureError as HttpClientStreamFailureError,
+)
+from clickhouse_driver.errors import (
+    Error as ClickHouseDriverError,
+    ServerException,
+    UnknownTypeError,
+)
 from parameterized import parameterized
 
 from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
+    CH_TRANSIENT_ERRORS,
+    CLICKHOUSE_ERROR_CODE_LOOKUP,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
     CHQueryErrorNotImplemented,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    clickhouse_error_message,
+    clickhouse_error_type,
+    error_code_from_type,
+    internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
+HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+
+
+def _http_client_response(code: int, detail: str, name: str) -> str:
+    return f"Code: {code}. DB::Exception: {detail} ({name}) (version 25.8.1.1 (official build))"
+
+
+def _http_client_error(code: int, detail: str, name: str) -> HttpClientDatabaseError:
+    return HttpClientDatabaseError(
+        f"Received ClickHouse exception, code: {code}, server response: "
+        f"{_http_client_response(code, detail, name)} (for url {HTTP_CLIENT_URL})"
+    )
 
 
 class TestWrapClickhouseQueryError:
+    @parameterized.expand([("with_detail", "private diagnostic"), ("without_detail", None)])
+    def test_every_clickhouse_code_has_public_guidance(self, _case: str, detail: str | None) -> None:
+        for code in (*CLICKHOUSE_ERROR_CODE_LOOKUP, 999999, None):
+            raw = ServerException(detail, code=code, nested=ServerException("private nested detail"))
+            wrapped = wrap_clickhouse_query_error(raw)
+            message = clickhouse_error_message(wrapped) if isinstance(wrapped, ClickHouseDriverError) else str(wrapped)
+            status_message = internal_ch_error_user_message(error_code_from_type(raw))
+
+            assert message and "private" not in message, code
+            assert status_message and "private" not in status_message, code
+            if isinstance(wrapped, ExposedCHQueryError):
+                assert "private" not in wrapped.message, code
+                assert wrapped.nested is None, code
+
+    def test_argument_type_error_names_both_operand_types(self) -> None:
+        raw = ServerException(
+            "DB::Exception: Illegal types DateTime64(6, 'UTC') and String of arguments of function plus. "
+            "While processing private expression",
+            code=43,
+        )
+        assert str(wrap_clickhouse_query_error(raw)) == (
+            "`plus` cannot combine DateTime64 and String here. Check the types on both sides of the expression."
+        )
+
+    @parameterized.expand([(": while executing",), (": While processing",), (". While processing",)])
+    def test_throw_if_preserves_the_message_and_drops_the_expression(self, separator: str) -> None:
+        raw = ServerException(
+            f"DB::Exception: Check the input date{separator} expression (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)", code=395
+        )
+        assert str(wrap_clickhouse_query_error(raw)) == "Check the input date"
+
+    def test_unrecognized_type_and_function_use_fixed_guidance(self) -> None:
+        raw = ServerException("DB::Exception: Illegal type Secretthing of argument of function privateFn", code=43)
+        assert str(wrap_clickhouse_query_error(raw)) == CLICKHOUSE_ERROR_CODE_LOOKUP[43].user_safe
+
+    def test_unknown_code_preserves_only_its_driver_number(self) -> None:
+        error = InternalCHQueryError("private diagnostic", code=999999, code_name="caller_supplied")
+        assert error_code_from_type(error) == "clickhouse_999999"
+        assert clickhouse_error_message(error) == (
+            "ClickHouse couldn't complete this query. Contact support and include the error code 999999."
+        )
+
+    def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
+        assert internal_ch_error_user_message("other_database_error") is None
+        assert internal_ch_error_user_message("clickhouse_private") is None
+        assert internal_ch_error_user_message(None) is None
+
     @parameterized.expand(
         [
             (44, "ILLEGAL_COLUMN"),
@@ -64,7 +142,11 @@ class TestWrapClickhouseQueryError:
             ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
-            (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
+            (
+                69,
+                "ARGUMENT_OUT_OF_BOUND",
+                "A function argument is outside its allowed range. Check its bounds and the values passed to it.",
+            ),
             (
                 70,
                 "CANNOT_CONVERT_TYPE",
@@ -118,7 +200,11 @@ class TestWrapClickhouseQueryError:
                 "INVALID_JOIN_ON_EXPRESSION",
                 "Invalid JOIN ON expression. Check that the condition uses supported comparisons between the joined tables.",
             ),
-            (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            (
+                407,
+                "DECIMAL_OVERFLOW",
+                "A decimal result exceeds its precision. Use a wider decimal type before the calculation.",
+            ),
             (
                 427,
                 "CANNOT_COMPILE_REGEXP",
@@ -210,17 +296,23 @@ class TestWrapClickhouseQueryError:
             (
                 "aggregate_state",
                 "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))",
-                "This query returns a column of type `AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))`, "
+                "This query returns a column of type `AggregateFunction`, "
                 "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the "
                 "matching -Merge function, for example `argMinMerge(column)`, to get the final value.",
             ),
             (
                 "mixed_value_types",
                 "Variant(Int64, UInt64)",
-                "This query returns a column of type `Variant(Int64, UInt64)`, which PostHog can't send back in "
+                "This query returns a column of type `Variant`, which PostHog can't send back in "
                 "results. The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` "
                 "or `ifNull()` arguments, or `if()` branches that return different types. Make them return one "
                 "type, for example with `toString()` or `toFloat()`.",
+            ),
+            (
+                "enum_with_labels",
+                "Enum8('private' = 1)",
+                "This query returns a column of type `unsupported`, which PostHog can't send back in results. "
+                "Convert the column to a basic type such as a string, number, or date, or leave it out of the results.",
             ),
             (
                 "other_type",
@@ -241,7 +333,7 @@ class TestWrapClickhouseQueryError:
 
     def test_bad_get_hides_unrecognized_raw_message(self) -> None:
         err = ServerException(
-            "DB::Exception: Bad get: has private-row-value, requested UInt64. While processing private-query-context.",
+            "DB::Exception: Bad get: has privatevalue, requested UInt64. While processing private-query-context.",
             code=170,
         )
 
@@ -258,14 +350,14 @@ class TestWrapClickhouseQueryError:
                 "DB::Exception: Expected end of line: (at row 115622)\n: Row 115621: private-row-value "
                 "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat. "
                 "Stack trace: private-stack-frame",
-                "A row in a CSV file backing this table is malformed at row 115622 of example-bucket/data/export.csv. "
+                "A row in a CSV file backing this table is malformed at row 115622. "
                 "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
             ),
             (
                 "with_file_uri_text_in_row",
                 "DB::Exception: Expected end of line: (at row 7)\n: Row 6: (in file/uri private-row-value) "
                 "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat.",
-                "A row in a CSV file backing this table is malformed at row 7 of example-bucket/data/export.csv. "
+                "A row in a CSV file backing this table is malformed at row 7. "
                 "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
             ),
             (
@@ -418,3 +510,68 @@ class TestWrapClickhouseQueryError:
 
         assert classify_query_error(raw) == category
         assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
+
+    @parameterized.expand(
+        [
+            (
+                "cancelled",
+                _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_on_retried_request",
+                HttpClientOperationalError(str(_http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"))),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_mid_stream",
+                HttpClientStreamFailureError(_http_client_response(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "per_query_memory_limit",
+                _http_client_error(
+                    241, "Query memory limit exceeded: would use 10.00 GiB, maximum: 9.31 GiB.", "MEMORY_LIMIT_EXCEEDED"
+                ),
+                ClickHouseQueryMemoryLimitExceeded,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
+                "unknown_identifier",
+                _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
+                CHQueryErrorUnknownIdentifier,
+                QueryErrorCategory.USER_ERROR,
+            ),
+        ]
+    )
+    def test_http_client_errors_wrap_like_native_driver_errors(
+        self, _name: str, raw: Exception, wrapped_type: type[Exception], category: QueryErrorCategory
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert type(wrapped) is wrapped_type
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrapped) == category
+        assert HTTP_CLIENT_URL not in str(wrapped)
+
+    def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
+        raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")
+
+        assert clickhouse_error_type(raw) == "CHQueryErrorQueryWasCancelled"
+        assert not isinstance(wrap_clickhouse_query_error(raw), CH_TRANSIENT_ERRORS)
+
+    @parameterized.expand(
+        [
+            ("no_code", HttpClientDatabaseError(f"HTTP driver received HTTP status 502 (for url {HTTP_CLIENT_URL})")),
+            (
+                "errors_hidden",
+                HttpClientDatabaseError(f"The ClickHouse server returned an error (for url {HTTP_CLIENT_URL})"),
+            ),
+        ]
+    )
+    def test_http_client_errors_without_a_code_pass_through(self, _name: str, raw: Exception) -> None:
+        assert wrap_clickhouse_query_error(raw) is raw
+        assert classify_query_error(raw) == QueryErrorCategory.ERROR

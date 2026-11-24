@@ -13,6 +13,7 @@ import { AccountPropertiesWidgetConfiguration } from '../../scenes/CustomerAnaly
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { AccountContextPane } from './AccountContextPane'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
@@ -22,6 +23,9 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
+import { getAccountSqlQuery, getAccountSqlQueryConfigError } from './accountSqlQuery'
+import { AccountSqlQueryTile } from './AccountSqlQueryTile'
+import { AccountSqlQueryTileConfiguration } from './AccountSqlQueryTileConfiguration'
 import { AccountUsersTable } from './AccountUsersTable'
 import type {
     AccountViewTileConfig,
@@ -33,6 +37,7 @@ import { AccountsEvents } from './constants'
 
 export type AccountSystemTabKind =
     | 'notes'
+    | 'context'
     | 'tasks'
     | 'users'
     | 'relationships'
@@ -44,18 +49,26 @@ export type AccountSystemTabKind =
     | 'meetings'
     | 'automations'
 
-export type AccountViewComponentKind = AccountSystemTabKind | 'properties' | 'session_replays' | 'dot_matrix'
-
+export type AccountViewComponentKind =
+    | AccountSystemTabKind
+    | 'properties'
+    | 'session_replays'
+    | 'dot_matrix'
+    | 'sql_query'
 interface AccountViewComponentBase {
     tagName: string
     label: string
     featureFlag?: FeatureFlagKey
     Component: (props: AccountViewWidgetProps) => JSX.Element
     ConfigEditor?: (props: AccountViewTileConfigEditorProps) => JSX.Element
+    getConfigError?: (config: AccountViewTileConfig) => string | undefined | Promise<string | undefined>
     onConfigSaved?: (config: AccountViewTileConfig) => void
     tileInsetClassName?: string
     tileContentClassName?: string
     remountOnConfigReload?: boolean
+    configEditorWidth?: number
+    canDuplicate?: boolean
+    showHeaderEdit?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
@@ -66,7 +79,7 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays' | 'dot_matrix'
+          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query'
           systemTabId?: never
       })
 
@@ -144,6 +157,31 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         remountOnConfigReload: false,
     },
     {
+        kind: 'sql_query',
+        canDuplicate: true,
+        showHeaderEdit: true,
+        tileContentClassName: 'min-w-0 p-0',
+        tagName: 'SqlQuery',
+        label: 'SQL query',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE,
+        Component: (props) => (
+            <AccountSqlQueryTile
+                accountId={props.accountId}
+                externalId={props.externalId}
+                instanceId={props.instanceId}
+                initialConfig={props.initialConfig}
+                onLoadingChange={props.onLoadingChange}
+            />
+        ),
+        ConfigEditor: AccountSqlQueryTileConfiguration,
+        configEditorWidth: 1000,
+        getConfigError: getAccountSqlQueryConfigError,
+        onConfigSaved: (config) =>
+            posthog.capture(AccountsEvents.SqlQueryTileConfigured, {
+                query_length: getAccountSqlQuery(config).length,
+            }),
+    },
+    {
         kind: 'notes',
         tagName: 'Notes',
         label: 'Notes',
@@ -153,6 +191,21 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 accountId={props.accountId}
                 embedded={props.embedded}
                 {...getTileLogicProps(props)}
+            />
+        ),
+    },
+    {
+        kind: 'context',
+        tagName: 'Context',
+        label: 'Context',
+        systemTabId: 'system:context',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CONTEXT_PANE,
+        Component: (props) => (
+            <AccountContextPane
+                accountId={props.accountId}
+                externalId={props.externalId}
+                instanceId={props.instanceId}
+                embedded={props.embedded}
             />
         ),
     },

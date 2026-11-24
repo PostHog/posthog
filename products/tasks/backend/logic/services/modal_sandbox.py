@@ -69,6 +69,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
+    CPUACCT_USAGE_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -1079,7 +1081,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
-        if config.agent_egress_probe:
+        if config.agent_egress_probe or config.agent_egress_observation:
             SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
@@ -1215,7 +1217,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
+            sandbox_name = config.name if config.agent_egress_probe else f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             region = _get_modal_region()
 
@@ -1232,8 +1234,9 @@ class ModalSandbox(AgentServerLaunchMixin):
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
-            if config.agent_egress_probe:
+            if config.agent_egress_probe or config.agent_egress_observation:
                 create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if config.agent_egress_probe:
                 create_kwargs["outbound_cidr_allowlist"] = []
 
             if config.block_network:
@@ -2055,13 +2058,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def read_cpu_usage_usec(self) -> int | None:
         try:
-            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+            cpu_stat = self._sandbox.filesystem.read_text(CPU_STAT_PATH)
         except Exception:
             cpu_stat = None
         if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
             return usage
         try:
-            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            cpuacct_usage = self._sandbox.filesystem.read_text(CPUACCT_USAGE_PATH)
             if cpuacct_usage.strip():
                 return int(cpuacct_usage) // 1000
         except Exception:

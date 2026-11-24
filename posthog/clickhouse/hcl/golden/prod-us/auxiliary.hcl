@@ -2444,6 +2444,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     column "query_id" {
       type = "String"
     }
@@ -2850,9 +2853,6 @@ database "posthog" {
     column "ai_highlighted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
     column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
@@ -5207,6 +5207,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -5693,7 +5696,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -6046,6 +6067,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
   }
 
   materialized_view "property_values_mv" {
@@ -6333,10 +6357,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

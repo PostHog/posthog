@@ -1,3 +1,4 @@
+import re
 import asyncio
 import datetime as dt
 import dataclasses
@@ -23,6 +24,7 @@ from products.data_modeling.backend.temporal.activities.enrich_view_semantics im
 from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
+    _record_managed_warehouse_node_metrics,
     _StagedAuditVerdict,
 )
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
@@ -47,6 +49,35 @@ def _materialize_result(quality_audit: QualityAuditMode) -> MaterializeViewResul
         saved_query_id="sq-1",
         quality_audit=quality_audit,
     )
+
+
+class _RecordingMetricMeter:
+    def __init__(self) -> None:
+        self.attributes: list[dict[str, str]] = []
+
+    def with_additional_attributes(self, attributes: dict[str, str]) -> "_RecordingMetricMeter":
+        self.attributes.append(attributes)
+        return self
+
+    def create_counter(self, name: str, description: str) -> MagicMock:
+        return MagicMock()
+
+
+async def test_failed_trino_build_reports_its_error_code() -> None:
+    meter = _RecordingMetricMeter()
+    failed_build = ManagedWarehouseShadowResult(
+        row_count=0,
+        duration_seconds=1,
+        schema_name="models",
+        table_name="orders",
+        error='TrinoUserError(type=USER_ERROR, name=TYPE_MISMATCH, message="line 1:7: bad operator", query_id=q1)',
+        run_mode="full_refresh",
+    )
+
+    with patch.object(temporalio.workflow, "metric_meter", return_value=meter):
+        _record_managed_warehouse_node_metrics(failed_build, "ad_hoc")
+
+    assert [attributes["error_code"] for attributes in meter.attributes] == ["TYPE_MISMATCH"]
 
 
 class TestQualityGateBranching:
@@ -98,6 +129,7 @@ class TestQualityGateBranching:
         [
             (None, False, "completed", "none"),
             ("Trino write failed", False, "failed", "other"),
+            ("Trino restarted while it was building this model, and all 3 attempts failed.", False, "failed", "infra"),
             ("Trino write failed: upstream table missing", True, "skipped", "none"),
         ],
     )
@@ -118,7 +150,7 @@ class TestQualityGateBranching:
         )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
             if shadow_error:
-                with pytest.raises(temporalio.exceptions.ApplicationError, match="Trino write failed"):
+                with pytest.raises(temporalio.exceptions.ApplicationError, match=re.escape(shadow_error)):
                     await self._run(
                         [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
                     )

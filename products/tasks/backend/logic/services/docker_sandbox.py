@@ -910,12 +910,15 @@ class DockerSandbox(AgentServerLaunchMixin):
         branch: str | None = None,
         blobless: bool = False,
         gitlab_token: str | None = None,
+        baked_repo_clone: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch, blobless, gitlab_token)
+        return super().clone_repository(
+            repository, github_token, shallow, branch, blobless, gitlab_token, baked_repo_clone
+        )
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -983,6 +986,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         repo_ready_file: str | None = None,
+        shell_waits_for_repo: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         pi_acp_conversation: bool = False,
@@ -991,6 +995,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
+        run_policy: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -1015,6 +1020,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             pi_acp_conversation=pi_acp_conversation,
+            run_policy=run_policy,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -1255,12 +1261,6 @@ class DockerSandbox(AgentServerLaunchMixin):
         return wait_for_health_check(
             self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
         )
-
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
 
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)

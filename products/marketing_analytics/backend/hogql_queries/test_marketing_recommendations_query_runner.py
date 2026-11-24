@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,8 +22,17 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    FlaggedAd,
+    Keyword,
+    OrganicQueryStats,
+    PolicyAds,
+    PolicyTopic,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
+    _asset_texts,
+    _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
@@ -234,7 +245,41 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
 
-    def test_compares_wasted_searches_with_the_enabled_ad_copy_of_their_ad_group(self) -> None:
+    def test_keywords_are_the_enabled_ones_that_match_an_organic_query(self) -> None:
+        keywords = self._table(
+            "keyword",
+            {
+                "campaign_id": "Int64",
+                "ad_group_criterion_keyword_text": "String",
+                "ad_group_criterion_status": "String",
+            },
+            "campaign_id,ad_group_criterion_keyword_text,ad_group_criterion_status\n"
+            "1, Funnel Analysis ,ENABLED\n"
+            "2,funnel analysis,PAUSED\n"
+            "4,session replay,ENABLED\n",
+        )
+        # Campaign 1 has no stats rows, so the keyword reads its campaign without depending on spend.
+        campaigns = self._table(
+            "campaign",
+            {"campaign_id": "Int64", "campaign_advertising_channel_type": "String", "campaign_status": "String"},
+            "campaign_id,campaign_advertising_channel_type,campaign_status\n1,SEARCH,ENABLED\n2,SEARCH,ENABLED\n",
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(), team=self.team, user=self.user
+        )
+
+        found = runner._keywords(
+            MarketingAnalyticsRecommendationsSource(
+                sourceType="GoogleAds", keywordTable=keywords, campaignTable=campaigns
+            ),
+            (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=100, position=20),),
+        )
+
+        assert found == [
+            Keyword(text="funnel analysis", campaign_id="1", channel_type="SEARCH", campaign_status="ENABLED")
+        ]
+
+    def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
         campaigns = self._table(
             "campaign",
             {
@@ -274,44 +319,82 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "dentist crm,1,11,2026-01-15,10,100,250000000,0,NONE\n"
             "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
             "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
-            "patient records,1,11,2026-01-15,10,100,300000000,0,NONE\n",
+            "patient records,1,11,2026-01-14,5,50,150000000,0,NONE\n"
+            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n"
+            # Another ad group excludes it on the same day that ad group 11 still serves it.
+            "dentist crm,1,12,2026-01-15,0,1,0,0,EXCLUDED\n"
+            # Excluded after the selected dates end.
+            "analytics pricing,1,11,2026-02-05,0,1,0,0,EXCLUDED\n",
         )
         ad_columns = {
             "ad_group_id": "Int64",
+            "campaign_id": "Int64",
             "ad_group_ad_status": "String",
             "ad_group_ad_ad_responsive_search_ad_headlines": "String",
             "ad_group_ad_ad_responsive_search_ad_descriptions": "String",
+            "ad_group_ad_ad_final_urls": "String",
             "ad_group_ad_ad_expanded_text_ad_headline_part1": "String",
+            "ad_group_ad_policy_summary_approval_status": "String",
+            "ad_group_ad_ad_id": "Int64",
+            "ad_group_ad_policy_summary_policy_topic_entries": "String",
         }
+        policy_entry = {
+            "topic": "TRADEMARKS_IN_AD_TEXT",
+            "type": "PROHIBITED",
+            "evidences": [{"textList": {"texts": ["Acme"]}}],
+        }
+        policy_topics = json.dumps([json.dumps(policy_entry)]).replace('"', '""')
         # The sync stores each text asset as a JSON message inside a JSON list. The paused ad does not show.
         ads = self._table(
             "ad",
             ad_columns,
             ",".join(ad_columns) + "\n"
-            '11,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]",\n'
-            '11,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]",\n'
-            "11,ENABLED,[],[],Patient records made simple\n",
+            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",,DISAPPROVED,'
+            f'101,"{policy_topics}"\n'
+            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,DISAPPROVED,102,[]\n'
+            "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,100,[]\n"
+            "11,1,ENABLED,[],[],[],Session replay,APPROVED,104,[]\n"
+            "12,1,ENABLED,[],[],[],Clinic scheduling,APPROVED,105,[]\n",
         )
-
-        response = MarketingAnalyticsRecommendationsQueryRunner(
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds",
+            campaignTable=campaigns,
+            campaignStatsTable=stats,
+            searchTermTable=terms,
+            adTable=ads,
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
             query=MarketingAnalyticsRecommendationsQuery(
-                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
-                sources=[
-                    MarketingAnalyticsRecommendationsSource(
-                        sourceType="GoogleAds",
-                        campaignTable=campaigns,
-                        campaignStatsTable=stats,
-                        searchTermTable=terms,
-                        adTable=ads,
-                    )
-                ],
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
             ),
             team=self.team,
             user=self.user,
-        ).calculate()
+        )
 
+        response = runner.calculate()
+
+        assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
+            ("1", ("https://example.com/product",)),
+            ("1", ()),
+            ("1", ()),
+            ("1", ()),
+        ]
+        assert runner._policy_ads(source) == [PolicyAds(campaign_id="1", disapproved=1, limited=1)]
+        assert runner._flagged_ads(source) == [
+            FlaggedAd(
+                campaign_id="1",
+                ad_id="101",
+                headline="Product analytics",
+                policy_topics=(PolicyTopic(topic="TRADEMARKS_IN_AD_TEXT", type="PROHIBITED", texts=("Acme",)),),
+            ),
+            FlaggedAd(campaign_id="1", ad_id="100", headline="Patient records made simple", policy_topics=()),
+        ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
-        assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
+        assert [(rec.subject, rec.detectedChange) for rec in wasted] == [
+            ("dentist crm", None),
+            ("analytics pricing", "negative_keyword"),
+            ("patient records", "negative_keyword"),
+        ]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
 
     @parameterized.expand(
@@ -504,7 +587,13 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             else:
                 properties["utm_term"] = "organic"
             _create_event(
-                team=self.team, event="$pageview", distinct_id=f"user{i}", timestamp="2026-01-15", properties=properties
+                team=self.team,
+                # Half the paid sessions have no pageview, so a query that only reads pageviews falls below the
+                # rule's session minimum.
+                event="$pageview" if i % 2 else "$autocapture",
+                distinct_id=f"user{i}",
+                timestamp="2026-01-15",
+                properties=properties,
             )
         flush_persons_and_events()
 
@@ -560,6 +649,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "search_term_stats": True,
                 "search_term_conversion_action_stats": True,
                 "ad": True,
+                "keyword": True,
                 "customer": False,
             },
         )
@@ -580,6 +670,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "searchTermTable": "googleads.acme.search_term_stats",
                 "searchTermConversionActionTable": "googleads.acme.search_term_conversion_action_stats",
                 "adTable": "googleads.acme.ad",
+                "keywordTable": "googleads.acme.keyword",
             },
             {
                 "sourceType": "GoogleSearchConsole",
@@ -588,3 +679,26 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+
+class TestAdJson(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("text_list_is_a_list", {"topic": "TRADEMARKS", "evidences": [{"textList": ["Acme"]}]}, ()),
+            ("topic_is_not_text", {"topic": 123, "evidences": []}, None),
+            ("evidences_is_a_number", {"topic": "TRADEMARKS", "evidences": 5}, ()),
+            ("texts_is_a_string", {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": "AB"}}]}, ()),
+            (
+                "texts_are_not_text",
+                {"topic": "TRADEMARKS", "evidences": [{"textList": {"texts": [1, "Acme"]}}]},
+                ("Acme",),
+            ),
+        ]
+    )
+    def test_skips_unexpected_shapes(self, _name: str, entry: dict[str, object], texts: tuple[str, ...] | None) -> None:
+        topics = _policy_topics(json.dumps([json.dumps(entry)]))
+
+        assert topics == (() if texts is None else (PolicyTopic(topic="TRADEMARKS", type="", texts=texts),))
+
+    def test_asset_texts_skip_non_text(self) -> None:
+        assert _asset_texts(json.dumps([json.dumps({"text": 123}), json.dumps({"text": "Acme"})])) == ("Acme",)

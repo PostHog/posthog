@@ -73,6 +73,11 @@
             },
             "maxItems": 25,
             "type": "array"
+        },
+        "version_description": {
+            "description": "Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.",
+            "maxLength": 400,
+            "type": "string"
         }
     },
     "required": ["name", "description", "body"],

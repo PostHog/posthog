@@ -37,7 +37,8 @@
         "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.6.1",
         "storybook-dark-mode": "^5.0.0",
-        "typescript": "catalog:",
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:",
         "vite": "catalog:"
     }
 }

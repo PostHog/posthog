@@ -6,15 +6,17 @@ import { logger } from '~/common/utils/logger'
 
 import { CdpConfig } from '../config'
 import {
-    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CdpIntakeRunOutput,
 } from '../outputs/outputs'
+import { KafkaMskCdpIntakeProducerEnvConfig } from '../outputs/producers'
 import { encodeJob } from '../services/cyclotron-v2/job-codec'
 import { CyclotronJobInvocation } from '../types'
-import { RunKind, encodeIntakeMessage } from './message'
+import { EncodedIntakeMessage, RunKind, encodeIntakeMessage } from './message'
 
-export type IntakeMode = 'off' | 'shadow' | 'async'
+export type IntakeMode = 'off' | 'async'
+export type IntakeCluster = 'msk' | 'warpstream'
 export type IntakeOutput = CdpIntakeRunOutput
 export type IntakeProduceOutcome = 'acked' | 'unacked' | 'too_large' | 'invalid'
 
@@ -22,30 +24,56 @@ export type IntakeProduceOutcome = 'acked' | 'unacked' | 'too_large' | 'invalid'
 export const INTAKE_ACK_DEADLINE_MS = 3_000
 
 const OUTPUT_OF: Record<RunKind, IntakeOutput> = {
-    'transactional-email': CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    'workflow-webhook': CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+    'transactional-email': CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    'workflow-webhook': CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
 }
+
+// Alerts and dashboards filter the metrics below on this label. Without MSK brokers the MSK producer opens WarpStream's
+// config, so the label names the cluster the runs reach.
+export const intakeClusterOf = (
+    config: Pick<KafkaMskCdpIntakeProducerEnvConfig, 'KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST'>
+): IntakeCluster => (config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST ? 'msk' : 'warpstream')
 
 const launchesCounter = new Counter({
     name: 'cdp_intake_launches_total',
     help: 'Runs the routes produced to an intake topic, by kind, mode and outcome: acked by the broker, unacked (refused, or no ack before the deadline), too_large for the topic, or invalid for the cyclotron row.',
-    labelNames: ['kind', 'mode', 'outcome'] as const,
+    labelNames: ['kind', 'mode', 'outcome', 'cluster'] as const,
 })
 
 const ackMs = new Histogram({
     name: 'cdp_intake_ack_ms',
-    help: "Milliseconds from producing an accepted run to an intake topic to the broker's ack, by kind.",
-    labelNames: ['kind'] as const,
+    help: "Milliseconds from producing an accepted run to an intake topic to the broker's ack, by kind and cluster.",
+    labelNames: ['kind', 'cluster'] as const,
     buckets: [5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 3_000],
 })
 
 export const intakeModeOf = (
-    config: Pick<CdpConfig, 'CDP_INTAKE_KAFKA_SHADOW_TEAMS' | 'CDP_INTAKE_KAFKA_ASYNC_TEAMS'>
+    config: Pick<CdpConfig, 'CDP_INTAKE_KAFKA_ASYNC_TEAMS'>
 ): ((teamId: number) => IntakeMode) => {
     const isAsync = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_ASYNC_TEAMS, true)
-    const isShadow = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_SHADOW_TEAMS, true)
-    return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
+    return (teamId) => (isAsync(teamId) ? 'async' : 'off')
 }
+
+// A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and,
+// after they return, waits on `publishesSettled()` with the same handle before it frees that work's share. The unread
+// private field makes the type nominal, so neither a plain object nor a spread copy type-checks as a settlement.
+export class PublishSettlement {
+    readonly #brand = true
+}
+
+const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
+
+const trackPublish = (settlement: PublishSettlement, publish: Promise<unknown>): void => {
+    const publishes = trackedPublishes.get(settlement)
+    if (publishes) {
+        publishes.push(publish)
+    } else {
+        trackedPublishes.set(settlement, [publish])
+    }
+}
+
+export const publishesSettled = (settlement: PublishSettlement): Promise<void> =>
+    Promise.allSettled(trackedPublishes.get(settlement) ?? []).then(() => undefined)
 
 export type IntakeRun = {
     kind: RunKind
@@ -54,41 +82,66 @@ export type IntakeRun = {
     reply?: Record<string, unknown>
 }
 
+export type EncodedIntakeRun = {
+    kind: RunKind
+    mode: IntakeMode
+    cluster: IntakeCluster
+    teamId: number
+    runId: string
+    message: EncodedIntakeMessage
+}
+
 export class IntakeProducer {
     constructor(
         private outputs: IngestionOutputs<IntakeOutput>,
         private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
         // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
-        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation
+        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation,
+        private cluster: IntakeCluster = 'msk'
     ) {}
 
-    async produce(
+    async produce(run: IntakeRun, mode: IntakeMode, settlement?: PublishSettlement): Promise<IntakeProduceOutcome> {
+        const encoded = this.encode(run, mode)
+        return typeof encoded === 'string' ? encoded : this.publish(encoded, settlement)
+    }
+
+    // Encoding seals and serializes on the event loop, so a caller with a deadline encodes all its runs, checks its
+    // clock, and only then publishes them.
+    encode(
         { kind, invocation, fingerprint, reply }: IntakeRun,
         mode: IntakeMode
-    ): Promise<IntakeProduceOutcome> {
+    ): EncodedIntakeRun | 'too_large' | 'invalid' {
+        const cluster = this.cluster
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,
             reply,
-            shadow: mode === 'shadow',
             job: { ...encodeJob(this.seal(invocation)), id: invocation.id },
         })
         if (encoded.status !== 'encoded') {
-            launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()
+            launchesCounter.labels({ kind, mode, outcome: encoded.status, cluster }).inc()
             return encoded.status
         }
+        return { kind, mode, cluster, teamId: invocation.teamId, runId: invocation.id, message: encoded.message }
+    }
+
+    async publish(
+        { kind, mode, cluster, teamId, runId, message }: EncodedIntakeRun,
+        settlement?: PublishSettlement
+    ): Promise<'acked' | 'unacked'> {
         const startedAt = performance.now()
         try {
-            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message))
-            ackMs.labels({ kind }).observe(performance.now() - startedAt)
-            launchesCounter.labels({ kind, mode, outcome: 'acked' }).inc()
+            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], message), settlement)
+            ackMs.labels({ kind, cluster }).observe(performance.now() - startedAt)
+            launchesCounter.labels({ kind, mode, outcome: 'acked', cluster }).inc()
             return 'acked'
         } catch (error) {
-            launchesCounter.labels({ kind, mode, outcome: 'unacked' }).inc()
+            launchesCounter.labels({ kind, mode, outcome: 'unacked', cluster }).inc()
             logger.warn('[CdpIntake] An intake produce got no ack', {
                 kind,
-                team_id: invocation.teamId,
-                run_id: invocation.id,
+                cluster,
+                team_id: teamId,
+                run_id: runId,
                 error: error instanceof Error ? error.message : String(error),
             })
             return 'unacked'
@@ -97,12 +150,15 @@ export class IntakeProducer {
 
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
-    private withinDeadline(produce: Promise<void>): Promise<void> {
+    private withinDeadline(produce: Promise<void>, settlement?: PublishSettlement): Promise<void> {
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        produce.catch(() => undefined)
-        return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        const raced = Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        if (settlement) {
+            trackPublish(settlement, produce)
+        }
+        return raced
     }
 }

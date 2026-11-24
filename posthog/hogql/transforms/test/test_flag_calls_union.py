@@ -830,6 +830,29 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ).generate_clickhouse_sql()
         return substitute_params(sql, context.values)
 
+    @parameterized.expand(
+        [
+            ("without_key_or_date", FLAG_CALLS),
+            ("mixed_with_other_events", f"SELECT count() FROM events WHERE {MIXED}"),
+            ("select_star", f"SELECT * {FLAG_CALLS_FROM}"),
+        ]
+    )
+    def test_flag_evaluations_only_reads_the_same_when_it_keeps_writing_flag_calls_to_events(
+        self, _name: str, query: str
+    ):
+        def compiled() -> str:
+            try:
+                return self._sql(query, mode=ONLY, new_events_schema=False)
+            except QueryError as error:
+                return f"QueryError: {error}"
+
+        without_kept_writes = compiled()
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            keep_writing_flag_calls_to_events=True
+        )
+
+        assert compiled() == without_kept_writes
+
     @staticmethod
     def _branches(sql: str) -> list[str]:
         start = sql.index("UNION ALL")
@@ -1038,6 +1061,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "goe_0.properties",
             ),
             ("sample_row_count", f"SELECT count() FROM events SAMPLE 10 WHERE {MIXED}", "it uses SAMPLE"),
+            (
+                "properties_whose_paths_join_to_one_name_inside_a_persons_join_filter",
+                f"SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id AND p.id IN "
+                f"(SELECT person_id FROM events WHERE {MIXED} AND properties.a.b = '1' AND properties.a___b = '1') "
+                f"WHERE e.{MIXED}",
+                "properties.a.b and properties.a___b",
+            ),
             param(
                 "join_whose_on_clause_reads_another_field",
                 f"SELECT probe_join.key FROM events WHERE {MIXED}",
@@ -1369,7 +1399,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         for branch in (events, keyless):
             assert "equals(events.distinct_id, 'probe')" in branch
         assert "equals(flag_evaluations.distinct_id, 'probe')" in flag_evaluations
-        assert "flag_key" not in flag_evaluations
+        assert "in(flag_evaluations.flag_key" not in flag_evaluations
 
     @parameterized.expand(
         [
@@ -2373,6 +2403,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
             # Events rebuilds a flag property from `$feature_flags`, which holds text.
             ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            # The filter reaches the events branch, which compares the flag's own subcolumn of `$feature_flags`.
+            param(
+                "flag_filter",
+                "properties.`$feature/probe`",
+                123,
+                '"123"',
+                where="AND properties.`$feature/probe` = '123'",
+            ),
             ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
             param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
             # Events reads a declared path as its declared type, which is String for `$browser`.

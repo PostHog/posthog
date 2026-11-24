@@ -35,6 +35,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import type { CollectionNodeLoadMeta } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import {
     CachedMCPDashboardQueryResponse,
@@ -457,6 +458,7 @@ export interface mcpDashboardOverviewLogicValues {
     interval: IntervalType
     kpiIncompleteTail: boolean
     kpis: KPIData
+    loadedSections: SectionFlags
     loadingSections: SectionFlags
     modelRows: ModelRow[]
     notableSessions: NotableSession[]
@@ -481,10 +483,10 @@ export interface mcpDashboardOverviewLogicActions {
     } // dataNodeCollectionLogic
     collectionNodeLoadDataSuccess: (
         id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta?: CollectionNodeLoadMeta | undefined
     ) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta: CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     endPageVisit: () => {
         value: true
@@ -542,6 +544,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dashboardBatched: (featureFlags: FeatureFlagsSet) => boolean
         dashboardLoading: (loadingSections: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         failedLoads: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SectionFlags
+        loadedSections: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SectionFlags
         feedbackLoadFailed: (failedLoads: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         kpis: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => KPIData
         periodTotals: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => PeriodTotals
@@ -662,6 +665,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (sections: SectionResults): SectionFlags =>
                 Object.fromEntries(
                     DASHBOARD_SECTIONS.filter((section) => !!sections[section]?.error).map((section) => [section, true])
+                ),
+        ],
+        loadedSections: [
+            (s) => [s.sections],
+            (sections: SectionResults): SectionFlags =>
+                Object.fromEntries(
+                    DASHBOARD_SECTIONS.filter((section) => !!sections[section]?.results).map((section) => [
+                        section,
+                        true,
+                    ])
                 ),
         ],
         feedbackLoadFailed: [

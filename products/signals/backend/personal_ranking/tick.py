@@ -5,8 +5,9 @@ object turns the tick off. A pair is due when it has a ready activity summary, r
 list that was built or checked longer ago than `target_interval_minutes`, or no list. The pair activity takes
 the same per-person lock as the `for_me` read, so a tick and a read never build the same list together. Overdue
 pairs, with no list or a list older than `overdue_after_minutes`, go first, so recent activity cannot starve them. It
-compares the input hash first: a match records `checked_at` on the latest row and calls no model. A build that
-calls the model spends the tick's daily limit and then the shared daily limit of the region.
+compares the input hash first: a match records `checked_at` on the latest row and calls no model. With
+`precheck_hours` on, a fingerprint of the inputs (`precheck.py`) can confirm the match without the full gather.
+A build that calls the model spends the tick's daily limit and then the shared daily limit of the region.
 """
 
 import math
@@ -55,6 +56,8 @@ from products.signals.backend.personal_ranking.logic import (
     CHANGED_UNKNOWN,
     INPUT_PARTS,
     PIPELINE_DISTINCT_ID,
+    PRECHECK_OUTCOMES,
+    PrecheckOutcome,
     build_personal_ranking,
     check_inputs,
 )
@@ -108,6 +111,8 @@ _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 # Ticks recorded before this marker ran pairs in waves and replay the wave loop.
 _SLIDING_WINDOW_PATCH = "personal-ranking-tick-sliding-window-2026-11"
 _TIMED_STATUSES: tuple[PairStatus, ...] = ("unchanged", "built")
+# The timing key of an `unchanged` pair that the pre-check confirmed with no gather.
+_PRECHECKED = "prechecked"
 # A pair with one of these results leaves the backlog. Every other result, and a pair that raised or never
 # started, stays in it. A `running` pair counts as remaining because the tick cannot see whether the other
 # build finishes.
@@ -197,6 +202,8 @@ class PersonalRankingPairResult:
     model_called: bool = False
     # The `changed_parts` of the build. Empty when the pair did not build.
     changed_parts: list[str] = dataclasses.field(default_factory=list)
+    # None when the pair ran no input check or the pre-check is off.
+    precheck: PrecheckOutcome | None = None
 
 
 @frozen
@@ -210,6 +217,8 @@ class PersonalRankingTickResult:
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
     # Built pairs by changed input part. A pair with two changed parts counts in both.
     changed_parts: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Pairs by pre-check outcome.
+    prechecks: dict[str, int] = dataclasses.field(default_factory=dict)
     errored: int = 0
     stop_reason: str | None = None
     oldest_due_hours: float | None = None
@@ -222,7 +231,8 @@ class PersonalRankingTickResult:
     enrolled_organizations: int = 0
     enrolled_teams: int = 0
     duration_seconds: float = 0.0
-    # Seconds from the start of a pair to its result, by pair status. Empty for a tick that ran in waves.
+    # Seconds from the start of a pair to its result, by pair status, with the `unchanged` pairs that the pre-check
+    # confirmed under `prechecked`. Empty for a tick that ran in waves.
     pair_seconds_p50: dict[str, float] = dataclasses.field(default_factory=dict)
     pair_seconds_p95: dict[str, float] = dataclasses.field(default_factory=dict)
 
@@ -236,6 +246,7 @@ def _percentile(values: list[float], share: float) -> float:
 class _TickTally:
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
     changed_parts: dict[str, int] = dataclasses.field(default_factory=dict)
+    prechecks: dict[str, int] = dataclasses.field(default_factory=dict)
     pair_seconds: dict[str, list[float]] = dataclasses.field(default_factory=dict)
     # The indexes in `plan.pairs` of the pairs whose result left the backlog.
     done: set[int] = dataclasses.field(default_factory=set)
@@ -257,12 +268,20 @@ class _TickTally:
             self.done.add(index)
         for part in outcome.changed_parts:
             self.changed_parts[part] = self.changed_parts.get(part, 0) + 1
+        if outcome.precheck is not None:
+            self.prechecks[outcome.precheck] = self.prechecks.get(outcome.precheck, 0) + 1
         self.calls += outcome.model_called
         self.failures += outcome.status == "failed"
         return _LIMIT_STOPS.get(outcome.status)
 
     def error_rate_reached(self, max_error_rate: float) -> bool:
         return self.calls >= _MIN_ERROR_RATE_SAMPLE and self.failures >= max_error_rate * self.calls
+
+
+def _timing_key(outcome: PersonalRankingPairResult) -> str | None:
+    if outcome.status not in _TIMED_STATUSES:
+        return None
+    return _PRECHECKED if outcome.precheck == "hit" else outcome.status
 
 
 def _remaining_backlog(plan: PersonalRankingTickPlan, done: set[int], elapsed_hours: float) -> TickBacklog | None:
@@ -486,24 +505,25 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> PersonalRankingTickP
 
 
 def _check_and_build(team: Team, user: User, config: PersonalRankingConfig) -> PersonalRankingPairResult:
-    check = check_inputs(team, user, config, now=timezone.now())
+    check = check_inputs(team, user, config, now=timezone.now(), precheck=True)
     if check.unchanged:
         # The list is still current, so the pair leaves the due set until `target_interval_minutes` passes again.
-        return PersonalRankingPairResult(status="unchanged")
+        return PersonalRankingPairResult(status="unchanged", precheck=check.precheck)
     if check.calls_model:
         if not spend_tick_build(config):
-            return PersonalRankingPairResult(status="tick_limited")
+            return PersonalRankingPairResult(status="tick_limited", precheck=check.precheck)
         if spend_shared_build(config) is not None:
             refund_tick_build(config)
-            return PersonalRankingPairResult(status="shared_limited")
+            return PersonalRankingPairResult(status="shared_limited", precheck=check.precheck)
     build = build_personal_ranking(team, user, config=config, trigger="tick")
     if build.status == "disabled":
-        return PersonalRankingPairResult(status="disabled")
+        return PersonalRankingPairResult(status="disabled", precheck=check.precheck)
     failed = build.model_called and build.status == "fallback"
     return PersonalRankingPairResult(
         status="failed" if failed else "built",
         model_called=build.model_called,
         changed_parts=list(build.input_changes.changed_parts) if build.input_changes is not None else [],
+        precheck=check.precheck,
     )
 
 
@@ -536,6 +556,7 @@ def capture_tick(result: PersonalRankingTickResult) -> None:
             f"changed_{part}": result.changed_parts.get(part, 0)
             for part in (*INPUT_PARTS, CHANGED_NO_PREVIOUS, CHANGED_UNKNOWN)
         },
+        **{f"precheck_{outcome}": result.prechecks.get(outcome, 0) for outcome in PRECHECK_OUTCOMES},
         "errored": result.errored,
         "stop_reason": result.stop_reason,
         "oldest_due_hours": result.oldest_due_hours,
@@ -549,8 +570,8 @@ def capture_tick(result: PersonalRankingTickResult) -> None:
         "enrolled_organizations": result.enrolled_organizations,
         "enrolled_teams": result.enrolled_teams,
         "duration_seconds": result.duration_seconds,
-        **{f"{status}_pair_seconds_p50": result.pair_seconds_p50.get(status) for status in _TIMED_STATUSES},
-        **{f"{status}_pair_seconds_p95": result.pair_seconds_p95.get(status) for status in _TIMED_STATUSES},
+        **{f"{key}_pair_seconds_p50": result.pair_seconds_p50.get(key) for key in (*_TIMED_STATUSES, _PRECHECKED)},
+        **{f"{key}_pair_seconds_p95": result.pair_seconds_p95.get(key) for key in (*_TIMED_STATUSES, _PRECHECKED)},
     }
     logger.info("personal_inbox_ranking_tick_finished", **properties)
     ph_background_capture()(distinct_id=PIPELINE_DISTINCT_ID, event=TICK_EVENT, properties=properties)
@@ -609,6 +630,7 @@ class PersonalRankingTickWorkflow:
             picked=picked,
             statuses=tally.statuses,
             changed_parts=tally.changed_parts,
+            prechecks=tally.prechecks,
             errored=tally.errored,
             stop_reason=stop_reason,
             oldest_due_hours=plan.oldest_due_hours,
@@ -668,10 +690,9 @@ class PersonalRankingTickWorkflow:
             for handle in done:
                 pair_index, started_at = running.pop(handle)
                 outcome = handle.exception() or handle.result()
-                if not isinstance(outcome, BaseException) and outcome.status in _TIMED_STATUSES:
-                    tally.pair_seconds.setdefault(outcome.status, []).append(
-                        (workflow.now() - started_at).total_seconds()
-                    )
+                timing_key = None if isinstance(outcome, BaseException) else _timing_key(outcome)
+                if timing_key is not None:
+                    tally.pair_seconds.setdefault(timing_key, []).append((workflow.now() - started_at).total_seconds())
                 limit_stop = tally.add(pair_index, outcome)
                 stop_reason = stop_reason or limit_stop
         return index, stop_reason or plan.stop_reason

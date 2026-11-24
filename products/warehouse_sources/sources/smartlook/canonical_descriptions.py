@@ -1,6 +1,19 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "event_visitors": {
+        "description": "Visitors who triggered each event definition in the last 30 days.",
+        "docs_url": "https://integrations.smartlook.com/reference/geteventvisitors",
+        "columns": {
+            "id": "The visitor identifier.",
+            "event_id": "The event definition identifier from the parent event list.",
+            "eventMatchedCount": "The number of times the visitor triggered the event in the last 30 days.",
+            "firstSeen": "The time when Smartlook first saw the visitor.",
+            "lastSeen": "The time when Smartlook last saw the visitor.",
+            "numberOfVisits": "The number of visits by the visitor.",
+            "identification": "The user identifier and custom identification properties.",
+        },
+    },
     "events": {
         "description": "Saved event definitions in the Smartlook project.",
         "docs_url": "https://integrations.smartlook.com/reference/geteventslist",
@@ -9,6 +22,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The event definition name.",
             "categoryId": "The event category identifier.",
             "categoryName": "The event category name.",
+        },
+    },
+    "funnel_step_visitors": {
+        "description": "Visitors who reached each step of a funnel in the last 30 days.",
+        "docs_url": "https://integrations.smartlook.com/reference/getfunnelvisitorsdropofflist",
+        "columns": {
+            "funnel_id": "The funnel identifier.",
+            "step": "The funnel step that the visitor reached, where 0 is the first step.",
+            "event_id": "The event definition identifier for the funnel step.",
+            "visitor_id": "The visitor identifier.",
         },
     },
     "funnels": {

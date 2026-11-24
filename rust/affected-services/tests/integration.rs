@@ -323,6 +323,11 @@ fn multi_binary_crate_produces_all_images() {
     false,
     &["common-cohort-team-access", "cohort-core"],
 )]
+#[case::cymbal_fixture_rule_fires_before_catch_all(
+    "products/error_tracking/backend/tests/fixtures/issue_change_data.json",
+    false,
+    &["cymbal"],
+)]
 #[case::catch_all_ignores_unrelated_non_rust_files(
     "frontend/src/foo.tsx",
     false,

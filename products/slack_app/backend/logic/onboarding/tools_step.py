@@ -8,6 +8,7 @@ class ToolsStep(OnboardingStep):
     key = OnboardingStepKey.TOOLS
     title = "Your tools"
     done_text = "Tools connected"
+    completed_by_continue = True
 
     def applies(self, ctx: OnboardingContext) -> bool:
         # MCP servers connect for a PostHog user, so the step needs an account that can link.

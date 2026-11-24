@@ -542,7 +542,7 @@ INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
 )
 
-DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id IN %(person_ids)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
 
 #
 # Copying demo data
@@ -589,11 +589,12 @@ INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, ve
 """
 
 
+# An actor without a person reads as the nil UUID, which matches no person and only inflates the member count.
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
     SELECT DISTINCT actor_id FROM ({query})
 ) AS new_actors
-WHERE actor_id NOT IN (
+WHERE NOT empty(actor_id) AND actor_id NOT IN (
     SELECT person_id FROM {cohort_table}
     WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 )

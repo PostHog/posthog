@@ -108,9 +108,13 @@ ACCESS_RULE_DETAIL = (
 UNKNOWN_DATABASE_DETAIL = (
     "The database does not exist on this server. Check the database name on the destination, then run the sync again."
 )
+CONNECT_TIMEOUT_DETAIL = (
+    "The database did not answer on the host and port given. Check the host and port on the destination, "
+    "and allow PostHog's IP addresses through your firewall."
+)
 PERMISSIONS_DETAIL = (
-    "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and INSERT, "
-    "UPDATE and DELETE on its tables, then run the sync again."
+    "The Postgres user lacks permissions. Grant it USAGE and CREATE on the schema, and SELECT, "
+    "INSERT, UPDATE and DELETE on its tables, then run the sync again."
 )
 
 # Connection failures carry no SQLSTATE: libpq reports them as text only, so these match the
@@ -309,6 +313,10 @@ class PostgresDestinationWriter:
                 # The client's host check refused the address. Its message hides which check failed.
                 if isinstance(err.__cause__, ValueError):
                     raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
+                # Still retried, since a timeout can clear on its own. The client's own message
+                # names the host and port and gives no next step.
+                if isinstance(err.__cause__, psycopg.errors.ConnectionTimeout):
+                    raise PostgreSQLConnectionError(CONNECT_TIMEOUT_DETAIL) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
@@ -377,8 +385,10 @@ class PostgresDestinationWriter:
         with_batch_index: bool,
         primary_keys: list[str] | None = None,
     ) -> None:
-        async with self._write_cursor(client) as cursor:
-            await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
+        # Needs CREATE on the database even when the schema exists, so only a missing one runs it.
+        if not await self._schema_exists(client):
+            async with self._write_cursor(client) as cursor:
+                await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self._schema)))
 
         fields = self._fields_for(schema, with_batch_index=with_batch_index)
         # Declared at creation rather than added later, so the merge target carries its own
@@ -441,14 +451,14 @@ class PostgresDestinationWriter:
             full_refresh = run.is_full_refresh
             target = staging_table_name(run) if full_refresh else run.table_name
 
-            rows_written = 0
+            outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
 
             async with self._client() as client:
                 if full_refresh and await self._already_published(client, run):
                     # This run's staging table is gone and the live table carries this run's
                     # publish stamp, so the run finished. Re-creating a staging table from this
                     # one batch and swapping it in would replace the whole table with it.
-                    return BatchWriteOutcome(rows_written=0)
+                    return outcome
 
                 first = True
                 async for batch in batches:
@@ -473,13 +483,17 @@ class PostgresDestinationWriter:
                                 )
                             )
 
-                        await self._ensure_table(
-                            client,
-                            target,
-                            batch.schema,
-                            with_batch_index=full_refresh,
-                            primary_keys=list(run.primary_keys) if run.is_incremental and not full_refresh else None,
-                        )
+                        # Needs CREATE on the schema even when the table exists, so skip it then.
+                        if not table_existed:
+                            await self._ensure_table(
+                                client,
+                                target,
+                                batch.schema,
+                                with_batch_index=full_refresh,
+                                primary_keys=list(run.primary_keys)
+                                if run.is_incremental and not full_refresh
+                                else None,
+                            )
                         await self._evolve_table(client, target, batch.schema)
                         if full_refresh:
                             # This batch may be a re-apply after a crash, so clear whatever its
@@ -494,11 +508,9 @@ class PostgresDestinationWriter:
                             await self._mark_owned(client, target, run.schema_id)
                         first = False
 
-                    rows_written += await self._write_record_batch(
-                        client, target, batch, ctx, full_refresh=full_refresh
-                    )
+                    outcome += await self._write_record_batch(client, target, batch, ctx, full_refresh=full_refresh)
 
-            return BatchWriteOutcome(rows_written=rows_written)
+            return outcome
 
     async def _delete_batch_rows(self, client: PostgreSQLClient, target: str, batch_index: int) -> None:
         async with self._write_cursor(client) as cursor:
@@ -531,9 +543,15 @@ class PostgresDestinationWriter:
 
     async def _load_batch(
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> None:
-        """Put one record batch into a table, whatever the dialect's bulk load is."""
-        await client.copy_tsv_to_postgres(self._tsv_buffer(batch, column_names), self._schema, table, column_names)
+    ) -> int:
+        """Put one record batch into a table, whatever the dialect's bulk load is.
+
+        Returns the bytes sent to the server for it.
+        """
+        buffer = self._tsv_buffer(batch, column_names)
+        size = buffer.getbuffer().nbytes
+        await client.copy_tsv_to_postgres(buffer, self._schema, table, column_names)
+        return size
 
     async def _write_record_batch(
         self,
@@ -543,37 +561,37 @@ class PostgresDestinationWriter:
         ctx: DestinationBatchContext,
         *,
         full_refresh: bool,
-    ) -> int:
+    ) -> BatchWriteOutcome:
         run = ctx.run
         if batch.num_rows == 0:
-            return 0
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         column_names = list(batch.schema.names)
 
         if full_refresh:
             stamped = stamp_batch_index(batch, ctx.batch_index)
-            await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
-            return batch.num_rows
+            bytes_written = await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
+            return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
         if run.is_incremental and run.primary_keys:
             return await self._merge_batch(client, target, batch, column_names)
 
-        await self._load_batch(client, target, batch, column_names)
-        return batch.num_rows
+        bytes_written = await self._load_batch(client, target, batch, column_names)
+        return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
     async def _merge_batch(
         self, client: PostgreSQLClient, target: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert a batch on the schema's primary keys, through a stage table."""
         run = self._ctx
         stage = merge_stage_name(target, run)
         source = dedupe_merge_source(batch, list(run.primary_keys))
 
         await self._ensure_merge_stage(client, target, stage, batch.schema)
-        await self._load_batch(client, stage, source, column_names)
+        bytes_written = await self._load_batch(client, stage, source, column_names)
         await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
 
-        return source.num_rows
+        return BatchWriteOutcome(rows_written=source.num_rows, bytes_written=bytes_written)
 
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.
@@ -795,6 +813,14 @@ class PostgresDestinationWriter:
                             sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
                         )
                     )
+
+    async def _schema_exists(self, client: PostgreSQLClient) -> bool:
+        async with client.connection.transaction():
+            async with client.connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %(schema)s", {"schema": self._schema}
+                )
+                return await cursor.fetchone() is not None
 
     async def _table_exists(self, client: PostgreSQLClient, table: str) -> bool:
         # The probe batch exports uses. `information_schema.tables` would be the obvious

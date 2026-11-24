@@ -2,8 +2,8 @@ import { useState } from 'react'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { isPlainObject, toDisplayText } from './jsonText'
-import { KeyValueTable } from './KeyValueTable'
+import { isFilledContainer, toDisplayText } from './jsonText'
+import { JsonValue } from './JsonValue'
 import { ShowMore } from './ShowMore'
 
 type IOFormat = 'pretty' | 'json'
@@ -16,17 +16,14 @@ export interface IOSectionProps {
 
 export function IOSection({ title, value, highlightQuery = null }: IOSectionProps): JSX.Element {
     const [format, setFormat] = useState<IOFormat>('pretty')
-    const isEmpty =
-        value === null ||
-        value === undefined ||
-        value === '' ||
-        (isPlainObject(value) && Object.keys(value).length === 0)
+    const isContainer = isFilledContainer(value)
+    const isEmpty = !isContainer && (value === null || value === undefined || value === '' || typeof value === 'object')
 
     return (
         <section className="rounded border border-primary bg-surface-primary">
             <header className="flex items-center justify-between gap-2 border-b border-primary px-3 py-1.5">
                 <h4 className="m-0 text-xs font-semibold">{title}</h4>
-                {isPlainObject(value) ? (
+                {isContainer ? (
                     <LemonSegmentedButton
                         size="xsmall"
                         value={format}
@@ -41,12 +38,10 @@ export function IOSection({ title, value, highlightQuery = null }: IOSectionProp
             <ShowMore highlightQuery={highlightQuery} className="px-3 py-2">
                 {isEmpty ? (
                     <span className="text-secondary text-sm">Nothing captured.</span>
-                ) : isPlainObject(value) && format === 'pretty' ? (
-                    <KeyValueTable entries={Object.entries(value)} />
-                ) : typeof value === 'string' ? (
-                    <p className="m-0 whitespace-pre-wrap break-words text-sm">{value}</p>
-                ) : (
+                ) : isContainer && format === 'json' ? (
                     <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
+                ) : (
+                    <JsonValue value={value} highlightQuery={highlightQuery} />
                 )}
             </ShowMore>
         </section>

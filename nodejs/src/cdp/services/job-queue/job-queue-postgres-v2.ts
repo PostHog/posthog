@@ -104,11 +104,12 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
             | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
+            | 'CDP_SEALED_STATE_KEYS'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
-        this.stateOpener = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
     }
 
     public async startAsProducer(): Promise<void> {
@@ -333,6 +334,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             throw new Error('CyclotronV2Manager not initialized')
         }
         return await this.manager.findIdempotencyKey(id)
+    }
+
+    public async findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]> {
+        if (!this.manager) {
+            throw new Error('CyclotronV2Manager not initialized')
+        }
+        return await this.manager.findIdempotencyKeys(ids)
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {

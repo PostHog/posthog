@@ -2,7 +2,6 @@ import { createInMemoryJobQueue, createMockJobQueue } from '~/tests/helpers/mock
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { createHash } from 'crypto'
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
 import { Pool } from 'pg'
@@ -16,7 +15,6 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
-import { defaultConfig } from '~/common/config/config'
 import { KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -36,7 +34,6 @@ import {
     getCustomHttpResponse,
     isUnexpectedWebhookError,
 } from '../consumers/cdp-source-webhooks.consumer'
-import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
@@ -117,8 +114,6 @@ describe('isUnexpectedWebhookError', () => {
 })
 
 describe('SourceWebhooksConsumer', () => {
-    // One pool for the file, because a pool for each test leaves open connections behind.
-    const idempotencyValkey = createIdempotencyValkeyPool(defaultConfig)
     let hub: Hub
     let team: Team
 
@@ -150,14 +145,10 @@ describe('SourceWebhooksConsumer', () => {
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
             hogflowQueue = createInMemoryJobQueue()
-            api = new CdpApi(
-                hub,
-                { ...createCdpConsumerDeps(hub), idempotencyValkey },
-                {
-                    hogQueue: createMockJobQueue(),
-                    hogflowQueue,
-                }
-            )
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue,
+            })
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
             mockQueueHogflowInvocationsSpy = jest.spyOn(
@@ -577,30 +568,6 @@ describe('SourceWebhooksConsumer', () => {
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
 
-            it('produces the run to the intake topic when its team is in intake shadow mode', async () => {
-                hub.CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-
-                const res = await doPostRequest({
-                    webhookId: hogFlow.id,
-                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
-                })
-
-                expect(res.status).toEqual(201)
-                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
-                const runId = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
-                ).toEqual([
-                    expect.objectContaining({
-                        key: runId,
-                        value: expect.objectContaining({
-                            kind: 'workflow-webhook',
-                            job: expect.objectContaining({ id: runId }),
-                        }),
-                    }),
-                ])
-            })
-
             it('answers from the produce alone when its team is in intake async mode', async () => {
                 hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
 
@@ -861,7 +828,7 @@ describe('SourceWebhooksConsumer', () => {
                                 .spyOn(hub.quotaLimiting, 'isTeamQuotaLimited')
                                 .mockRejectedValueOnce(new Error('team cache unavailable')),
                     ],
-                ])('releases the key when %s so a retry queues the run', async (_name, failOnce) => {
+                ])('queues the run on a retry after %s', async (_name, failOnce) => {
                     const billableHogFlow = await insertHogFlow(hub.postgres, {
                         ...hogFlow,
                         id: new UUIDT().toString(),
@@ -878,7 +845,7 @@ describe('SourceWebhooksConsumer', () => {
                     expect(getQueuedHogFlowIds()).toEqual([billableHogFlow.id])
                 })
 
-                it('tells a retry to wait while the first request is still queueing', async () => {
+                it('answers duplicate to a retry that arrives while the first request is still queueing', async () => {
                     let finishQueueing: () => void = () => {}
                     mockQueueHogflowInvocationsSpy.mockImplementationOnce(
                         () => new Promise<void>((resolve) => (finishQueueing = resolve))
@@ -886,35 +853,13 @@ describe('SourceWebhooksConsumer', () => {
                     const first = postWithKey(hogFlow.id, 'escalation-5').then((res) => res)
                     await waitForExpect(() => expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1))
 
-                    const retry = await postWithKey(hogFlow.id, 'escalation-5')
+                    const retry = postWithKey(hogFlow.id, 'escalation-5').then((res) => res)
                     finishQueueing()
 
-                    expect(retry.status).toEqual(409)
-                    expect(retry.body.status).toEqual('in_flight')
+                    expect((await retry).status).toEqual(200)
+                    expect((await retry).body.status).toEqual('duplicate')
                     expect((await first).status).toEqual(201)
                     expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
-                })
-
-                it('queues the run when the idempotency store never answers, and releases it if queueing fails', async () => {
-                    const valkey = api['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
-                    const useClient = valkey.useClient
-                    let reservations = 0
-                    jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) => {
-                        if (options.name === 'idempotency-reserve' && reservations++ === 0) {
-                            void useClient(options, callback)
-                            return new Promise(() => {})
-                        }
-                        return useClient(options, callback)
-                    })
-                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
-
-                    const failed = await postWithKey(hogFlow.id, 'escalation-4')
-                    const retried = await postWithKey(hogFlow.id, 'escalation-4')
-
-                    expect(failed.status).toEqual(500)
-                    expect(retried.status).toEqual(201)
-                    expect(retried.body.status).toEqual('queued')
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
                 it('rejects a key longer than 255 characters without queueing', async () => {
@@ -935,20 +880,15 @@ describe('SourceWebhooksConsumer', () => {
                         (
                             await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
                         ).rows.map((row) => row.id)
-                    const valkeyKey = (key: string) =>
-                        `@posthog/idempotency/workflow-webhook/${team.id}/${createHash('sha256')
-                            .update(`${hogFlow.id}/${key}`)
-                            .digest('hex')}`
 
                     beforeEach(async () => {
                         queue = new CyclotronJobQueuePostgresV2(1, hub)
                         await queue.startAsProducer()
                         cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
-                        claimingApi = new CdpApi(
-                            hub,
-                            { ...createCdpConsumerDeps(hub), idempotencyValkey },
-                            { hogQueue: createMockJobQueue(), hogflowQueue: queue }
-                        )
+                        claimingApi = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                            hogQueue: createMockJobQueue(),
+                            hogflowQueue: queue,
+                        })
                         await claimingApi.start()
                         app = setupExpressApp()
                         app.use('/', claimingApi.router())
@@ -963,23 +903,14 @@ describe('SourceWebhooksConsumer', () => {
                         await cyclotron.end()
                     })
 
-                    it('answers duplicate from the cyclotron database once Valkey has lost the run', async () => {
+                    it('answers duplicate from the cyclotron database', async () => {
                         const first = await postWithKey(hogFlow.id, 'escalation-6')
-                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
-                            client.del(valkeyKey('escalation-6'))
-                        )
-
                         const second = await postWithKey(hogFlow.id, 'escalation-6')
 
                         expect(first.status).toEqual(201)
                         expect(second.status).toEqual(200)
                         expect(second.body.status).toEqual('duplicate')
-                        const jobs = await jobsOfFlow()
-                        expect(jobs).toHaveLength(1)
-                        const restored = await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
-                            client.get(valkeyKey('escalation-6'))
-                        )
-                        expect(parseJSON(restored!)).toMatchObject({ queued: true, invocationId: jobs[0] })
+                        expect(await jobsOfFlow()).toHaveLength(1)
                     })
 
                     it('queues the run when the claim lookup fails, and the claim still dedupes its retry', async () => {
@@ -988,9 +919,6 @@ describe('SourceWebhooksConsumer', () => {
                         )
 
                         const first = await postWithKey(hogFlow.id, 'escalation-7')
-                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
-                            client.del(valkeyKey('escalation-7'))
-                        )
                         const second = await postWithKey(hogFlow.id, 'escalation-7')
 
                         expect(first.status).toEqual(201)
@@ -998,15 +926,8 @@ describe('SourceWebhooksConsumer', () => {
                         expect(await jobsOfFlow()).toHaveLength(1)
                     })
 
-                    it('starts one run for two requests with the same key while the idempotency store never answers', async () => {
+                    it('starts one run for two requests with the same key at once', async () => {
                         hub.HOG_INVOCATION_RESULTS_ENABLED = true
-                        const valkey = claimingApi['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
-                        const useClient = valkey.useClient
-                        jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) =>
-                            options.name === 'idempotency-reserve'
-                                ? new Promise(() => {})
-                                : useClient(options, callback)
-                        )
 
                         const responses = await Promise.all([
                             postWithKey(hogFlow.id, 'escalation-7'),

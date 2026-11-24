@@ -7,7 +7,7 @@ import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invoc
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
-import { IntakeMode, IntakeProducer } from './intake-producer'
+import { IntakeMode, IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
 import { RunKind, claimFingerprint } from './message'
 
 export type Run = {
@@ -36,6 +36,16 @@ export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolea
 
 export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
 
+const producedOf = (outcome: IntakeProduceOutcome): Produced =>
+    outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
+
+const intakeRunOf = (run: Run): IntakeRun => ({
+    kind: run.kind,
+    invocation: run.invocation,
+    fingerprint: run.claim?.fingerprint,
+    reply: run.claim?.reply,
+})
+
 // In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
 export const ASYNC_RECALL_BUDGET_MS = 250
 
@@ -46,7 +56,10 @@ const recallFailSoftCounter = new Counter({
 })
 
 export type RunIntakeDeps = {
-    hogflowQueue: Pick<IdempotentJobQueue, 'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey'>
+    hogflowQueue: Pick<
+        IdempotentJobQueue,
+        'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey' | 'findIdempotencyKeys'
+    >
     invocationResultsRowsService: HogInvocationResultsService
     // Absent, or `off` for a team, means the run never touches the intake topics.
     // `sealsSecrets` means the producer encrypts transactional sends, so a sensitive one may use the intake topics too.
@@ -60,20 +73,24 @@ const KEYED_RUN_ID_NAMESPACE = 'c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90'
 export const keyedRunId = (teamId: number, scope: string, key: string): string =>
     uuidv5(JSON.stringify([teamId, scope, key]), KEYED_RUN_ID_NAMESPACE)
 
+const recalledOf = (
+    { runId, fingerprint }: Claim,
+    claimed: { fingerprint: string; reply: Record<string, unknown> | null } | null
+): Recalled =>
+    claimed === null
+        ? { status: 'absent' }
+        : {
+              status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
+              runId,
+              claimedFingerprint: claimed.fingerprint,
+              reply: claimed.reply,
+          }
+
 export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
-    async recall({ runId, fingerprint }: Claim): Promise<Recalled> {
-        const claimed = await this.deps.hogflowQueue.findIdempotencyKey(runId)
-        if (claimed === null) {
-            return { status: 'absent' }
-        }
-        return {
-            status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
-            runId,
-            claimedFingerprint: claimed.fingerprint,
-            reply: claimed.reply,
-        }
+    async recall(claim: Claim): Promise<Recalled> {
+        return recalledOf(claim, await this.deps.hogflowQueue.findIdempotencyKey(claim.runId))
     }
 
     modeOf(teamId: number): IntakeMode {
@@ -82,40 +99,59 @@ export class RunIntake {
 
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
     async recallWithin(claim: Claim, kind: RunKind, budgetMs: number = ASYNC_RECALL_BUDGET_MS): Promise<Recalled> {
+        return (await this.recallAllWithin([claim], kind, budgetMs))[0]
+    }
+
+    async recallAllWithin(
+        claims: Claim[],
+        kind: RunKind,
+        budgetMs: number = ASYNC_RECALL_BUDGET_MS
+    ): Promise<Recalled[]> {
+        if (claims.length === 0) {
+            return []
+        }
         let timer: NodeJS.Timeout | undefined
         const late = new Promise<'late'>((resolve) => (timer = setTimeout(() => resolve('late'), budgetMs)))
         try {
-            const recalled = await Promise.race([this.recall(claim), late])
-            if (recalled !== 'late') {
-                return recalled
+            const found = await Promise.race([
+                this.deps.hogflowQueue.findIdempotencyKeys(claims.map((claim) => claim.runId)),
+                late,
+            ])
+            if (found !== 'late') {
+                return claims.map((claim, i) => recalledOf(claim, found[i]))
             }
         } catch (error) {
-            logger.warn('[CdpIntake] Claim lookup failed, producing the run without it', {
-                kind,
-                run_id: claim.runId,
-                error: error instanceof Error ? error.message : String(error),
-            })
+            for (const claim of claims) {
+                logger.warn('[CdpIntake] Claim lookup failed, producing the run without it', {
+                    kind,
+                    run_id: claim.runId,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
         } finally {
             clearTimeout(timer)
         }
-        recallFailSoftCounter.labels({ kind }).inc()
-        return { status: 'absent' }
+        recallFailSoftCounter.labels({ kind }).inc(claims.length)
+        return claims.map(() => ({ status: 'absent' }))
     }
 
-    async produce(run: Run): Promise<Produced> {
-        const outcome = await this.deps.intake!.producer.produce(
-            {
-                kind: run.kind,
-                invocation: run.invocation,
-                fingerprint: run.claim?.fingerprint,
-                reply: run.claim?.reply,
-            },
-            'async'
+    async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {
+        return producedOf(await this.deps.intake!.producer.produce(intakeRunOf(run), 'async', settlement))
+    }
+
+    // Publishes none of the runs when encoding them all ends past `publishBy`, a `performance.now()` time.
+    async produceAllBy(runs: Run[], publishBy: number): Promise<Produced[] | 'deadline_exceeded'> {
+        const producer = this.deps.intake!.producer
+        const encoded = runs.map((run) => producer.encode(intakeRunOf(run), 'async'))
+        if (performance.now() > publishBy) {
+            return 'deadline_exceeded'
+        }
+        return Promise.all(
+            encoded.map(async (run) => producedOf(typeof run === 'string' ? run : await producer.publish(run)))
         )
-        return outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
     }
 
-    async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
+    async launch(runs: Run[]): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
         // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
@@ -128,26 +164,11 @@ export class RunIntake {
                 rows.queuePreparedRow(row)
             }
         })
-        await this.produceShadowCopies(runs.filter((_, i) => claims[i].outcome === 'created'))
         return invocations.map((invocation, i) => ({
             runId: invocation.id,
             outcome: claims[i].outcome,
             claimedFingerprint: claims[i].storedFingerprint,
         }))
-    }
-
-    // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
-    private async produceShadowCopies(created: Run[]): Promise<void> {
-        const intake = this.deps.intake
-        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
-        await Promise.all(
-            shadow.map((run) =>
-                intake!.producer.produce(
-                    { kind: run.kind, invocation: run.invocation, fingerprint: run.claim?.fingerprint },
-                    'shadow'
-                )
-            )
-        )
     }
 
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {

@@ -296,8 +296,8 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(ctx.exception.error_code, "unknown_type")
         self.assertEqual(
             str(ctx.exception),
-            "This query returns a column of type `AggregateFunction(argMin, String, DateTime64(6, 'UTC'))`, which "
-            "PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
+            "The `argMinState(event, timestamp)` column has type `AggregateFunction`, "
+            "which PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
             "-Merge function, for example `argMinMerge(column)`, to get the final value.",
         )
 

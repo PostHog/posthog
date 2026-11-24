@@ -221,6 +221,57 @@ describe('hogFunctionConfigurationLogic', () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
         })
+
+        it.each([
+            ['accepted', { event: '{event.event}' }],
+            ['rejected', { event: '{event}', person: '{person}' }],
+        ])('saves a value PostHog AI suggests only when it is %s', async (outcome, expectedBody) => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            const suggestedBody = { value: { event: '{event.event}' } }
+
+            logic.actions.setOldInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputValues({ body: suggestedBody })
+            // The JSON editor reports the previewed value back as a change when it renders it.
+            logic.actions.changeInput('body', suggestedBody)
+            if (outcome === 'accepted') {
+                logic.actions.acceptInputsDiff()
+            } else {
+                logic.actions.clearInputsDiff()
+            }
+
+            expect(logic.values.configuration.inputs?.body).toEqual({ value: expectedBody })
+            expect(logic.values.newInputValues).toBeNull()
+        })
+
+        it('does not save while a PostHog AI suggestion is pending', async () => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            logic.actions.setConfigurationValue('inputs.url', { value: 'https://posthog.com' })
+            logic.actions.setOldInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputs(HOG_TEMPLATE.inputs_schema ?? [])
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            expect(mockApi.create).not.toHaveBeenCalled()
+        })
+
+        it('keeps a pending suggested value when the schema is edited during the suggestion', async () => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            const suggestedBody = { value: { event: '{event.event}' } }
+
+            logic.actions.setOldInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputValues({ body: suggestedBody })
+            logic.actions.changeInputsSchema(HOG_TEMPLATE.inputs_schema ?? [])
+
+            expect(logic.values.configuration.inputs?.body).toEqual(suggestedBody)
+            expect(logic.values.newInputValues).toBeNull()
+        })
     })
 
     describe('sanitizeInputs', () => {
@@ -760,7 +811,11 @@ describe('hogFunctionConfigurationLogic', () => {
             events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
         ): void {
             mockGetTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
         }

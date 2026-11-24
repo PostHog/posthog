@@ -250,10 +250,13 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert any(name == "table_name" for name, _ in registered[0]["structure"])
         assert any(row["table_name"] == "events" for row in registered[0]["data"])
 
-    def test_tables_lists_builtin_and_system_tables(self):
-        response = execute_hogql_query(
-            "SELECT table_name, table_type FROM system.information_schema.tables", team=self.team
-        )
+    @parameterized.expand([("native", False), ("http", True)])
+    def test_tables_lists_builtin_and_system_tables(self, _name: str, use_http: bool):
+        # The rows travel as an external table, which each ClickHouse transport must send.
+        with override_settings(CLICKHOUSE_USE_HTTP=use_http):
+            response = execute_hogql_query(
+                "SELECT table_name, table_type FROM system.information_schema.tables", team=self.team
+            )
         rows = {row[0]: row[1] for row in response.results or []}
         assert rows.get("events") == "posthog"
         assert rows.get("persons") == "posthog"
@@ -279,7 +282,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
         assert "events" in names
         assert "posthog.events" not in names
-        assert not {"cohort_membership", "posthog.cohort_membership"} & names
+        assert "posthog.error_tracking_recent_issue_state" not in names
 
     def test_posthog_namespaced_table_columns_resolve(self):
         # Being listed isn't enough — an agent that discovers `posthog.trace_spans` must then be able to

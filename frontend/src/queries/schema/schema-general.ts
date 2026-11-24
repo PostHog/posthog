@@ -584,6 +584,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean
     /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
     materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
@@ -1642,6 +1644,10 @@ export interface ChartSettings {
     rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+    /** Color each X-axis category in single-series bar charts. */
+    colorBarsByCategory?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
@@ -1655,6 +1661,8 @@ export interface ChartSettings {
     showValuesOnSeries?: boolean
     valueLabelPosition?: 'end' | 'center'
     valueLabelBackground?: boolean
+    valueLabelColor?: string
+    valueLabelBackgroundColor?: string
     valueLabelFontSize?: number
     valueLabelRotation?: number
     barGap?: number
@@ -2087,6 +2095,7 @@ export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 export type ResultCustomizationBase = {
     color?: DataColorToken
     hidden?: boolean
+    yAxisPosition?: 'auto' | 'left' | 'right'
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2214,6 +2223,8 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default false */
+    showSummaryOnDashboards?: boolean
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
@@ -3622,7 +3633,12 @@ export interface BookActivityMatrixCell {
     row: string
     column: string
     series: string
+    /** People active in this product through any channel. Each person counts once. */
     users: integer
+    /** People active in this product in the app. */
+    uiUsers?: integer
+    /** People active in this product through AI agents, such as MCP tool calls. */
+    agentUsers?: integer
 }
 
 export interface BookActivityMatrixCombination {
@@ -3692,6 +3708,8 @@ export interface BookActivityPerson {
     rank: integer
     engagedSeconds: integer
     actionCount: integer
+    /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+    agentCalls?: integer
     /** Every action event that qualified this person, most frequent first. */
     actions: BookActivityPersonAction[]
     /** The top 5 pages by engaged time. */
@@ -4752,7 +4770,7 @@ export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
 }
 
 export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
-    serverLogs: integer
+    serverLogs?: integer
 }
 
 export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
@@ -4761,6 +4779,8 @@ export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBas
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    preComputeStale?: boolean
+    preComputedAt?: string
 }
 export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 
@@ -4906,11 +4926,19 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+/** @deprecated Use `ErrorTrackingIssueTagsFilter`. */
 export interface ErrorTrackingIssueTagFilter {
     /** Key of the tag definition. */
     key: string
     /** True matches the issues the tag is applied to. False matches every other issue. */
     applied: boolean
+}
+
+export interface ErrorTrackingIssueTagsFilter {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[]
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[]
 }
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
@@ -4927,8 +4955,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    /** @deprecated Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`. */
     issueTag?: ErrorTrackingIssueTagFilter | null
+    /**
+     * Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for
+     * the project.
+     */
+    issueTags?: ErrorTrackingIssueTagsFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5472,6 +5505,10 @@ export type MetricsAggregation =
     | 'rate'
     | 'increase'
     | 'histogram_quantile'
+    /** Rate of a histogram's or summary's observation count, not its running sum: requests per second from a latency histogram */
+    | 'count_rate'
+    /** Increase of a histogram's or summary's observation count per bucket */
+    | 'count_increase'
 
 /** Counter-aware transform applied to each series before any aggregation */
 export type MetricsRangeFunction = 'rate' | 'increase'
@@ -5545,6 +5582,8 @@ export interface MetricsQueryClause {
     groupBy?: MetricsQueryGroupBy[]
     /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
     quantile?: number
+    /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+    apdexThresholdMs?: number
 }
 
 export interface MetricsQueryPoint {
@@ -5567,8 +5606,21 @@ export interface MetricsQuerySeries {
     histogramBounds?: number[]
 }
 
+/** `precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples. */
+export type MetricsQueryProvenanceMode = 'precomputed' | 'mixed' | 'raw'
+
+/** Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles. */
+export interface MetricsQueryProvenance {
+    mode: MetricsQueryProvenanceMode
+    /** Buckets before this time came from precomputed metrics. Absent when no clause read them. */
+    precomputedUntil?: string
+    /** Why clauses ran raw, one per clause. */
+    reasons?: string[]
+}
+
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
+    provenance?: MetricsQueryProvenance
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
@@ -5774,6 +5826,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     prefetchSpans?: integer
     /** Omit the per-span `attributes` map from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+    includeEvents?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -5801,6 +5855,8 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+    entry_span_count?: integer
     /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer
@@ -9164,8 +9220,10 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
-    /** Google Ads ad table, used to read the ad copy of each ad group. */
+    /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
+    /** Google Ads keyword table, used to tell which searches are already keywords. */
+    keywordTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
@@ -9246,6 +9304,13 @@ export interface MarketingAnalyticsRecommendationIdentity {
 
 export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
+/**
+ * `negative_keyword`: the search is now excluded by a negative keyword.
+ * `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords.
+ * `keyword_added`: the search is now a keyword in an active Search campaign.
+ */
+export type MarketingAnalyticsRecommendationDetectedChange = 'negative_keyword' | 'brand_negative' | 'keyword_added'
+
 export interface MarketingAnalyticsRecommendationResolution {
     /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
     id: string
@@ -9305,12 +9370,16 @@ export interface MarketingAnalyticsRecommendation {
     key: string
     /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
     resolution?: MarketingAnalyticsRecommendationResolution | null
+    /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+    detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */
     impact?: number | null
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+    minor?: boolean
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]
@@ -10441,6 +10510,9 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+    WORKFLOW_EMAIL_IMPACT_TURN_ON_REPLAY = 'workflow_email_impact_turn_on_replay',
+    WORKFLOW_SURVEY_TRIGGER_CREATE_SURVEY = 'workflow_survey_trigger_create_survey',
+    WORKFLOW_WAREHOUSE_TABLE_TRIGGER_SET_UP_SOURCE = 'workflow_warehouse_table_trigger_set_up_source',
 
     // Data Pipelines
     DATA_PIPELINE_CREATED = 'data_pipeline_created',

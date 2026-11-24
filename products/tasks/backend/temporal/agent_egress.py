@@ -5,7 +5,7 @@ from typing import Literal
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, is_cancelled_exception
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,6 +24,9 @@ from products.tasks.backend.temporal.process_task.activities.agent_egress import
 class AgentEgressProbeWorkflow(PostHogWorkflow):
     inputs_cls = AgentEgressProbeInput
 
+    def __init__(self) -> None:
+        self._counts: Counter[int] = Counter()
+
     async def _renew(self, input: AgentEgressExecutionInput) -> None:
         while True:
             await workflow.sleep(10)
@@ -37,9 +40,8 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
 
     async def _probe(self, input: AgentEgressExecutionInput, duration_seconds: int) -> dict[int, int]:
         deadline = workflow.now() + timedelta(seconds=duration_seconds)
-        counts: Counter[int] = Counter()
         while workflow.now() < deadline:
-            counts.update(
+            self._counts.update(
                 await workflow.execute_activity(
                     probe_agent_egress,
                     input,
@@ -49,11 +51,16 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 )
             )
             await workflow.sleep(max(0, min(10, (deadline - workflow.now()).total_seconds())))
-        return dict(counts)
+        return dict(self._counts)
 
     @workflow.run
     async def run(self, input: AgentEgressProbeInput) -> dict[int, int]:
-        execution = AgentEgressExecutionInput(probe=input, execution_id=str(workflow.uuid4()))
+        recoverable = workflow.patched("agent-egress-recoverable-provisioning")
+        execution = AgentEgressExecutionInput(
+            probe=input,
+            execution_id=str(workflow.uuid4()),
+            provisioning_deadline=(workflow.now() + timedelta(minutes=3)).timestamp() if recoverable else None,
+        )
         sandbox_id: str | None = None
         reason: Literal["completed", "cancelled", "failed"] = "failed"
         tasks: list[asyncio.Task[None] | asyncio.Task[dict[int, int]]] = []
@@ -62,7 +69,11 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 prepare_agent_egress,
                 execution,
                 schedule_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                start_to_close_timeout=timedelta(seconds=60) if recoverable else None,
+                heartbeat_timeout=timedelta(seconds=10) if recoverable else None,
+                retry_policy=RetryPolicy(maximum_attempts=3, non_retryable_error_types=["ValueError"])
+                if recoverable
+                else RetryPolicy(maximum_attempts=1),
             )
             sandbox_id = prepared.sandbox_id
             renewal = asyncio.create_task(self._renew(execution))
@@ -75,6 +86,17 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
             reason = "completed"
             return result
         except BaseException as error:
+            if (
+                isinstance(error, ActivityError)
+                and isinstance(error.cause, ApplicationError)
+                and error.cause.type == "AgentEgressRunEnded"
+                and len(error.cause.details) == 1
+                and error.cause.details[0] in ("completed", "cancelled", "failed")
+            ):
+                reason = error.cause.details[0]
+                if reason == "cancelled":
+                    raise asyncio.CancelledError from error
+                return dict(self._counts)
             if is_cancelled_exception(error):
                 reason = "cancelled"
             raise
@@ -82,13 +104,17 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            bounded_cleanup = (
+                workflow.patched("agent-egress-bounded-observation-cleanup") and input.sandbox_id is not None
+            )
             try:
                 await asyncio.shield(
                     workflow.execute_activity(
                         cleanup_agent_egress,
                         AgentEgressCleanupInput(execution=execution, sandbox_id=sandbox_id, reason=reason),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        schedule_to_close_timeout=timedelta(seconds=10) if bounded_cleanup else None,
+                        start_to_close_timeout=timedelta(seconds=10 if bounded_cleanup else 30),
+                        retry_policy=RetryPolicy(maximum_attempts=1 if bounded_cleanup else 3),
                     )
                 )
             except Exception:

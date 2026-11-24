@@ -38,10 +38,10 @@ jobs:
             checks: read
             deployments: read
         runs-on: ubuntu-24.04
-        # Sized for the Desktop Tests dispatch and its 25-minute wait, plus the 60-minute backend
+        # Sized for the Desktop Tests dispatch and its 25-minute wait, plus the 120-minute backend
         # deploy wait, plus a margin for the checkout. A quiet-period sleep holds the tag and ends
         # the run, so it never adds to the two waits.
-        timeout-minutes: 95
+        timeout-minutes: 155
         steps:
             - name: Get app token
               id: app-token
@@ -89,7 +89,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
                   sparse-checkout: |
                       .github/actions/wait-for-check
-                      .github/scripts/desktop/wait-for-backend-deploy.sh
+                      .github/scripts/deploy/wait-for-backend-deploy.sh
                   sparse-checkout-cone-mode: false
 
             - name: Check quiet period
@@ -200,9 +200,9 @@ jobs:
             # Desktop releases auto-update users, so a release must not reach them before the
             # Django backend it calls runs in production. The charts deploy records each Django
             # deploy as a GitHub Deployment, and the script reads which build is live. It does
-            # not cover Rust services. The 60-minute wait is a policy: it allows for a prod deploy
-            # of the tested commit plus one more deploy cycle. A release that still waits after
-            # that goes to the next scheduled run.
+            # not cover Rust services. The 120-minute wait is a policy: it allows for a full prod
+            # deploy of the tested commit plus one more slow deploy cycle, in case the commit misses
+            # the first one. A release that still waits after that goes to the next scheduled run.
             - name: Wait for the backend to run the tested commit
               id: backend-deploy
               if: >-
@@ -214,7 +214,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
                   TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
-                  TIMEOUT_SECONDS: '3600'
+                  TIMEOUT_SECONDS: '7200'
                   # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
                   INTERVAL_SECONDS: '120'
               run: |
@@ -232,7 +232,7 @@ jobs:
                     exit 0
                   fi
                   STATUS=0
-                  .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
+                  .github/scripts/deploy/wait-for-backend-deploy.sh || STATUS=$?
                   case "$STATUS" in
                     0)
                       echo "proceed=true" >> "$GITHUB_OUTPUT"

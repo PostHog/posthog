@@ -9,23 +9,20 @@ from __future__ import annotations
 import re
 import json
 import hashlib
-import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.utils import timezone
 
 import tldextract
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import brand_names, brand_regex
+from products.aeo.backend.brand import brand_names
 from products.aeo.backend.facade.contracts import (
     KEYWORD_MAX_LENGTH,
     MAX_KEYWORD_MODIFIERS,
@@ -45,6 +42,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword
 from products.aeo.backend.scope import NAMED_SCOPE_SQL, CheckScope, named_scope_sql_params, scope_filter
+from products.aeo.backend.window import CheckWindow
 
 
 def normalize_keyword(text: str) -> str:
@@ -101,35 +99,24 @@ def _to_keyword(row: AEOKeyword) -> Keyword:
     return Keyword(id=str(row.id), keyword=row.keyword, created_at=row.created_at)
 
 
-@frozen
-class _Window:
-    window_from: dt.date
-    window_to: dt.date
-    start: dt.datetime
-    until: dt.datetime
-
-
-def _window(timezone_name: str, days: int) -> _Window:
-    tz = ZoneInfo(timezone_name)
-    until = timezone.now()
-    window_to = until.astimezone(tz).date()
-    window_from = window_to - dt.timedelta(days=days - 1)
-    return _Window(
-        window_from=window_from,
-        window_to=window_to,
-        start=dt.datetime.combine(window_from, dt.time.min, tzinfo=tz),
-        until=until,
-    )
-
-
 # `answered` lowercases each answered check once, so the keyword cross join only runs strpos. A check's
-# searches are joined with newlines, which a keyword can't contain, so no match spans two searches. A null
-# brand pattern (no target domain) leaves `mentioned` to the citation alone and `mention_depth` null.
-# `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on a match.
-# It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once for each
-# aggregate that reads it.
+# searches are joined with newlines, which a keyword can't contain, so no match spans two searches. Whether
+# an answer names an own brand, and where it first does, comes from the stored brand rows, so no brand
+# pattern runs against the text. Without an own brand, `mentioned` is the citation alone and `mention_depth`
+# is null. `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on
+# a match. It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once
+# for each aggregate that reads it.
 _KEYWORD_REPORT_SQL = f"""
-    WITH answered AS MATERIALIZED (
+    WITH own_named AS MATERIALIZED (
+        SELECT check_brand.citation_check_id,
+            min(check_brand.first_position)::float / nullif(max(check_brand.answer_length), 0) AS mention_depth
+        FROM posthog_aeo_check_brand AS check_brand
+        WHERE check_brand.team_id = %(team_id)s AND check_brand.created_at >= %(since)s
+            AND check_brand.created_at < %(until)s AND check_brand.mentioned
+            AND check_brand.brand_id = ANY(%(own_brand_ids)s::uuid[])
+        GROUP BY check_brand.citation_check_id
+    ),
+    answered AS MATERIALIZED (
         SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
             lower(check_row.prompt_text) AS prompt_text,
             lower(coalesce(check_row.answer_text, '')) AS answer_text,
@@ -138,11 +125,10 @@ _KEYWORD_REPORT_SQL = f"""
                     CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
                 )
             ), E'\\n')) AS searches,
-            check_row.cited OR coalesce(check_row.answer_text ~* %(brand)s::text, false) AS mentioned,
-            CASE WHEN length(check_row.answer_text) > 0
-                THEN (regexp_instr(check_row.answer_text, %(brand)s::text, 1, 1, 0, 'i') - 1)::float / length(check_row.answer_text)
-            END AS mention_depth
+            check_row.cited OR own_named.citation_check_id IS NOT NULL AS mentioned,
+            own_named.mention_depth
         FROM posthog_aeo_citation_check AS check_row
+        LEFT JOIN own_named ON own_named.citation_check_id = check_row.id
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
             AND {NAMED_SCOPE_SQL}
@@ -183,32 +169,32 @@ KEYWORD_REPORT_CACHE_SECONDS = 10 * 60
 
 
 def get_keyword_report(
-    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, scope: CheckScope
+    team_id: int, *, target_domains: list[str], timezone_name: str, window: CheckWindow, scope: CheckScope
 ) -> KeywordReport:
-    window = _window(timezone_name, days)
     keywords = list(AEOKeyword.objects.for_team(team_id).order_by("keyword").values_list("keyword", flat=True))
-    # The key carries the keyword list and the window's last day, so adding or removing a keyword, or a new day,
+    # The key carries the keyword list and the window's days, so adding or removing a keyword, or a new day,
     # misses the cache instead of serving a stale report.
     fingerprint = hashlib.sha256(json.dumps([sorted(target_domains), keywords]).encode()).hexdigest()
     scope_key = f"{scope.segment.value}:{json.dumps([scope.engine, scope.topic])}"
     cache_key = (
-        f"aeo_keyword_report:{team_id}:{days}:{timezone_name}:{window.window_to.isoformat()}:{scope_key}:{fingerprint}"
+        f"aeo_keyword_report:{team_id}:{timezone_name}:{window.window_from.isoformat()}:{window.window_to.isoformat()}"
+        f":{scope_key}:{fingerprint}"
     )
     cached = cache.get(cache_key)
     if isinstance(cached, KeywordReport):
         return cached
-    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, days=days, scope=scope)
+    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, scope=scope)
     cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
     return report
 
 
 def _build_keyword_report(
-    team_id: int, window: _Window, keywords: list[str], *, target_domains: list[str], days: int, scope: CheckScope
+    team_id: int, window: CheckWindow, keywords: list[str], *, target_domains: list[str], scope: CheckScope
 ) -> KeywordReport:
     answers = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(
-            scope_filter(scope, target_domains),
+            scope_filter(scope),
             created_at__gte=window.start,
             created_at__lt=window.until,
             check_failed=False,
@@ -225,20 +211,25 @@ def _build_keyword_report(
                     "team_id": resolve_effective_team_id(team_id),
                     "since": window.start,
                     "until": window.until,
-                    "brand": brand_regex(target_domains),
+                    "own_brand_ids": _own_brand_ids(team_id, target_domains),
                     "keywords": keywords,
-                    **named_scope_sql_params(scope, target_domains),
+                    **named_scope_sql_params(scope),
                 },
             )
             rows = {row[0]: row[1:] for row in cursor.fetchall()}
     return KeywordReport(
-        days=days,
+        days=window.days,
         window_from=window.window_from,
         window_to=window.window_to,
         answers=answers,
         brand_names=brand_names(target_domains),
         keywords=tuple(_report_row(keyword, rows.get(keyword), answers) for keyword in keywords),
     )
+
+
+def _own_brand_ids(team_id: int, target_domains: list[str]) -> list[str]:
+    ids = AEOBrand.objects.for_team(team_id).filter(domain__in=target_domains).values_list("id", flat=True)
+    return [str(brand_id) for brand_id in ids]
 
 
 def _rate(part: float, whole: int) -> float | None:
@@ -462,18 +453,16 @@ def get_keyword_modifiers(
     team_id: int,
     *,
     target_domains: list[str],
-    timezone_name: str,
-    days: int,
+    window: CheckWindow,
     keyword: str | None = None,
     scope: CheckScope,
 ) -> KeywordModifierReport:
-    window = _window(timezone_name, days)
     keyword = normalize_keyword(keyword) if keyword else None
     counts = _ModifierCounts()
     checks = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(
-            scope_filter(scope, target_domains),
+            scope_filter(scope),
             created_at__gte=window.start,
             created_at__lt=window.until,
             check_failed=False,
@@ -499,7 +488,7 @@ def get_keyword_modifiers(
             break
         last_id = page[-1][0]
     return KeywordModifierReport(
-        days=days,
+        days=window.days,
         window_from=window.window_from,
         window_to=window.window_to,
         keyword=keyword,

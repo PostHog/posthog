@@ -20,6 +20,7 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from azure.core.exceptions import ResourceNotFoundError
 from botocore.awsrequest import AWSResponse
 from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
@@ -31,6 +32,7 @@ from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 from urllib3.response import HTTPResponse
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
     filesystem,
@@ -60,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ACCESS_DENIED_ERROR,
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
+    FILE_REMOVED_ERROR,
     INVALID_CONFIG_ERROR,
     NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
@@ -812,6 +815,66 @@ class TestReadTable:
 
         assert [(batch.column_names[0], batch.num_rows) for batch in batches] == [("id", 0)]
 
+    def test_a_file_deleted_after_listing_is_a_translated_retryable_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "orders.csv").write_bytes(b"id\n1\n")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        # `iter_table` lists the folder again right before opening its files. A real race needs the
+        # delete to land in that exact window, which isn't reproducible with real timing, so the
+        # delete happens inside the mocked `open` call instead: after the fresh listing that found
+        # the file, right as `_iter_files` tries to read it.
+        real_open = store.fs.open
+
+        def deleted_right_before_open(path: str, *args: Any, **kwargs: Any) -> IO[bytes]:
+            (tmp_path / "orders.csv").unlink()
+            return cast(IO[bytes], real_open(path, *args, **kwargs))
+
+        monkeypatch.setattr(store.fs, "open", deleted_right_before_open)
+
+        with pytest.raises(ObjectStorageError, match=FILE_REMOVED_ERROR) as error:
+            read_rows(store, table)
+
+        # Self-heals on the next sync's fresh listing, so it must stay out of error tracking.
+        assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
+
+    def test_a_blob_deleted_during_the_read_is_a_translated_retryable_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "orders.csv").write_bytes(b"id\n1\n")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        # adlfs only turns a deleted Azure blob into FileNotFoundError from the `open()` call
+        # itself (which reads its size); a blob deleted during the first ranged read raises the
+        # Azure SDK's own ResourceNotFoundError straight from `download_blob`, uncaught by adlfs.
+        # Not reproducible with real timing or without live Azure credentials, so the read call
+        # is the mocked boundary.
+        class _DeletedDuringRead:
+            def readable(self) -> bool:
+                return True
+
+            def read(self, size: int = -1) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def readline(self) -> bytes:
+                raise ResourceNotFoundError("The specified blob does not exist.")
+
+            def __enter__(self) -> "_DeletedDuringRead":
+                return self
+
+            def __exit__(self, *args: Any) -> None:
+                pass
+
+        monkeypatch.setattr(store.fs, "open", lambda *args, **kwargs: _DeletedDuringRead())
+
+        with pytest.raises(ObjectStorageError, match=FILE_REMOVED_ERROR) as error:
+            read_rows(store, table)
+
+        assert error_message_matches(str(error.value), FakeObjectStorageSource().get_retryable_errors())
+
     def test_corrupt_gzip_is_a_parse_error(self, tmp_path: Path) -> None:
         (tmp_path / "bad.csv.gz").write_bytes(b"not gzip")
         store = local_store(tmp_path)
@@ -1260,6 +1323,11 @@ class TestLocationAndErrors:
                 "wrong_region",
                 OSError("An error occurred (PermanentRedirect) when calling the ListObjectsV2 operation"),
                 WRONG_REGION_ERROR,
+            ),
+            (
+                "malformed_credential_length",
+                OSError(22, "Credential access key has length 145, should be 32"),
+                INVALID_CONFIG_ERROR,
             ),
         ]
     )

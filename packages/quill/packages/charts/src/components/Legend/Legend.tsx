@@ -2,6 +2,7 @@
 import React from 'react'
 
 import { LegendTable } from './LegendTable'
+import { LegendTag } from './LegendTag'
 
 /** A per-series summary a legend table can show as a column, computed over the series' finite
  *  values. `delta` is the last value minus the first. */
@@ -26,6 +27,8 @@ export interface LegendItem {
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Optional pill after the label and secondary text, from `Series.legendTag`. */
+    tag?: string
     /** Extra classes for the color swatch, for example a dashed outline. */
     swatchClassName?: string
     /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
@@ -135,6 +138,7 @@ export function Legend({
                                 {item.secondaryLabel}
                             </span>
                         )}
+                        {item.tag && <LegendTag tag={item.tag} />}
                     </>
                 )
                 const node = onItemClick ? (
