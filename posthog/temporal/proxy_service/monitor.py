@@ -551,6 +551,10 @@ class CleanupMonitorJobInputs:
 async def cleanup_monitor_job(inputs: CleanupMonitorJobInputs):
     from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
 
+    # A delete request can still fail to start its workflow and leave the proxy live.
+    if await ProxyRecord.objects.filter(pk=inputs.proxy_record_id).aexists():
+        return
+
     bind_contextvars(organization_id=inputs.organization_id)
     logger = LOGGER.bind()
     logger.info(
