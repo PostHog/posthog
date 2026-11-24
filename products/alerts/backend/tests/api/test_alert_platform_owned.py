@@ -1468,7 +1468,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         elif kind == "copy_whose_row_is_gone":
             AlertConfiguration.objects.filter(id=self.alert.id).delete()
         elif kind == "copy_whose_row_says_insight_owns_it":
-            # The row matches its copy's detector, so a cap that counts the row too counts this alert twice.
             row_detector = {"detector_config": {"type": "llm"}} if cap == "ai_detector" else {}
             AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE, **row_detector)
         with team_scope(self.team.id):
