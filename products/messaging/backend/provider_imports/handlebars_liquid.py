@@ -646,8 +646,8 @@ class HandlebarsToLiquid:
     # HTML context -----------------------------------------------------------------------------------------------------
 
     def _value_fits(self, *, raw: bool, in_attribute: bool) -> bool:
-        """Whether a value sits where Liquid escapes it the way Handlebars does: page text, or a quoted attribute
-        that holds no script or style."""
+        """Whether a value sits where Liquid escapes it the way Handlebars does: page text, the page title, or a quoted
+        attribute that holds no script or style."""
         if self._html is None:
             return True
         where = self._html.where()
@@ -655,6 +655,8 @@ class HandlebarsToLiquid:
             return False
         if where == "text":
             return True
+        if where == "title":
+            return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
 
     def _feed(self, text: str) -> None:
