@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from functools import partial
 from typing import Literal
@@ -16,7 +16,9 @@ from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.rated_usage_tasks import report_signals_trial_grant
 from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation, trial_billing_status
-from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION
+from products.signals.backend.trial.experiment import capture_trial_exposure, resolve_trial_limits
+from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION, TrialLimits
+from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import POLICY_VERSION, TrialPolicy, TrialRefused
 from products.signals.backend.trial.scouts import trial_counted_scouts
 from products.signals.backend.usage import TrialUsage, trial_usage
@@ -37,17 +39,21 @@ class TrialService:
         source: Literal["explicit", "activation"],
         outcome: str,
         reason: str | None = None,
-        grant_id: str | None = None,
+        grant: SignalTrialGrant | None = None,
+        variant: str | None = None,
     ) -> None:
         report_user_action(
             user=user,
             event="self-driving trial enrollment",
             team=self.team,
+            organization=self.team.organization,
             properties={
                 "source": source,
                 "outcome": outcome,
                 "reason": reason,
-                "grant_id": grant_id,
+                "grant_id": str(grant.id) if grant else None,
+                "experiment_variant": variant,
+                "report_limit": grant.report_limit if grant else None,
                 "policy_version": POLICY_VERSION,
             },
         )
@@ -62,10 +68,21 @@ class TrialService:
         self._capture_enrollment(user, source=source, outcome="refused" if refused else "failed", reason=reason)
 
     @contextmanager
-    def _enrollment_outcome(self, user: User, *, source: Literal["explicit", "activation"]) -> Iterator[None]:
-        existing = self.policy.grant() is not None
+    def _enrollment_outcome(
+        self, user: User, *, source: Literal["explicit", "activation"]
+    ) -> Iterator[Callable[[str | None, SignalTrialGrant], None]]:
+        created = False
+        assigned_variant: str | None = None
+
+        def on_create(variant: str | None, grant: SignalTrialGrant) -> None:
+            nonlocal created, assigned_variant
+            created = True
+            assigned_variant = variant
+            if variant is not None:
+                transaction.on_commit(partial(capture_trial_exposure, grant, variant), robust=True)
+
         try:
-            yield
+            yield on_create
         except Exception as error:
             self._capture_enrollment_error(user, source, error)
             raise
@@ -75,10 +92,10 @@ class TrialService:
                 transaction.on_commit(
                     partial(report_signals_trial_grant.delay, grant.team_id, str(grant.id)), robust=True
                 )
-            outcome = "already_claimed" if existing else "activated" if grant else "paid_continuation"
+            outcome = "activated" if created else "already_claimed" if grant else "paid_continuation"
             transaction.on_commit(
                 lambda: self._capture_enrollment(
-                    user, source=source, outcome=outcome, grant_id=str(grant.id) if grant else None
+                    user, source=source, outcome=outcome, grant=grant, variant=assigned_variant
                 ),
                 robust=True,
             )
@@ -93,7 +110,7 @@ class TrialService:
     def activate(self, *, user_id: int, api_scopes: list[str] | None) -> None:
         user = User.objects.get(pk=user_id)
         self._capture_enrollment(user, source="explicit", outcome="attempted")
-        with self._enrollment_outcome(user, source="explicit"):
+        with self._enrollment_outcome(user, source="explicit") as on_create:
             self.policy.check_enabled()
             self._check_membership(user)
             if self.policy.grant() is not None:
@@ -101,7 +118,10 @@ class TrialService:
             billing = self.billing_status()
             if not billing.ready:
                 raise TrialRefused("billing_not_ready")
-            self.policy.claim(user_id=user_id, limits=billing.limits, api_scopes=api_scopes)
+            limits, variant = resolve_trial_limits(self.team.organization_id, billing.limits)
+            self.policy.claim(
+                user_id=user_id, limits=limits, api_scopes=api_scopes, on_create=partial(on_create, variant)
+            )
 
     def enroll_on_activation(
         self, *, user: User, enabled: bool, api_scopes: list[str] | None, parent_access_allowed: bool = False
@@ -120,16 +140,27 @@ class TrialService:
         except Exception as error:
             self._capture_enrollment_error(user, "activation", error)
             raise
-        return self._claim_on_activation(user=user, billing=billing, api_scopes=api_scopes)
+        limits, variant = resolve_trial_limits(self.team.organization_id, billing.limits)
+        return self._claim_on_activation(
+            user=user, billing=billing, limits=limits, variant=variant, api_scopes=api_scopes
+        )
 
     @contextmanager
     def _claim_on_activation(
-        self, *, user: User, billing: TrialBillingStatus, api_scopes: list[str] | None
+        self,
+        *,
+        user: User,
+        billing: TrialBillingStatus,
+        limits: TrialLimits,
+        variant: str | None,
+        api_scopes: list[str] | None,
     ) -> Iterator[None]:
         # Read billing before taking locks; roll back the grant if the activation write fails.
-        with self._enrollment_outcome(user, source="activation"), transaction.atomic():
+        with self._enrollment_outcome(user, source="activation") as on_create, transaction.atomic():
             try:
-                self.policy.claim(user_id=user.pk, limits=billing.limits, api_scopes=api_scopes)
+                self.policy.claim(
+                    user_id=user.pk, limits=limits, api_scopes=api_scopes, on_create=partial(on_create, variant)
+                )
             except TrialRefused as error:
                 if error.reason != "organization_limit" or not billing.paid_authorized:
                     raise
@@ -160,6 +191,9 @@ class TrialService:
             and grants_claimed < MAX_TRIAL_GRANTS_PER_ORGANIZATION
             and ready
         )
+        limits = billing.limits
+        if eligible:
+            limits, _ = resolve_trial_limits(self.team.organization_id, limits)
         grant_status = "not_claimed"
         if grant is not None:
             grant_status = "exhausted" if reason else "active"
@@ -176,7 +210,7 @@ class TrialService:
             "exhaustion_reason": reason,
             "reports_delivered": usage.reports,
             "reports_in_progress": usage.running_reports,
-            "report_limit": grant.report_limit if grant else billing.limits.report_limit,
+            "report_limit": grant.report_limit if grant else limits.report_limit,
             "allowance_microusd": grant.allowance_microusd if grant else billing.limits.allowance_microusd,
             "used_microusd": min(usage.spend_microusd, grant.allowance_microusd) if grant else 0,
             "new_work_paused": paused,
