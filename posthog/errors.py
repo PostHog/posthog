@@ -146,7 +146,8 @@ S3_ACCESS_DENIED_MESSAGE = (
     "Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again."
 )
 # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
-_S3_ACCESS_DENIED_NEEDLES = ("Access Denied", "HTTP response code: 403")
+# A bare "Access Denied" would also match a denied bucket listing, which needs s3:ListBucket instead.
+_S3_ACCESS_DENIED_NEEDLES = ("Access Denied: while reading key:", "HTTP response code: 403")
 
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
@@ -158,11 +159,13 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 
 def _wrap_s3_access_denied_error(err: ServerException) -> "CHQueryErrorS3AccessDenied":
-    return CHQueryErrorS3AccessDenied(
+    wrapped = CHQueryErrorS3AccessDenied(
         CHQueryErrorS3AccessDenied.public_message,
         code=err.code,
         code_name=CHQueryErrorS3AccessDenied.public_code,
     )
+    wrapped.raw_message = err.message
+    return wrapped
 
 
 def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
@@ -406,8 +409,6 @@ def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCod
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     e = _server_exception_from_http_client_error(e) or e
-    if isinstance(e, CHQueryErrorS3AccessDenied):
-        return QueryErrorCategory.USER_ERROR
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
@@ -459,10 +460,12 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorS3AccessDenied(ExposedCHQueryError):
-    """The bucket behind a self-managed warehouse table refused to let ClickHouse read a file."""
+    """The bucket behind a warehouse table refused to let ClickHouse read a file."""
 
     public_code = "s3_access_denied"
     public_message = S3_ACCESS_DENIED_MESSAGE
+    # The message is replaced with fixed copy, so warehouse table checks match on this instead.
+    raw_message: str | None = None
 
 
 _EXPOSED_S3_ERRORS = (CHQueryErrorS3FileChangedDuringRead, CHQueryErrorS3AccessDenied)

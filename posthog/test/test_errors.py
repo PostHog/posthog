@@ -117,8 +117,21 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, ExposedCHQueryError)
         assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert str(wrapped) == S3_ACCESS_DENIED_MESSAGE
-        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+        # PostHog's own bucket can deny too, so the denial still counts against the query SLO.
+        assert classify_query_error(wrapped) == QueryErrorCategory.ERROR
         assert internal_ch_error_user_message(error_code_from_type(wrapped)) == S3_ACCESS_DENIED_MESSAGE
+
+    def test_s3_list_denial_keeps_the_generic_s3_error(self) -> None:
+        raw = ServerException(
+            "Code: 499. DB::Exception: Could not list objects in bucket 'example-bucket' with prefix 'exports/', "
+            "S3 exception: `AccessDenied`, message: 'Access Denied'. (S3_ERROR)",
+            code=499,
+        )
+
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_unregistered_status_code_is_not_displayed_as_a_clickhouse_error(self) -> None:
         assert internal_ch_error_user_message("other_database_error") is None

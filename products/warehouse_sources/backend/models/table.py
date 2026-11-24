@@ -52,6 +52,7 @@ from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
     INTERNAL_CH_ERROR_USER_MESSAGES,
     S3_ACCESS_DENIED_MESSAGE,
+    CHQueryErrorS3AccessDenied,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -140,6 +141,8 @@ def raw_error_message(err: Exception) -> str:
     the raw attribute is read before any wrapping. chdb runs out of process and `run_chdb_query`
     re-raises its stderr as a RuntimeError, so there the message is just `str(err)`.
     """
+    if isinstance(err, CHQueryErrorS3AccessDenied) and err.raw_message is not None:
+        return err.raw_message
     if isinstance(err, ClickHouseServerException) and err.message is not None:
         return err.message
     return str(err)
