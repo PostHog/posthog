@@ -34,6 +34,7 @@ describe('judge', () => {
     let truthFails: string | undefined
     let polls: number
     let probeAnswers: number
+    let duringProbe: ((poll: number) => Promise<void>) | undefined
     let judge: Judge
     let caDir: string
 
@@ -58,12 +59,14 @@ describe('judge', () => {
                 },
             },
             probe: {
-                unfinishedJobs: () => {
+                unfinishedJobs: async () => {
                     clockMs += probeTakesMs
                     polls += 1
-                    return polls > probeAnswers
-                        ? Promise.reject(new Error('The operation was aborted due to timeout'))
-                        : Promise.resolve(unfinishedJobs)
+                    await duringProbe?.(polls)
+                    if (polls > probeAnswers) {
+                        throw new Error('The operation was aborted due to timeout')
+                    }
+                    return unfinishedJobs
                 },
             },
             fetchRetries: 3,
@@ -95,6 +98,7 @@ describe('judge', () => {
         truthFails = undefined
         polls = 0
         probeAnswers = Infinity
+        duringProbe = undefined
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -777,50 +781,100 @@ describe('judge', () => {
         })
     })
 
-    it.each<[string, number, number | undefined, string | undefined, object]>([
+    type SettleCase = {
+        jobs: number
+        delivered: 'before the polls' | 'during the last poll in time' | 'after the polls'
+        pollsReadTruth?: boolean
+        probe?: { answers: number; takesMs: number }
+        finalReadFails?: string
+        expected: object
+    }
+
+    it.each<[string, SettleCase]>([
         [
             'converged once the final read recovers the truth no poll could read',
-            0,
-            undefined,
-            undefined,
-            { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 40 },
+            {
+                jobs: 0,
+                delivered: 'before the polls',
+                expected: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 40 },
+            },
+        ],
+        [
+            'converged when the edge recorded the delivery while the last poll in time counted the jobs',
+            {
+                jobs: 0,
+                delivered: 'during the last poll in time',
+                expected: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 40 },
+            },
         ],
         [
             'not converged while jobs stayed unfinished, whatever the final read finds',
-            3,
-            undefined,
-            undefined,
-            { converged: false, unfinishedJobs: 3, unrecorded: [], tookMs: expect.any(Number) },
+            {
+                jobs: 3,
+                delivered: 'before the polls',
+                expected: { converged: false, unfinishedJobs: 3, unrecorded: [], tookMs: expect.any(Number) },
+            },
         ],
         [
-            'not converged when the edge recorded the delivery after the last poll in time',
-            0,
-            0,
-            undefined,
-            { converged: false, unfinishedJobs: 0, unrecorded: [UNIT], tookMs: expect.any(Number) },
+            'not converged when the edge recorded the delivery after the polls',
+            {
+                jobs: 0,
+                delivered: 'after the polls',
+                expected: { converged: false, unfinishedJobs: 0, unrecorded: [UNIT], tookMs: expect.any(Number) },
+            },
+        ],
+        [
+            'unread when the last poll could not count the jobs, though the truth reads succeeded',
+            {
+                jobs: 3,
+                delivered: 'before the polls',
+                pollsReadTruth: true,
+                probe: { answers: 1, takesMs: 30 },
+                expected: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: [],
+                    tookMs: 60,
+                    unread: 'The operation was aborted due to timeout',
+                },
+            },
         ],
         [
             'unread when the final read fails too',
-            0,
-            undefined,
-            'The operation was aborted due to timeout',
             {
-                converged: false,
-                unfinishedJobs: null,
-                unrecorded: [UNIT],
-                tookMs: expect.any(Number),
-                unread: 'the truth read hit a harness limit at record 0 of 1: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
+                jobs: 0,
+                delivered: 'before the polls',
+                finalReadFails: 'The operation was aborted due to timeout',
+                expected: {
+                    converged: false,
+                    unfinishedJobs: null,
+                    unrecorded: [UNIT],
+                    tookMs: expect.any(Number),
+                    unread: 'the truth read hit a harness limit at record 0 of 1: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
+                },
             },
         ],
     ])(
-        'settles a convergence whose truth polls all failed on the final read: %s',
-        async (_story, jobs, pollsAtWallMs, finalReadFails, expected) => {
+        'settles a convergence on the final read: %s',
+        async (_story, { jobs, delivered, pollsReadTruth, probe, finalReadFails, expected }) => {
             unfinishedJobs = jobs
-            wallMs = pollsAtWallMs
+            probeAnswers = probe?.answers ?? Infinity
+            probeTakesMs = probe?.takesMs ?? probeTakesMs
             judge.record(offered())
-            await deliver(UNIT)
-            truthFails = 'The operation was aborted due to timeout'
+            if (delivered === 'before the polls') {
+                await deliver(UNIT)
+            }
+            if (delivered === 'during the last poll in time') {
+                duringProbe = (poll) => (poll === 2 ? deliver(UNIT) : Promise.resolve())
+            }
+            if (delivered === 'after the polls') {
+                wallMs = Date.now() - 1
+            }
+            truthFails = pollsReadTruth ? undefined : 'The operation was aborted due to timeout'
             const converged = await judge.converge(50, NEVER_ABORTED)
+            if (delivered === 'after the polls') {
+                await deliver(UNIT)
+            }
             truthFails = finalReadFails
 
             await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
@@ -834,7 +888,7 @@ describe('judge', () => {
         const PAGE = 1000
         const PAGE_TIMEOUT_MS = 1000
 
-        type PageFault = 'hang' | 'reset' | 'empty' | undefined
+        type PageFault = 'hang' | 'reset' | 'empty' | 'stale' | undefined
 
         let truth: Truth
         let edge: ProviderEdge
@@ -859,9 +913,11 @@ describe('judge', () => {
                 if (fault === 'reset') {
                     req.socket.destroy()
                 }
-                if (fault === 'empty') {
+                if (fault === 'empty' || fault === 'stale') {
+                    const after = Number(url.searchParams.get('after'))
+                    const records = fault === 'stale' ? truth.page(after - 1, 1).records : []
                     res.writeHead(200, { 'content-type': 'application/json' })
-                    res.end(JSON.stringify({ records: [], next: Number(url.searchParams.get('after')) }))
+                    res.end(JSON.stringify({ records, next: after + 1 }))
                 }
                 if (fault !== undefined) {
                     return
@@ -901,8 +957,8 @@ describe('judge', () => {
             return undefined
         }
 
-        const emptyFrom = (at: number) => (): ((after: number) => PageFault) => (after) =>
-            after >= at ? 'empty' : undefined
+        const answeringFrom = (at: number, fault: PageFault) => (): ((after: number) => PageFault) => (after) =>
+            after >= at ? fault : undefined
 
         const judgeOf = (backoffMs: number): Judge =>
             createJudge({
@@ -939,7 +995,16 @@ describe('judge', () => {
             [
                 'keeps what it read and names a harness limit when the edge answers an empty page before the head',
                 3 * PAGE,
-                emptyFrom(2 * PAGE),
+                answeringFrom(2 * PAGE, 'empty'),
+                {
+                    read: 2 * PAGE,
+                    unread: 'the truth read hit a harness limit at record 2000 of 3000: the edge answered no records past 2000',
+                },
+            ],
+            [
+                'keeps what it read and names a harness limit when the edge answers the last record again',
+                3 * PAGE,
+                answeringFrom(2 * PAGE, 'stale'),
                 {
                     read: 2 * PAGE,
                     unread: 'the truth read hit a harness limit at record 2000 of 3000: the edge answered no records past 2000',

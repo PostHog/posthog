@@ -116,6 +116,7 @@ export function createJudge({
     let teams: number[] = []
     let unread: string | undefined
     let lastCount: { jobs: number | null; tookMs: number; wallAt: number } | undefined
+    let onlyTruthUnread = false
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -141,7 +142,7 @@ export function createJudge({
                     throw new Error('the run was stopped')
                 }
                 const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
-                const records = page.records.filter(({ seq }) => seq <= head!)
+                const records = page.records.filter(({ seq }) => seq > cursor && seq <= head!)
                 if (records.length === 0) {
                     throw new Error(`the edge answered no records past ${cursor}`)
                 }
@@ -189,6 +190,7 @@ export function createJudge({
             truth = []
             unread = undefined
             lastCount = undefined
+            onlyTruthUnread = false
             teams = [...seed.teamIds]
         },
 
@@ -200,12 +202,13 @@ export function createJudge({
             const startedAt = now()
             lastCount = undefined
             for (;;) {
-                const wallAt = wallNow()
                 await read(pullTruth)
                 const counted = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] }).then(
                     (jobs) => ({ jobs, unread: undefined }),
                     (error: unknown) => ({ jobs: null, unread: messageOf(error) })
                 )
+                const wallAt = wallNow()
+                onlyTruthUnread = unread !== undefined && counted.unread === undefined
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
                 if (tookMs <= withinMs) {
@@ -231,7 +234,7 @@ export function createJudge({
             if (unread !== undefined) {
                 return { ...converged, unread }
             }
-            if (converged.unread === undefined || lastCount === undefined || lastCount.jobs === null) {
+            if (!onlyTruthUnread || lastCount === undefined || lastCount.jobs === null) {
                 return converged
             }
             const unrecorded = unrecordedUnits(lastCount.wallAt)
