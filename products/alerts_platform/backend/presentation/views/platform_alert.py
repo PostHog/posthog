@@ -1242,7 +1242,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
         # The resolve for an open incident goes to the destinations that remain when the firing ends,
         # so a removed incident manager would keep its incident open for good.
-        if any(alert.state == PlatformAlertState.FIRING.value for alert in configuration.alerts) and any(
+        if platform_api.has_firing_instance(
+            team_id=self._canonical_team_id(), public_id=configuration.destination_alert_id
+        ) and any(
             destination.id in destination_ids
             and destination.enabled
             and destination.data["type"] == DestinationType.PAGERDUTY
