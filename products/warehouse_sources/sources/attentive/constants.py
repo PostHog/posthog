@@ -1,12 +1,13 @@
 ATTENTIVE_API_ORIGIN = "https://api.attentivemobile.com"
 ATTENTIVE_V1_BASE_URL = f"{ATTENTIVE_API_ORIGIN}/v1"
+ATTENTIVE_V2_BASE_URL = f"{ATTENTIVE_API_ORIGIN}/v2"
 
 # Maps PostHog webhook-backed schema name -> Attentive webhook event `type`
 # value. The webhook payload's top-level `type` field is matched against this
 # map's values (via `webhook_resource_map` on the source) to route incoming
 # events into the right warehouse table. Attentive's public REST API is
-# write-oriented (no list-subscribers/messages/campaigns endpoints), so
-# webhooks are the only extraction surface — there is no backfill path.
+# write-oriented (no list-subscribers/messages/campaigns endpoints), so these
+# event tables have no backfill path.
 RESOURCE_TO_ATTENTIVE_EVENT_TYPE: dict[str, str] = {
     "sms_subscribed": "sms.subscribed",
     "sms_sent": "sms.sent",
@@ -19,3 +20,7 @@ RESOURCE_TO_ATTENTIVE_EVENT_TYPE: dict[str, str] = {
 }
 
 ATTENTIVE_WEBHOOK_SCHEMA_NAMES: tuple[str, ...] = tuple(RESOURCE_TO_ATTENTIVE_EVENT_TYPE.keys())
+
+# Polled from the REST API rather than fed by webhooks.
+SEGMENTS_SCHEMA_NAME = "segments"
+SEGMENTS_INCREMENTAL_FIELD = "updated"

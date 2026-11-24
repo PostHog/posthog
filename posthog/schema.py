@@ -1459,6 +1459,14 @@ class CustomerAnalyticsPinnedProperty(BaseModel):
     kind: Kind
 
 
+class CustomerAnalyticsRoleDefaultPinnedProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    pinned_properties: list[CustomerAnalyticsPinnedProperty]
+    role_id: str
+
+
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5608,10 +5616,18 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
@@ -11808,6 +11824,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int
@@ -36278,6 +36298,7 @@ class CustomerAnalyticsConfig(BaseModel):
     activity_event: EventsNode | ActionsNode
     default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
+    role_default_pinned_properties: list[CustomerAnalyticsRoleDefaultPinnedProperties] | None = None
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode

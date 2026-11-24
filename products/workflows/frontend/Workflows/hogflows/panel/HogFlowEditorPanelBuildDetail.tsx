@@ -28,6 +28,7 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { RunLinkTagHint } from '../steps/components/RunLinkTagHint'
 import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
@@ -177,8 +178,14 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             config: { ...action.config, tracking_enabled: checked },
                                         })
                                     }}
+                                    data-attr="workflow-email-tracking-toggle"
                                 />
                             </div>
+                            {action.config.tracking_enabled !== false && (
+                                <div className="px-2 pb-1">
+                                    <RunLinkTagHint />
+                                </div>
+                            )}
                             <div className="flex gap-2 justify-between items-center px-2 py-1">
                                 <LemonLabel info="Adds UTM tags to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed. Add data-ph-no-utm to a link to leave it as is.">
                                     Add UTM tags to links

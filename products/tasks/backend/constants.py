@@ -56,6 +56,8 @@ HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 GITLAB_TASKS_FEATURE_FLAG = "tasks-gitlab"
+# Per-user gate for reading a model or effort request out of a PostHog AI message.
+PROMPT_MODEL_SWITCH_FEATURE_FLAG = "phai-prompt-model-switch"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
@@ -484,6 +486,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_TOKEN_CAP_USD",
         "AI_GATEWAY_PRODUCT",
         "AI_GATEWAY_AI_STAGE",
+        "POSTHOG_TASK_RUN_POLICY",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",

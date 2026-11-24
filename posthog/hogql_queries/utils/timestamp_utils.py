@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import StringDatabaseField
@@ -220,6 +221,7 @@ def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
     user: Optional[User] = None,
+    limit_context: LimitContext = LimitContext.QUERY,
 ) -> datetime:
     """
     Get the earliest timestamp from a single series node
@@ -227,6 +229,7 @@ def _get_earliest_timestamp_from_node(
     :param team: The team
     :param node: The series node
     :param user: The user the query runs as, for warehouse table access control
+    :param limit_context: The limit context the query runs under, which sets its time limit
     :return: The earliest timestamp as a datetime object.
     """
     # The cache is team-wide (keyed by team + node, not user): the value is table metadata, and row
@@ -254,10 +257,15 @@ def _get_earliest_timestamp_from_node(
                 user=user,
                 modifiers=modifiers,
                 context=HogQLContext(team_id=team.pk, user=user, database=database),
+                limit_context=limit_context,
             )
         else:
             result = execute_hogql_query(
-                query=_get_event_earliest_timestamp_query(team, node), team=team, user=user, modifiers=modifiers
+                query=_get_event_earliest_timestamp_query(team, node),
+                team=team,
+                user=user,
+                modifiers=modifiers,
+                limit_context=limit_context,
             )
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
@@ -274,6 +282,7 @@ def get_earliest_timestamp_from_series(
         ]
     ],
     user: Optional[User] = None,
+    limit_context: LimitContext = LimitContext.QUERY,
 ) -> datetime:
     """
     Get the earliest timestamp for specific events/actions in a series.
@@ -283,6 +292,7 @@ def get_earliest_timestamp_from_series(
     :param team: The team
     :param series: A list of series nodes (EventsNode, ActionsNode, DataWarehouseNode, or GroupNode)
     :param user: The user the queries run as, for warehouse table access control
+    :param limit_context: The limit context the queries run under, which sets their time limit
     :return: The earliest timestamp across all series
     """
     # Expand GroupNode nodes into individual nodes
@@ -296,7 +306,7 @@ def get_earliest_timestamp_from_series(
             nodes.append(node)
 
     timestamps = map_in_caller_context(
-        lambda node: _get_earliest_timestamp_from_node(team, node, user),
+        lambda node: _get_earliest_timestamp_from_node(team, node, user, limit_context),
         nodes,
         max_workers=4,
         thread_name_prefix="earliest_timestamp",

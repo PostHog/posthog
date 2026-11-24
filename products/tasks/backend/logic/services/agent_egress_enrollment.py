@@ -23,6 +23,7 @@ class AgentEgressEnrollmentConfig(BaseModel):
     server_ca_file: Path
     client_ca_file: Path
     client_ca_key_file: Path
+    renew_relay_certificate: bool = False
     duration_seconds: int = Field(default=360, ge=1, le=600)
     concurrency: int = Field(default=1, ge=1, le=32)
     requests_per_round: int = Field(default=1, ge=1, le=256)

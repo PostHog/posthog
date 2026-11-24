@@ -1,6 +1,7 @@
 import './NotebookAppBuilder.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -23,13 +24,7 @@ import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
 
-export function NotebookAppBuilder({
-    shortId,
-    published = false,
-}: {
-    shortId: string
-    published?: boolean
-}): JSX.Element {
+export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
     const { staleNodeIds } = useValues(notebookNodeStalenessLogic({ shortId }))
     const { isRunning, progressLabel } = useValues(notebookRunLogic({ shortId }))
@@ -45,6 +40,8 @@ export function NotebookAppBuilder({
         savedNotebookLoading,
         error,
         preview,
+        releaseReview,
+        releaseReviewLoading,
         activeTabId,
         selectedBlock,
         selectedBlockId,
@@ -80,12 +77,16 @@ export function NotebookAppBuilder({
         saveApp,
         loadApp,
         unpublishApp,
+        checkRelease,
+        restoreRelease,
     } = useActions(logic)
-    const displayedLayout = published ? savedNotebook?.app_published : layout
-    const editing = !published && !preview && canEditNotebook && !isTemplate
-    const selectedTab = displayedLayout?.tabs.some((tab) => tab.id === activeTabId)
-        ? activeTabId
-        : (displayedLayout?.tabs[0]?.id ?? '')
+    useEffect(() => {
+        if (preview && !isRunning && !sourceSavingReason) {
+            checkRelease(layout)
+        }
+    }, [checkRelease, preview, isRunning, sourceSavingReason, layout, savedNotebook?.version])
+    const editing = !preview && canEditNotebook && !isTemplate
+    const selectedTab = layout.tabs.some((tab) => tab.id === activeTabId) ? activeTabId : (layout.tabs[0]?.id ?? '')
     if (!savedNotebook && savedNotebookLoading) {
         return (
             <div className="p-8">
@@ -100,27 +101,18 @@ export function NotebookAppBuilder({
             </LemonBanner>
         )
     }
-    if (!displayedLayout) {
-        return (
-            <LemonBanner type="info">
-                This notebook has no published app. Open the app builder to create one.
-            </LemonBanner>
-        )
-    }
     return (
         <div className="NotebookAppBuilder mt-4" data-attr="notebook-app-builder">
             <NotebookAppEditorAgentContext shortId={shortId} />
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="m-0">{published ? 'App' : 'App builder'}</h2>
-                    {!published && (
-                        <span className="text-secondary text-xs">
-                            {dirty ? 'Unsaved changes' : savedNotebook.app_draft ? 'Draft saved' : 'New app'}
-                        </span>
-                    )}
+                    <h2 className="m-0">App builder</h2>
+                    <span className="text-secondary text-xs">
+                        {dirty ? 'Unsaved changes' : savedNotebook.app_draft ? 'Draft saved' : 'New app'}
+                    </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {canEditNotebook && !isTemplate && !published && (
+                    {canEditNotebook && !isTemplate && (
                         <>
                             <LemonButton
                                 type="secondary"
@@ -163,21 +155,28 @@ export function NotebookAppBuilder({
                                 type="primary"
                                 size="small"
                                 loading={savedNotebookLoading}
-                                onClick={() => saveApp(true)}
-                                disabledReason={sourceSavingReason}
+                                onClick={() => (preview ? saveApp(true) : setPreview(true))}
+                                disabledReason={
+                                    sourceSavingReason ||
+                                    (preview &&
+                                    (isRunning ||
+                                        releaseReviewLoading ||
+                                        !releaseReview ||
+                                        error ||
+                                        releaseReview.problems.length)
+                                        ? 'Check the preview before publishing.'
+                                        : undefined)
+                                }
                                 data-attr="notebook-app-publish"
                             >
-                                {savedNotebook.app_published ? 'Publish changes' : 'Publish layout'}
+                                {preview ? 'Publish release' : 'Review and publish'}
                             </LemonButton>
                         </>
                     )}
                     <LemonMenu
                         items={[
                             { label: 'Open notebook', to: urls.notebook(shortId) },
-                            ...(published && canEditNotebook && !isTemplate
-                                ? [{ label: 'App builder', to: `${urls.notebook(shortId)}?view=builder` }]
-                                : []),
-                            ...(!published && savedNotebook.app_published
+                            ...(savedNotebook.app_published
                                 ? [{ label: 'View published app', to: `${urls.notebook(shortId)}?view=app` }]
                                 : []),
                             {
@@ -189,7 +188,7 @@ export function NotebookAppBuilder({
                                         'App link'
                                     ),
                             },
-                            ...(!published && canEditNotebook && !isTemplate
+                            ...(canEditNotebook && !isTemplate
                                 ? [
                                       {
                                           label: 'Undo',
@@ -232,6 +231,65 @@ export function NotebookAppBuilder({
                     {error}
                 </LemonBanner>
             )}
+            {preview && (
+                <section className="border rounded p-3 mb-4" aria-label="Publication checks">
+                    <div className="flex flex-wrap gap-2 items-center justify-between">
+                        <strong>
+                            {releaseReviewLoading
+                                ? 'Checking sources…'
+                                : releaseReview?.problems.length
+                                  ? 'Resolve these issues before publishing'
+                                  : releaseReview
+                                    ? 'Ready to publish'
+                                    : 'Publication checks'}
+                        </strong>
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                disabledReason={
+                                    sourceSavingReason ||
+                                    (releaseReviewLoading || isRunning ? 'A check or run is in progress.' : undefined)
+                                }
+                                onClick={() => checkRelease(layout)}
+                            >
+                                Check again
+                            </LemonButton>
+                            {releaseReview?.has_previous && (
+                                <LemonButton
+                                    size="small"
+                                    disabledReason={
+                                        savedNotebookLoading ? 'Wait for the app to finish saving.' : undefined
+                                    }
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Restore the previous release?',
+                                            description:
+                                                'Viewers will see the preceding release. You can keep editing your current draft.',
+                                            primaryButton: { children: 'Restore release', onClick: restoreRelease },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                >
+                                    Restore previous release
+                                </LemonButton>
+                            )}
+                        </div>
+                    </div>
+                    {releaseReview?.problems.length ? (
+                        <ul className="my-2">
+                            {releaseReview.problems.map((problem, index) => (
+                                <li key={index}>{problem}</li>
+                            ))}
+                        </ul>
+                    ) : null}
+                    {releaseReview?.results_as_of && (
+                        <p className="text-secondary mb-0">
+                            Oldest displayed result ran {new Date(releaseReview.results_as_of).toLocaleString()}.
+                        </p>
+                    )}
+                </section>
+            )}
             {isRunning && (
                 <LemonBanner type="info" className="mb-4">
                     {progressLabel || 'Updating notebook results…'}
@@ -266,12 +324,10 @@ export function NotebookAppBuilder({
                             onUseNotebook={useNotebookLayout}
                         />
                     )}
-                    <main className={cn('min-w-0', !displayedLayout.full_width && 'NotebookAppBuilder__page')}>
+                    <main className={cn('min-w-0', !layout.full_width && 'NotebookAppBuilder__page')}>
                         <div className="mb-4">
-                            <h1 className="mb-2">{displayedLayout.title || notebook?.title || 'Untitled app'}</h1>
-                            {displayedLayout.description && (
-                                <p className="text-secondary">{displayedLayout.description}</p>
-                            )}
+                            <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
+                            {layout.description && <p className="text-secondary">{layout.description}</p>}
                             {!editing && canEditNotebook && !isTemplate && (
                                 <NotebookRunAllButton type="secondary" size="small" />
                             )}
@@ -280,7 +336,7 @@ export function NotebookAppBuilder({
                             <LemonTabs
                                 activeKey={selectedTab}
                                 onChange={selectTab}
-                                tabs={displayedLayout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
+                                tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
                             />
                             {editing && (
                                 <LemonMenu
@@ -324,7 +380,7 @@ export function NotebookAppBuilder({
                             />
                         )}
                         <NotebookAppCanvas
-                            layout={displayedLayout}
+                            layout={layout}
                             activeTab={selectedTab}
                             cells={cells}
                             staleNodeIds={staleNodeIds}

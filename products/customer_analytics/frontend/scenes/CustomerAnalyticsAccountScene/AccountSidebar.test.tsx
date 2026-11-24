@@ -5,6 +5,8 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +14,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { AccountApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import type {
+    AccountApi,
+    CustomPropertyDefinitionApi,
+    PinnedAccountPropertiesSourceApi,
+} from '../../generated/api.schemas'
 import { AccountSidebar } from './AccountSidebar'
 import { accountSidebarPropertiesLogic } from './accountSidebarPropertiesLogic'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
@@ -163,4 +169,128 @@ describe('AccountSidebar', () => {
         expect(screen.getByText('Could not refresh pinned properties. These values may be out of date.')).toBeVisible()
         expect(screen.getByDisplayValue('Draft to retain')).toBeVisible()
     })
+
+    it.each([
+        {
+            name: 'shows a project default LemonTag when inheriting project defaults',
+            todayRailNav: false,
+            pinnedProperties: [{ kind: 'custom_property' as const, id: 'property-1' }],
+            source: { kind: 'project' as const, roles: [] },
+            expectedLabels: ['Project default'],
+            expectedChipClass: 'LemonTag',
+        },
+        {
+            name: 'shows a project default Quill Badge when TODAY_RAIL_NAV is enabled',
+            todayRailNav: true,
+            pinnedProperties: [{ kind: 'custom_property' as const, id: 'property-1' }],
+            source: { kind: 'project' as const, roles: [] },
+            expectedLabels: ['Project default'],
+            expectedChipClass: 'quill-badge',
+        },
+        {
+            name: 'shows one chip per contributing role in merge order',
+            todayRailNav: false,
+            pinnedProperties: [{ kind: 'custom_property' as const, id: 'property-1' }],
+            source: {
+                kind: 'role' as const,
+                roles: [
+                    { id: 'role-analytics', name: 'Analytics' },
+                    { id: 'role-csm', name: 'Customer success' },
+                ],
+            },
+            expectedLabels: ['Analytics', 'Customer success'],
+            expectedChipClass: 'LemonTag',
+        },
+        {
+            name: 'hides source chips when personal pins are saved',
+            todayRailNav: false,
+            pinnedProperties: [{ kind: 'custom_property' as const, id: 'property-1' }],
+            source: { kind: 'personal' as const, roles: [] },
+            expectedLabels: [],
+            expectedChipClass: null,
+        },
+        {
+            name: 'hides source chips when no properties are pinned',
+            todayRailNav: false,
+            pinnedProperties: [],
+            source: { kind: 'project' as const, roles: [] },
+            expectedLabels: [],
+            expectedChipClass: null,
+        },
+    ])(
+        '$name',
+        async ({
+            todayRailNav,
+            pinnedProperties,
+            source,
+            expectedLabels,
+            expectedChipClass,
+        }: {
+            name: string
+            todayRailNav: boolean
+            pinnedProperties: { kind: 'custom_property'; id: string }[]
+            source: PinnedAccountPropertiesSourceApi
+            expectedLabels: string[]
+            expectedChipClass: string | null
+        }) => {
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags(todayRailNav ? [FEATURE_FLAGS.TODAY_RAIL_NAV] : [], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
+            })
+            const definition: CustomPropertyDefinitionApi = {
+                id: 'property-1',
+                name: 'Plan',
+                display_type: 'text',
+                target_type: 'account',
+                is_canonical: false,
+                has_workflow_reference: false,
+                references: [],
+                source: null,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by: 1,
+                updated_at: null,
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:project_id/accounts/:account_id/': account,
+                    '/api/projects/:project_id/user_customer_analytics_config/@me/': {
+                        pinned_properties: pinnedProperties,
+                        pinned_properties_source: source,
+                        available_default_pinned_properties: [],
+                    },
+                    '/api/projects/:project_id/custom_property_definitions/': { count: 1, results: [definition] },
+                    '/api/projects/:project_id/account_relationship_definitions/': { count: 0, results: [] },
+                    '/api/projects/:project_id/accounts/:account_id/relationships/': [],
+                    '/api/projects/:project_id/accounts/:account_id/custom_property_values/': [
+                        {
+                            id: 'value-1',
+                            definition_id: definition.id,
+                            account_id: account.id,
+                            value: 'Starter',
+                            created_at: '2026-01-01T00:00:00Z',
+                            created_by_id: 1,
+                        },
+                    ],
+                },
+            })
+            const { container } = render(
+                <BindLogic logic={customerAnalyticsAccountSceneLogic} props={{ accountId: account.id }}>
+                    <AccountSidebar account={account} />
+                </BindLogic>
+            )
+            if (pinnedProperties.length > 0) {
+                await screen.findByText('Starter')
+            } else {
+                await screen.findByText('Pin the account details you use most.')
+            }
+
+            const chips = Array.from(container.querySelectorAll('[data-attr="account-pinned-properties-source"]'))
+            expect(
+                chips.map((chip) => ({
+                    label: chip.textContent,
+                    matchesVariant: expectedChipClass ? chip.classList.contains(expectedChipClass) : true,
+                }))
+            ).toEqual(expectedLabels.map((label) => ({ label, matchesVariant: true })))
+        }
+    )
 })
