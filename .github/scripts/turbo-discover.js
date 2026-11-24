@@ -597,11 +597,28 @@ function celeryTaskModules(product, repoRoot) {
     return found
 }
 
+// Python runs the __init__.py of every package above a module before the module itself. These
+// are the ones inside the product, from the file's own package up to products/<product>/.
+function packageInitsAbove(file, product, repoRoot) {
+    const productDir = `${PRODUCTS_DIR}${product}`
+    const found = []
+    let dir = path.posix.dirname(file)
+    while (dir === productDir || dir.startsWith(`${productDir}/`)) {
+        const init = `${dir}/__init__.py`
+        if (init !== file && fs.existsSync(path.join(repoRoot, init))) {
+            found.push(init)
+        }
+        dir = path.posix.dirname(dir)
+    }
+    return found
+}
+
 // Code outside a product runs more of the product than the files it imports: each of those
-// files runs what it imports in turn. So a product's watched set grows by every file of the
-// product that is reachable inside it from a file code outside imports, from a watched file, or
-// from a Celery task module. The map holds every import, a function-local one too, so the
-// closure follows those as well. Without a map no product counts as isolated.
+// files runs what it imports in turn, and the package __init__.py files above it. So a
+// product's watched set grows by every file of the product that is reachable inside it from a
+// file code outside imports, from a watched file, or from a Celery task module. The map holds
+// every import, a function-local one too, so the closure follows those as well. Without a map
+// no product counts as isolated.
 function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
     if (watched.status !== 'ok') {
         return watched
@@ -640,7 +657,7 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
                 continue
             }
             reached.add(file)
-            queue.push(...(importsInside.get(file) ?? []))
+            queue.push(...(importsInside.get(file) ?? []), ...packageInitsAbove(file, product, repoRoot))
         }
         closed.set(product, reached)
     }

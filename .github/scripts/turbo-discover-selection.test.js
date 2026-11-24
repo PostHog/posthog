@@ -615,6 +615,44 @@ test('a product file that outside code reaches through the product runs Django, 
     assert.equal(decideCanvas({ watched: unread }).runLegacyReason, 'watched_unavailable')
 })
 
+// Writes empty files at the given repo paths under a new temporary root, and returns the root.
+const treeWith = (prefix, files) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+    for (const file of files) {
+        fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), '')
+    }
+    return root
+}
+
+// Python runs every package __init__.py above a module it imports, and what each one imports.
+test('the package __init__.py files above a reached product file run Django, and what they import', () => {
+    const root = treeWith('package-inits-', [
+        'products/canvas/__init__.py',
+        'products/canvas/backend/__init__.py',
+        'products/canvas/backend/signals.py',
+        'products/canvas/backend/logic/__init__.py',
+        'products/canvas/backend/logic/queries.py',
+        'products/canvas/backend/logic/unused.py',
+    ])
+    const fileMap = {
+        'products/canvas/backend/logic/queries.py': ['posthog/models/organization.py'],
+        'products/canvas/backend/signals.py': ['products/canvas/backend/__init__.py'],
+    }
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
+    const cases = [
+        ['products/canvas/backend/logic/__init__.py', true],
+        ['products/canvas/backend/__init__.py', true],
+        ['products/canvas/__init__.py', true],
+        ['products/canvas/backend/signals.py', true],
+        ['products/canvas/backend/logic/unused.py', false],
+    ]
+    for (const [file, runLegacy] of cases) {
+        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+})
+
 // Celery loads a product's task modules by name, so no import edge reaches them.
 test('a change to a Celery task module of an isolated product runs Django', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-'))
