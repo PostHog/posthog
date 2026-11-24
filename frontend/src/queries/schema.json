@@ -40897,7 +40897,8 @@
                 "posthog_conversions_not_ready",
                 "posthog_conversion_goals_unusable",
                 "posthog_campaigns_unmatched",
-                "posthog_conversions_failed"
+                "posthog_conversions_failed",
+                "hidden_search_spend"
             ],
             "type": "string"
         },

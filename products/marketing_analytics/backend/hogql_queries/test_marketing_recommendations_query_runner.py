@@ -458,6 +458,29 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "account",
                 [],
             ),
+            (
+                "spend_on_hidden_searches",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                ["hidden_search_spend"],
+                SIGNUP,
+                2000000000,
+            ),
+            (
+                "search_terms_synced_less_recently",
+                None,
+                BOTH_SPLITS,
+                "alpha",
+                200.0,
+                "target_cpa",
+                [],
+                SIGNUP,
+                2000000000,
+                "2026-01-20",
+            ),
         ]
     )
     def test_counts_only_the_selected_conversion_actions(
@@ -470,6 +493,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         benchmark_source: str,
         gaps: list[str],
         signup: str = SIGNUP,
+        campaign_cost_micros: int = 1000000000,
+        campaign_day: str = "2026-01-15",
     ) -> None:
         campaigns = self._table(
             "campaign",
@@ -492,7 +517,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "metrics_cost_micros": "Int64",
                 "metrics_conversions": "Float64",
             },
-            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+            f"campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,{campaign_day},{campaign_cost_micros},10\n",
         )
         term_columns = {
             "search_term_view_search_term": "String",
