@@ -20,6 +20,7 @@ from posthog.managed_proxy import (
     reconcile_cloudflare_proxy,
 )
 from posthog.models import ProxyRecord
+from posthog.models.proxy_record import CLOUDFLARE_DEPROVISIONED_STATES, CLOUDFLARE_RECOVERY_STATES
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 from posthog.temporal.common.client import async_connect
@@ -133,7 +134,11 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: b
                 asyncio.run(_resume_proxy(record))
                 return
             if cloudflare and active:
-                if from_sweep and record.status == ProxyRecord.Status.ERRORING and not record.needs_activation_recovery:
+                if (
+                    from_sweep
+                    and record.status == ProxyRecord.Status.ERRORING
+                    and record.cloudflare_activation_state not in CLOUDFLARE_RECOVERY_STATES
+                ):
                     return
                 if proxy_domain_can_be_provisioned(record):
                     asyncio.run(_resume_proxy(record))
@@ -147,14 +152,14 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: b
 @skip_team_scope_audit
 def reconcile_managed_proxies() -> None:
     pending = ProxyRecord.objects.filter(
-        Q(organization__is_active=False, cloudflare_deprovisioned=False)
+        (Q(organization__is_active=False) & ~Q(cloudflare_activation_state__in=CLOUDFLARE_DEPROVISIONED_STATES))
         | Q(status=ProxyRecord.Status.DELETING)
         | (
             ~Q(organization__is_active=False)
             & (
                 Q(status=ProxyRecord.Status.ISSUING)
                 | (
-                    Q(needs_activation_recovery=True)
+                    Q(cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES)
                     & ~Q(status__in=(ProxyRecord.Status.WAITING, ProxyRecord.Status.TIMED_OUT))
                 )
             )
