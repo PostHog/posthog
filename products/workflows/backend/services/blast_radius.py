@@ -124,7 +124,6 @@ def get_audience_size(
     user: User | None = None,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
-    reject_audience_reading_restricted_properties(team, filters, user)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
     # Preview matches the actual send: with dedup active, "affected" is the number of
     # sends (unique emails + email-less persons), not the number of matching persons.
@@ -143,10 +142,13 @@ def get_audience_size(
             realtime_cohort=realtime_cohort_status(realtime_cohort),
             rate_limited=audience_limit.rate_limited,
         )
+    # A realtime cohort's count and send read no masked property, so only the ClickHouse count is checked.
+    reject_audience_reading_restricted_properties(team, filters, user)
     applied_dedupe_key = dedupe_key if group_type_index is None else None
-    if applied_dedupe_key == EMAIL_DEDUPE_KEY and not can_read_email(user, team.pk):
-        # The deduped count groups people by email, which this user cannot read. The person count is never
-        # smaller than the deduped count, so a launch that checks it against the audience limit stays safe.
+    if applied_dedupe_key == EMAIL_DEDUPE_KEY and not (can_read_email(user, team.pk) and can_read_email(None, team.pk)):
+        # The deduped count groups people by email, so it matches the send only when both this user and the
+        # send, which runs without a user, can read email. The person count is never smaller than the deduped
+        # count, so a launch that checks it against the audience limit stays safe.
         applied_dedupe_key = None
     count = _cached_count_audience if use_cached_counts else _count_audience
     blast_radius = count(team, filters, group_type_index, applied_dedupe_key, user)

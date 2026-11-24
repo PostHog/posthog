@@ -168,6 +168,24 @@ class TestBlastRadiusDataScopes(SimpleTestCase):
                 ["person:read", "query:read"],
             ),
             (
+                "lowercase_group_hogql_filter",
+                {"type": "and", "values": [{"type": "hogql", "key": "1"}]},
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
+                "nested_lowercase_group_hogql_filter",
+                {"type": "AND", "values": [{"type": "or", "values": [{"type": "hogql", "key": "1"}]}]},
+                0,
+                ["person:read", "group:read", "query:read"],
+            ),
+            (
+                "top_level_hogql_filter_with_values_key",
+                [{"type": "hogql", "key": "1", "values": []}],
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
                 "nested_plain_group_filters",
                 {"type": "AND", "values": [{"type": "group", "key": "a"}]},
                 0,
@@ -175,6 +193,7 @@ class TestBlastRadiusDataScopes(SimpleTestCase):
             ),
             ("json_string_filters", '[{"type": "hogql", "key": "1"}]', None, ["person:read", "query:read"]),
             ("malformed_filter", ["group"], 0, ["person:read", "group:read", "query:read"]),
+            ("list_type_filter", [{"type": ["hogql"], "key": "1"}], None, ["person:read", "query:read"]),
         ]
     )
     def test_scopes_follow_what_the_filters_can_read(self, _name, properties, group_type_index, expected):

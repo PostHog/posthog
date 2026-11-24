@@ -384,6 +384,29 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         allowed = size(self.other_member)
         assert (allowed.affected, allowed.dedupe_key) == (2, EMAIL_DEDUPE_KEY)
 
+    def test_audience_size_falls_back_to_the_person_count_when_the_send_cannot_read_email(self):
+        email = PropertyDefinition.objects.get(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=email.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.READ.value,
+            organization_member_id=OrganizationMembership.objects.get(user=self.other_member).id,
+        )
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters={"properties": []},
+            group_type_index=None,
+            dedupe_key=EMAIL_DEDUPE_KEY,
+            sends_email=True,
+            user=self.other_member,
+        )
+
+        assert (size.affected, size.dedupe_key) == (2, None)
+
     def _size(self, user: User, filters: dict) -> int:
         return get_audience_size(
             team_id=self.team.pk,

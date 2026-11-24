@@ -9787,6 +9787,30 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (response.json()["affected"], response.json()["total"]) == (1, 1)
 
+    def test_group_send_ignores_another_group_types_default_property_restriction(self):
+        self._create_two_group_types({0: {"industry": "tech"}, 1: {"industry": "tech"}})
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="industry",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=1,
+        )
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=definition.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        condition = {
+            "properties": [
+                {"key": "industry", "type": "group", "value": "tech", "operator": "exact", "group_type_index": 0}
+            ]
+        }
+
+        assert get_user_blast_radius_persons(self.team, condition, group_type_index=0) == ["acme"]
+
     def test_group_count_keeps_other_group_type_restrictions_for_hogql_filters(self):
         self._create_two_group_types({0: {}, 1: {"secret": "hidden"}}, group_key="shared")
         self._restrict_for_member("secret", PropertyDefinition.Type.GROUP, group_type_index=1)

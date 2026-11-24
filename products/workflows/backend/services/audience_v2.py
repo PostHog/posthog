@@ -67,8 +67,9 @@ def get_dedupe_audience_count_v2(
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
-    if not can_read_email(user, team.pk):
-        # A masked email makes every person their own dedupe group, so the count would be the person count.
+    if not (can_read_email(user, team.pk) and can_read_email(None, team.pk)):
+        # A masked email makes every person their own dedupe group. The send runs without a user, so a count
+        # that reads email the send cannot read would be smaller than the send.
         raise ValidationError({"dedupe_key": "Sizing a deduplicated audience needs access to the email property."})
 
     with unevaluable_filters_as_validation_errors():

@@ -83,26 +83,51 @@ def blast_radius_data_scopes(properties: object, is_group: bool) -> list[str]:
             properties = json.loads(properties)
         except json.JSONDecodeError:
             return ["person:read", "group:read", "query:read"]
-    leaves = list(_raw_property_leaves(properties)) if properties is not None else []
+    leaves = list(iter_raw_condition_properties(properties))
     if not is_group:
         scopes = ["person:read"]
     elif all(isinstance(prop, dict) and prop.get("type") == "group" for prop in leaves):
         scopes = ["group:read"]
     else:
         scopes = ["person:read", "group:read"]
-    if any(not isinstance(prop, dict) or prop.get("type") in QUERY_SCOPED_PROPERTY_TYPES for prop in leaves):
+    if any(
+        not isinstance(prop, dict)
+        or not isinstance(prop.get("type"), str | None)
+        or prop.get("type") in QUERY_SCOPED_PROPERTY_TYPES
+        for prop in leaves
+    ):
         scopes.append("query:read")
     return scopes
 
 
-def _raw_property_leaves(properties: object) -> Iterator[object]:
-    if isinstance(properties, list):
-        for prop in properties:
-            yield from _raw_property_leaves(prop)
-    elif isinstance(properties, dict) and properties.get("type") in ("AND", "OR") and "values" in properties:
-        yield from _raw_property_leaves(properties["values"])
-    else:
+def iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
         yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
+        return
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
 
 
 def sampled_person_blast_radius(
@@ -731,7 +756,11 @@ def _get_group_blast_radius_persons(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, globals=_group_property_globals(group_type_index)),
+        context=HogQLContext(
+            team_id=team.pk,
+            globals=_group_property_globals(group_type_index),
+            restricted_properties=_restrictions_for_group_filter(None, team, prop_group, group_type_index),
+        ),
     )
 
     # Extract group keys from results

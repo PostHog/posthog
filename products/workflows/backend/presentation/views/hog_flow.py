@@ -5968,8 +5968,8 @@ class HogFlowViewSet(
             return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
-            # outbound messages, so it's person-data access on top of the workflow write - same
-            # rationale as user_blast_radius. Listing jobs/schedules stays workflow-read.
+            # outbound messages, so it's person-data access on top of the workflow write.
+            # Listing jobs/schedules stays workflow-read.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
@@ -5979,7 +5979,7 @@ class HogFlowViewSet(
             # A body that fails validation gets the strictest scopes, and the handler then rejects it.
             serializer = BlastRadiusRequestSerializer(data=request.data)
             if not serializer.is_valid():
-                return ["hog_flow:read", "person:read", "group:read"]
+                return ["hog_flow:read", "person:read", "group:read", "query:read"]
             params = serializer.validated_data
             return [
                 "hog_flow:read",
@@ -5987,7 +5987,7 @@ class HogFlowViewSet(
             ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
-        # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
+        # on top of workflow read. A hog_flow:read-only token must not be
         # able to enumerate who a workflow ran for. The count endpoint returns no person data but
         # accepts a distinct_id filter, so without person:read it would be a person-existence oracle.
         if self.action in ("invocation_results", "invocation_result", "invocation_results_count"):
