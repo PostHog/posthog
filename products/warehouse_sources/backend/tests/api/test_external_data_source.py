@@ -1884,10 +1884,9 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.MySQLSource.validate_credentials_for_access_method",
-        return_value=(True, None),
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source.MySQLSource.validate_credentials_for_access_method"
     )
-    def test_patch_mysql_source_keeps_its_binlog_stream(self, _mock_validate):
+    def test_patch_mysql_source_keeps_its_binlog_stream(self, mock_validate):
         connection = {"host": "localhost", "port": 3306, "database": "app", "user": "test", "schema": "app"}
         stream = {"cdc_binlog_position": "0/1/1:4", "cdc_server_uuid": "uuid-a", "cdc_server_id": 424242}
         source = ExternalDataSource.objects.create(
@@ -1900,16 +1899,25 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={**connection, "password": "test", "cdc_enabled": True, **stream},
         )
 
+        def capture_confirms_a_newer_position(*_args, **_kwargs):
+            SourceInputsStore.update_runtime(
+                ExternalDataSource.objects.get(pk=source.pk), {"cdc_binlog_position": "0/1/2:4"}
+            )
+            return True, None
+
+        mock_validate.side_effect = capture_confirms_a_newer_position
+
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"job_inputs": {**connection, "cdc_binlog_position": "0/1/9:4"}},
+            data={"job_inputs": {**connection, "port": 3307, "cdc_binlog_position": "0/1/9:4"}},
             format="json",
         )
 
         assert response.status_code == 200, response.json()
+        mock_validate.assert_called_once()
         source.refresh_from_db()
         assert {key: source.job_inputs.get(key) for key in stream} == {
-            "cdc_binlog_position": "0/1/1:4",
+            "cdc_binlog_position": "0/1/2:4",
             "cdc_server_uuid": "uuid-a",
             "cdc_server_id": "424242",
         }
@@ -5511,6 +5519,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources",
         return_value=None,
@@ -5519,7 +5528,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch.object(MySQLCDCAdapter, "management_connection", return_value=contextlib.nullcontext(object()))
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_mysql_cdc_reads_primary_keys_through_its_engine(
-        self, mock_get_source, _mock_connection, mock_primary_keys, _mock_setup
+        self, _name, flag_enabled, mock_get_source, _mock_connection, mock_primary_keys, _mock_setup
     ):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
@@ -5541,7 +5550,7 @@ class TestExternalDataSource(APIBaseTest):
             )
         ]
 
-        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: True):
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: flag_enabled):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
@@ -5556,6 +5565,11 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
 
+        if not flag_enabled:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "CDC must be enabled on the source" in response.json()["message"]
+            mock_primary_keys.assert_not_called()
+            return
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert mock_primary_keys.call_args.args[1:] == ("app", ["orders"])
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="orders")
@@ -12184,6 +12198,18 @@ class TestEnableCDC(APIBaseTest):
         )
         assert response.status_code == 400
         assert "CDC is not supported" in response.json()["message"]
+
+    @patch.object(MySQLCDCAdapter, "validate_prerequisites", return_value=[])
+    def test_enable_cdc_needs_the_engine_release_flag(self, mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, source_type="MySQL")
+        with patch(_TEAM_FLAG, new=lambda *_args, **_kwargs: False):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+                data={"cdc_management_mode": "posthog"},
+                format="json",
+            )
+        assert response.status_code == 400, response.content
+        mock_validate.assert_not_called()
 
     def test_enable_cdc_rejects_when_already_enabled(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)

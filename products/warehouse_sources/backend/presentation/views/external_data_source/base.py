@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
-import pymysql
 import structlog
 from psycopg import OperationalError
 from rest_framework import viewsets
@@ -48,6 +47,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SSLRequiredError,
     TemporaryHostResolutionError,
     WebhookSource,
+    is_cdc_connection_error,
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.facade.types import SourceKey
@@ -58,14 +58,20 @@ logger = structlog.get_logger(__name__)
 # 400 without capturing, so they stay out of error tracking.
 _EXPECTED_CONNECTION_ERRORS = (
     OperationalError,
-    pymysql.err.OperationalError,
     BaseSSHTunnelForwarderError,
     SSLRequiredError,
     HostNotAllowedError,
     TemporaryHostResolutionError,
 )
 
+
+def is_expected_connection_error(exc: BaseException, source_type: str | None) -> bool:
+    """A failure to reach the customer's database, which the views report as a 400 without capturing it."""
+    return isinstance(exc, _EXPECTED_CONNECTION_ERRORS) or is_cdc_connection_error(source_type, exc)
+
+
 __all__ = [
+    "is_expected_connection_error",
     "ExternalDataSourceViewSetBase",
     "SourceRegistry",
     "bulk_create_external_data_job_schedules",

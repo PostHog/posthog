@@ -1001,11 +1001,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # row write, and the source lock of the copy holds until the source save commits.
         with transaction.atomic():
             if "job_inputs" in validated_data:
+                job_inputs = validated_data.pop("job_inputs")
+                # Capture moves its stored position while this request runs, so take the CDC state from the
+                # locked row rather than from the read at the start of the request.
+                locked = ExternalDataSource._base_manager.select_for_update().get(pk=instance.pk)
+                current_job_inputs = SourceInputsStore.load_settings(locked)
+                for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
+                    if key in current_job_inputs:
+                        job_inputs[key] = current_job_inputs[key]
+                    else:
+                        job_inputs.pop(key, None)
                 # An edit of credentials that other sources or products use raises `SharedCredentialsError`
                 # (a 409) unless the request confirms it.
                 SourceInputsStore.assign(
                     instance,
-                    validated_data.pop("job_inputs"),
+                    job_inputs,
                     shared_credentials=SharedCredentialsEdit.CONFIRMED
                     if confirmed_shared_edit
                     else SharedCredentialsEdit.REFUSE,
@@ -1843,12 +1853,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except base._EXPECTED_CONNECTION_ERRORS as e:
+                except Exception as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
                     # user/upstream connection problems, not bugs in our code, and capturing every
                     # one floods error tracking. Mirrors the CDC-prerequisite handlers below.
+                    if not base.is_expected_connection_error(e, new_source_model.source_type):
+                        raise
                     SourceInputsStore.discard_created(new_source_model)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,

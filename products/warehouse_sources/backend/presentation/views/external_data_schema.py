@@ -1770,9 +1770,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         sync_type = data.get("sync_type")
 
-        if sync_type == ExternalDataSchema.SyncType.CDC:
+        if sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC:
             # The publication step below skips types without an adapter, so accepting one here would
-            # save a `cdc` label that nothing can read a change stream for.
+            # save a `cdc` label that nothing can read a change stream for. A table already on CDC keeps
+            # saving when its engine's release flag is turned off.
             if cdc_engine_for_team(instance.source.source_type, instance.team_id) is None:
                 raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
 

@@ -266,6 +266,12 @@ def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -
     return _adapter_for(source_type) is not None
 
 
+def is_cdc_connection_error(source_type: ExternalDataSourceType | str | None, exc: BaseException) -> bool:
+    """Whether the source type's CDC engine reads ``exc`` as a failure to reach the customer's database."""
+    adapter = _adapter_for(source_type)
+    return adapter is not None and adapter.is_connection_error(exc)
+
+
 def _adapter_for(source_type: ExternalDataSourceType | str | None) -> CDCSourceAdapter[CDCConfig] | None:
     if source_type is None:
         return None

@@ -390,7 +390,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         source_type = serializer.validated_data["source_type"]
 
         if cdc_engine_for_team(source_type, self.team_id) is None:
-            supported = ", ".join(sorted(str(supported_type) for supported_type in cdc_supported_source_types()))
+            supported = ", ".join(
+                sorted(
+                    str(supported_type)
+                    for supported_type in cdc_supported_source_types()
+                    if cdc_engine_for_team(supported_type, self.team_id) is not None
+                )
+            )
             return setup_error_response(
                 SourceSetupErrorCode.CDC_UNSUPPORTED_SOURCE_TYPE,
                 f"Source type '{source_type}' does not support change data capture (CDC). "
@@ -464,16 +470,16 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 setup=config_data,
                 team_id=self.team_id,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Probing a user-supplied database to validate it is expected to fail when the host,
-            # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
-            # to the wizard as a 400, but don't capture it — these are user/upstream connection
-            # problems, not bugs in our code, and capturing every one floods error tracking.
-            return setup_error_response(
-                SourceSetupErrorCode.CONNECTION_FAILED,
-                f"Could not connect to {source_type} to check prerequisites: {e}",
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, source_type):
+                # Probing a user-supplied database to validate it is expected to fail when the host,
+                # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
+                # to the wizard as a 400, but don't capture it — these are user/upstream connection
+                # problems, not bugs in our code, and capturing every one floods error tracking.
+                return setup_error_response(
+                    SourceSetupErrorCode.CONNECTION_FAILED,
+                    f"Could not connect to {source_type} to check prerequisites: {e}",
+                )
             base.capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return setup_error_response(
                 SourceSetupErrorCode.CONNECTION_FAILED,
@@ -537,17 +543,17 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 schema=schema_hint,
                 setup=request.data,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Probing the source's database to validate it is expected to fail when the host,
-            # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
-            # connection. Surface it as a 400, but don't capture it — these are user/upstream
-            # connection problems, not bugs in our code, and capturing every one floods error
-            # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to check prerequisites: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Probing the source's database to validate it is expected to fail when the host,
+                # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
+                # connection. Surface it as a 400, but don't capture it — these are user/upstream
+                # connection problems, not bugs in our code, and capturing every one floods error
+                # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to check prerequisites: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -633,15 +639,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 schema=schema_hint,
                 setup=payload,
             )
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
-            # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
-            # check_cdc_prerequisites_for_source handler above.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to check prerequisites: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
+                # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
+                # check_cdc_prerequisites_for_source handler above.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to check prerequisites: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -888,14 +894,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            # Expected user/upstream connection failure — surface as a 400 without capturing,
-            # mirroring the enable_cdc handler.
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Could not connect to source to repair CDC: {e}"},
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                # Expected user/upstream connection failure — surface as a 400 without capturing,
+                # mirroring the enable_cdc handler.
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Could not connect to source to repair CDC: {e}"},
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -972,14 +978,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except base._EXPECTED_CONNECTION_ERRORS as e:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={
-                    "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
-                },
-            )
         except Exception as e:
+            if base.is_expected_connection_error(e, instance.source_type):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Could not connect to source to resume CDC — check the credentials and try again: {e}"
+                    },
+                )
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
