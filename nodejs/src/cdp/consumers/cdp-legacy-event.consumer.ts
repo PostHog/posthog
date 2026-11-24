@@ -108,7 +108,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             deps.postgres,
             deps.teamManager,
             deps.pubSub,
-            config.CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER
+            config.CDP_LEGACY_EVENT_CONSUMER_WEBHOOKS_SKIP_BY_TEAM_HEADER,
+            config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
         )
 
         this.pluginConfigsLoader = new LazyLoader({
