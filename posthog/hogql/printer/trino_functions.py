@@ -57,7 +57,6 @@ TRINO_SEQUENCE_LIMIT_MESSAGE = (
 
 
 def bounded_sequence(start: str, stop: str, step: int = 1) -> str:
-    """Trino `sequence(start, stop[, step])` built in blocks of 10,000 entries, up to 1,000,000 entries."""
     block = TRINO_SEQUENCE_MAX_ENTRIES * step
     step_arg = "" if step == 1 else f", {step}"
     bounds = "__hogql_sequence_bounds"
@@ -81,6 +80,13 @@ def array_indexes(value: str) -> str:
 def _with_bound_array(value: str, body: Callable[[str], str]) -> str:
     bound = "__hogql_bound_array"
     return f"element_at(transform(ARRAY[{value}], {bound} -> {body(bound)}), 1)"
+
+
+def _limit_prefix_scan(name: str, value: str, body: str) -> str:
+    return (
+        f"IF(cardinality({value}) > {TRINO_SEQUENCE_MAX_ENTRIES}, "
+        f"fail('{name} supports arrays of up to {TRINO_SEQUENCE_MAX_ENTRIES:,} entries in Trino mode'), {body})"
+    )
 
 
 TRINO_FUNCTION_RENAMES: dict[str, str] = {
@@ -950,11 +956,13 @@ def _array_enumerate_dense(args: list[str]) -> str:
     _require_args("arrayEnumerateDense", args, 1)
     return _with_bound_array(
         args[0],
-        lambda value: (
+        lambda value: _limit_prefix_scan(
+            "arrayEnumerateDense",
+            value,
             f"IF(cardinality({value}) = 0, ARRAY[], "
             f"transform({array_indexes(value)}, __hogql_index -> "
             f"array_position(transform(array_distinct(slice({value}, 1, __hogql_index)), "
-            f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))"
+            f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))",
         ),
     )
 
@@ -965,11 +973,13 @@ def _array_enumerate_uniq(args: list[str]) -> str:
     source = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
     return _with_bound_array(
         source,
-        lambda value: (
+        lambda value: _limit_prefix_scan(
+            "arrayEnumerateUniq",
+            value,
             f"IF(cardinality({value}) = 0, ARRAY[], "
             f"transform({array_indexes(value)}, __hogql_index -> "
             f"cardinality(filter(slice({value}, 1, __hogql_index), __hogql_value -> "
-            f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))"
+            f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))",
         ),
     )
 

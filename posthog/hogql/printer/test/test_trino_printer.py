@@ -480,6 +480,8 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("lowerUTF8(user_id)", 'lower("users"."user_id")'),
         ("arrayEnumerate([10, 20])", "ROW(CAST(1 AS BIGINT), CAST(cardinality(ARRAY[10, 20]) AS BIGINT))"),
         ("range(1000)", "fail('Trino mode supports arrays of up to 1,000,000 entries"),
+        ("arrayEnumerateDense(range(10))", "fail('arrayEnumerateDense supports arrays of up to 10,000 entries"),
+        ("arrayEnumerateUniq(range(10))", "fail('arrayEnumerateUniq supports arrays of up to 10,000 entries"),
         ("arrayExists(x -> x > 1, [1, 2])", 'any_match(ARRAY[1, 2], "x" -> ("x" > 1))'),
         ("cutToFirstSignificantSubdomain(user_id)", "array_join(slice(filter(split(lower(trim(TRAILING '.' FROM"),
         ("mapFromArrays([user_id], [1])", "map(__hogql_args[1], __hogql_args[2])"),
