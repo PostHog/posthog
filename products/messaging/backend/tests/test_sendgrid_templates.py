@@ -294,7 +294,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "a_link_url",
                 "<a href='-reset_link-'>Reset</a>",
-                "<a href='{{ variables.reset_link | join: \",\" }}'>Reset</a>",
+                "<a href='{% if variables.reset_link == nil %}-reset_link-{% else %}{{ variables.reset_link | "
+                'join: "," }}{% endif %}\'>Reset</a>',
+            ),
+            (
+                "part_of_a_url",
+                '<img src="/i/-hero-.png">',
+                '<img src="/i/{% if variables.hero == nil %}-hero-{% else %}{{ variables.hero | join: "," }}{% endif %}'
+                '.png">',
             ),
             ("hyphenated_words", "a well-known-fact --x-- -a-b-", "a well-known-fact --x-- -a-b-"),
             ("a_body_tag", "<p>x{</p>{<%body%>", '<p>x{</p>{{ "{" }}{{ variables.body | raw }}'),
@@ -324,6 +331,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert converted.html == expected
         assert converted.subject == '{{ variables.subject | join: "," }}'
         assert not any("can't convert" in note for note in converted.notes)
+        assert any("another style" in note for note in converted.notes)
         assert "subject" in " ".join(converted.send_notes)
 
     @parameterized.expand(
@@ -350,6 +358,9 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
             ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
             ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
+            ("url_encoded", "legacy", '<a href="%3C%25asm_group_unsubscribe_raw_url%25%3E">Leave</a>'),
+            ("handlebars_in_a_legacy_template", "legacy", '<a href="{{{unsubscribe}}}">Leave</a>'),
+            ("another_tag", "legacy", '<a href="<%unsubscribe%>">Leave</a>'),
             ("malformed_tag", "dynamic", '{{#if a}}<a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>'),
         ]
     )
@@ -358,12 +369,21 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert "unsubscribe link didn't convert" in " ".join(converted.notes)
 
-    def test_plain_text_keeps_the_url_of_a_link_whose_label_has_a_whole_condition(self) -> None:
+    def test_a_working_unsubscribe_link_is_not_reported_lost(self) -> None:
+        html = '<!-- <%asm_group_unsubscribe_raw_url%> --><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>'
+
+        converted = convert_version({"html_content": html}, generation="legacy")
+
+        assert not any("link didn't convert" in note for note in converted.notes)
+
+    def test_plain_text_keeps_the_url_of_a_link_whose_conditions_are_whole(self) -> None:
         converted = convert_version(
             {"html_content": '<a href="https://example.com/a">Hi -name-</a>'}, generation="legacy"
         )
 
         assert converted.text.endswith("{% endif %} (https://example.com/a)")
+        converted = convert_version({"html_content": "<a href='-link-'>Go</a>"}, generation="legacy")
+        assert converted.text.startswith("Go ({% if variables.link == nil %}-link-{% else %}")
 
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (

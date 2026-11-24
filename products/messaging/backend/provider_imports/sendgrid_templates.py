@@ -84,7 +84,6 @@ class _Found:
         self.contact_variables: set[str] = set()
         self.web_link = False
         self.legacy_variables: set[str] = set()
-        self.lost_unsubscribe = False
 
     def root_value(self, name: str) -> str | None:
         if name in _UNSUBSCRIBE_VARIABLES:
@@ -98,11 +97,12 @@ class _Found:
         return None
 
 
-_HANDLEBARS_UNSUBSCRIBE = re.compile(r"\{\{\{?[^{}]{0,50}\bunsubscribe")
-
-
-def _is_unsubscribe_tag(tag: str) -> bool:
-    return any(name in tag for name in (*_ASM_URLS, *_ASM_LINKS)) or bool(_HANDLEBARS_UNSUBSCRIBE.match(tag))
+# A tag for an unsubscribe link that is still in the converted text, so it prints as it stands.
+_LEFT_UNSUBSCRIBE_TAG = re.compile(
+    r"(?:<|&lt;|%3C)(?:%25|%)\s{0,5}\w{0,50}(?:unsubscribe|asm_preferences)"
+    r"|\{\{[^{}]{0,50}\bunsubscribe(?!_url)|\[\s{0,5}unsubscribe",
+    re.IGNORECASE,
+)
 
 
 def _split_asm_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
@@ -133,7 +133,10 @@ def _split_legacy_tags(text: str, is_html: bool) -> Iterator[str | TextValue]:
     for match in _LEGACY_TAG.finditer(text):
         yield text[position : match.start()]
         slot, substitution = match.group(1), match.group(2)
-        if substitution:
+        # Liquid reads `.size` as how many variables there are.
+        if substitution == "size":
+            yield TextValue(source=match.group(0), in_attribute=True)
+        elif substitution:
             yield TextValue(
                 source=match.group(0),
                 in_attribute=True,
@@ -171,7 +174,7 @@ def _convert_legacy(source: str, is_html: bool) -> tuple[str, _Found]:
         converted = converter.convert(tuple(_legacy_nodes(source)))
     except OutputTooLarge:
         return _kept_as_text(source, False, "make a template too large to convert")
-    found.unsupported = converter.unsupported
+    found.unsupported = [*converter.unsupported, *(match.group(0) for match in _ANY_LIQUID_OPENING.finditer(source))]
     for tag in converter.converted:
         if (match := _LEGACY_TAG.fullmatch(tag)) is None:
             continue
@@ -212,10 +215,6 @@ def _kept_as_text(source: str, contact_fields: bool, reason: str) -> tuple[str, 
     """The whole template as text. Its `<%...%>` tags stay text too, so a guarded body can't print unguarded."""
     found = _Found(contact_fields)
     found.unsupported.append(f"this template's tags, which {reason}")
-    found.lost_unsubscribe = any(
-        _is_unsubscribe_tag(match.group(0))
-        for match in (*_ASM_TAG.finditer(source), *_HANDLEBARS_UNSUBSCRIBE.finditer(source))
-    )
     return _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source), found
 
 
@@ -364,11 +363,15 @@ def plain_text_from_html(html: str) -> str:
     )
 
     def link(match: re.Match[str]) -> str:
-        # A condition inside the link can guard its URL. Expanding the link would print the URL outside that condition,
-        # unless the whole condition is in the label.
-        in_opening_tag = any(_control_tags(match.string, _Span(start=match.start(), end=match.start(2)), tags))
-        if in_opening_tag or not _opens_and_closes(
-            _control_tags(match.string, _Span(start=match.start(2), end=match.end()), tags), tags
+        # A condition can guard the URL. Expanding the link would print the URL outside that condition, unless each
+        # condition is whole inside the URL or inside the label.
+        around_url = (_Span(start=match.start(), end=match.start(1)), _Span(start=match.end(1), end=match.start(2)))
+        if any(slot for span in around_url for slot in _control_tags(match.string, span, tags)) or not all(
+            _opens_and_closes(_control_tags(match.string, span, tags), tags)
+            for span in (
+                _Span(start=match.start(1), end=match.end(1)),
+                _Span(start=match.start(2), end=match.end(2)),
+            )
         ):
             return match.group(0)
         label = _without_html_tags(match.group(2), tags).strip()
@@ -426,12 +429,16 @@ def convert_version(
         notes.append(
             f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
         )
-    if any(_is_unsubscribe_tag(tag) for state in states for tag in state.unsupported) or any(
-        state.lost_unsubscribe for state in states
-    ):
+    bodies = ((html, html_state), (text, text_state))[: 1 if generates_text else 2]
+    if any(_LEFT_UNSUBSCRIBE_TAG.search(body) and not state.uses_unsubscribe for body, state in bodies):
         notes.append(
             "This template's unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
             "send it as marketing email."
+        )
+    if generation == "legacy":
+        notes.append(
+            "PostHog converts SendGrid's <%...%> tags and -name- substitutions. If your app replaces text in another "
+            "style, such as %name%, rewrite it as a Liquid variable."
         )
     if any(state.web_link for state in states):
         notes.append("PostHog has no view in browser link, so the {{{Weblink}}} tag was removed.")

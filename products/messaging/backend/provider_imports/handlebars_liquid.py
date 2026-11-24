@@ -103,7 +103,7 @@ class TextValue:
     value_path: str | None = None
     # Prints the variable's HTML. Such a value only fits page text.
     raw: bool = False
-    # Prints the tag itself when the app passes no value. A link URL leaves it out, since it needs a value to work.
+    # Prints the tag itself when the app passes no value.
     stays_when_missing: bool = False
 
 
@@ -209,8 +209,7 @@ class HandlebarsToLiquid:
         if piece.value_path is None:
             return piece.liquid or ""
         value = self._print(piece.value_path, piece.raw, may_be_a_list=not piece.raw)
-        in_url = self._html is not None and self._html.where() == "value" and self._html.attribute in ("href", "src")
-        if not piece.stays_when_missing or in_url:
+        if not piece.stays_when_missing:
             return value
         return f"{{% if {piece.value_path} == nil %}}{_literal_text(piece.source)}{{% else %}}{value}{{% endif %}}"
 
