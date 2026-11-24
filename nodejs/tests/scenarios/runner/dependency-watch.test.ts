@@ -61,7 +61,12 @@ describe('dependency watch', () => {
         const startedAt = Date.now()
         const saturating = runnerBlocksMs > 0 ? setInterval(() => busyFor(runnerBlocksMs), 5) : undefined
         try {
-            const losses = await watchDependencies(() => failedProbes(probes), 60_000).stop()
+            const check = (): ReturnType<typeof failedProbes> => {
+                const checking = failedProbes(probes)
+                busyFor(runnerBlocksMs)
+                return checking
+            }
+            const losses = await watchDependencies(check, 60_000).stop()
             const topStep = { scale: 320, startedAt, endedAt: startedAt + 120_000 }
             return { losses, reason: dependencyReasonOf(losses, [topStep]) }
         } finally {
