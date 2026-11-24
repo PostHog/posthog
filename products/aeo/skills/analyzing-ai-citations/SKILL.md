@@ -43,8 +43,8 @@ papercuts that make the first query fail.
 ## Before you start
 
 - **The feature is flag-gated.** Every `aeo-prompts-*` tool and the API behind it require the
-  `aeo-citation-tracking` feature flag for the user's organization. A 403 with
-  "This feature is not available." means the flag is off, not a scope problem.
+  `web-analytics-content-autopilot` feature flag for the user. A 403 with the code
+  `feature_flag_required` means the flag is off, not a scope problem.
 - **Scopes.** Reads (`list`, `get`, `topics`, `checks`, `stats`, `versions`) need
   `web_analytics:read`; writes (`update`, `archive`, `import`) need `web_analytics:write`.
   A missing scope surfaces as `Missing PostHog API scope: 'web_analytics:read'` (the API says
@@ -54,7 +54,7 @@ papercuts that make the first query fail.
 - **Is the runner active on this project?** Run
   `SELECT count() FROM system.aeo_citation_checks WHERE created_at >= now() - INTERVAL 14 DAY`.
   Zero rows means no prompts are being checked for this project. The scheduled runner only
-  covers allowlisted projects with the flag on; it runs once a day at 07:30 UTC.
+  covers projects with active prompts whose organization is enabled for it; it runs once a day at 07:30 UTC.
 
 ## Data sources
 

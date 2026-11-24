@@ -13,8 +13,8 @@ from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.first_report_experiment import (
-    FIRST_REPORT_SCOUT_VARIANTS,
     capture_first_report_exposure,
+    onboarding_runs_first_report,
     resolve_first_report_experiment,
 )
 from products.signals.backend.first_report_scout import (
@@ -51,8 +51,7 @@ class InboxOnboardingActivation:
                     "reason": reason,
                     "experiment_variant": (config.onboarding or {}).get("first_report_variant"),
                     "first_report_outcome": first_report_state(config.team.parent_team_id or self.team_id).get("status")
-                    if job == "scout"
-                    and (config.onboarding or {}).get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS
+                    if job == "scout" and onboarding_runs_first_report(config.onboarding or {})
                     else None,
                 },
             )
@@ -69,24 +68,18 @@ class InboxOnboardingActivation:
 
     def _start_first_report(self, team: Team, state: dict[str, Any], *, final_attempt: bool) -> bool:
         experiment = resolve_first_report_experiment(team, raise_on_error=True)
-        # Every arm passes the same gates before exposure, so the arms share one denominator.
-        # A control project then gets the activation it would have had without the experiment.
-        runs_scout = experiment is not None and experiment.runs_scout
 
         def stop(status: FirstReportStatus) -> bool:
-            if state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS:
-                set_first_report_state(team.id, status)
-            return False if runs_scout else self._start_default_scout(team, state)
+            set_first_report_state(team.id, status)
+            return False
 
-        if experiment is None:
-            return stop(FirstReportStatus.INCOMPLETE)
         if (
             not InboxOnboardingReconciler.scouts_can_emit(team.id)
             or check_fleet_gates(team.id)
             or check_spend_gates(team)
         ):
             return stop(FirstReportStatus.INCOMPLETE)
-        if runs_scout and check_run_in_flight(team.id, FIRST_REPORT_SCOUT):
+        if check_run_in_flight(team.id, FIRST_REPORT_SCOUT):
             return True
         acting_user_id = state.get("activated_by")
         user = (
@@ -101,9 +94,8 @@ class InboxOnboardingActivation:
             if not final_attempt:
                 raise RuntimeError("Project data availability is unknown")
             return stop(FirstReportStatus.INCOMPLETE)
+        # Every arm passes the same gates before exposure, so the arms share one denominator.
         capture_first_report_exposure(team, experiment)
-        if not runs_scout:
-            return self._start_default_scout(team, state)
         scout, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
             team_id=team.id,
             skill_name=FIRST_REPORT_SCOUT,
@@ -115,7 +107,9 @@ class InboxOnboardingActivation:
                 "write_scopes": [],
             },
         )
-        set_first_report_state(team.id, FirstReportStatus.PENDING, activation_team_id=self.team_id)
+        set_first_report_state(
+            team.id, FirstReportStatus.PENDING, activation_team_id=self.team_id, experiment=experiment
+        )
         start_onboarding_signals_scout_run(
             sync_connect(), team_id=team.id, skill_name=scout.skill_name, run_note=context.prompt_context()
         )
@@ -160,22 +154,21 @@ class InboxOnboardingActivation:
         if state.get("jobs", {}).get(job) in ("started", "skipped"):
             return
         team = config.team.parent_team or config.team
-        enrolled = job == "scout" and bool(state.get("first_report_variant"))
-        first_report = state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS
+        first_report = job == "scout" and onboarding_runs_first_report(state)
         if team.organization.is_ai_data_processing_approved is not True:
-            if enrolled and first_report:
+            if first_report:
                 set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
             self._record_status(job, "skipped", "ai_consent_required")
             return
         try:
-            if enrolled:
+            if first_report:
                 started = self._start_first_report(team, state, final_attempt=final_attempt)
             elif job == "scout":
                 started = self._start_default_scout(team, state)
             else:
                 started = self._start_recommendations(team, state.get("activated_by"))
         except Exception:
-            if enrolled and first_report and final_attempt:
+            if first_report and final_attempt:
                 set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
             self._record_status(job, "failed" if final_attempt else "pending", "dispatch_error")
             raise

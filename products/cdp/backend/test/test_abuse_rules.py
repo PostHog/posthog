@@ -99,7 +99,24 @@ class TestAbuseRules(SimpleTestCase):
                 (Rule.REQUEST_CATCHER,),
             ),
             ("tunnel_subdomain", content(hog="fetch('https://abc123.ngrok-free.app/x')"), (Rule.REQUEST_CATCHER,)),
-            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.REQUEST_CATCHER,)),
+            ("oob_domain", content(hog="fetch('http://probe.oast.fun/')"), (Rule.SECURITY_CALLBACK,)),
+            (
+                "oob_domain_in_a_webhook_url",
+                content(inputs={"url": {"value": "https://c0ffee.oast.pro/collect"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_service_outside_the_shared_list",
+                content(inputs={"url": {"value": "https://probe.xss.ht/"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            (
+                "callback_collector_named_in_a_host_label",
+                content(inputs={"url": {"value": "https://foo-xss-hunter.example.workers.dev/c"}}),
+                (Rule.SECURITY_CALLBACK,),
+            ),
+            ("ordinary_workers_dev_host", content(inputs={"url": {"value": "https://api.example.workers.dev/c"}}), ()),
+            ("tool_name_inside_a_word", content(inputs={"url": {"value": "https://interactshop.example.com/c"}}), ()),
             ("catcher_lookalike", content(inputs={"url": {"value": "https://notwebhook.site/x"}}), ()),
             ("catcher_name_as_subdomain", content(inputs={"url": {"value": "https://webhook.site.example.com/x"}}), ()),
             (

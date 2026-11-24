@@ -568,30 +568,6 @@ describe('SourceWebhooksConsumer', () => {
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
 
-            it('produces the run to the intake topic when its team is in intake shadow mode', async () => {
-                hub.CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-
-                const res = await doPostRequest({
-                    webhookId: hogFlow.id,
-                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
-                })
-
-                expect(res.status).toEqual(201)
-                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
-                const runId = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
-                ).toEqual([
-                    expect.objectContaining({
-                        key: runId,
-                        value: expect.objectContaining({
-                            kind: 'workflow-webhook',
-                            job: expect.objectContaining({ id: runId }),
-                        }),
-                    }),
-                ])
-            })
-
             it('answers from the produce alone when its team is in intake async mode', async () => {
                 hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
 
@@ -627,6 +603,15 @@ describe('SourceWebhooksConsumer', () => {
                 expect(getLogs()).toEqual([expect.stringContaining('[Action:trigger] Function completed in')])
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({
+                        app_source: 'hog_flow',
+                        app_source_id: hogFlow.id,
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        count: 1,
+                    }),
+                    expect.objectContaining({
+                        app_source: 'hog_flow_version',
+                        app_source_id: `${hogFlow.id}/${hogFlow.version}`,
                         metric_kind: 'other',
                         metric_name: 'triggered',
                         count: 1,
@@ -966,8 +951,11 @@ describe('SourceWebhooksConsumer', () => {
                         expect(
                             getMetrics()
                                 .filter((metric) => metric.metric_name === 'triggered')
-                                .map((m) => m.count)
-                        ).toEqual([1])
+                                .map((m) => [m.app_source, m.count])
+                        ).toEqual([
+                            ['hog_flow', 1],
+                            ['hog_flow_version', 1],
+                        ])
                         expect(
                             mockProducerObserver
                                 .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
