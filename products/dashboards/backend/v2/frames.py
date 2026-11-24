@@ -52,6 +52,8 @@ MAX_LEGEND_NAME = 1024
 MAX_PIVOT_SERIES = 1000
 MAX_PIVOT_FIELDS = 20_000
 MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
+# A log table repeats its stream's labels on every line. Above this many label bytes, the result stays raw.
+MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
 
 
 @frozen
@@ -121,7 +123,7 @@ def _frames(
     if kind == "HogQLQuery":
         return hogql_frames(result, pivot=not as_table)
     if kind == "MetricsQuery":
-        return metrics_frames(source, result)
+        return metrics_frames(result)
     if kind == "TrendsQuery":
         try:
             return trends_frames(TrendsQuery.model_validate(source), result)
@@ -288,12 +290,12 @@ def _readable_breakdown(label: str) -> str:
 # Metrics (builder, SQL and PromQL), ported from PR #138426.
 
 
-def metrics_frames(query: Mapping[str, Any], result: Mapping[str, Any]) -> Optional[list[Frame]]:
+def metrics_frames(result: Mapping[str, Any]) -> Optional[list[Frame]]:
     series_list = result.get("results")
     if not isinstance(series_list, list):
         return None
-    interval = query.get("interval")
-    meta = _meta(result.get("resolved_date_range"), interval if isinstance(interval, str) else None, previous=False)
+    # The runner can coarsen the query's interval and the response does not say to what, so no interval is given.
+    meta = _meta(result.get("resolved_date_range"), None, previous=False)
     # Same naming as the metrics chart (metricsSeries.ts formatSeriesNames).
     several_clauses = len({series.get("clause") for series in series_list if series.get("clause")}) > 1
     frames: list[Frame] = []
@@ -330,7 +332,8 @@ def prometheus_frames(data: Mapping[str, Any]) -> Optional[list[Frame]]:
     result_type = data.get("resultType")
     results = data.get("result") or []
     if result_type == "streams":
-        return [streams_frame(results)]
+        frame = streams_frame(results)
+        return [frame] if frame else None
     if result_type not in ("matrix", "vector"):
         return None
     frames: list[Frame] = []
@@ -368,12 +371,20 @@ def _default_series_name(labels: Mapping[str, str], index: int) -> str:
     return "value" if index == 0 else f"series {index + 1}"
 
 
-def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Frame:
-    """Log lines as one table frame, newest first: time, line and the stream's labels."""
+def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Optional[Frame]:
+    """Log lines as one table frame, newest first: time, line and the stream's labels.
+
+    None when the labels repeated on every line would pass MAX_STREAM_LABEL_BYTES.
+    """
     rows: list[tuple[int, str, str]] = []
+    label_bytes = 0
     for stream in streams:
         labels = " ".join(f"{key}={value}" for key, value in (stream.get("stream") or {}).items())
-        for nanoseconds, line in stream.get("values") or []:
+        values = stream.get("values") or []
+        label_bytes += len(labels) * len(values)
+        if label_bytes > MAX_STREAM_LABEL_BYTES:
+            return None
+        for nanoseconds, line in values:
             rows.append((int(nanoseconds) // 1_000_000, str(line), labels))
     rows.sort(key=lambda row: row[0], reverse=True)
     return Frame(

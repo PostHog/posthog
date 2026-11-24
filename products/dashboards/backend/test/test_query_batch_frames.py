@@ -17,6 +17,7 @@ from products.dashboards.backend.v2.frames import (
     MAX_LEGEND_NAME,
     MAX_PIVOT_LABEL_BYTES,
     MAX_PIVOT_SERIES,
+    MAX_STREAM_LABEL_BYTES,
     Frame,
     FrameField,
     FrameMeta,
@@ -274,6 +275,22 @@ class TestFrameConverters(SimpleTestCase):
                 [[3000, 2000, 1000], ["third", "second", "first"], ["service=api", "service=web", "service=api"]],
             )
         ]
+
+    def test_log_streams_with_too_many_repeated_label_bytes_stay_raw(self) -> None:
+        labels = {"x": "y" * (MAX_STREAM_LABEL_BYTES // 2)}
+        result = {
+            "results": {"resultType": "streams", "result": [{"stream": labels, "values": [["1", "a"], ["2", "b"]]}]}
+        }
+
+        assert frames_for(QueryBatchLanguage.LOGQL, {}, result) is None
+
+    def test_metrics_frames_give_no_interval_the_runner_may_have_coarsened(self) -> None:
+        result = {"results": [{"labels": {}, "metricName": "up", "points": [{"time": NOW, "value": 1}]}]}
+
+        frames = frames_for(QueryBatchLanguage.QUERY, {"kind": "MetricsQuery", "interval": "minute"}, result)
+
+        assert frames is not None
+        assert frames[0]["meta"]["interval"] is None
 
     @parameterized.expand([("cached", list), ("fresh", tuple)])
     def test_hogql_html_tags_become_text_and_a_link_column(self, _name: str, sequence: type) -> None:
