@@ -111,6 +111,8 @@ Like ERROR_FILTER_ALLOW_LIST, but for an action name that other logics also use.
 whose path is given here handles its own failures, so the same action elsewhere still toasts.
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
+    loadRelease: 'products.notebooks.appBuilder.notebookAppViewerLogic',
+    refresh: 'products.notebooks.appBuilder.notebookAppViewerLogic',
     loadRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen

@@ -44,7 +44,7 @@ function settledCount<T>(
     previous: number
 ): number {
     if (result.status === 'fulfilled') {
-        return read(result.value) ?? previous
+        return result.value == null ? previous : (read(result.value) ?? previous)
     }
     return isAccessDenied(result.reason) ? 0 : previous
 }
