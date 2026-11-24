@@ -1,6 +1,8 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -13,6 +15,7 @@ from parameterized import parameterized
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     DateRange,
+    GenericCachedQueryResponse,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
     MarketingAnalyticsTableQueryResponse,
@@ -694,19 +697,17 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert all(rec.cpa is not None and rec.cpa.benchmarkSource == "account" for rec in review)
         assert [gap.kind for gap in response.dataGaps or []] == gaps
         # The fallback must not be served as fresh once the precompute it waited for lands.
-        assert (
-            runner._is_transient_result(
-                CachedMarketingAnalyticsRecommendationsQueryResponse(
-                    **response.model_dump(),
-                    is_cached=False,
-                    last_refresh=timezone.now(),
-                    next_allowed_client_refresh=timezone.now(),
-                    timezone="UTC",
-                    cache_key="key",
-                )
-            )
-            is not_ready
+        refreshed = datetime(2026, 1, 30, tzinfo=UTC)
+        cached = CachedMarketingAnalyticsRecommendationsQueryResponse(
+            **response.model_dump(),
+            is_cached=False,
+            last_refresh=refreshed,
+            next_allowed_client_refresh=refreshed,
+            timezone="UTC",
+            cache_key="key",
         )
+        # The cache read hands the runner its own typed response, which the base signature types loosely.
+        assert runner._is_transient_result(cast(GenericCachedQueryResponse, cached)) is not_ready
 
     @parameterized.expand(
         [
