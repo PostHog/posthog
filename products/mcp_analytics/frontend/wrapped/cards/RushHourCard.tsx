@@ -1,39 +1,54 @@
+import { cn } from 'lib/utils/css-classes'
+
 import type { MCPWrappedRushHourCardApi } from '../../generated/api.schemas'
 import { formatHour } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { NIGHT_SHIFT_HOGGIE } from '../wrappedTheme'
 
-const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const DAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const HOUR_LABELS = ['12am', '6am', '12pm', '6pm']
 
 export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX.Element {
     const detail = card.night_shift
         ? 'Agents did most of their calling at night.'
         : card.quiet_weekends
           ? 'Agents called most at this hour, and weekends were quiet.'
-          : 'Agents called your server most at this hour.'
+          : "That's when agents called your server the most."
     return (
         <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
                 {formatHour(card.weekday, card.hour)}
             </h2>
             <p className="MCPWrapped__rise m-0 text-base">
-                {detail} Times are in {card.timezone}.
+                <strong className="block">{detail}</strong>
+                Times are in {card.timezone}.
             </p>
             <div
-                className="MCPWrapped__rise grid grid-cols-[1rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"
+                className="MCPWrapped__rise grid mt-2 grid-cols-[1.5rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"
                 aria-label="Calls by weekday and hour"
             >
-                {DAY_LETTERS.map((letter, dayIndex) => (
-                    <div key={dayIndex} className="contents">
-                        <span className="self-center opacity-75">{letter}</span>
+                {DAY_LABELS.map((label, dayIndex) => (
+                    <div key={label} className="contents">
+                        <span className="self-center opacity-75">{label}</span>
                         {card.heat.slice(dayIndex * 24, dayIndex * 24 + 24).map((level, hour) => (
                             <span
                                 key={hour}
-                                className="aspect-square rounded-sm"
+                                className={cn(
+                                    'aspect-square rounded-sm',
+                                    dayIndex === card.weekday - 1 &&
+                                        hour === card.hour &&
+                                        'relative z-10 scale-125 ring-2 ring-white'
+                                )}
                                 style={{ background: `rgb(21 21 21 / ${0.06 + (level / 100) * 0.94})` }}
                             />
                         ))}
                     </div>
+                ))}
+                <span />
+                {HOUR_LABELS.map((label) => (
+                    <span key={label} className="col-span-6 pt-1 opacity-75">
+                        {label}
+                    </span>
                 ))}
             </div>
         </WrappedCard>
