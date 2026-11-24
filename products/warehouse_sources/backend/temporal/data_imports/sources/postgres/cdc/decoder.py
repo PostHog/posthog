@@ -795,8 +795,10 @@ def _parse_array(text: str, element_oid: int) -> list[Any]:
             elif text[position] == '"':
                 position += 1
                 parts = []
+                # Search for the closing quote again only once an escape has moved past it, so a run of
+                # escapes stays linear.
+                quote = text.index('"', position)
                 while True:
-                    quote = text.index('"', position)
                     backslash = text.find("\\", position, quote)
                     if backslash == -1:
                         parts.append(text[position:quote])
@@ -805,6 +807,8 @@ def _parse_array(text: str, element_oid: int) -> list[Any]:
                     parts.append(text[position:backslash])
                     parts.append(text[backslash + 1])
                     position = backslash + 2
+                    if position > quote:
+                        quote = text.index('"', position)
                 items.append(_cast_text_value("".join(parts), element_oid))
             else:
                 end = position
