@@ -177,11 +177,15 @@ class JudgeAttribution:
     """
 
     team: "Team"
-    user: "User"
+    # None for a check that no person runs, such as anomaly scoring. Its caller owns the rollout,
+    # so the judge checks only the organization's AI data processing consent.
+    user: "User | None"
     # Names the scheduled check, and stays the same across retries of it, so the judge can
     # reuse a verdict it already paid for. None for a simulation.
     evaluation_id: str | None = None
     is_agent_billable: bool = True
+    # The product key in LLM analytics. None keeps the AI detector's own key.
+    ai_product: str | None = None
 
 
 @frozen

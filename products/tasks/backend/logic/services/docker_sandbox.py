@@ -995,6 +995,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
+        run_policy: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -1019,6 +1020,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             pi_acp_conversation=pi_acp_conversation,
+            run_policy=run_policy,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"

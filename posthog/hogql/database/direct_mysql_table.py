@@ -12,12 +12,13 @@ class DirectMySQLTable(DirectSQLTable):
     def to_printed_mysql(self, context) -> str:
         if not self.mysql_schema.strip():
             raise QueryError("Direct MySQL tables require a database name.")
-        return ".".join(
+        table_ref = ".".join(
             [
                 escape_mysql_identifier(self.mysql_schema),
                 escape_mysql_identifier(self.mysql_table_name),
             ]
         )
+        return self.project_allowed_columns(table_ref, escape_mysql_identifier)
 
     def to_printed_postgres(self, context) -> str:
         raise QueryError("Direct MySQL tables cannot be printed into Postgres SQL")

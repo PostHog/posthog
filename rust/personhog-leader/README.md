@@ -134,8 +134,10 @@ the writer (produce an unapplyable record).
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
 pipeline's limiter. Properties nested past the parser's 128 levels emit
-`person_properties_depth_violation` the same way: once when an update is
-refused for it, and once when a stored person cannot be read because of it.
+`person_properties_depth_violation` the same way when an update is
+refused for it. A stored person that cannot be read because of it gets no
+warning from the leader: the ingestion pipeline sends one when it drops the
+person's event.
 Such a person can still be deleted: a delete seals from the row's version
 and creation time and never parses the properties. They go through a dedicated fire-and-forget producer,
 not the changelog producer, because the warnings topic can live on a

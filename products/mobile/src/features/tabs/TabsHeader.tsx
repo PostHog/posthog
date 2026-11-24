@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-import { LiveAudienceControl } from '@/features/live/LiveAudienceControl'
+import { LiveFilterButton } from '@/features/live/LiveFilterButton'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { HEADER_FADE, HeaderBackdrop } from '@/ui/HeaderBackdrop'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
@@ -119,8 +119,9 @@ export function TabsHeader({
                 </Pressable44>
             ) : (
                 <PillControl height={HEADER_ROW_HEIGHT}>
-                    {slot?.liveAudience ? <LiveAudienceControl /> : null}
-                    {filter ? (
+                    {filter?.count !== undefined ? (
+                        <LiveFilterButton count={filter.count} onPress={filter.onPress} />
+                    ) : filter ? (
                         <Pressable44
                             onPress={filter.onPress}
                             accessibilityLabel="Filter and sort"
