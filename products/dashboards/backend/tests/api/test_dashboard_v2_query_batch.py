@@ -368,12 +368,17 @@ class TestResolveQuery(SimpleTestCase):
             ("direct_warehouse", {"kind": "HogQLQuery", "query": "select 1", "connectionId": "abc"}),
             ("managed_trino", {"kind": "HogQLQuery", "query": "select 1", "executionTarget": "managed_trino"}),
             (
-                "nested_warehouse_native_metric",
+                "warehouse_native_experiment",
                 {
                     "kind": "ExperimentQuery",
+                    "experiment_id": 1,
                     "metric": {
                         "metric_type": "mean",
-                        "numerator": {"kind": "ExperimentWarehouseNativeNode", "connection_id": "abc", "query": "x"},
+                        "source": {
+                            "kind": "ExperimentWarehouseNativeNode",
+                            "connection_id": "abc",
+                            "query": "select 1",
+                        },
                     },
                 },
             ),

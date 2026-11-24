@@ -10,6 +10,7 @@ import {
     configurationStateCounts,
     configurationStatus,
     describeCondition,
+    describeInterval,
     describeOverflow,
     describeSchedule,
     groupLabels,
@@ -134,6 +135,20 @@ describe('platformAlertFormat', () => {
         ],
     ])('describeSchedule: %s', (_, overrides, expected) => {
         expect(describeSchedule(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, string]>([
+        ['minutes', { check_interval_minutes: 5 }, '5m'],
+        ['minutes that are not whole hours stay in minutes', { check_interval_minutes: 90 }, '90m'],
+        ['whole hours', { check_interval_minutes: 120 }, '2h'],
+        ['whole days', { check_interval_minutes: 1440 }, '1d'],
+        [
+            'calendar unit ignores the interval',
+            { check_interval_minutes: 15, recurrence_unit: CalendarUnitEnumApi.Month },
+            '1mo',
+        ],
+    ])('describeInterval: %s', (_, overrides, expected) => {
+        expect(describeInterval(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Record<string, unknown>, string]>([

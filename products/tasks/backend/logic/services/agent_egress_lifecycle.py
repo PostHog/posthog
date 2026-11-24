@@ -39,6 +39,10 @@ class AgentEgressRunEnded(ValueError):
         super().__init__(f"The task run has ended: {status}")
 
 
+class AgentEgressOwnershipConflict(RuntimeError):
+    pass
+
+
 class AgentEgressExecution(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -170,7 +174,7 @@ class AgentEgressLifecycle:
                         or self.registry.lookup(team_id=run.team_id, run_id=run.id, execution_id=existing.execution_id)
                         is not None
                     ):
-                        raise ValueError("Another workflow owns this egress probe")
+                        raise AgentEgressOwnershipConflict("Another workflow owns this egress probe")
                 previous_sandbox_id = existing.sandbox_id
                 if not existing.owns_sandbox:
                     previous_relay_name = f"egress-relay-{existing.execution_id.hex}"

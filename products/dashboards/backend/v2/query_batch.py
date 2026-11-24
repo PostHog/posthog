@@ -188,7 +188,19 @@ _TIMED_OUT_BODY = json.dumps({"error": _TIMED_OUT}).encode()
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 # Rate-limited per team on `/query` for its CPU cost, which a batch's per-request admission cannot account for.
-_UNBATCHABLE_KINDS = frozenset({"ErrorTrackingFingerprintProjectionQuery"})
+_RATE_LIMITED_KINDS = frozenset({"ErrorTrackingFingerprintProjectionQuery"})
+# An experiment can read its metric or exposure from a warehouse connection, named in the query or stored on the
+# experiment, and a batch can cancel only ClickHouse work on disconnect.
+_EXPERIMENT_KINDS = frozenset(
+    {
+        "ExperimentQuery",
+        "ExperimentExposureQuery",
+        "ExperimentTrendsQuery",
+        "ExperimentFunnelsQuery",
+        "ExperimentActorsQuery",
+    }
+)
+_UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
 _EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
 
@@ -250,7 +262,8 @@ def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
     if blocked := kinds & _UNBATCHABLE_KINDS:
         raise InvalidTarget(f"{blocked.pop()} can't be batched. Use /query.")
     # A batch cancels work on disconnect through ClickHouse only, so queries sent to another engine stay out.
-    if _targets_another_engine(query):
+    nodes = [query, source] if isinstance(source, dict) else [query]
+    if any(node.get("connectionId") or node.get("executionTarget") not in (None, "default") for node in nodes):
         raise InvalidTarget("Queries on a direct warehouse connection can't be batched. Use /query.")
     raw_filters = parsed.get("filters")
     filters: dict[str, Any] = raw_filters if isinstance(raw_filters, dict) else {}
@@ -261,17 +274,6 @@ def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
         query = _with_interval(query, item.interval)
     variables = item.variables if item.variables is not None else parsed.get("variables")
     return ResolvedQuery(query=query, filters=filters, variables=variables if isinstance(variables, dict) else None)
-
-
-def _targets_another_engine(node: Any) -> bool:
-    # Warehouse-native nodes can sit at any depth, such as an experiment metric's numerator, and spell the key either way.
-    if isinstance(node, list):
-        return any(_targets_another_engine(child) for child in node)
-    if not isinstance(node, dict):
-        return False
-    if node.get("connectionId") or node.get("connection_id") or node.get("executionTarget") not in (None, "default"):
-        return True
-    return any(_targets_another_engine(child) for child in node.values())
 
 
 def _with_interval(query: dict[str, Any], interval: str) -> dict[str, Any]:
