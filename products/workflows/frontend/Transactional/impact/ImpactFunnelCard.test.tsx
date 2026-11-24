@@ -4,7 +4,6 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
-import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -236,13 +235,13 @@ describe('ImpactFunnelCard', () => {
     })
 
     it("keeps link tracking off for someone who can't change project settings", async () => {
-        const patches: unknown[] = []
+        const patches: string[] = []
         useMocks({
             patch: {
-                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => [
-                    200,
-                    patches.push(await request.json()),
-                ],
+                '/api/organizations/:organization_id/projects/:id/': ({ request }) => {
+                    patches.push(request.url)
+                    return [403, { detail: 'You do not have admin access to this resource.' }]
+                },
             },
         })
         initKeaTests(true, {
@@ -256,9 +255,74 @@ describe('ImpactFunnelCard', () => {
         expect(button).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(button as HTMLButtonElement)
 
-        await expectLogic(emailImpactLogic({ workflowId: 'workflow-1' })).toFinishAllListeners()
+        expect(
+            await screen.findByText('This area is restricted to project admins and up. Your level is member.')
+        ).toBeInTheDocument()
         expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
+        expect(screen.queryByText(/admin access/)).not.toBeInTheDocument()
         expect(patches).toEqual([])
+    })
+
+    it('turns on link tracking for the environment it shows, not its project', async () => {
+        const savedUrls: string[] = []
+        const environment = { ...teamWithLinkTagging(false), id: 1001, project_id: 1000 }
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    savedUrls.push(new URL(request.url).pathname)
+                    const { workflows_config } = (await request.json()) as Partial<TeamType>
+                    return [
+                        200,
+                        { ...environment, workflows_config: { ...environment.workflows_config, ...workflows_config } },
+                    ]
+                },
+            },
+        })
+        initKeaTests(true, environment)
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Turn on for project'))
+
+        expect(await screen.findByText('Converted')).toBeInTheDocument()
+        expect(savedUrls).toEqual([`/api/organizations/${environment.organization}/projects/1001/`])
+    })
+
+    it('finishes turning on link tracking after the Impact tab closes mid-save', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const team = teamWithLinkTagging(false)
+        const patches: Partial<TeamType>[] = []
+        let answerSave: () => void = () => {}
+        const saved = new Promise<void>((resolve) => (answerSave = resolve))
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    patches.push((await request.json()) as Partial<TeamType>)
+                    await saved
+                    return [
+                        200,
+                        { ...team, workflows_config: { ...team.workflows_config, ...patches[0].workflows_config } },
+                    ]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, IMPACT]
+        const tab = (shown: boolean): JSX.Element => (
+            <Provider>{shown ? <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} /> : <></>}</Provider>
+        )
+        const { rerender } = render(tab(true))
+
+        fireEvent.click(await screen.findByText('Turn on for project'))
+        await waitFor(() => expect(patches).toHaveLength(1))
+        rerender(tab(false))
+        answerSave()
+        await waitFor(() => expect(capture).toHaveBeenCalledWith('transactional email impact link tracking turned on'))
+        rerender(tab(true))
+
+        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
+        expect(patches).toHaveLength(1)
     })
 
     it('picks the conversion event from the empty conversion step', async () => {

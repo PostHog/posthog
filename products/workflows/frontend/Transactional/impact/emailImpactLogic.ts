@@ -225,12 +225,25 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             {
                 turnOnLinkTracking: async () => {
                     const team = values.currentTeam
-                    if (!team?.organization || !team.project_id) {
+                    if (!team?.organization) {
                         throw new Error('The project has not loaded yet.')
                     }
-                    const project = await organizationsProjectsPartialUpdate(team.organization, team.project_id, {
+                    // The team's own id, as teamLogic.updateCurrentTeam sends it, so the save never lands on
+                    // another team of the project.
+                    const project = await organizationsProjectsPartialUpdate(team.organization, team.id, {
                         workflows_config: { email_workflow_run_link_tag_enabled: true },
                     })
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('transactional email impact link tracking turned on')
+                    // Leaving the Impact tab unmounts this logic mid-save, and its success listeners with it, so
+                    // the save hands its result to the always-mounted teamLogic here.
+                    const currentTeam = teamLogic.values.currentTeam
+                    if (project.workflows_config && currentTeam) {
+                        teamLogic.actions.loadCurrentTeamSuccess({
+                            ...currentTeam,
+                            workflows_config: project.workflows_config,
+                        })
+                    }
                     return project.workflows_config ?? null
                 },
             },
@@ -327,13 +340,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('transactional email impact event picked', { source, cleared: !event })
             actions.setEvent(event)
-        },
-        turnOnLinkTrackingSuccess: ({ linkTrackingSave }) => {
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('transactional email impact link tracking turned on')
-            if (linkTrackingSave && values.currentTeam) {
-                actions.loadCurrentTeamSuccess({ ...values.currentTeam, workflows_config: linkTrackingSave })
-            }
         },
         setDays: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
