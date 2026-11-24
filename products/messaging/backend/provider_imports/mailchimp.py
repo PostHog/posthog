@@ -164,6 +164,8 @@ class MailchimpImportProvider(ImportProvider):
         "name. The Contacts step fills these in from your merge fields. Send them to PostHog for people who join later.",
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
+        "Import once more right before you delete an audience or close your Mailchimp account. PostHog can't see who "
+        "unsubscribed after that, and the cohort of a deleted audience keeps its people.",
         "Once nothing sends through Mailchimp, delete the API key you created for this import.",
     )
     settings = (
