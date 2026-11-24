@@ -256,6 +256,7 @@ from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    read_run_log_tail,
 )
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
@@ -477,6 +478,7 @@ __all__ = [
     "get_task_run_logs",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_log_tail",
     "read_task_run_conversation_logs",
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
@@ -5892,6 +5894,17 @@ def read_task_run_conversation_log_slice(
         turns_before=sliced.turns_before,
         origin=str(chain[0].id),
     )
+
+
+def read_task_run_log_tail(run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int) -> str | None:
+    """The newest whole JSONL entries of the run's own log, at most `max_bytes`. None when the run is not visible.
+
+    Reads a byte range from storage, so a caller that polls pays for `max_bytes`, not for the whole log.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return read_run_log_tail(run.log, max_bytes)
 
 
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:

@@ -14,11 +14,19 @@ const STALLED_AFTER_SECONDS = 180
 function describeAction({ kind, subject, panel_count }: DashboardImportAgentActivityApi): JSX.Element | string {
     switch (kind) {
         case 'searching_metrics':
-            return subject ? <>Searching metrics for “{subject}”</> : 'Searching metrics'
+            return subject ? (
+                <>
+                    <span>Searching metrics for </span>
+                    <span translate="no">“{subject}”</span>
+                </>
+            ) : (
+                'Searching metrics'
+            )
         case 'reading_labels':
             return subject ? (
                 <>
-                    Reading labels of <code>{subject}</code>
+                    <span>Reading labels of </span>
+                    <code translate="no">{subject}</code>
                 </>
             ) : (
                 'Reading metric labels'
@@ -26,7 +34,8 @@ function describeAction({ kind, subject, panel_count }: DashboardImportAgentActi
         case 'reading_label_values':
             return subject ? (
                 <>
-                    Reading values of <code>{subject}</code>
+                    <span>Reading values of </span>
+                    <code translate="no">{subject}</code>
                 </>
             ) : (
                 'Reading label values'
@@ -76,7 +85,8 @@ export function DashboardImportAgentActivity({ activity }: { activity: Dashboard
                 {/* Any kind but thinking is a tool call that has not returned, so name the step the agent waits on. */}
                 {activity.kind !== 'thinking' ? (
                     <span className="shrink-0 max-w-1/2 truncate text-xs text-muted">
-                        Waiting on: {describeAction(activity)}
+                        <span>Waiting on: </span>
+                        <span>{describeAction(activity)}</span>
                     </span>
                 ) : null}
             </div>

@@ -78,7 +78,6 @@ def _entries(log_content: str) -> Iterator[dict[str, Any]]:
 
 def _latest_action(entries: Iterable[dict[str, Any]]) -> AgentAction | None:
     calls: dict[str, _ToolCall] = {}
-    latest: str | None = None
     first_activity_at: dt.datetime | None = None
     last_activity_at: dt.datetime | None = None
     for entry in entries:
@@ -106,7 +105,6 @@ def _latest_action(entries: Iterable[dict[str, Any]]) -> AgentAction | None:
                 tool_kind=tool_kind,
                 description=_describe(name, tool_kind, raw_input),
             )
-            latest = call_id
         elif raw_input:
             # Claude streams a call with an empty input first, so a later update carries the tool's arguments.
             call = replace(call, name=name, tool_kind=tool_kind, description=_describe(name, tool_kind, raw_input))
@@ -115,21 +113,22 @@ def _latest_action(entries: Iterable[dict[str, Any]]) -> AgentAction | None:
         calls[call_id] = call
     if first_activity_at is None or last_activity_at is None:
         return None
-    current = calls.get(latest) if latest else None
-    if current is None:
+    # Parallel calls can finish out of order, so the agent thinks only once every call it started finished.
+    running = [call for call in calls.values() if call.ended_at is None]
+    if running:
+        current = max(running, key=lambda call: call.started_at)
         return AgentAction(
-            kind=AgentActivityKind.THINKING, started_at=first_activity_at, last_activity_at=last_activity_at
+            kind=current.description.kind,
+            started_at=current.started_at,
+            last_activity_at=last_activity_at,
+            subject=current.description.subject,
+            panel_count=current.description.panel_count,
         )
-    if current.ended_at is not None:
-        return AgentAction(
-            kind=AgentActivityKind.THINKING, started_at=current.ended_at, last_activity_at=last_activity_at
-        )
+    ended = [call.ended_at for call in calls.values() if call.ended_at is not None]
     return AgentAction(
-        kind=current.description.kind,
-        started_at=current.started_at,
+        kind=AgentActivityKind.THINKING,
+        started_at=max(ended) if ended else first_activity_at,
         last_activity_at=last_activity_at,
-        subject=current.description.subject,
-        panel_count=current.description.panel_count,
     )
 
 

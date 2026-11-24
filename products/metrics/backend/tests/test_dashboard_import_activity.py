@@ -96,6 +96,15 @@ class TestLatestAgentAction(SimpleTestCase):
                 AgentAction(kind=AgentActivityKind.THINKING, started_at=_at(5), last_activity_at=_at(9)),
             ),
             (
+                "parallel_calls_report_the_one_still_running",
+                [
+                    _tool_call(0, "a", tool="mcp__posthog__query-metrics", raw_input={"query": {}}),
+                    _tool_call(1, "b", tool="mcp__posthog__metric-names-list", raw_input={"value": "cpu"}),
+                    _tool_call(3, "b", status="completed", session_update="tool_call_update"),
+                ],
+                AgentAction(kind=AgentActivityKind.RUNNING_QUERY, started_at=_at(0), last_activity_at=_at(3)),
+            ),
+            (
                 "local_read_reads_the_dashboard",
                 [_tool_call(0, "a", tool="Read", raw_input={"file_path": "/inputs/dashboard.json"})],
                 AgentAction(kind=AgentActivityKind.READING_DASHBOARD, started_at=_at(0), last_activity_at=_at(0)),
