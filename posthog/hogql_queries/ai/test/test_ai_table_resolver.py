@@ -410,7 +410,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
-                f"{table}_{property_type}_{projection}_{order}",
+                f"{table}_{property_type}_{projection}_{order}_{via}",
                 table,
                 property_type,
                 value,
@@ -418,14 +418,21 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
                 expected,
                 projection,
                 order,
+                via,
             )
             for table in ("events", "posthog.ai_events")
             for property_type, value, parser, expected in (
                 ("Numeric", 123, "toFloatOrZero(value)", 123.0),
                 ("DateTime", "2024-04-05T06:07:08Z", "toYear(toDateTime(value))", 2024),
             )
-            for projection in ("cte", "subquery")
-            for order in ("property_first", "null_first")
+            for projection, order, via in (
+                ("cte", "property_first", "direct"),
+                ("cte", "null_first", "direct"),
+                ("subquery", "property_first", "direct"),
+                ("subquery", "null_first", "direct"),
+                ("subquery", "null_first", "cte"),
+                ("subquery", "null_first", "subquery"),
+            )
         ]
     )
     def test_typed_property_in_union_projection(
@@ -438,17 +445,51 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         expected: float | int,
         projection: str,
         order: str,
+        via: str,
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
         self._create_generations(table, {"example_value": value})
 
         property_select = f"SELECT properties.example_value AS value FROM {table}"
+        ctes = []
+        if via == "cte":
+            ctes.append(f"stored AS ({property_select})")
+            property_select = "SELECT value FROM stored"
+        elif via == "subquery":
+            property_select = f"SELECT value FROM ({property_select})"
         branches = (property_select, "SELECT NULL AS value")
         union = " UNION ALL ".join(branches if order == "property_first" else reversed(branches))
         source = "combined" if projection == "cte" else f"({union})"
         query = f"SELECT {parser} FROM {source} WHERE value IS NOT NULL"
         if projection == "cte":
-            query = f"WITH combined AS ({union}) {query}"
+            ctes.append(f"combined AS ({union})")
+        if ctes:
+            query = f"WITH {', '.join(ctes)} {query}"
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(expected,)]
+
+    @parameterized.expand(
+        [
+            (function, property_type, value, parser, expected, in_union)
+            for function in ("coalesce", "ifNull")
+            for property_type, value, parser, expected in (
+                ("Numeric", 123, "toFloatOrZero(value)", 123.0),
+                ("DateTime", "2024-04-05T06:07:08Z", "toYear(toDateTime(value))", 2024),
+            )
+            for in_union in (False, True)
+        ]
+    )
+    def test_null_default_preserves_converted_property_type(
+        self, function: str, property_type: str, value: str | int, parser: str, expected: float | int, in_union: bool
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
+        self._create_generations("posthog.ai_events", {"example_value": value})
+
+        source = f"SELECT {function}(properties.example_value, NULL) AS value FROM posthog.ai_events"
+        if in_union:
+            source = f"SELECT NULL AS value UNION ALL {source}"
+        query = f"SELECT {parser} FROM ({source}) WHERE value IS NOT NULL"
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
         assert result.results == [(expected,)]

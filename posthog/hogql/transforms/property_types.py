@@ -28,9 +28,9 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.resolver import unify_select_set_columns
-from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
+from posthog.hogql.type_system import least_common_supertype, normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
@@ -203,6 +203,7 @@ class PropertySwapper(CloningVisitor):
         self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
+        self._retyped_calls: set[int] = set()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         if not (
@@ -281,25 +282,40 @@ class PropertySwapper(CloningVisitor):
         )
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
-        def has_projected_property_type(column: ast.Type) -> bool:
-            while isinstance(column, ast.FieldAliasType):
-                if column.constant_type is not None:
-                    return True
-                column = column.type
-            return False
-
         result = super().visit_select_set_query(node)
-        if isinstance(result.type, ast.SelectSetQueryType) and any(
-            isinstance(branch.type, ast.SelectQueryType)
-            and any(has_projected_property_type(column) for column in branch.type.columns.values())
-            for branch in extract_select_queries(result)
-        ):
+        if isinstance(result.type, ast.SelectSetQueryType) and self._has_retyped_projection(result.type):
             # Set operations infer their common type before aliases can adopt the converted property types.
             columns = unify_select_set_columns(result.type.types, "clickhouse", self.context)
             if columns != result.type.columns:
                 result.type.columns = columns
                 self.context.cte_database_table_cache.clear()
         return result
+
+    def _has_retyped_projection(self, select_type: ast.SelectSetQueryType) -> bool:
+        pending: list[ast.Type] = list(select_type.types)
+        seen: set[int] = set()
+        while pending:
+            column = pending.pop()
+            if id(column) in seen:
+                continue
+            seen.add(id(column))
+            if id(column) in self._retyped_calls:
+                return True
+            if isinstance(column, ast.FieldAliasType):
+                if column.constant_type is not None:
+                    return True
+                pending.append(column.type)
+            elif isinstance(column, ast.FieldType):
+                source = projecting_select_type(column.table_type)
+                if isinstance(source, ast.SelectQueryType) and column.name in source.columns:
+                    pending.append(source.columns[column.name])
+                elif isinstance(source, ast.SelectSetQueryType):
+                    pending.append(source)
+            elif isinstance(column, ast.SelectQueryType):
+                pending.extend(column.columns.values())
+            elif isinstance(column, ast.SelectSetQueryType):
+                pending.extend(column.types)
+        return False
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         result = super().visit_alias(node)
@@ -364,7 +380,27 @@ class PropertySwapper(CloningVisitor):
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
 
+        if node.name in NULL_DEFAULT_FUNCTIONS:
+            self._refresh_null_default_type(result)
         return self._maybe_extract_exception_string_array(result)
+
+    def _refresh_null_default_type(self, node: ast.Call) -> None:
+        call_type = node.type
+        if not isinstance(call_type, ast.CallType):
+            return
+        arg_types = [
+            arg.type.resolve_constant_type(self.context)
+            if arg.type is not None and not isinstance(arg.type, ast.PropertyType)
+            else original
+            for arg, original in zip(node.args, call_type.arg_types, strict=True)
+        ]
+        if arg_types != call_type.arg_types:
+            call_type.arg_types = arg_types
+            return_type = least_common_supertype(arg_types)
+            if return_type != call_type.return_type:
+                call_type.return_type = return_type
+                self._retyped_calls.add(id(call_type))
+                self.context.cte_database_table_cache.clear()
 
     def _maybe_extract_exception_string_array(self, node: ast.Expr) -> ast.Expr:
         """Wrap a bare exception-array property passed to an array-membership function in

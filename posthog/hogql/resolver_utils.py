@@ -382,6 +382,14 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
             yield from extract_select_queries(select_query.select_query)
 
 
+def projecting_select_type(table_type: ast.TableOrSelectType) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
+    if isinstance(table_type, ast.CTETableAliasType):
+        table_type = table_type.cte_table_type
+    if isinstance(table_type, (ast.SelectQueryAliasType, ast.CTETableType)):
+        table_type = table_type.select_query_type
+    return table_type if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)) else None
+
+
 def _collect_table_types(
     select_type: ast.SelectQueryType | ast.SelectSetQueryType, wanted: tuple[type, ...]
 ) -> list[ast.BaseTableType]:

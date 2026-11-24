@@ -23,15 +23,8 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
+from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.visitor import CloningVisitor
-
-
-def _projecting_select_type(table_type: ast.TableOrSelectType) -> ast.SelectQueryType | None:
-    if isinstance(table_type, ast.CTETableAliasType):
-        table_type = table_type.cte_table_type
-    if isinstance(table_type, (ast.SelectQueryAliasType, ast.CTETableType)):
-        table_type = table_type.select_query_type
-    return table_type if isinstance(table_type, ast.SelectQueryType) else None
 
 
 class LogicalPropertyLowering(CloningVisitor):
@@ -89,8 +82,8 @@ class LogicalPropertyLowering(CloningVisitor):
         return self.follow_subquery_columns and self._subquery_passes_json_blob_through(field_type)
 
     def _subquery_passes_json_blob_through(self, field_type: ast.FieldType) -> bool:
-        select_type = _projecting_select_type(field_type.table_type)
-        if select_type is None:
+        select_type = projecting_select_type(field_type.table_type)
+        if not isinstance(select_type, ast.SelectQueryType):
             return False
         column_type = select_type.columns.get(field_type.name)
         while isinstance(column_type, ast.FieldAliasType):
