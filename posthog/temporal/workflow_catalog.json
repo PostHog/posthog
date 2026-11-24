@@ -315,11 +315,6 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "copy-recordings",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "count-all-playlists",
     "product": "temporal/session_replay",
     "task_queues": "SESSION_REPLAY_TASK_QUEUE"
@@ -942,6 +937,11 @@
   {
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
     "product": "temporal/mcp_analytics",
+    "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "mcpa-wrapped-coordinator",
+    "product": "mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
   },
   {

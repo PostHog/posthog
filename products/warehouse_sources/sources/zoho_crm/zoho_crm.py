@@ -8,6 +8,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
     ResumableSourceManager,
@@ -193,10 +194,17 @@ def chunk_fields(names: list[str], size: int = MAX_FIELDS_PER_REQUEST) -> list[l
     return [names[index : index + size] for index in range(0, len(names), size)]
 
 
+# `DEFAULT_RETRY` retries only GET, HEAD, and OPTIONS. The token exchange is a POST, so a 5xx from
+# the accounts host would otherwise fail the run on the first attempt. Repeating a refresh-token
+# exchange is safe, because each exchange only mints a new access token.
+ZOHO_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
 class ZohoCRMClient:
     """Minimal Zoho CRM client: refresh-token auth, regional hosts, JSON GETs.
 
-    Status-code retries (429/5xx) come from the tracked session, so nothing retries here.
+    Status-code retries (429/5xx) come from the tracked session, for the token POST too (see
+    `ZOHO_RETRY`), so nothing retries here.
     """
 
     def __init__(
@@ -218,7 +226,9 @@ class ZohoCRMClient:
         # capture: Zoho responses carry raw CRM records (contacts, notes, emails, phone numbers,
         # free-text) and the token exchange returns the access token in a bare `access_token`
         # field — content the name-based scrubbers can't reliably redact.
-        self._session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
+        self._session = make_tracked_session(
+            retry=ZOHO_RETRY, redact_values=(client_secret, refresh_token), capture=False
+        )
         self._access_token: Optional[str] = None
 
     @property

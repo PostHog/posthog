@@ -110,6 +110,7 @@ def filter_dwh_columns_by_enabled_columns(
     incremental_field: str | None = None,
     *,
     normalize: bool = True,
+    fall_back_to_all_columns: bool = True,
 ) -> dict[str, _TColumnValue]:
     """Filter `DataWarehouseTable.columns`-shaped dict to the projection.
 
@@ -141,7 +142,8 @@ def filter_dwh_columns_by_enabled_columns(
     if incremental_field:
         retained.add(fold(incremental_field))
     filtered = {name: column for name, column in columns.items() if fold(name) in retained}
-    if columns and not filtered:
+    # A live table reads the source directly, so falling back there would expose the hidden columns.
+    if columns and not filtered and fall_back_to_all_columns:
         logger.warning(
             "filter_dwh_columns_by_enabled_columns.empty_projection_fallback",
             enabled_columns=enabled_columns,

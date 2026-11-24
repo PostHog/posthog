@@ -23,6 +23,7 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -44,6 +45,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsCitationsParams,
     AeoPromptsListParams,
+    AeoPromptsMoversParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
@@ -689,6 +691,37 @@ export const aeoPromptsCreateDashboard = async (
     return apiMutator<AEOVisibilityDashboardApi>(getAeoPromptsCreateDashboardUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAeoPromptsMoversUrl = (projectId: string, params?: AeoPromptsMoversParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/movers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/movers/`
+}
+
+/**
+ * Gets the tracked prompts and the pages on the project's own domains that gained and lost the most visibility between 'date_from' and 'date_to' (default the last 30 days) in the project's timezone and the range of the same length before it. A prompt is ranked by the change in its mention rate, the share of its answers that name the brand, and a page by the change in its citation rate, the share of all answers that cite it. A prompt needs at least 3 answers in each window, and archived prompts are left out. Counts cover web-search checks. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
+ * @summary Get the AEO prompts and pages that moved most
+ */
+export const aeoPromptsMovers = async (
+    projectId: string,
+    params?: AeoPromptsMoversParams,
+    options?: RequestInit
+): Promise<AEOPromptSetMoversApi> => {
+    return apiMutator<AEOPromptSetMoversApi>(getAeoPromptsMoversUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

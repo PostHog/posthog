@@ -1229,8 +1229,8 @@ class SignalReport(UUIDModel):
 
     @staticmethod
     def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
-        """The reports the tasks' pull requests link to: each task's source report and its
-        pipeline, legacy and assignment associations.
+        """The reports the tasks' pull requests link to: each task's source report, the reports
+        the task attached a pull request to, and its pipeline, legacy and assignment associations.
 
         A claim alone associates a task with a report, so a triage task that claims many reports
         would link its PR to all of them, and the PR's merge or close would then resolve or
@@ -1266,6 +1266,10 @@ class SignalReport(UUIDModel):
             team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
         ).values_list("actor_task_id", "report_id"):
             add(actor_task_id, report_id, None)
+        for task_id, report_id in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, task_id__in=task_ids
+        ).values_list("task_id", "report_id"):
+            add(task_id, report_id, None)
         for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
             add(source_task_id, source_id, None)
 
