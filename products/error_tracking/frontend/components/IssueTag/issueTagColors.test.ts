@@ -1,4 +1,4 @@
-import { ISSUE_TAG_COLOR_LABELS, issueTagColor } from './issueTagColors'
+import { ISSUE_TAG_COLORS, issueTagColor } from './issueTagColors'
 
 describe('issueTagColor', () => {
     it('keeps a chosen color', () => {
@@ -10,7 +10,7 @@ describe('issueTagColor', () => {
         (label) => {
             const color = issueTagColor(label, null)
 
-            expect(Object.keys(ISSUE_TAG_COLOR_LABELS)).toContain(color)
+            expect(ISSUE_TAG_COLORS).toContain(color)
             expect(issueTagColor(label, undefined)).toBe(color)
         }
     )

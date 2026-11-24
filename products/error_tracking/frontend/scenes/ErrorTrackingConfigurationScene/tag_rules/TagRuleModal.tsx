@@ -4,30 +4,24 @@ import { LemonInput, LemonSelect, type LemonSelectOptions, LemonTextArea, Toolti
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { ErrorTrackingIssueTagColor } from '~/queries/schema/schema-general'
 
 import { IssueTag } from '../../../components/IssueTag/IssueTag'
-import { ISSUE_TAG_COLOR_LABELS, issueTagColor } from '../../../components/IssueTag/issueTagColors'
+import { ISSUE_TAG_COLORS, issueTagColor } from '../../../components/IssueTag/issueTagColors'
 import { RuleModal } from '../rules/RuleModal'
 import { TagRuleMatchBanner } from './TagRuleMatchBanner'
 import { tagRuleModalLogic } from './tagRuleModalLogic'
-
-const AUTOMATIC_COLOR_LABEL = 'Automatic'
 
 function colorOptions(
     automaticColor: ErrorTrackingIssueTagColor
 ): LemonSelectOptions<ErrorTrackingIssueTagColor | null> {
     return [
-        {
-            value: null,
-            label: AUTOMATIC_COLOR_LABEL,
-            labelInMenu: <IssueTag label={AUTOMATIC_COLOR_LABEL} color={automaticColor} />,
-        },
-        ...(Object.keys(ISSUE_TAG_COLOR_LABELS) as ErrorTrackingIssueTagColor[]).map((color) => ({
+        { value: null, label: <IssueTag label="Automatic" color={automaticColor} /> },
+        ...ISSUE_TAG_COLORS.map((color) => ({
             value: color,
-            label: ISSUE_TAG_COLOR_LABELS[color],
-            labelInMenu: <IssueTag label={ISSUE_TAG_COLOR_LABELS[color]} color={color} />,
+            label: <IssueTag label={capitalizeFirstLetter(color)} color={color} />,
         })),
     ]
 }
@@ -72,13 +66,6 @@ export function TagRuleModal(): JSX.Element {
                                 value={rule.color}
                                 onChange={updateColor}
                                 options={colorOptions(automaticColor)}
-                                renderButtonContent={(leaf) =>
-                                    leaf?.value ? (
-                                        <IssueTag label={ISSUE_TAG_COLOR_LABELS[leaf.value]} color={leaf.value} />
-                                    ) : (
-                                        <IssueTag label={AUTOMATIC_COLOR_LABEL} color={automaticColor} />
-                                    )
-                                }
                             />
                         </div>
                     </div>
