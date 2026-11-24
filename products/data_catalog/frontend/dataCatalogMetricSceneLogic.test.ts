@@ -281,9 +281,9 @@ describe('dataCatalogMetricSceneLogic', () => {
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockRejectedValue(loadError)
         const missingMetricLogic = dataCatalogMetricSceneLogic({ name: 'no_such_metric' })
         try {
-            await expectLogic(missingMetricLogic, () => missingMetricLogic.mount()).toDispatchActions([
-                'loadMetricFailure',
-            ])
+            await expectLogic(missingMetricLogic, () => {
+                missingMetricLogic.mount()
+            }).toDispatchActions(['loadMetricFailure'])
 
             expect(captureException.mock.calls.some(([error]) => error === loadError)).toBe(reported)
         } finally {
