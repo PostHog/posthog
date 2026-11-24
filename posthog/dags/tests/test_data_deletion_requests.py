@@ -22,6 +22,8 @@ import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.test.utils import native_stored_document
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -72,6 +74,7 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.data_deletion import _column_sources
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -551,6 +554,19 @@ def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_on
             assert HogQLEventDeletionExecutor(deletion_request).execute() == 1
 
     assert execute.called is not refused
+
+
+def test_column_sources_follows_a_shared_query_type_once():
+    events_type = ast.TableType(table=EventsTable())
+    query_type: ast.Type = events_type
+    for _ in range(16):
+        level = ast.SelectQueryType(columns={"uuid": ast.FieldType(name="uuid", table_type=query_type)})
+        query_type = ast.SelectSetQueryType(types=[level, level], columns={"uuid": ast.UUIDType()})
+
+    sources = list(_column_sources(query_type, "uuid", seen=set()))
+
+    assert len(sources) == 1
+    assert sources == [(events_type.table, "uuid")]
 
 
 @pytest.mark.django_db

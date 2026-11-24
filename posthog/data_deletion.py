@@ -126,7 +126,7 @@ def _misses_flag_calls_only_in_flag_evaluations(
         return False
     if _uses_non_union_set_operator(prepared_ast):
         return True
-    sources = _column_sources(query_type, next(iter(query_type.columns)))
+    sources = _column_sources(query_type, next(iter(query_type.columns)), seen=set())
     return not any(isinstance(table, FlagEvaluationsTable) and field == "uuid" for table, field in sources)
 
 
@@ -150,26 +150,31 @@ def _uses_non_union_set_operator(prepared_ast: ast.AST) -> bool:
     return finder.found
 
 
-def _column_sources(source: ast.Type, name: str) -> Iterator[tuple[Table, str]]:
+def _column_sources(source: ast.Type, name: str, *, seen: set[tuple[int, str]]) -> Iterator[tuple[Table, str]]:
     """The table fields that the named column of a table or query returns unchanged. A column that an expression
     computes has no source. The caller treats such a column as returning no flag_evaluations uuid."""
+    # The resolver shares one type between every reference to a CTE. Without this set, a CTE that each level
+    # selects twice makes the walk exponential in the number of levels.
+    if (id(source), name) in seen:
+        return
+    seen.add((id(source), name))
     match source:
         case ast.TableType():
             yield source.table, name
         case ast.TableAliasType():
-            yield from _column_sources(source.table_type, name)
+            yield from _column_sources(source.table_type, name, seen=seen)
         case ast.ColumnAliasedTableType():
-            yield from _column_sources(source.table_type, source.alias_to_original.get(name, name))
+            yield from _column_sources(source.table_type, source.alias_to_original.get(name, name), seen=seen)
         case ast.SelectQueryAliasType() | ast.CTETableType() | ast.SelectViewType():
-            yield from _column_sources(source.select_query_type, name)
+            yield from _column_sources(source.select_query_type, name, seen=seen)
         case ast.CTETableAliasType():
-            yield from _column_sources(source.cte_table_type, name)
+            yield from _column_sources(source.cte_table_type, name, seen=seen)
         case ast.SelectQueryType():
             column = source.columns.get(name)
             while isinstance(column, ast.FieldAliasType):
                 column = column.type
             if isinstance(column, ast.FieldType):
-                yield from _column_sources(column.table_type, column.name)
+                yield from _column_sources(column.table_type, column.name, seen=seen)
         case ast.SelectSetQueryType():
             # A set query matches its branches' columns by position, not by name.
             names = list(source.columns)
@@ -179,7 +184,7 @@ def _column_sources(source: ast.Type, name: str) -> Iterator[tuple[Table, str]]:
             for branch in source.types:
                 branch_names = list(branch.columns)
                 if position < len(branch_names):
-                    yield from _column_sources(branch, branch_names[position])
+                    yield from _column_sources(branch, branch_names[position], seen=seen)
 
 
 def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> int:
