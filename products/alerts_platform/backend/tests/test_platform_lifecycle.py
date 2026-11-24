@@ -545,6 +545,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     notified=True,
                     firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
                 ),
+                self._group("db"),
                 self._group("web"),
             )
         )
@@ -571,6 +572,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     notified=True,
                     firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
                 ),
+                GroupOutcome(grouping_key="db", kind=AlertEventKind.NO_DATA, new_state="no_data", notified=False),
                 GroupOutcome(
                     grouping_key="web",
                     kind=AlertEventKind.FIRING,
@@ -588,8 +590,14 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "AND evaluation_key = %(evaluation_key)s ORDER BY grouping_key",
             {"team_id": self.team.id, "configuration_id": self.configuration.id, "evaluation_key": evaluation_key},
         )
-        assert recorded == [("api", "check", "not_firing", "resolve"), ("web", "check", "firing", "fire")]
+        # The move into no_data is held whole, so the first unmuted check makes it and announces it.
+        assert recorded == [
+            ("api", "check", "not_firing", "resolve"),
+            ("db", "check", "not_firing", "no_data"),
+            ("web", "check", "firing", "fire"),
+        ]
         assert announcement(self.team.id, str(self.configuration.id), evaluation_key, source=SourceKind.LOGS) is None
+        assert self._alert("db").state == "not_firing"
         api, web = self._alert("api"), self._alert("web")
         assert (api.state, api.firing_started_at, api.last_notified_at) == ("not_firing", None, self.cutoff)
         # A notification behind the firing's start is what makes the next unmuted check announce it.

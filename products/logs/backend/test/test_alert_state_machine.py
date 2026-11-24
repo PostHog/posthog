@@ -447,7 +447,8 @@ class TestEdgeCases(TestCase):
     def test_alert_state_matches_model_state(self) -> None:
         from products.logs.backend.models import LogsAlertConfiguration
 
-        assert set(AlertState) == {s.value for s in LogsAlertConfiguration.State}
+        # NO_DATA belongs to the platform's missing-data options, which logs alerts do not offer.
+        assert set(AlertState) - {AlertState.NO_DATA} == {s.value for s in LogsAlertConfiguration.State}
 
 
 class TestApplyUserReset(TestCase):

@@ -575,13 +575,15 @@ def _held_by_mute(
 
     A check reads the mute when it starts, so a snooze set while it runs reaches only this write.
     Held the way the machine holds a muted announcement: the state and the firing still move,
-    and `last_notified_at` stays behind, so a held fire goes out once the mute ends.
+    and `last_notified_at` stays behind, so a held fire goes out once the mute ends. A move into
+    NO_DATA is held whole, as the machine holds it, because nothing would announce it later.
     """
     held = _HELD_BY_MUTE.get(group.kind)
     snooze_until = _composed(configuration, alert).snooze_until
     if held is None or snooze_until is None or snooze_until <= now:
         return group
-    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held)
+    new_state = alert.state if group.kind == AlertEventKind.NO_DATA else group.new_state
+    return replace(group, kind=AlertEventKind.CHECK, notified=False, muted_notification=held, new_state=new_state)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
