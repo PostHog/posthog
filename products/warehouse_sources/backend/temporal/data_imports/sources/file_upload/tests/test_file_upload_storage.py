@@ -131,16 +131,24 @@ class TestFileUploadStorage(BaseTest):
         for upload_id in (CURRENT_ID, OLD_ID, NEWER_ID):
             pending.create(id=upload_id, team_id=self.team.pk, filename="orders.csv", expires_at=now)
         self._source(self._inputs(CURRENT_ID), SupersededUpload(upload=self._upload(OLD_ID), superseded_at=now))
-        self.s3.rm.side_effect = [OSError("storage unavailable"), FileNotFoundError()]
+        live_files = {self._upload(CURRENT_ID).path, self._upload(OLD_ID).path}
+        stored_files = live_files | {self._upload(NEWER_ID).path}
+
+        def delete_with_lost_acknowledgement(path: str) -> None:
+            if path not in stored_files:
+                raise FileNotFoundError(path)
+            stored_files.remove(path)
+            raise TimeoutError("Delete acknowledgement timed out")
+
+        self.s3.rm.side_effect = delete_with_lost_acknowledgement
 
         with time_machine.travel(now, tick=False):
             sweep_expired_file_uploads()
-        self.s3.rm.assert_called_once_with(self._upload(NEWER_ID).path)
+        assert stored_files == live_files
         assert pending.get().pk == UUID(NEWER_ID)
 
         with time_machine.travel(now + timedelta(hours=1)):
             sweep_expired_file_uploads()
-        assert self.s3.rm.call_count == 2
         assert not pending.exists()
 
     def test_a_completed_sync_deletes_only_the_uploads_replaced_before_it_started(self) -> None:

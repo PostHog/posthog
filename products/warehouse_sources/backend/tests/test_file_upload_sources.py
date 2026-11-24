@@ -1,4 +1,6 @@
 import io
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import UUID
 
@@ -42,20 +44,6 @@ FAKE_COLUMNS = {
 }
 
 
-class _CapturingBuffer(io.BytesIO):
-    """A BytesIO that publishes its contents to a sink on close, so the endpoint's
-    context-managed write is captured once the file handle is closed."""
-
-    def __init__(self, sink: dict[str, bytes], path: str) -> None:
-        super().__init__()
-        self._sink = sink
-        self._path = path
-
-    def close(self) -> None:
-        self._sink[self._path] = self.getvalue()
-        super().close()
-
-
 class _FakeS3:
     """Captures what the endpoint writes, standing in for the object store boundary."""
 
@@ -65,8 +53,11 @@ class _FakeS3:
         self.timeout_after_delete = False
         self._exists_result = exists_result
 
-    def open(self, path: str, mode: str) -> io.BytesIO:
-        return _CapturingBuffer(self.written, path)
+    @contextmanager
+    def open(self, path: str, mode: str) -> Iterator[io.BytesIO]:
+        with io.BytesIO() as buffer:
+            yield buffer
+            self.written[path] = buffer.getvalue()
 
     def exists(self, path: str) -> bool:
         return self._exists_result and path not in self.removed
