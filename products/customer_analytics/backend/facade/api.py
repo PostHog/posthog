@@ -2504,22 +2504,27 @@ def _assert_warehouse_access(
     if access is None or binding is None:
         return
     if binding.is_saved_query:
-        model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-        resource_type = ResourceType.WAREHOUSE_VIEW
-        warehouse_object = model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        saved_query = saved_query_model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
+        if saved_query is None:
+            return
+        resource = Resource(
+            type=ResourceType.WAREHOUSE_VIEW,
+            project_id=saved_query.team_id,
+            id=str(saved_query.id),
+            created_by_id=saved_query.created_by_id,
+        )
     else:
-        model = apps.get_model("warehouse_sources", "ExternalDataSchema")
-        schema = model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
-        resource_type = ResourceType.EXTERNAL_DATA_SOURCE
-        warehouse_object = schema.source if schema is not None else None
-    if warehouse_object is None:
-        return
-    resource = Resource(
-        type=resource_type,
-        project_id=warehouse_object.team_id,
-        id=str(warehouse_object.id),
-        created_by_id=warehouse_object.created_by_id,
-    )
+        schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+        schema = schema_model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
+        if schema is None:
+            return
+        resource = Resource(
+            type=ResourceType.EXTERNAL_DATA_SOURCE,
+            project_id=schema.source.team_id,
+            id=str(schema.source_id),
+            created_by_id=schema.source.created_by_id,
+        )
     scope_action = "read" if action == Action.VIEW else "write"
     if f"{resource.type}:{scope_action}" in access.missing_scopes or not authorization.check(
         resource=resource, action=action, subject=access.subject
