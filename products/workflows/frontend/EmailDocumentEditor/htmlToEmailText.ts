@@ -36,7 +36,7 @@ const LIQUID_PRINTS = new Set(['cycle', 'increment', 'decrement', 'echo', 'inclu
 
 /** Filters that make a value safe inside html. In plain text they would print entities, and break a URL. */
 const HTML_ESCAPE_FILTERS =
-    /(?:\s*\|\s*(?:escape|escape_once|raw|replace:\s*"[=`]",\s*"&(?:amp;)?#x(?:3D|60);"))+\s*(?=-?\}\}$)/
+    /(?:\s*\|\s*(?:escape|escape_once|raw|replace:\s*(?:"|&quot;)[=`](?:"|&quot;),\s*(?:"|&quot;)&(?:amp;)?#x(?:3D|60);(?:"|&quot;)))+\s*(?=-?\}\}$)/
 
 function execAt(pattern: RegExp, text: string, position: number): RegExpExecArray | null {
     pattern.lastIndex = position

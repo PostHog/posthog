@@ -45,6 +45,11 @@ describe('htmlToEmailText', () => {
             'Go (https://example.com)',
         ],
         [
+            'a value an import escaped for a quoted link',
+            '<a href="{{ url | join: &quot;,&quot; | escape | replace: &quot;=&quot;, &quot;&#x3D;&quot; | replace: &quot;`&quot;, &quot;&#x60;&quot; | raw }}">Go</a>',
+            'Go ({{ url | join: &quot;,&quot; }})',
+        ],
+        [
             'a value escaped for html',
             '<a href="{{ url | escape | raw }}">{{ name | escape }}</a>',
             '{{ name }} ({{ url }})',

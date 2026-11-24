@@ -368,6 +368,17 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("escaped_tag", '<a \\{{x a="&}}{{name}}">'),
+            ("unsupported_tag", '<p title="{{x "a="b &amp;}}">'),
+        ]
+    )
+    def test_quotes_a_kept_tag_prints_stay_quotes(self, _name: str, html: str) -> None:
+        converted = convert_version({"html_content": html}).html
+
+        assert 'a="' in converted and "a=&quot;" not in converted
+
+    @parameterized.expand(
+        [
             (
                 "with_a_brace_in_a_default",
                 '{{{body}}}<a href="{{insert url "default={x"}}">Go</a>',

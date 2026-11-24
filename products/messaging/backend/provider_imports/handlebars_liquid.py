@@ -162,10 +162,9 @@ class HandlebarsToLiquid:
                 for piece in self._text(node.text):
                     _append(out, self._spend(piece, literal=True))
             elif isinstance(node, _Liquid):
-                self._feed(node.printed)
-                _append(out, self._spend(node.liquid))
+                _append(out, self._spend(self._kept(node.liquid, node.printed), literal=True))
             elif isinstance(node, _Output):
-                _append(out, self._spend(self._output(node, frames)))
+                _append(out, self._spend(self._output(node, frames), literal=True))
             elif isinstance(node, _Block):
                 _append(out, self._block(node, frames))
         return "".join(out)
@@ -216,7 +215,7 @@ class HandlebarsToLiquid:
         self._after_raw_html = self._after_raw_html or (raw and self.is_html)
         if self._converted_root:
             self.converted.append(self._converted_root)
-        return liquid
+        return self._attribute_safe(liquid)
 
     def _output_liquid(self, body: str, raw: bool, frames: tuple[_Frame, ...]) -> tuple[str, bool]:
         expression = _parse_expression(body)
@@ -268,10 +267,14 @@ class HandlebarsToLiquid:
     def _literal(self, source: str, *, noted: bool = True) -> str:
         if noted:
             self.unsupported.append(source)
-        # A quote in the source ends the attribute in Mailgun or SendGrid too, so only the converter's own are encoded.
-        literal = liquid_literal(source) if '"' in source else self._attribute_safe(liquid_literal(source))
-        self._feed(source)
-        return literal
+        return self._kept(liquid_literal(source), source)
+
+    def _kept(self, liquid: str, printed: str) -> str:
+        """Liquid that prints a tag as it was written. A quote in the tag ends the attribute when the provider sends it
+        too, so then nothing is encoded."""
+        kept = liquid if '"' in printed else self._attribute_safe(liquid)
+        self._feed(printed)
+        return kept
 
     # Blocks -----------------------------------------------------------------------------------------------------------
 
@@ -484,10 +487,9 @@ class HandlebarsToLiquid:
                     self._feed(piece)
                     _append(out, self._spend(_literal_text(piece), literal=True))
             elif isinstance(node, _Liquid):
-                self._feed(node.printed)
-                _append(out, self._spend(node.liquid))
+                _append(out, self._spend(self._kept(node.liquid, node.printed), literal=True))
             elif isinstance(node, _Output):
-                _append(out, self._spend(self._literal(node.source)))
+                _append(out, self._spend(self._literal(node.source), literal=True))
             elif isinstance(node, _Block):
                 _append(out, self._literal_block(node))
         return "".join(out)
