@@ -6,10 +6,7 @@ import { TodayPaneProduct } from '~/layout/today/todayPaneProducts'
 import { TodayPaneProductRow } from '../TodayPaneProductRow'
 import { todayHomeLogic } from './todayHomeLogic'
 
-/**
- * The Home sub-nav: the pages that say what needs attention today. The Today page already lists single Inbox
- * reports, so this pane links to the full Inbox and never lists reports itself.
- */
+/** The Today page already lists single Inbox reports, so this pane links the full Inbox and never lists reports. */
 export function TodayHomeSidebar(): JSX.Element {
     const { matching, activeRow, noMatches, searchQuery } = useValues(todayHomeLogic)
     const { setSearchQuery } = useActions(todayHomeLogic)

@@ -137,8 +137,7 @@ export function nextPhonePages(
 
 /**
  * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's, Automate's and Data's
- * pages belong to them only while their pane is on, and to Products otherwise. The same goes for the Inbox and Pulse
- * pages that the Home pane links, and for Inbox sources, which belong to Data while both the Home and Data panes are on.
+ * pages belong to them only while their pane is on, and to Products otherwise.
  */
 export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)

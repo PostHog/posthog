@@ -70,15 +70,10 @@ export function homeItems(featureFlags: FeatureFlagsSet): HomeProducts {
     }
 }
 
-/** Matches against every Home row, shown or not, so a page keeps its row while a flag hides it. */
 export function homeProductForPath(path: string): TodayPaneProduct | undefined {
     return paneProductForPath(homeRows(getNavProductPages(), [...homeTopSpecs(), ...homeBottomSpecs()]), path)
 }
 
-/**
- * The pages the Home pane owns while it is on: the Inbox, its Reports and Monitoring lists, a report, and Pulse. A
- * report opened from Monitoring redirects to its page under Reports. Scouts, sources and settings are not here.
- */
 export function isHomePanePath(path: string): boolean {
     return (
         path === urls.inbox() ||
