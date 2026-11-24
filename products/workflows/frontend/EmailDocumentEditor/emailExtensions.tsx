@@ -34,15 +34,17 @@ function sidesCss(sides: EmailBlockStyle['padding']): string | undefined {
     return sides ? `${sides.top}px ${sides.right}px ${sides.bottom}px ${sides.left}px` : undefined
 }
 
-/** The divider as the email draws it: a line centered in the width left by the block's padding. */
+/** The divider as the email draws it. A background rather than a border, so the padding around it can't collapse. */
 function dividerCanvasCss(style: EmailBlockStyle): string {
-    const { top, right, bottom, left } = style.padding ?? { top: 8, right: 0, bottom: 8, left: 0 }
-    const length = Math.min(style.width || 100, 100) / 100
-    const before = style.textAlign === 'left' ? 0 : style.textAlign === 'right' ? 1 : 0.5
-    const gap = (share: number): string => `(100% - ${left + right}px) * ${(1 - length) * share}`
+    const color = style.borderColor ?? '#dddddd'
+    const length = Math.min(style.width || 100, 100)
     return [
-        `border-top:${style.lineWidth || 1}px solid ${style.borderColor ?? '#dddddd'}`,
-        `margin:${top}px calc(${right}px + ${gap(1 - before)}) ${bottom}px calc(${left}px + ${gap(before)})`,
+        'box-sizing:content-box',
+        'margin:0',
+        'border:0',
+        `padding:${sidesCss(style.padding) ?? '8px 0'}`,
+        `height:${style.lineWidth || 1}px`,
+        `background:linear-gradient(${color},${color}) ${style.textAlign ?? 'center'} top/${length}% 100% no-repeat content-box`,
     ].join(';')
 }
 

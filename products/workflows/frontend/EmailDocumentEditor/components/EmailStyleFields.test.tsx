@@ -27,7 +27,7 @@ describe('email style fields', () => {
         ['{%- if a -%}', 'a'],
         ['{%if a%}', 'a'],
     ])('reads the condition %j as %j and writes back what is typed', (before, shown) => {
-        const { state } = open({
+        open({
             type: 'paragraph',
             attrs: { emailVisibility: { condition: { before, after: '{% endif %}' } } },
         })
@@ -36,7 +36,6 @@ describe('email style fields', () => {
         expect(input.value).toBe(shown)
 
         fireEvent.change(input, { target: { value: 'b ' } })
-        expect(editor!.state).not.toBe(state)
         expect(editor!.state.doc.firstChild?.attrs.emailVisibility.condition.before).toBe('{% if b  %}')
     })
 
@@ -51,12 +50,17 @@ describe('email style fields', () => {
 
     it('shows the saved color again after text that is not a color', () => {
         const onChange = jest.fn()
+        // jsdom has no CSS.supports.
+        const originalCss = window.CSS
+        window.CSS = { supports: () => false } as any
         render(<EmailColorField label="Background" value="#ffffff" onChange={onChange} />)
         const input = screen.getByLabelText<HTMLInputElement>('Background', { selector: 'input:not([type=color])' })
 
         fireEvent.change(input, { target: { value: '#zz' } })
+        fireEvent.change(input, { target: { value: 'notacolor' } })
         fireEvent.blur(input)
         expect(onChange).not.toHaveBeenCalled()
         expect(input.value).toBe('#ffffff')
+        window.CSS = originalCss
     })
 })
