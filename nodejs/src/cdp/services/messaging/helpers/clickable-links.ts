@@ -78,6 +78,7 @@ const HTML_VOID_ELEMENTS = new Set([
     'embed',
     'frame',
     'hr',
+    'image',
     'img',
     'input',
     'keygen',
@@ -88,7 +89,7 @@ const HTML_VOID_ELEMENTS = new Set([
     'track',
     'wbr',
 ])
-const HTML_ROOT_ELEMENTS = new Set(['html', 'head', 'body'])
+const HTML_NON_STACK_ELEMENTS = new Set(['html', 'head', 'body', 'colgroup'])
 const HTML_IN_SCOPE_BARRIERS = new Set(['applet', 'caption', 'marquee', 'object', 'table', 'td', 'th'])
 const HTML_IMPLIED_END_TAGS = new Set(['dd', 'dt', 'li', 'optgroup', 'option', 'p', 'rb', 'rp', 'rt', 'rtc'])
 const HTML_P_CLOSERS = new Set([
@@ -581,7 +582,11 @@ export const clickableHrefs = (body: string): string[] => {
                             pushHtmlTableTag(frame, tag.tagName)
                         } else if (TEXT_MODES.has(tag.tagName)) {
                             tokenizer.state = TEXT_MODES.get(tag.tagName)!
-                        } else if (!HTML_VOID_ELEMENTS.has(tag.tagName) && !HTML_ROOT_ELEMENTS.has(tag.tagName)) {
+                        } else if (
+                            !HTML_VOID_ELEMENTS.has(tag.tagName) &&
+                            !HTML_NON_STACK_ELEMENTS.has(tag.tagName) &&
+                            !(tag.tagName === 'frameset' && frame.stack.length > 0)
+                        ) {
                             pushEntry(frame, {
                                 tag: tag.tagName,
                                 ns: 'html',

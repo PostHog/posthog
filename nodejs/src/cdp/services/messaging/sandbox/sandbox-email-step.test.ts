@@ -36,7 +36,7 @@ import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
-import { DeliveredAddressReader, SandboxRecipientUnavailableError, deliveredAddressReader } from './sandbox-render'
+import { DeliveredAddressReader, deliveredAddressReader } from './sandbox-render'
 import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
 import { SandboxSesClient } from './sandbox-ses-client'
 
@@ -848,11 +848,24 @@ describe('SandboxEmailSendStep', () => {
             const preferencesServer = preferencesApp.listen(0, () => {})
             const now = DateTime.utc()
             const clock = jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
+            const brokenSchema = `broken_membership_${world.team.id}`
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `CREATE SCHEMA ${brokenSchema};
+                 CREATE TABLE ${brokenSchema}.posthog_organizationmembership (broken boolean);`,
+                [],
+                'test:create-broken-membership-schema'
+            )
+            const brokenUrl = new URL(defaultConfig.DATABASE_URL)
+            brokenUrl.searchParams.set('options', `-c search_path=${brokenSchema},public`)
+            const brokenAuthDb = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: brokenUrl.toString(),
+                DATABASE_READONLY_URL: brokenUrl.toString(),
+            })
             try {
                 const flow = buildCodeSendFlow()
-                const unavailable: DeliveredAddressReader = () =>
-                    Promise.reject(new SandboxRecipientUnavailableError('database unavailable'))
-                const unavailableExecutor = buildExecutor(caps, unavailable)
+                const unavailableExecutor = buildExecutor(caps, deliveredAddressReader(brokenAuthDb))
                 const routed = await unavailableExecutor.execute(
                     codeSendInvocation({
                         flow,
@@ -879,6 +892,13 @@ describe('SandboxEmailSendStep', () => {
                 expect(validated.body).toMatchObject({ valid: true, team_id: world.team.id, identifier: member() })
             } finally {
                 clock.mockRestore()
+                await brokenAuthDb.end()
+                await world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP SCHEMA IF EXISTS ${brokenSchema} CASCADE`,
+                    [],
+                    'test:drop-broken-membership-schema'
+                )
                 preferencesServer.close()
                 await closeHub(preferencesHub)
             }
@@ -915,11 +935,21 @@ describe('SandboxEmailSendStep', () => {
                 )
 
                 let current = routed.invocation
+                const delays: number[] = []
                 for (let attempt = 0; attempt <= MAX_SANDBOX_RETRIES + 1; attempt++) {
                     const step = await failingExecutor.execute(nextDequeue(current))
                     current = step.invocation
                     expect(current.queue).toBe('emailsandbox')
-                    expect(current.queueScheduledAt!.toMillis()).toBeGreaterThan(now.toMillis())
+                    const delayMs = current.queueScheduledAt!.toMillis() - now.toMillis()
+                    expect(delayMs).toBeGreaterThan(0)
+                    delays.push(delayMs)
+                }
+                for (let attempt = 1; attempt <= 5; attempt++) {
+                    expect(delays[attempt]).toBeGreaterThan(delays[attempt - 1])
+                }
+                for (let attempt = 5; attempt < delays.length; attempt++) {
+                    expect(delays[attempt]).toBeGreaterThanOrEqual(720_000)
+                    expect(delays[attempt]).toBeLessThanOrEqual(900_000)
                 }
                 expect(world.ses.attempts).toBe(0)
 

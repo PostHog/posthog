@@ -952,6 +952,39 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
         })
 
+        it('refuses a marketing code send when the stored org member spelling opted out despite an exact lowercase opt-in row', async () => {
+            const mixedMember = `Mixed-${new UUIDT().toString()}@Example.com`
+            await world.addMember(mixedMember)
+            const categoryId = new UUIDT().toString()
+            await optOutMember(mixedMember, categoryId)
+            await world.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagerecipientpreference
+                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                [world.team.id, mixedMember.toLowerCase(), JSON.stringify({ [categoryId]: 'OPTED_IN' })],
+                'test:sandbox-code-send-exact-lowercase-opt-in'
+            )
+
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({
+                        content: marketingContent,
+                        message_category: { id: categoryId, type: 'marketing' },
+                    }),
+                    {
+                        to: mixedMember.toLowerCase(),
+                        distinct_id: mixedMember.toLowerCase(),
+                    }
+                )
+            )
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: 'recipient_opted_out' })
+            expect(queued).toEqual([])
+            expect(world.ses.delivered).toEqual([])
+        })
+
         it('accepts and delivers a marketing code send after a previously opted-out org member resubscribes', async () => {
             const categoryId = new UUIDT().toString()
             await optOutMember(member, categoryId)

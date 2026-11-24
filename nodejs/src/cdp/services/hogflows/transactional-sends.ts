@@ -37,7 +37,7 @@ import {
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { CodeSendSender, SandboxCodeSendRefusal, senderOfCodeSend } from '../messaging/sandbox/sandbox-code-send'
+import { CodeSendSender, SandboxCodeSendVerdict, senderOfCodeSend } from '../messaging/sandbox/sandbox-code-send'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { EmailStep, FilesWorkflowShape } from './files-workflow-shape'
 import { createHogFlowInvocation } from './hogflow-executor.service'
@@ -202,7 +202,7 @@ export type TransactionalSendsDeps = {
     recipientPreferences: RecipientPreferencesService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
-    refuseSandboxSends: (teamId: number, recipients: string[]) => Promise<(SandboxCodeSendRefusal | null)[]>
+    refuseSandboxSends: (teamId: number, recipients: string[]) => Promise<SandboxCodeSendVerdict[]>
 }
 
 export type SendFiles = {
@@ -557,10 +557,17 @@ export class TransactionalSends {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
         }
+        let optOutRecipients = recipients
         if (senderKind === 'email_sandbox') {
-            const [sandboxRefusal] = await this.deps.refuseSandboxSends(teamId, [recipients[0]])
-            if (sandboxRefusal) {
-                return sandboxRefusal
+            const [sandboxVerdict] = await this.deps.refuseSandboxSends(teamId, [recipients[0]])
+            if (sandboxVerdict.refusal) {
+                return sandboxVerdict.refusal
+            }
+            if (sandboxVerdict.storedAddress) {
+                const trimmed = recipients[0].trim()
+                optOutRecipients = [
+                    ...new Set([...recipients, trimmed, sandboxVerdict.storedAddress, trimmed.toLowerCase()]),
+                ]
             }
         }
         // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
@@ -574,7 +581,7 @@ export class TransactionalSends {
         )
         const optedOut = Promise.all(
             marketingCategoryId
-                ? recipients.map((email) =>
+                ? optOutRecipients.map((email) =>
                       this.deps.recipientPreferences.isOptedOut(teamId, email, marketingCategoryId, {
                           anyCase: true,
                           fresh: true,

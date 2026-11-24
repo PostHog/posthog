@@ -4634,6 +4634,176 @@ describe('EmailService', () => {
             }
         })
 
+        it('skips a marketing API send when the recipient opts out while attachments are loading', async () => {
+            hub.SITE_URL = 'http://localhost:8000'
+            const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+            const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+            const categoryId = randomUUID()
+            const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+            const attachment = {
+                sha256: 'a'.repeat(64),
+                filename: 'brochure.txt',
+                contentType: 'text/plain',
+                sizeBytes: 5,
+            }
+            const attachmentStore: AttachmentStore = {
+                prepareUploads: () => Promise.resolve([]),
+                acceptForSend: () => Promise.resolve({ files: [attachment] }),
+                load: async (_teamId, files) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagerecipientpreference
+                            (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                         VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                        [invocation.teamId, 'test@example.com', JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
+                        'test:email-service-opt-out-during-attachment-load'
+                    )
+                    return files.map((file) => ({ file, bytes: Buffer.from('hello') }))
+                },
+            }
+            service = createService({}, {}, { attachmentStore, emailStatusService })
+            invocation.id = new UUIDT().toString()
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.messageCategory = { id: categoryId, type: 'marketing' }
+            invocation.state.send = {
+                content: { subject: 'News', html: body },
+                from: { integrationId: getIntegrationId(1) },
+                tracking: { captureEngagement: true },
+            }
+            invocation.hogFunction.metadata = {
+                ...invocation.hogFunction.metadata,
+                message_category_type: 'marketing',
+            }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: body,
+                attachments: [attachment],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+            await emailStatusService.flush()
+
+            expect(ses.sent).toEqual([])
+            expect(result.skipped).toBe(true)
+            expect(result.emailSendResult).toEqual({
+                status: 'skipped',
+                reason: expect.stringContaining('opted out'),
+            })
+            expect(result.metrics.map((metric) => metric.metric_name)).toContain('email_opted_out')
+            expect(
+                kafka
+                    .produced(EMAIL_STATUS_OUTPUT)
+                    .filter((row) => row.status === 'failed')
+                    .map((row) => row.reason)
+            ).toEqual(['recipient_opted_out'])
+        })
+
+        it('preserves claimed workflow and team budgets when the pre-send preference re-check fails', async () => {
+            hub.SITE_URL = 'http://localhost:8000'
+            const nowMs = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs)
+            const prefsSchema = `toctou_prefs_${team.id}`
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `CREATE SCHEMA ${prefsSchema};
+                 CREATE TABLE ${prefsSchema}.posthog_messagerecipientpreference
+                     (LIKE public.posthog_messagerecipientpreference INCLUDING ALL)`,
+                [],
+                'test:email-service-create-toctou-prefs-schema'
+            )
+            const prefsUrl = new URL(hub.DATABASE_URL)
+            prefsUrl.searchParams.set('options', `-c search_path=${prefsSchema},public`)
+            const prefsRouter = new PostgresRouter({
+                ...hub,
+                DATABASE_URL: prefsUrl.toString(),
+                DATABASE_READONLY_URL: prefsUrl.toString(),
+            })
+            let failDuringLoad = true
+            const attachment = {
+                sha256: 'b'.repeat(64),
+                filename: 'brochure.txt',
+                contentType: 'text/plain',
+                sizeBytes: 5,
+            }
+            const attachmentStore: AttachmentStore = {
+                prepareUploads: () => Promise.resolve([]),
+                acceptForSend: () => Promise.resolve({ files: [attachment] }),
+                load: async (_teamId, files) => {
+                    if (failDuringLoad) {
+                        failDuringLoad = false
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `ALTER TABLE ${prefsSchema}.posthog_messagerecipientpreference
+                                 RENAME TO posthog_messagerecipientpreference_offline;
+                             CREATE TABLE ${prefsSchema}.posthog_messagerecipientpreference (broken boolean);`,
+                            [],
+                            'test:email-service-break-toctou-prefs'
+                        )
+                    }
+                    return files.map((file) => ({ file, bytes: Buffer.from('hello') }))
+                },
+            }
+            try {
+                const limitedService = createService(
+                    { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [1] },
+                    {
+                        workflowEmailRateLimiter: createRateLimiter('toctou-workflow-rate-test'),
+                        teamEmailRateLimiter: createRateLimiter('toctou-team-budget-test'),
+                    },
+                    { attachmentStore, recipientsDb: prefsRouter }
+                )
+                const categoryId = randomUUID()
+                const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: categoryId, type: 'marketing' }
+                invocation.state.send = {
+                    content: { subject: 'News', html: body },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                    email_sending_rate_limit: { count: 1, period: 'hour' },
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: body,
+                    attachments: [attachment],
+                })
+
+                const first = await limitedService.executeSendEmail(invocation)
+                expect(first.finished).toBe(false)
+                expect(ses.sent).toEqual([])
+                expect(first.invocation.queueMetadata?.teamBudgetClaimed).toBe(true)
+                expect(first.invocation.queueMetadata?.workflowRateClaimed).toBeDefined()
+
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP TABLE ${prefsSchema}.posthog_messagerecipientpreference;
+                     ALTER TABLE ${prefsSchema}.posthog_messagerecipientpreference_offline
+                         RENAME TO posthog_messagerecipientpreference;`,
+                    [],
+                    'test:email-service-restore-toctou-prefs'
+                )
+
+                const second = await limitedService.executeSendEmail(first.invocation)
+                expect(second.finished).toBe(true)
+                expect(second.emailSendResult).toEqual({ status: 'accepted' })
+                expect(ses.sent).toHaveLength(1)
+            } finally {
+                clock.mockRestore()
+                await prefsRouter.end()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `DROP SCHEMA IF EXISTS ${prefsSchema} CASCADE`,
+                    [],
+                    'test:email-service-drop-toctou-prefs-schema'
+                )
+            }
+        })
+
         it.each([
             {
                 body: 'html exactly as long as PostHog checks',

@@ -39,6 +39,11 @@ export function senderOfCodeSend(
     return { kind: 'email_sandbox' }
 }
 
+export type SandboxCodeSendVerdict = {
+    refusal: SandboxCodeSendRefusal | null
+    storedAddress?: string
+}
+
 export async function refuseSandboxCodeSends(
     db: PostgresRouter,
     {
@@ -47,31 +52,33 @@ export async function refuseSandboxCodeSends(
         recipients,
         tenantName,
     }: { enabled: boolean; teamId: number; recipients: string[]; tenantName: string }
-): Promise<(SandboxCodeSendRefusal | null)[]> {
+): Promise<SandboxCodeSendVerdict[]> {
     if (!enabled) {
-        return recipients.map(() => 'sandbox_sender_unavailable')
+        return recipients.map(() => ({ refusal: 'sandbox_sender_unavailable' }))
     }
     const authorizations = await readSandboxAuthorizations(db, {
         teamId,
         recipients: recipients.map((recipient) => recipient.trim()),
         tenantName,
     })
-    return authorizations.map(refusalOf)
+    return authorizations.map(verdictOf)
 }
 
-function refusalOf(authorization: SandboxAuthorization): SandboxCodeSendRefusal | null {
+function verdictOf(authorization: SandboxAuthorization): SandboxCodeSendVerdict {
     if (!authorization.ok) {
         switch (authorization.reason) {
             case 'not_member':
             case 'ambiguous_member':
-                return 'sandbox_recipient_not_member'
+                return { refusal: 'sandbox_recipient_not_member' }
             case 'organization_blocked':
             case 'team_not_found':
-                return 'sandbox_sender_unavailable'
+                return { refusal: 'sandbox_sender_unavailable' }
             case 'authorization_unavailable':
-                return null
+                return { refusal: null }
         }
     }
     const tenant = admitTenant(authorization.tenant, new Date())
-    return !tenant.ok && tenant.reason === 'tenant_paused' ? 'sandbox_sender_unavailable' : null
+    return !tenant.ok && tenant.reason === 'tenant_paused'
+        ? { refusal: 'sandbox_sender_unavailable' }
+        : { refusal: null, storedAddress: authorization.storedAddress }
 }

@@ -776,6 +776,8 @@ export class EmailService {
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
         let messageId: string | undefined
+        const sendStep = sendStepOf(invocation)
+        let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
         let teamBudgetCharged = false
 
         try {
@@ -799,8 +801,6 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = sendStepOf(invocation)
-            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -935,6 +935,10 @@ export class EmailService {
                 return result
             }
 
+            if (await this.optedOutOfMarketingApiSend(invocation, sendParams.to?.email)) {
+                return this.applySkip(result, invocation, isTest, addLog, MARKETING_OPT_OUT_SKIP)
+            }
+
             if (provider === 'maildev') {
                 await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
             } else {
@@ -1007,7 +1011,12 @@ export class EmailService {
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    suppressionLookupAttempts: attempt,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
                 addLog(
                     'warn',
@@ -1248,15 +1257,7 @@ export class EmailService {
                 )
             }
             if (await this.optedOutOfMarketingApiSend(invocation, params.to?.email)) {
-                return {
-                    kind: 'skip',
-                    logLevel: 'info',
-                    reason: 'Skipping send: the recipient opted out of this marketing email before it was sent.',
-                    metricName: 'email_opted_out',
-                    statusReason: 'recipient_opted_out',
-                    marksRunSkipped: true,
-                    blockedSendReport: null,
-                }
+                return MARKETING_OPT_OUT_SKIP
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
             const checked = this.checkedMarketingParams(invocation, {
@@ -1914,6 +1915,16 @@ export class EmailService {
             ? { params: filled }
             : { refused: 'unsubscribe_link_required' }
     }
+}
+
+const MARKETING_OPT_OUT_SKIP: EmailSendSkip = {
+    kind: 'skip',
+    logLevel: 'info',
+    reason: 'Skipping send: the recipient opted out of this marketing email before it was sent.',
+    metricName: 'email_opted_out',
+    statusReason: 'recipient_opted_out',
+    marksRunSkipped: true,
+    blockedSendReport: null,
 }
 
 const MARKETING_SKIP_MESSAGES: Record<'content_too_large' | 'unsubscribe_link_required', string> = {

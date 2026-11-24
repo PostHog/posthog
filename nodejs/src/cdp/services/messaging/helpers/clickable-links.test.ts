@@ -437,6 +437,31 @@ describe('clickableHrefs', () => {
             '<svg><foreignObject><select></foreignObject></select><a xlink:href="https://example.com/bye">Unsubscribe</a></svg>',
             [],
         ],
+        [
+            'an SVG xlink:href anchor ignored after a stray colgroup inside MathML mtext allows math to close',
+            '<math><mtext><colgroup><svg></math><a xlink:href="https://example.com/bye">Unsubscribe</a>',
+            [],
+        ],
+        [
+            'an SVG xlink:href anchor ignored after a stray image tag inside MathML mtext allows math to close',
+            '<math><mtext><image><svg></math><a xlink:href="https://example.com/bye">Unsubscribe</a>',
+            [],
+        ],
+        [
+            'an SVG xlink:href anchor ignored after a stray frameset tag inside MathML mtext allows math to close',
+            '<math><mtext><frameset><svg></math><a xlink:href="https://example.com/bye">Unsubscribe</a>',
+            [],
+        ],
+        [
+            'an SVG xlink:href anchor after a stray colgroup and closing colgroup tag outside a table',
+            '<colgroup><svg></colgroup><a xlink:href="https://example.com/bye">Unsubscribe</a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor inside a table after colgroup implicitly closes before svg',
+            '<table><colgroup><svg></colgroup><a xlink:href="https://example.com/bye">Unsubscribe</a></svg></table>',
+            ['https://example.com/bye'],
+        ],
     ])('returns the hrefs a reader can click in %s', (_name, html, hrefs) => {
         expect(clickableHrefs(html)).toEqual(hrefs)
     })
@@ -520,6 +545,14 @@ describe('clickableHrefs', () => {
             '<table><tr><td>',
             '<table><caption>',
             '<table><tbody><tr><td>',
+            '<colgroup>',
+            '</colgroup>',
+            '<col>',
+            '<caption>',
+            '<tbody>',
+            '<tfoot>',
+            '<tr>',
+            '<td>',
             '<thead>',
             '</thead>',
             '<th>',
@@ -646,6 +679,13 @@ describe('preferencesTokensInBody', () => {
         expect(hasReplaceableUnsubscribeLink({ html })).toBe(true)
         const filled = replaceUnsubscribePlaceholder(html, 'https://app.posthog.com/messaging-preferences/tok-form/')
         expect(preferencesTokensInBody({ html: filled }, 'https://app.posthog.com')).toEqual(['tok-form'])
+    })
+
+    it('rejects an xlink:href anchor after stray colgroup in MathML mtext allows math to close', () => {
+        const html = '<math><mtext><colgroup><svg></math><a xlink:href="{{ unsubscribe_url }}">Unsubscribe</a>'
+        expect(hasReplaceableUnsubscribeLink({ html })).toBe(false)
+        const filled = replaceUnsubscribePlaceholder(html, 'https://app.posthog.com/messaging-preferences/tok-cg/')
+        expect(preferencesTokensInBody({ html: filled }, 'https://app.posthog.com')).toEqual([])
     })
 })
 
