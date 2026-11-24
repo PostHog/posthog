@@ -18,6 +18,7 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
+import { showsBackground } from '../presentation/tileAppearance'
 import { isPartShown } from '../presentation/tileParts'
 import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
@@ -60,6 +61,7 @@ export function WidgetCard({
     const showHeader = isPartShown(widget, 'header', slots)
     const showDescription = isPartShown(widget, 'description', slots)
     const showFooter = isPartShown(widget, 'footer', slots)
+    const showBackground = showsBackground(widget, definition?.appearance ?? {})
     const HeaderActions = definition?.HeaderActions
     const Footer = definition?.Footer
     const hasMenu = hasTileMenu(actions)
@@ -69,7 +71,11 @@ export function WidgetCard({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('DashboardV2__card', editable && !showHeader && 'DashboardV2__handle')}
+                className={clsx(
+                    'DashboardV2__card',
+                    !showBackground && 'DashboardV2__card--no-background',
+                    editable && !showHeader && 'DashboardV2__handle'
+                )}
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'DashboardV2__handle')}>

@@ -12,6 +12,17 @@
     height: 100%;
 }
 
+.DashboardV2__card--no-background {
+    background-color: transparent;
+    box-shadow: none;
+
+    // Without an outline the tile is hard to find while editing, so it shows one on hover.
+    .DashboardV2__grid--editable .DashboardV2__tile:hover > &,
+    .DashboardV2__grid--editable .DashboardV2__tile:hover > .DashboardV2__menu-trigger > & {
+        box-shadow: 0 0 0 1px var(--color-border-primary);
+    }
+}
+
 // Fills the grid cell, which the grid positions absolutely, so the cell can be watched for coming into view.
 .DashboardV2__tile-sentinel {
     position: absolute;

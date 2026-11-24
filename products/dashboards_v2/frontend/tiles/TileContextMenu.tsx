@@ -18,6 +18,7 @@ import {
 
 import { type ContentWidget, type SectionWidget, gridTabs } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { tileAppearanceAction } from '../presentation/tileAppearance'
 import { tilePartsAction } from '../presentation/tileParts'
 import { widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
@@ -60,6 +61,16 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
     const parts = tilePartsAction(id, widget, widgetSlots(definition), disabledReasonFor('setTileParts'), onEdit)
     if (parts) {
         actions.push(parts)
+    }
+    const appearance = tileAppearanceAction(
+        id,
+        widget,
+        definition?.appearance ?? {},
+        disabledReasonFor('setTileAppearance'),
+        onEdit
+    )
+    if (appearance) {
+        actions.push(appearance)
     }
     if (definition?.menuActions) {
         actions.push(
