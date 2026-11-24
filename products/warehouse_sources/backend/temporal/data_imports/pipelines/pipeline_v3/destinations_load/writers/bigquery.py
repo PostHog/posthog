@@ -371,9 +371,9 @@ class BigQueryDestinationWriter:
             # This run's staging table is gone and the live table carries this run's publish
             # label, so the run finished. Rebuilding a staging table from this one batch and
             # copying it over the live table would replace the whole table with it.
-            return BatchWriteOutcome(rows_written=0)
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
-        rows_written = 0
+        outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
         chunk = 0
 
         async for record_batch in batches:
@@ -381,17 +381,19 @@ class BigQueryDestinationWriter:
                 continue
             # One load job per record batch. Collecting the whole staged batch first would hold
             # ~200 MiB of Arrow plus its parquet copy in memory, per destination.
-            rows_written += await self._write_one(record_batch, ctx, chunk)
+            outcome += await self._write_one(record_batch, ctx, chunk)
             chunk += 1
 
-        return BatchWriteOutcome(rows_written=rows_written)
+        return outcome
 
-    async def _write_one(self, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int) -> int:
+    async def _write_one(
+        self, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int
+    ) -> BatchWriteOutcome:
         run = ctx.run
         full_refresh = run.is_full_refresh
         is_first_chunk = chunk == 0
 
-        def write() -> int:
+        def write() -> BatchWriteOutcome:
             client = self._get_client()
 
             if full_refresh:
@@ -410,16 +412,16 @@ class BigQueryDestinationWriter:
                 # than the target already has (e.g. a count turning into a fraction) fails the
                 # load outright on every retry without this.
                 table = self._align_to_target(table, target)
-            self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
+            bytes_written = self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
             if target is None:
                 self._mark_owned(client, target_ref)
-            return table.num_rows
+            return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
         return await sync_to_async(write, thread_sensitive=False)()
 
     def _write_full_refresh_chunk(
         self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, *, first_chunk: bool
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Append one chunk to the run's staging table, having cleared this batch's own rows.
 
         Every staged row carries the batch that wrote it, and the first chunk of a batch deletes
@@ -436,13 +438,13 @@ class BigQueryDestinationWriter:
             if not staging_absent:
                 self._delete_batch_rows(client, staging, ctx.batch_index)
 
-            self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+            bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
             if staging_absent:
                 self._mark_owned(client, staging_ref)
-            return table.num_rows
+            return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
-        self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
-        return table.num_rows
+        bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+        return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
     def _delete_batch_rows(self, client: bigquery.Client, table: str, batch_index: int) -> None:
         client.query(
@@ -451,7 +453,7 @@ class BigQueryDestinationWriter:
 
     def _merge_chunk(
         self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert one chunk on the primary keys, staging it in a scratch table first."""
         run = ctx.run
         primary_keys = list(run.primary_keys)
@@ -465,7 +467,7 @@ class BigQueryDestinationWriter:
         if target is not None:
             table = self._align_to_target(table, target)
 
-        self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
+        bytes_written = self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
         try:
             if target is None:
                 # `MERGE` fails outright against a target that does not exist, and an
@@ -479,7 +481,7 @@ class BigQueryDestinationWriter:
             self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
         finally:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
-        return table.num_rows
+        return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
     def _align_to_target(self, table: pa.Table, target: bigquery.Table) -> pa.Table:
         """Cast each column to the type the live table holds it as.
@@ -546,11 +548,15 @@ class BigQueryDestinationWriter:
         """Create an empty table carrying another table's schema."""
         client.create_table(bigquery.Table(table_ref, schema=client.get_table(self._table_ref(model)).schema))
 
-    def _load(self, client: bigquery.Client, table: str, data: pa.Table, disposition: str) -> None:
-        """Load an Arrow table as parquet, letting BigQuery derive and evolve the schema."""
+    def _load(self, client: bigquery.Client, table: str, data: pa.Table, disposition: str) -> int:
+        """Load an Arrow table as parquet, letting BigQuery derive and evolve the schema.
+
+        Returns the size of the parquet file uploaded, which is the egress for the load.
+        """
         buffer = io.BytesIO()
         pq.write_table(data, buffer)
         buffer.seek(0)
+        file_size = buffer.getbuffer().nbytes
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
@@ -570,6 +576,7 @@ class BigQueryDestinationWriter:
             # outright and so has nothing to evolve.
             job_config.schema_update_options = [bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
         client.load_table_from_file(buffer, self._table_ref(table), job_config=job_config).result()
+        return file_size
 
     def _merge(
         self, client: bigquery.Client, target: str, source: str, column_names: list[str], primary_keys: list[str]

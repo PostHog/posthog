@@ -8,6 +8,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
+import { ANALYTICS_TYPE_INFO } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -26,6 +27,7 @@ import { AnalyticsItemIcon } from './AnalyticsItemIcon'
 import { ANALYTICS_SIDEBAR_CONFIGURATION } from './analyticsSidebarConfiguration'
 import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
+import { TodayAnalyticsRecordPreview } from './TodayAnalyticsRecordPreview'
 import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
 /**
@@ -60,6 +62,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 ? {
                       value: `pinned:${pinned.key}`,
                       label: pinned.name,
+                      meta: 'Collection',
                       icon: <AnalyticsSpaceGlyph name={pinned.name} />,
                       to: urls.analyticsList({ folder: pinned.path }),
                       active: openFolder === pinned.path,
@@ -70,11 +73,18 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-starred-space',
-                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
+                      wrap: (row) => (
+                          <SidebarRowEnter pinKey={pinned.key}>
+                              <TodayAnalyticsRecordPreview name={pinned.name} type="collection">
+                                  {row}
+                              </TodayAnalyticsRecordPreview>
+                          </SidebarRowEnter>
+                      ),
                   }
                 : {
                       value: `pinned:${pinned.key}`,
                       label: pinned.item.name,
+                      meta: ANALYTICS_TYPE_INFO[pinned.item.type].label,
                       icon: <AnalyticsItemIcon type={pinned.item.type} />,
                       to: pinned.item.href,
                       active: path === removeProjectIdIfPresent(pinned.item.href),
@@ -90,12 +100,19 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-pinned',
-                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
+                      wrap: (row) => (
+                          <SidebarRowEnter pinKey={pinned.key}>
+                              <TodayAnalyticsRecordPreview name={pinned.item.name} type={pinned.item.type}>
+                                  {row}
+                              </TodayAnalyticsRecordPreview>
+                          </SidebarRowEnter>
+                      ),
                   }
         ),
         recents: recentAnalytics.map((item) => ({
             value: `recent:${item.type}:${item.id}`,
             label: item.name,
+            meta: ANALYTICS_TYPE_INFO[item.type].label,
             icon: <AnalyticsItemIcon type={item.type} />,
             to: item.href,
             active: path === removeProjectIdIfPresent(item.href),
@@ -106,6 +123,11 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 />
             ),
             dataAttr: 'analytics-sidebar-recent',
+            wrap: (row) => (
+                <TodayAnalyticsRecordPreview name={item.name} type={item.type}>
+                    {row}
+                </TodayAnalyticsRecordPreview>
+            ),
         })),
         by_posthog: fromPostHog.map((product) => {
             const productPath = product.href.split(/[?#]/)[0]

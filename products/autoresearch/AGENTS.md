@@ -37,7 +37,9 @@ The counters carry CHECK constraints too: `iteration_budget` is at least 1, `ite
 Gated by the `autoresearch` feature flag (`backend/access.py`).
 Rollout is configured on the flag, and code only asks whether it is on.
 
-The real-agent training path additionally needs Tasks access, because it runs in a Tasks sandbox.
+Autoresearch owns the gate on a training launch: `access_refusal()` in `backend/access.py`.
+`/train` and the sweep's kickoff both call it, so a run starts only in an active organization and for a user with the `autoresearch` flag, then within the per-project limits in `backend/limits.py`.
+The run is a Tasks sandbox, but the PostHog Desktop entitlement and usage rules do not apply to it: the training task profile bills no compute (`backend/task_profiles.py`).
 
 ## Training schedule
 

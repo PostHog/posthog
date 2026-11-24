@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
@@ -93,13 +94,14 @@ describe('CommonIngestionPipelineBuilder', () => {
     // so no batch result may ever surface any to the driver.
     const runPipeline = async (
         pipeline: {
-            feed: (batch: any[], batchContext: Record<never, never>) => Promise<{ ok: boolean }>
+            feed: (batch: any[], batchContext: Record<never, never>, budget?: BatchBudget) => Promise<{ ok: boolean }>
             next: () => Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] } | null>
         },
-        messages: Message[]
+        messages: Message[],
+        budget?: BatchBudget
     ): Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] }[]> => {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        const feedResult = await pipeline.feed(batch, {})
+        const feedResult = await pipeline.feed(batch, {}, budget)
         expect(feedResult.ok).toBe(true)
 
         const batches = []
@@ -646,6 +648,41 @@ describe('CommonIngestionPipelineBuilder', () => {
             'D:user-1',
         ])
     })
+
+    it.each([
+        ['inside a sequential block', false],
+        ['right after a chunk step', true],
+    ])(
+        'finishes an element that passed a timeoutBarrier %s when its budget then runs out',
+        async (_placement, afterChunkStep) => {
+            const log: string[] = []
+            const teamStage = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+                .parseHeaders()
+                .parseMessage()
+                .resolveTeam()
+            const pipeline = (
+                afterChunkStep
+                    ? teamStage.pipeChunk(teamLogChunkStep(log, 'prepare'))
+                    : teamStage.pipe(teamLogStep(log, 'prepare'))
+            )
+                .timeoutBarrier()
+                .pipe(function writeStep(input) {
+                    jest.advanceTimersByTime(1000)
+                    return Promise.resolve(ok(input))
+                })
+                .pipe(teamLogStep(log, 'emit'))
+                .build()
+
+            const batches = await runPipeline(
+                pipeline,
+                [createMessage('user-0')],
+                BatchBudget.softDeadline(Date.now() + 1000)
+            )
+
+            expect(log).toContain('emit:user-0')
+            expect(okValues(batches)).toHaveLength(1)
+        }
+    )
 
     it('fans out through the skeleton and hands the fanned-in value to subsequent team-aware steps', async () => {
         const log: string[] = []

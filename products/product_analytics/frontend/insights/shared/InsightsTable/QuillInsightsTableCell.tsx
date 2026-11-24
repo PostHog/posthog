@@ -11,6 +11,7 @@ import { BreakdownFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { AggregationColumnItem } from './columns/AggregationColumn'
+import { EventCountColumnItem } from './columns/EventCountColumn'
 import { QuillBreakdownValue } from './columns/QuillBreakdownValue'
 import { QuillSeriesColorButton } from './columns/QuillSeriesColorButton'
 import { QuillSeriesLabel } from './columns/QuillSeriesLabel'
@@ -127,6 +128,9 @@ export function QuillInsightsTableCell({
             content = share === null ? '—' : percentage(share, 1)
             break
         }
+        case 'event-count':
+            content = <EventCountColumnItem item={item} />
+            break
         case 'previous': {
             const previousItem = context.getPreviousResult(item)
             content = previousItem ? (

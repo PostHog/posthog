@@ -50,7 +50,15 @@ PNPM_VERSION = re.compile(r"^pnpm@((\d+)\.\d+\.\d+)$")
 
 
 class Refused(Exception):
-    """The update is outside what this proof covers. The message says why."""
+    """The update is outside what this proof covers. The message says why.
+
+    `pr` names the pull request the refusal is about, once one was found. stamphog accepts a signed
+    result only when its marker names the pull request, so even a refusal must carry it.
+    """
+
+    def __init__(self, message: str, *, pr: int = 0) -> None:
+        super().__init__(message)
+        self.pr = pr
 
 
 @dataclass(frozen=True)
