@@ -236,6 +236,7 @@ SuggestionsScoutRunReason = Literal[
     "published",
     "suggestion_resolved",
     "sends_matured",
+    "conversions_settled",
 ]
 
 

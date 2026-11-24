@@ -109,6 +109,55 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
 
         assert self._reason() == reason
 
+    @parameterized.expand(
+        [
+            ("runs_finished_their_window", "7d", "event", [("2026-12-12T10:00:00", 25)], "conversions_settled"),
+            (
+                "enough_runs_only_with_earlier_days",
+                "7d",
+                "event",
+                [("2026-12-01T10:00:00", 19), ("2026-12-12T23:30:00", 1)],
+                "conversions_settled",
+            ),
+            ("already_settled_at_the_last_run", "7d", "event", [("2026-12-11T23:30:00", 25)], None),
+            ("still_inside_the_window", "7d", "event", [("2026-12-13T00:10:00", 25)], None),
+            ("too_few_runs", "7d", "event", [("2026-12-12T10:00:00", 19)], None),
+            ("window_too_long_to_measure", "31d", "event", [("2026-11-18T10:00:00", 25)], None),
+            ("no_window_means_ninety_days", None, "event", [("2026-12-12T10:00:00", 25)], None),
+            (
+                "started_before_conversions_were_recorded",
+                "30d",
+                "event",
+                [("2026-11-12T10:00:00", 25), ("2026-11-19T10:00:00", 1)],
+                None,
+            ),
+            ("webhook_started_before_its_starts_were_versioned", "22d", "webhook", [("2026-11-27T10:00:00", 25)], None),
+            ("webhook_counts_from_its_cutoff", "21d", "webhook", [("2026-11-28T10:00:00", 25)], "conversions_settled"),
+        ]
+    )
+    def test_settled_conversions(
+        self, _name: str, window: str | None, trigger: str, runs: list[tuple[str, int]], expected: str | None
+    ) -> None:
+        conversion = {"filters": {"events": [{"id": "paid"}]}, **({"window": window} if window else {})}
+        HogFlowRevision.objects.unscoped().filter(pk=self.revision.pk).update(
+            content={"conversion": conversion, "trigger": {"type": trigger}}
+        )
+        HogFlow.objects.filter(pk=self.flow.pk).update(conversion=conversion, trigger={"type": trigger})
+        for started_at, count in runs:
+            create_app_metric2(
+                team_id=self.team.pk,
+                app_source="hog_flow_version",
+                app_source_id=f"{self.flow.id}/{self.flow.version}",
+                instance_id="trigger",
+                metric_kind="other",
+                metric_name="triggered",
+                count=count,
+                timestamp=datetime.fromisoformat(started_at).replace(tzinfo=UTC),
+            )
+
+        now = datetime(2026, 12, 20, 12, 30, tzinfo=UTC)
+        assert suggestions_scout_run_reason(self.team.pk, last_run_at=now - timedelta(hours=24), now=now) == expected
+
     def test_quiet_for_a_week_runs(self) -> None:
         assert self._reason(last_run_at=NOW - timedelta(days=7)) == "backstop"
 
