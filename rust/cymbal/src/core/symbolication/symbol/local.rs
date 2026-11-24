@@ -43,9 +43,8 @@ use uuid::Uuid;
 
 const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 
-// `SET LOCAL` ends with the transaction, so the setting never reaches the next user of the
-// pooled connection, or another client that pgbouncer gives the same server connection.
-// Both statements go in one simple query, which costs one round trip instead of two.
+// `SET LOCAL` ends with the transaction, so it never reaches the next client of the pooled or
+// pgbouncer connection. One simple query carries both statements in one round trip.
 const BEGIN_ASYNC_COMMIT: &str = "BEGIN; SET LOCAL synchronous_commit = off";
 
 #[derive(Clone)]
@@ -300,8 +299,6 @@ impl LocalSymbolResolver {
         }
     }
 
-    // Rows count as written only once the transaction commits, so the caller records
-    // them after this returns.
     async fn save_records_async_commit(
         &self,
         records: &[ErrorTrackingStackFrame],
@@ -333,10 +330,7 @@ impl LocalSymbolResolver {
         part_count: u64,
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<bool, UnhandledError> {
-        // A racing writer can leave a multi-part snapshot half written: the per-part
-        // upsert loop is not transactional with frame_save_async_commit off, and even
-        // in one transaction a writer that resolved fewer parts leaves the other
-        // writer's extra parts in place. A timestamp-only refresh
+        // A racing writer can leave a multi-part snapshot half written. A timestamp-only refresh
         // spanning every part would mark that mixed snapshot fresh for a full
         // TTL. A single-part save is atomic, so only single-part snapshots take
         // the timestamp-only path.
@@ -770,8 +764,7 @@ mod test {
         assert!(rows[0].1 > created_1);
     }
 
-    // Records the synchronous_commit setting that each write to the frame and symbol set
-    // tables runs under, so a test can see which writes skip the WAL flush wait.
+    // Records the synchronous_commit value each frame and symbol set write runs under.
     async fn record_synchronous_commit_per_write(pool: &PgPool) {
         sqlx::raw_sql(
             r#"
@@ -801,8 +794,7 @@ mod test {
         pool_options: PgPoolOptions,
         connect_options: PgConnectOptions,
     ) {
-        // One connection, so a setting that outlived its transaction shows on the next
-        // query. The session pins the durable default whatever the server's own default is.
+        // One connection, so a setting that leaks past commit shows on the next query.
         let pool = pool_options
             .max_connections(1)
             .connect_with(connect_options.options([("synchronous_commit", "on")]))
@@ -814,7 +806,6 @@ mod test {
         let catalog = Arc::new(catalog);
         let frame = get_test_frame(&server);
 
-        // Each case resolves for its own team, so each one saves a new symbol set and frame.
         for (team_id, async_commit, frame_write_setting) in [(1, true, "off"), (2, false, "on")] {
             config.frame_save_async_commit = async_commit;
             let resolver = LocalSymbolResolver::new(&config, catalog.clone(), pool.clone());

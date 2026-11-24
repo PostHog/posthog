@@ -29,8 +29,7 @@ pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
-// Time to write one frame snapshot to Postgres, pool wait included, labelled by
-// `commit` (`async` / `sync`).
+// Labelled by `commit` (`async` / `sync`), pool wait included.
 pub const FRAME_SAVE_TIME: &str = "cymbal_frame_save_ms";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
@@ -86,8 +85,7 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     1_073_741_824.0, // 1 GiB
 ];
 
-// A healthy frame save takes less than a millisecond, which the default
-// buckets (lowest 1.0) cannot show.
+// A healthy frame save takes under 1 ms, below the lowest default bucket.
 pub const FRAME_SAVE_TIME_BUCKETS: &[f64] = &[
     0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 1000.0, 5000.0,
 ];

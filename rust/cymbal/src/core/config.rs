@@ -75,10 +75,7 @@ pub struct ResolverConfig {
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
 
-    // Frame rows are a cache. A row that a writer crash loses is resolved again on its next
-    // miss, so frame saves can commit without waiting for the WAL flush. When enabled, each
-    // frame snapshot is saved in one transaction with `synchronous_commit = off`. When
-    // disabled, each part is saved as its own fully durable commit.
+    // Frame rows are a cache rebuilt on the next miss, so their commits skip the WAL flush wait.
     #[envconfig(default = "true")]
     pub frame_save_async_commit: bool,
 
