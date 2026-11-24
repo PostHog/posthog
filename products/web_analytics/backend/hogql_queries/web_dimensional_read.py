@@ -248,7 +248,7 @@ class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreA
 
     The stats table has one row per session and host (and other per-event dimensions), so a host filter keeps the
     matching events' rows, as the live query does. The bounces table has one row per session, so a host filter
-    matches a session through the session's `hosts` list instead of its single `host`."""
+    matches a session through the session's `session_hosts` list instead of its single `host`."""
 
     def __init__(self, runner: "WebOverviewQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
@@ -379,16 +379,16 @@ class _HostFieldReplacer(CloningVisitor):
 
 
 class _HostSetFilterRewriter(CloningVisitor):
-    """Rewrites `$host` filters on the bounces table to match any host in the session's `hosts` list.
+    """Rewrites `$host` filters on the bounces table to match any host in the session's `session_hosts` list.
 
     Live filters events and keeps a session with at least one matching event, so every operator becomes "some host
-    matches": `is not X` keeps a session that also viewed another host, which `NOT has(hosts, X)` would drop. The host
-    filters of one AND go into a single `arrayExists`, because live applies all of them to the same event."""
+    matches": `is not X` keeps a session that also viewed another host, which `NOT has(session_hosts, X)` would drop.
+    The host filters of one AND go into a single `arrayExists`, because live applies all of them to the same event."""
 
     def __init__(self, table_name: str) -> None:
         super().__init__()
         self.host_chain: list[str | int] = [table_name, "host"]
-        self.hosts_chain: list[str | int] = [table_name, "hosts"]
+        self.session_hosts_chain: list[str | int] = [table_name, "session_hosts"]
 
     def _field_chains(self, node: ast.Expr) -> list[list[str | int]]:
         collector = _FieldChainCollector()
@@ -406,7 +406,7 @@ class _HostSetFilterRewriter(CloningVisitor):
         predicate = _HostFieldReplacer(self.host_chain).visit(node)
         return ast.Call(
             name="arrayExists",
-            args=[ast.Lambda(args=[_HOST_LAMBDA_ARG], expr=predicate), ast.Field(chain=self.hosts_chain)],
+            args=[ast.Lambda(args=[_HOST_LAMBDA_ARG], expr=predicate), ast.Field(chain=self.session_hosts_chain)],
         )
 
     def visit_and(self, node: ast.And) -> ast.And:

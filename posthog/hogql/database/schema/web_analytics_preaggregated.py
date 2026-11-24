@@ -233,8 +233,8 @@ class WebStatsDimensionalPreAggregatedTable(EventsRetentionTable):
 
 
 WEB_BOUNCES_DIMENSIONAL_SPECIFIC_FIELDS = {
-    "hosts": StringArrayDatabaseField(
-        name="hosts",
+    "session_hosts": StringArrayDatabaseField(
+        name="session_hosts",
         description="Every host the session viewed, sorted, with '' for events without a host. `host` is one of them.",
     ),
     "bounce_eligible_sessions_state": DatabaseField(

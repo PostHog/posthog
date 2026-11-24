@@ -230,7 +230,7 @@ SELECT
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
     channel_type AS channel_type,
-    hosts AS hosts,
+    session_hosts AS session_hosts,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state,
@@ -244,7 +244,7 @@ FROM (
         events.$session_id AS session_id,
         min(session.$start_timestamp) AS start_timestamp,
         any(events.properties.$host) AS host,
-        arraySort(groupUniqArray(coalesce(events.properties.$host, ''))) AS hosts,
+        arraySort(groupUniqArray(coalesce(events.properties.$host, ''))) AS session_hosts,
         any(events.properties.$device_type) AS device_type,
         any(events.properties.$browser) AS browser,
         any(events.properties.$os) AS os,
@@ -310,7 +310,7 @@ GROUP BY
     mat_metadata_backend,
     mat_metadata_loggedIn,
     channel_type,
-    hosts
+    session_hosts
 """
 
 
