@@ -4,11 +4,17 @@ from parameterized import parameterized
 
 from products.slack_app.evals.scorers import (
     FOLLOWUP_KEY,
+    MESSAGE_SENTIMENT_KEY,
     MODEL_OVERRIDE_KEY,
     FollowupRoutingMatch,
+    MessageSentimentMatch,
     ModelOverrideMatch,
+    NoUnaskedGif,
     NoUnaskedOverride,
+    NoUnaskedReaction,
     NoUnaskedWake,
+    SentimentDetected,
+    UnhappyDetected,
 )
 
 ASKS_FOR_FABLE = {MODEL_OVERRIDE_KEY: {"model": "claude-fable-5", "reasoning_effort": None}}
@@ -141,3 +147,49 @@ class TestFollowupRoutingMatch:
     def test_skips_cases_that_declare_no_expectation(self):
         score = FollowupRoutingMatch().eval(output={"agent_directed": True}, expected={FOLLOWUP_KEY: {}})
         assert score.score is None
+
+
+def _sentiment(want: str) -> dict:
+    return {MESSAGE_SENTIMENT_KEY: {"sentiment": want}}
+
+
+class TestMessageSentimentScorers:
+    """The three group scorers are rates over different case sets. A scorer that scores cases outside its
+    set reports a high rate for the wrong reason."""
+
+    @parameterized.expand(
+        [
+            ("exact_match", MessageSentimentMatch, "not_happy", "not_happy", 1.0),
+            ("exact_miss_inside_unhappy", MessageSentimentMatch, "frustrated", "not_happy", 0.0),
+            ("unhappy_either_state_passes", UnhappyDetected, "frustrated", "not_happy", 1.0),
+            ("unhappy_missed", UnhappyDetected, "not_happy", "confused", 0.0),
+            ("unhappy_skips_calm_cases", UnhappyDetected, "neutral", "neutral", None),
+            ("reaction_to_calm_person", NoUnaskedReaction, "confused", "not_happy", 0.0),
+            ("no_reaction_to_calm_person", NoUnaskedReaction, "happy", "neutral", 1.0),
+            ("reaction_skips_unhappy_cases", NoUnaskedReaction, "frustrated", "neutral", None),
+            ("gif_to_mildly_unhappy_person", NoUnaskedGif, "not_happy", "frustrated", 0.0),
+            ("no_gif_to_mildly_unhappy_person", NoUnaskedGif, "not_happy", "not_happy", 1.0),
+            ("gif_skips_frustrated_cases", NoUnaskedGif, "frustrated", "neutral", None),
+        ]
+    )
+    def test_scores(self, _name, scorer, want, got, expected_score):
+        assert scorer().eval(output={"sentiment": got}, expected=_sentiment(want)).score == expected_score
+
+    @parameterized.expand(
+        [
+            ("state_found", "confused", "confused", 1.0),
+            ("state_missed", "confused", "neutral", 0.0),
+            ("skips_cases_expecting_another_state", "happy", "confused", None),
+        ]
+    )
+    def test_sentiment_detected_scores_only_its_own_state(self, _name, want, got, expected_score):
+        assert (
+            SentimentDetected("confused").eval(output={"sentiment": got}, expected=_sentiment(want)).score
+            == expected_score
+        )
+
+    @parameterized.expand([(NoUnaskedReaction,), (NoUnaskedGif,)])
+    def test_a_classifier_error_is_a_failure_on_the_guard_scorers(self, scorer):
+        # A failed call reacts to nobody, which looks like a pass, so an outage would hide in the guard rates.
+        score = scorer().eval(output={"sentiment": None, "error": "boom"}, expected=_sentiment("neutral"))
+        assert score.score == 0.0

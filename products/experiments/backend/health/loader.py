@@ -3,7 +3,6 @@ from typing import Any
 
 import pydantic
 
-from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import (
@@ -21,7 +20,6 @@ from products.experiments.backend.health.condition_set_traffic import load_condi
 from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
-from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
 from products.experiments.backend.health.metric_windows import load_primary_metric_windows
@@ -39,25 +37,11 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
     pinned_variant,
 )
-
-
-@frozen
-class HealthInputs:
-    """What the staff view of the health checks shows: the context the checks read, the exposure query's answer that
-    the exposure checks read, and facts about the project that no check reads yet but that explain a finding."""
-
-    context: HealthContext
-    exposures: ExposureInputs
-    reader_access: ExperimentHealthReaderAccess
-    # None when the experiment has no flag, or the flag has no version.
-    flag_version: int | None
-    project: ProjectSetupFacts
 
 
 def evaluate_experiment_health(
@@ -74,28 +58,6 @@ def evaluate_experiment_health(
     team_config = _team_config(experiment)
     ctx = _health_context(experiment, team_config, reader_access, user)
     return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx, team_config))
-
-
-def load_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> HealthInputs:
-    experiment = _load_experiment(team_id, experiment_id)
-    return HealthInputs(
-        context=_health_context(experiment, _team_config(experiment), reader_access, user),
-        exposures=load_exposure_inputs(
-            experiment,
-            user=user,
-            can_query_events=reader_access.can_query_events,
-            can_read_flag_history=reader_access.can_read_flag_history,
-        ),
-        reader_access=reader_access,
-        flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
-        project=build_project_setup_facts(
-            experiment.team,
-            can_query_events=reader_access.can_query_events,
-            denied_event_properties=reader_access.denied_event_properties,
-        ),
-    )
 
 
 def _health_setup(
