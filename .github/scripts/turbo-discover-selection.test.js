@@ -8,10 +8,12 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const {
     decideJsonTargets,
+    decideProductChange,
     decideSelection,
     decideSelectionWithShadow,
     isDagsterOnlyLegacyEdit,
     narrowedProducts,
+    parseWatchedAnswer,
     productCascadePhase,
     productsWithUndeclaredInputChanges,
     selectedShards,
@@ -453,5 +455,133 @@ test('the events_json leg runs the whole list, a narrowed list, or nothing', () 
     ]
     for (const [overrides, expected] of cases) {
         assert.deepEqual(jsonTargets(overrides), expected, JSON.stringify(overrides))
+    }
+})
+
+// --- Isolation from hoglint's watched answer ---
+
+// One answer in `hoglint watched`'s format 1: canvas claims the level and passes, tasks claims it
+// and fails, and data_warehouse passes without a claim.
+const watchedAnswer = (extra) =>
+    JSON.stringify({
+        format: 1,
+        hoglint: '0.2.0',
+        engine: 'native-0',
+        policy: '0',
+        level: 'isolated',
+        complete: true,
+        problems: [],
+        groups: {
+            canvas: {
+                claimed: null,
+                passes: true,
+                reasons: [],
+                watched: {
+                    'products/canvas/backend/facade/api.py': 'structural: zone facade',
+                    'products/canvas/backend/apps.py': 'wiring-watched: ...',
+                },
+            },
+            tasks: { claimed: null, passes: false, reasons: ['has-facade: ...'], watched: {} },
+        },
+        ...extra,
+    })
+
+// No product claims the level: hoglint judges every one, and only a product that passes isolates.
+test('only a product that passes the Isolated level is isolated', () => {
+    const read = parseWatchedAnswer(watchedAnswer())
+    assert.equal(read.status, 'ok')
+    assert.deepEqual([...read.isolated], ['canvas'])
+    assert.deepEqual([...read.watched.get('canvas')].sort(), [
+        'products/canvas/backend/apps.py',
+        'products/canvas/backend/facade/api.py',
+    ])
+    assert.match(read.digest, /^[0-9a-f]{16}$/)
+})
+
+// Each of these would otherwise read as "no watched file changed" and skip Django.
+test('an answer hoglint could not complete, or one this script cannot read, isolates nothing', () => {
+    const cases = [
+        ['not json', 'unavailable'],
+        [watchedAnswer({ format: 2 }), 'unavailable'],
+        [JSON.stringify({ format: 1 }), 'unavailable'],
+        [watchedAnswer({ complete: false, problems: ['wiring-watched: cannot read every item of ...'] }), 'incomplete'],
+    ]
+    for (const [text, status] of cases) {
+        const read = parseWatchedAnswer(text)
+        assert.equal(read.status, status, text.slice(0, 60))
+        assert.equal(read.isolated.size, 0, text.slice(0, 60))
+    }
+})
+
+const ALL_PRODUCTS = ['canvas', 'error-tracking', 'tasks']
+
+// A products-only diff reaching canvas, the one isolated product of the answer above.
+const decideCanvas = (overrides) =>
+    decideProductChange({
+        affectedProducts: ['canvas'],
+        allProducts: ALL_PRODUCTS,
+        watched: parseWatchedAnswer(watchedAnswer()),
+        changedFiles: ['products/canvas/backend/logic/layout.py'],
+        deletedFiles: new Set(),
+        direct: false,
+        dependentsOf: () => ['error-tracking'],
+        ...overrides,
+    })
+
+test('an isolated product skips Django only when the diff leaves its watched set alone', () => {
+    const cases = [
+        // An unwatched file: the product's own suite is enough.
+        [{}, { products: ['canvas'], runLegacy: false, runLegacyReason: '' }],
+        // A watched file: Django runs, with the products that depend on it.
+        [
+            { changedFiles: ['products/canvas/backend/facade/api.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A deleted file is in no set of the head tree, so the deletion itself counts.
+        [
+            {
+                changedFiles: ['products/canvas/backend/logic/old_layout.py'],
+                deletedFiles: new Set(['products/canvas/backend/logic/old_layout.py']),
+            },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // No base to diff against: nothing says the watched set was left alone.
+        [
+            { changedFiles: null },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A selecting PR run takes direct dependents only; the queue walks them all.
+        [
+            {
+                changedFiles: ['products/canvas/backend/facade/api.py'],
+                direct: true,
+                dependentsOf: (seeds, { direct }) => (direct ? ['error-tracking'] : ['error-tracking', 'tasks']),
+            },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // Without the cascade the dependents are unknown.
+        [
+            { changedFiles: ['products/canvas/backend/facade/api.py'], dependentsOf: () => null },
+            { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, expected, JSON.stringify(overrides))
+    }
+})
+
+// Each case is an answer the diff cannot be judged by, so every product and Django run.
+test('a missing answer, a failed level or a change to hoglint itself widens to every product', () => {
+    const cases = [
+        [{ watched: parseWatchedAnswer('not json') }, 'watched_unavailable'],
+        [{ watched: parseWatchedAnswer(watchedAnswer({ complete: false })) }, 'watched_unavailable'],
+        [{ affectedProducts: ['canvas', 'tasks'] }, 'non_isolated_product'],
+        [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'tools/hoglint/presets/posthog.toml'] }, 'watched_policy'],
+        [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'hoglint.toml'] }, 'watched_policy'],
+    ]
+    for (const [overrides, reason] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: reason }, reason)
     }
 })

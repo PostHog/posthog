@@ -42,8 +42,8 @@ on:
             - tools/change-prover/**
             - rust/bin/write-deploy-requirements
             - manage.py
-            # test_hoglint_run.py holds hoglint_run.py's pin to the dev group's
-            # hoglint pin, and a hoglint bump is what moves it.
+            # test_hoglint_run.py holds hoglint_run.py's pins to the dev group's
+            # hoglint pin and the locked Django, and a bump of either moves them.
             - pyproject.toml
 
 concurrency:
