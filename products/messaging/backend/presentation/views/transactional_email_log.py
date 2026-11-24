@@ -256,7 +256,7 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run "
         "tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends "
-        "at most. Sends from before link tagging was turned on carry no tag. Null when link_tagging_enabled is "
+        "at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is "
         "false, or the user has no access to querying events.",
     )
     link_tagging_enabled = serializers.BooleanField(
@@ -551,8 +551,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
         summary="Get how far a transactional email's sends got",
-        description="Count one email's sends that were sent, delivered, opened and clicked, and the sessions the clicks "
-        "started. With an event, also count "
+        description="Count one email's sends that were sent, delivered, opened and clicked, and the sessions with a "
+        "pageview from its links. With an event, also count "
         "the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.",
     )
     @action(detail=False, methods=["GET"])

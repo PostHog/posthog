@@ -1321,7 +1321,7 @@ export const getTransactionalEmailLogImpactRetrieveUrl = (
 }
 
 /**
- * Count one email's sends that were sent, delivered, opened and clicked, and the sessions the clicks started. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * Count one email's sends that were sent, delivered, opened and clicked, and the sessions with a pageview from its links. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
  * @summary Get how far a transactional email's sends got
  */
 export const transactionalEmailLogImpactRetrieve = async (
