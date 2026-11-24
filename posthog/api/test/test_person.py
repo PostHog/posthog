@@ -43,8 +43,10 @@ from posthog.models.person.util import (
     get_person_by_id,
     get_person_by_uuid,
 )
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
@@ -2784,6 +2786,25 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["results"], [])
         self.assertEqual(response.json()["count"], 0)
+
+    @parameterized.expand(
+        [
+            ("person_read_cannot_run_hogql_filter", ["person:read"], status.HTTP_403_FORBIDDEN),
+            ("query_read_can_run_hogql_filter", ["person:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_hogql_property_filter_needs_query_read_scope(self, _name, scopes, expected_status) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="persons", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        filters = json.dumps([{"type": "hogql", "key": "1 = 1"}])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/",
+            {"properties": filters},
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(

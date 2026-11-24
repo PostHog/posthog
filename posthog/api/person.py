@@ -48,6 +48,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthen
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.actor_strategies import PERSON_EMAIL_PROPERTY_KEYS, person_email_property_keys
@@ -74,7 +75,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, scopes_caller_lacks
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -871,6 +872,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
         person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
+        # A HogQL filter can read any table the user can, so a token also needs query:read to send one. The
+        # filters the handler adds itself (email, distinct_id) are not caller-supplied and need no extra scope.
+        if any(prop.get("type") == "hogql" for prop in person_properties):
+            missing = scopes_caller_lacks(request, ["query:read"])
+            if missing:
+                raise InsufficientScope(missing, detail="HogQL property filters also need: query:read.")
         if request.GET.get("email"):
             person_properties.append(
                 {"type": "person", "key": "email", "value": request.GET.get("email"), "operator": "exact"}
