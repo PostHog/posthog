@@ -91,6 +91,7 @@ const mockAgentRun = vi.hoisted(() =>
 );
 
 const mockResumeFromLog = vi.hoisted(() => vi.fn());
+const mockHasClaudeLogin = vi.hoisted(() => vi.fn());
 const mockFormatConversationForResume = vi.hoisted(() => vi.fn());
 const mockHydrateSessionJsonl = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ hasSession: false }),
@@ -128,6 +129,18 @@ vi.mock("@posthog/agent", () => ({
     REFRESH_SESSION: "_posthog/refresh_session",
   },
 }));
+
+vi.mock(
+  "@posthog/agent/adapters/claude/subscription-login",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@posthog/agent/adapters/claude/subscription-login")
+      >();
+    mockHasClaudeLogin.mockImplementation(actual.hasClaudeLogin);
+    return { ...actual, hasClaudeLogin: mockHasClaudeLogin };
+  },
+);
 
 vi.mock("@posthog/agent/resume", () => ({
   resumeFromLog: mockResumeFromLog,
@@ -955,6 +968,33 @@ describe("AgentService", () => {
         "run-1",
       );
     });
+
+    // The gateway proxy refuses a session it cannot route (blocked org, no
+    // project); a subscription session only stays clear of it when the agent
+    // is told to bill the user's own plan.
+    it.each([
+      { adapter: "claude", access: { claudeModelAccess: "own-subscription" } },
+      { adapter: "codex", access: { codexModelAccess: "own-subscription" } },
+    ] as const)(
+      "hands a $adapter subscription session to the agent as own-subscription",
+      async ({ adapter, access }) => {
+        mockHasClaudeLogin.mockResolvedValueOnce({ state: "logged-in" });
+        // A Codex subscription session makes its own CODEX_HOME under app data.
+        vi.spyOn(fs.promises, "mkdir").mockResolvedValue(undefined);
+
+        await service.startSession({
+          ...baseSessionParams,
+          adapter,
+          ...access,
+        });
+
+        expect(mockAgentRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({ adapter, ...access }),
+        );
+      },
+    );
 
     it("passes reasoning effort to local Codex startup options", async () => {
       await service.startSession({
