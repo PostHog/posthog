@@ -329,6 +329,8 @@ Source-property rules do not automatically apply to evaluation outputs. To keep 
 User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
 results even when the project's default rules hide those result properties from users.
 Report agents also read complete source conversations when inspecting trace or session evaluation results.
+Evaluation reports require organization approval for third-party AI processing.
+If an admin withdraws approval during a run, the agent stops before its next model request, including a retry.
 
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
