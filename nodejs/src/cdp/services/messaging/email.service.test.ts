@@ -3345,24 +3345,32 @@ describe('EmailService', () => {
                 }
             )
 
-            it('fails a test send whose TLS handshake with SES outlasts the deadline as a provider timeout, not a file load', async () => {
-                const emailService = sender({ attachmentSendDeadlineMs: 1000 })
-                const reachedTheHandshake = sendThroughATlsHandshakeThatNeverAnswers(emailService)
+            it.each([
+                ['a test send at once', 0, true, null],
+                ['a send on its last retry', 10, false, 'provider_error'],
+            ])(
+                'fails %s as a provider error when the TLS handshake with SES outlasts the deadline',
+                async (_name, retriesSoFar, isTest, storedReason) => {
+                    sendAsTransactionalEmail()
+                    invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
+                    const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                    const reachedTheHandshake = sendThroughATlsHandshakeThatNeverAnswers(emailService)
 
-                const result = await emailService.executeSendEmail(invocation, true)
+                    const result = await emailService.executeSendEmail(invocation, isTest)
 
-                expect({
-                    finished: result.finished,
-                    error: result.error,
-                    reachedTheHandshake: reachedTheHandshake(),
-                }).toEqual({
-                    finished: true,
-                    error: expect.stringMatching(
-                        /^attachment_unavailable: the email provider did not accept this email .* before the send deadline in 1 try,/
-                    ),
-                    reachedTheHandshake: true,
-                })
-            })
+                    expect({
+                        finished: result.finished,
+                        error: result.error,
+                        reachedTheHandshake: reachedTheHandshake(),
+                        statuses: await recordedEmailStatuses(),
+                    }).toEqual({
+                        finished: true,
+                        error: 'Failed to send email via SES: SES did not accept this email with its attachment files before the send deadline, so it was not sent.',
+                        reachedTheHandshake: true,
+                        statuses: storedReason ? [failedEmailStatus(storedReason)] : [],
+                    })
+                }
+            )
 
             it('counts the load retries across reschedules and fails the send on the 11th try', async () => {
                 const emailService = sender()

@@ -372,8 +372,9 @@ function describeAttachmentFailure(
     }
     if (error instanceof EmailSendDeadlineError) {
         return {
-            reason: EMAIL_ATTACHMENT_UNAVAILABLE,
-            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the email provider did not accept this email with its attachment files before the send deadline in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+            reason: 'provider_error',
+            message:
+                'Failed to send email via SES: SES did not accept this email with its attachment files before the send deadline, so it was not sent.',
         }
     }
     if (isAttachmentLoadFailure(error)) {
