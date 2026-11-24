@@ -100,7 +100,7 @@ def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
             return cached
 
         client = build_openai_client(product, ai_product=product)
-        page = client.with_options(timeout=_FETCH_TIMEOUT_SECONDS, max_retries=0).models.list()
+        page = client.with_options(timeout=_FETCH_TIMEOUT_SECONDS, max_retries=1).models.list()
         models = tuple(_gateway_model(row) for row in page.data if getattr(row, "allowed", None) is not False)
     except Exception:
         logger.exception("tasks_llm_gateway_models_fetch_failed", gateway_product=product)

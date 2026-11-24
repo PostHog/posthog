@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+import httpx
+from openai import OpenAI
 from openai.types import Model
 
 from products.tasks.backend.logic.services import gateway_models
@@ -124,3 +126,27 @@ def test_serves_the_last_listing_when_the_gateway_fails() -> None:
 def test_serves_nothing_when_the_gateway_has_never_answered() -> None:
     with patch(_BUILD_CLIENT, side_effect=RuntimeError("gateway down")):
         assert list_gateway_models(_PRODUCT) == ()
+
+
+@pytest.mark.parametrize(
+    "failures,expected",
+    [
+        pytest.param(1, ["gpt-6.2-sol"], id="answers_on_the_second_attempt"),
+        pytest.param(2, [], id="still_failing_on_the_second_attempt"),
+    ],
+)
+def test_retries_a_failed_fetch_once(failures: int, expected: list[str]) -> None:
+    responses = iter(
+        [
+            *(httpx.Response(503, headers={"retry-after-ms": "1"}) for _ in range(failures)),
+            httpx.Response(200, json={"object": "list", "data": [{**_BARE_ROW, "object": "model", "created": 0}]}),
+        ]
+    )
+    client = OpenAI(
+        api_key="test",
+        base_url="http://gateway.test/v1",
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda _request: next(responses))),
+    )
+
+    with patch(_BUILD_CLIENT, return_value=client):
+        assert [model.id for model in list_gateway_models(_PRODUCT)] == expected
