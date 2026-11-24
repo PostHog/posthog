@@ -150,6 +150,48 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
         # Columns after the variant: num_users, total_sum, total_sum_of_squares.
         self.assertEqual(self._run(statement), expected)
 
+    @parameterized.expand(
+        [
+            (
+                "utc days",
+                "UTC",
+                [
+                    ("2026-01-02", "control", 1),
+                    ("2026-01-03", "$multiple", 1),
+                    ("2026-01-03", "test", 1),
+                    ("2026-01-04", "test", 1),
+                    ("2026-01-10", "test", 1),
+                ],
+            ),
+            (
+                # Midnight UTC is the evening before in Los Angeles, so every exposure moves one day back.
+                "team timezone days",
+                "America/Los_Angeles",
+                [
+                    ("2026-01-01", "control", 1),
+                    ("2026-01-02", "$multiple", 1),
+                    ("2026-01-02", "test", 1),
+                    ("2026-01-03", "test", 1),
+                    ("2026-01-09", "test", 1),
+                ],
+            ),
+        ]
+    )
+    def test_exposures_per_day_and_variant(self, _name: str, timezone: str, expected: list[tuple]) -> None:
+        statement = WarehouseNativeQueryBuilder(
+            exposure=ExperimentWarehouseNativeExposureConfig(
+                connection_id="connection", query="SELECT * FROM exposure_log", unit=UNIT
+            ),
+            variants=("control", "test"),
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        ).build_exposures(timezone)
+
+        rows = self.warehouse.execute(sqlglot.transpile(statement, read="bigquery", write="duckdb")[0]).fetchall()
+
+        assert [(str(day), variant, int(count)) for day, variant, count in rows] == expected
+
     def test_ratio_metric_totals_per_variant(self) -> None:
         metric = ExperimentRatioMetric(
             numerator=_source(math=ExperimentWarehouseNativeMathType.SUM, math_property="amount"),
