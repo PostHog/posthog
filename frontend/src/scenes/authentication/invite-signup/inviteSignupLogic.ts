@@ -6,7 +6,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
@@ -382,8 +382,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     posthog.captureException(e)
                     actions.setSignupManualErrors({
                         generic: {
-                            code: error.code,
-                            detail: error.detail,
+                            code: e instanceof NetworkError ? 'network_error' : error.code,
+                            detail:
+                                e instanceof NetworkError
+                                    ? "We couldn't reach PostHog. Check your connection and try again. What you've typed will stay in this form."
+                                    : error.detail,
                         },
                     })
                     throw e

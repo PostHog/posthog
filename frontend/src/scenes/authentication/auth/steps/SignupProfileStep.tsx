@@ -76,7 +76,7 @@ export function SignupProfileStep(): JSX.Element {
             {signupPanelOnboardingManualErrors?.generic && (
                 <AuthBanner variant="danger" className="mb-4">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
-                    {preflight?.cloud && (
+                    {preflight?.cloud && signupPanelOnboardingManualErrors.generic.code !== 'network_error' && (
                         <>
                             {' '}
                             <Link

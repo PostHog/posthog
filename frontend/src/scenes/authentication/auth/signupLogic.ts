@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiError, NetworkError } from 'lib/api'
 import { ValidatedPasswordResult, loadPasswordEstimator, validatePassword } from 'lib/components/PasswordStrength'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
@@ -627,7 +627,14 @@ export const signupLogic = kea<signupLogicType>([
                         throw e
                     }
 
-                    if (error.code === 'throttled') {
+                    if (e instanceof NetworkError) {
+                        actions.setSignupPanelOnboardingManualErrors({
+                            generic: {
+                                code: 'network_error',
+                                detail: "We couldn't reach PostHog. Check your connection and try again. What you've typed will stay in this form.",
+                            },
+                        })
+                    } else if (error.code === 'throttled') {
                         const retryAfterSeconds = getRetryAfterSeconds(e)
                         posthog.capture('signup throttled', {
                             retry_after_seconds: retryAfterSeconds,
