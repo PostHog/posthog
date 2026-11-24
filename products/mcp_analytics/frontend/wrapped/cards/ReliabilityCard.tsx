@@ -26,11 +26,11 @@ function ToolAward({
     return (
         <div
             className={cn(
-                'MCPWrapped__rise flex flex-col gap-1.5 rounded-2xl px-4 py-3',
+                'MCPWrapped__rise flex flex-col gap-1 rounded-xl px-3 py-2.5',
                 tone === 'good' ? 'bg-white/55' : 'bg-black/10'
             )}
         >
-            <div className="flex items-center gap-1.5 text-sm font-bold">
+            <div className="flex items-center gap-1.5 text-xs font-bold">
                 {icon}
                 {label}
             </div>
@@ -38,18 +38,18 @@ function ToolAward({
                 <span
                     className={cn(
                         'line-clamp-2 min-w-0 break-all font-mono font-bold',
-                        toolNameSize(tool, ['text-xl', 'text-base', 'text-sm'])
+                        toolNameSize(tool, ['text-base', 'text-sm', 'text-xs'])
                     )}
                     title={tool}
                 >
                     {tool}
                 </span>
                 <span className="shrink-0 text-right leading-none">
-                    <span className="block text-2xl font-bold tabular-nums">{value}</span>
+                    <span className="block text-xl font-bold tabular-nums">{value}</span>
                     <span className="text-xs opacity-75">{unit}</span>
                 </span>
             </div>
-            <div className="text-sm opacity-75">{detail}</div>
+            <div className="text-xs opacity-75">{detail}</div>
         </div>
     )
 }
@@ -59,19 +59,19 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
     return (
         <WrappedCard cardKey="reliability" kicker="Reliability">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className="text-6xl font-bold leading-none tabular-nums">{formatPercent(card.success_rate)}</span>
-                <span className="text-2xl font-bold">error-free</span>
+                <span className="text-5xl font-bold leading-none tabular-nums">{formatPercent(card.success_rate)}</span>
+                <span className="text-xl font-bold">error-free</span>
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{reliabilityLine(card.success_rate)}</strong>
                 {errorLine(card.success_rate)}
             </p>
             {(mvp || struggling) && (
-                <div className="mt-2 flex flex-col gap-3">
+                <div className="mt-1 flex flex-col gap-2">
                     {mvp && (
                         <ToolAward
                             label="Your MVP"
-                            icon={<IconStar className="size-4" />}
+                            icon={<IconStar className="size-3.5" />}
                             tool={mvp.tool}
                             value={formatPercent(1 - mvp.error_rate)}
                             unit="success"
@@ -82,7 +82,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                     {struggling && (
                         <ToolAward
                             label="Needs some love"
-                            icon={<IconWarning className="size-4" />}
+                            icon={<IconWarning className="size-3.5" />}
                             tool={struggling.tool}
                             value={formatPercent(struggling.error_rate)}
                             unit="errors"

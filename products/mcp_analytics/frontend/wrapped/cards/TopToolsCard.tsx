@@ -1,7 +1,7 @@
 import { cn } from 'lib/utils/css-classes'
 
 import type { MCPWrappedTopToolsCardApi } from '../../generated/api.schemas'
-import { formatCallCount, formatCompact, formatPercent, toolNameSize } from '../storyCards'
+import { formatCallCount, formatPercent, toolNameSize } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 export function TopToolsCard({
@@ -42,7 +42,7 @@ export function TopToolsCard({
                         <span className="truncate font-mono" title={tool.tool}>
                             {tool.tool}
                         </span>
-                        <span title={`${tool.calls.toLocaleString('en-US')} calls`}>{formatCompact(tool.calls)}</span>
+                        <span title={`${tool.calls.toLocaleString('en-US')} calls`}>{formatCallCount(tool.calls)}</span>
                         <span className="col-span-2 col-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(
