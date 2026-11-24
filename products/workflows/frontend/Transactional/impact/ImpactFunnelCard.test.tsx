@@ -289,7 +289,6 @@ describe('ImpactFunnelCard', () => {
     })
 
     it('finishes turning on link tracking after the Impact tab closes mid-save', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
         const team = teamWithLinkTagging(false)
         const patches: Partial<TeamType>[] = []
         let answerSave: () => void = () => {}
@@ -317,7 +316,9 @@ describe('ImpactFunnelCard', () => {
         await waitFor(() => expect(patches).toHaveLength(1))
         rerender(tab(false))
         answerSave()
-        await waitFor(() => expect(capture).toHaveBeenCalledWith('transactional email impact link tracking turned on'))
+        await waitFor(() =>
+            expect(teamLogic.values.currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled).toBe(true)
+        )
         rerender(tab(true))
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
