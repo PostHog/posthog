@@ -1081,6 +1081,21 @@ const WarehouseSyncAlertGroupingSchema = z
             .describe(
                 'One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination.'
             ),
+        max_instances: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe(
+                'Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.'
+            ),
+        on_overflow: z
+            .literal('degrade_visible')
+            .optional()
+            .describe(
+                'What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.'
+            ),
     })
     .describe(
         'How the alert splits into groups, each of which fires and resolves on its own. Replaces the stored grouping as a whole.'

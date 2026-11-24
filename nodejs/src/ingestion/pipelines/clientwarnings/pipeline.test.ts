@@ -10,7 +10,9 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResult, isTimeoutResult } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 import { createNoopTopHog } from '~/tests/helpers/tophog'
 
@@ -60,17 +62,20 @@ describe('ClientWarningsPipeline', () => {
         } as Message
     }
 
-    const runPipeline = async (messages: Message[]): Promise<void> => {
+    const runPipeline = async (messages: Message[], budget?: BatchBudget): Promise<PipelineResult<unknown>[]> => {
         const pipeline = createClientWarningsPipeline<{ message: Message }, { message: Message }>(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch, {})
+        await pipeline.feed(batch, {}, budget)
+        const results: PipelineResult<unknown>[] = []
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.
             expect(result.sideEffects ?? []).toEqual([])
+            results.push(...result.elements.map((element) => element.result))
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()
+        return results
     }
 
     const warningsProduced = (): any[] =>
@@ -127,6 +132,7 @@ describe('ClientWarningsPipeline', () => {
             topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
             teamsPrefetchEnabled: true,
+            concurrentBatches: 1,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
             promiseScheduler,
@@ -153,4 +159,27 @@ describe('ClientWarningsPipeline', () => {
             expect(warningsProduced()).toHaveLength(0)
         }
     )
+
+    it('finishes an event whose time budget runs out while its warning is produced', async () => {
+        jest.useFakeTimers()
+        try {
+            const softAt = Date.now() + 1000
+            mockKafkaProducer.queueMessages.mockImplementation((produced) => {
+                if ([produced].flat().some(({ topic }) => topic === WARNINGS_TOPIC)) {
+                    jest.setSystemTime(softAt)
+                }
+                return Promise.resolve()
+            })
+
+            const results = await runPipeline(
+                [createMessage('$$client_ingestion_warning')],
+                BatchBudget.softDeadline(softAt)
+            )
+
+            expect(results.map((result) => isTimeoutResult(result))).toEqual([false])
+            expect(warningsProduced()).toHaveLength(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

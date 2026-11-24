@@ -248,19 +248,19 @@ def cache_aeo_domain_favicons(
 cache_favicons_job = dagster.define_asset_job(
     name="cache_favicons_job",
     selection=["cache_favicons"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 
 cache_authorized_domain_favicons_job = dagster.define_asset_job(
     name="cache_authorized_domain_favicons_job",
     selection=["cache_authorized_domain_favicons"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 
 cache_aeo_domain_favicons_job = dagster.define_asset_job(
     name="cache_aeo_domain_favicons_job",
     selection=["cache_aeo_domain_favicons"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 
 
@@ -268,7 +268,7 @@ cache_aeo_domain_favicons_job = dagster.define_asset_job(
     cron_schedule="37 3 * * *",  # Daily at 03:37 UTC
     job=cache_favicons_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def cache_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()
@@ -278,7 +278,7 @@ def cache_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     cron_schedule="51 */6 * * *",  # Every 6 hours
     job=cache_authorized_domain_favicons_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def cache_authorized_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()
@@ -288,7 +288,7 @@ def cache_authorized_domain_favicons_schedule(_context: dagster.ScheduleEvaluati
     cron_schedule="23 * * * *",  # Hourly; only domains not cached yet are downloaded
     job=cache_aeo_domain_favicons_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def cache_aeo_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()

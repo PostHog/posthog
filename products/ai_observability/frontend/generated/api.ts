@@ -24,6 +24,7 @@ import type {
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesListParams,
+    AiObservabilityTracesMetricsListParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
@@ -142,7 +143,6 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
-    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
@@ -177,8 +177,6 @@ import type {
     ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
-    TaggerApi,
-    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
     TextReprRequestApi,
@@ -193,6 +191,7 @@ import type {
     TraceExportFileApi,
     TraceFeedbackApi,
     TraceListApi,
+    TraceMetricsApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeParserTestApi,
@@ -1500,6 +1499,40 @@ export const aiObservabilityTracesAvailabilityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceAvailabilityRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesMetricsListUrl = (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/metrics/`
+}
+
+/**
+ * Six metrics for the project's traces in a date range, each compared with the period right before it, and
+ * the same metrics for each hour or day of the range.
+ */
+export const aiObservabilityTracesMetricsList = async (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams,
+    options?: RequestInit
+): Promise<TraceMetricsApi> => {
+    return apiMutator<TraceMetricsApi>(getAiObservabilityTracesMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -4209,44 +4242,6 @@ export const llmPromptsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMPromptResolveResponseApi> => {
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/taggers/?${stringifiedParams}`
-        : `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersList = async (
-    projectId: string,
-    params?: TaggersListParams,
-    options?: RequestInit
-): Promise<PaginatedTaggerListApi> => {
-    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

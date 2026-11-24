@@ -210,6 +210,88 @@ describe('accountSidebarConfigLogic', () => {
         ])
     })
 
+    it('exposes pinned property source and filters stale references from available defaults', async () => {
+        let submittedBody: unknown
+        const mocks = defaultMocks({
+            pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }],
+            pinned_properties_source: {
+                kind: 'role',
+                roles: [
+                    { id: 'role-analytics', name: 'Analytics' },
+                    { id: 'role-csm', name: 'Customer success' },
+                ],
+            },
+            available_default_pinned_properties: [
+                {
+                    source: { kind: 'project', role: null },
+                    pinned_properties: [
+                        { kind: 'custom_property', id: 'custom-1' },
+                        { kind: 'custom_property', id: 'deleted-property' },
+                    ],
+                },
+                {
+                    source: { kind: 'role', role: { id: 'role-csm', name: 'Customer success' } },
+                    pinned_properties: [
+                        { kind: 'relationship', id: 'relationship-1' },
+                        { kind: 'account_field', id: 'stripe_customer_id' },
+                    ],
+                },
+            ],
+        })
+        useMocks({
+            ...mocks,
+            patch: {
+                [CONFIG_URL]: async ({ request }) => {
+                    submittedBody = await request.json()
+                    return {
+                        pinned_properties: [{ kind: 'relationship', id: 'relationship-1' }],
+                        pinned_properties_source: {
+                            kind: 'role',
+                            roles: [{ id: 'role-csm', name: 'Customer success' }],
+                        },
+                    }
+                },
+            },
+        })
+
+        await mountLogic()
+
+        expect(logic.values.pinnedPropertiesSource).toEqual({
+            kind: 'role',
+            roles: [
+                { id: 'role-analytics', name: 'Analytics' },
+                { id: 'role-csm', name: 'Customer success' },
+            ],
+        })
+        expect(logic.values.availableDefaultPinnedProperties).toEqual([
+            {
+                key: 'project',
+                label: 'Project default',
+                pinnedPropertyKeys: ['custom:custom-1'],
+                followedDefault: { kind: 'project' },
+            },
+            {
+                key: 'role:role-csm',
+                label: 'Customer success',
+                pinnedPropertyKeys: ['relationship:relationship-1', 'field:stripe_customer_id'],
+                followedDefault: { kind: 'role', role_id: 'role-csm' },
+            },
+        ])
+
+        logic.actions.beginConfiguring()
+        logic.actions.resetDraftToDefault(logic.values.availableDefaultPinnedProperties[1])
+        await expectLogic(logic, () => logic.actions.savePinnedProperties())
+            .toDispatchActions(['persistFollowedDefaultSuccess'])
+            .toFinishAllListeners()
+
+        expect(submittedBody).toEqual({ followed_default: { kind: 'role', role_id: 'role-csm' } })
+        expect(logic.values.isConfiguring).toBe(false)
+        expect(logic.values.pinnedPropertiesSource).toEqual({
+            kind: 'role',
+            roles: [{ id: 'role-csm', name: 'Customer success' }],
+        })
+    })
+
     it('supports configure, toggle, reorder, cancel, and the 50-property limit', async () => {
         useMocks(defaultMocks({ pinned_properties: [{ kind: 'custom_property', id: 'custom-1' }] }))
         await mountLogic()

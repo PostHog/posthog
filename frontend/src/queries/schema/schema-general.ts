@@ -3633,7 +3633,12 @@ export interface BookActivityMatrixCell {
     row: string
     column: string
     series: string
+    /** People active in this product through any channel. Each person counts once. */
     users: integer
+    /** People active in this product in the app. */
+    uiUsers?: integer
+    /** People active in this product through AI agents, such as MCP tool calls. */
+    agentUsers?: integer
 }
 
 export interface BookActivityMatrixCombination {
@@ -3703,6 +3708,8 @@ export interface BookActivityPerson {
     rank: integer
     engagedSeconds: integer
     actionCount: integer
+    /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+    agentCalls?: integer
     /** Every action event that qualified this person, most frequent first. */
     actions: BookActivityPersonAction[]
     /** The top 5 pages by engaged time. */
@@ -10201,6 +10208,12 @@ export interface CustomerAnalyticsConfig {
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
     default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
+    role_default_pinned_properties?: CustomerAnalyticsRoleDefaultPinnedProperties[]
+}
+
+export interface CustomerAnalyticsRoleDefaultPinnedProperties {
+    role_id: string
+    pinned_properties: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

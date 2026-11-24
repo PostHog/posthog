@@ -37,7 +37,13 @@ from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SO
 from products.signals.backend.scout_report.persistence import ScoutReportSignal
 from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.metrics import increment_scout_report_safety_refusal
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse, judge_report_safety
+from products.signals.backend.temporal.report_safety_judge import (
+    SafetyJudgeResponse,
+    judge_report_safety,
+    report_content_signal,
+    report_with_prompts_signal,
+    suggested_prompts_signal,
+)
 from products.signals.backend.temporal.types import SignalData
 
 logger = logging.getLogger(__name__)
@@ -83,23 +89,6 @@ async def _judge_safety_fail_closed(
         return SafetyJudgeResponse(choice=False, explanation=SAFETY_REFUSAL_EXPLANATION)
 
 
-def _report_content_signal(title: str, summary: str) -> SignalData:
-    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
-    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
-    land in the report body itself while the evidence descriptions look benign — this makes the judge
-    see the report text too, so an unsafe title/summary suppresses the report."""
-    return SignalData(
-        signal_id=str(uuid.uuid4()),
-        content=f"{title}\n\n{summary}",
-        source_product=SOURCE_PRODUCT,
-        source_type=SOURCE_TYPE,
-        source_id="report_content",
-        weight=0.0,
-        timestamp=timezone.now(),
-        extra={},
-    )
-
-
 def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
     """Wrap the report's charts as one `SignalData` so the judge sees them too.
 
@@ -119,34 +108,6 @@ def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
         source_product=SOURCE_PRODUCT,
         source_type=SOURCE_TYPE,
         source_id="report_charts",
-        weight=0.0,
-        timestamp=timezone.now(),
-        extra={},
-    )
-
-
-def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
-    """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
-
-    These carry further than a chart's text does: a reader clicks one and its wording is handed
-    straight to an agent run with the report as context, so an injected instruction here is executed
-    rather than merely read. Returns None when there are none, so a report without them produces a
-    judge prompt byte-identical to before.
-    """
-    if not suggested_prompts:
-        return None
-    # The label is part of the content because the judge's rendering shows source product/type but
-    # not `source_id` — without it the judge reads an action prompt ("add the null check and open a
-    # PR") as an anonymous signal containing instructions directed at an agent, which its system
-    # prompt treats as an injection marker, and benign action suggestions get reports suppressed.
-    # The system prompt (`REPORT_SAFETY_JUDGE_SYSTEM_PROMPT`) tells the judge what this label means.
-    return SignalData(
-        signal_id=str(uuid.uuid4()),
-        content="Suggested prompts (each is a request a reader can click to send to the coding agent):\n\n"
-        + "\n\n".join(suggested_prompts),
-        source_product=SOURCE_PRODUCT,
-        source_type=SOURCE_TYPE,
-        source_id="report_suggested_prompts",
         weight=0.0,
         timestamp=timezone.now(),
         extra={},
@@ -179,7 +140,7 @@ def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | No
     produces a judge prompt byte-identical to before."""
     if not reviewer_reasons:
         return None
-    # Labeled for the same reason as `_suggested_prompts_signal`: the rendering drops `source_id`,
+    # Labeled for the same reason as `suggested_prompts_signal`: the rendering drops `source_id`,
     # and the judge needs to know these are routing rationales, not free-standing signals.
     return SignalData(
         signal_id=str(uuid.uuid4()),
@@ -298,15 +259,18 @@ async def judge_scout_report(
     """
     chart_signal = _chart_signal(charts)
     metric_signal = _metric_signal(metrics)
-    prompts_signal = _suggested_prompts_signal(suggested_prompts)
+    prompts_signal = suggested_prompts_signal(suggested_prompts)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     link_signal = _link_reasons_signal(link_reasons)
     tags_signal = _report_tags_signal(tags)
     safety_input = [
-        _report_content_signal(title, summary),
+        (
+            report_content_signal(title, summary)
+            if prompts_signal is None
+            else report_with_prompts_signal(title, summary, prompts_signal)
+        ),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
-        *([prompts_signal] if prompts_signal is not None else []),
         *([reasons_signal] if reasons_signal is not None else []),
         *([link_signal] if link_signal is not None else []),
         *([tags_signal] if tags_signal is not None else []),
@@ -335,6 +299,9 @@ async def judge_edited_report_content(
     link_reasons: Sequence[str] = (),
     decision_explanations: Sequence[str] = (),
     tags: Sequence[str] = (),
+    stored_title: str = "",
+    stored_summary: str = "",
+    stored_suggested_prompts: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -349,10 +316,22 @@ async def judge_edited_report_content(
     in their run prompts.
     """
     safety_input: list[SignalData] = []
-    if title is not None or summary is not None:
-        safety_input.append(_report_content_signal(title or "", summary or ""))
+    prompts_signal = suggested_prompts_signal(suggested_prompts or stored_suggested_prompts)
+    if prompts_signal is not None:
+        # A clicked prompt runs against the report text it is stored with. A field this edit leaves
+        # alone comes from the stored report, so new prompts are judged with the stored text and new
+        # text with the stored prompts.
+        safety_input.append(
+            report_with_prompts_signal(
+                title if title is not None else stored_title,
+                summary if summary is not None else stored_summary,
+                prompts_signal,
+            )
+        )
+    elif title is not None or summary is not None:
+        safety_input.append(report_content_signal(title or "", summary or ""))
     if note is not None:
-        safety_input.append(_report_content_signal("Report work-log note", note))
+        safety_input.append(report_content_signal("Report work-log note", note))
     # Appended evidence is judged exactly as emitted evidence is: the descriptions are embedded and
     # rendered on the report, so the edit path must not be an unjudged door into the evidence rail.
     safety_input.extend(_to_signal_data(list(signals)))
@@ -362,9 +341,6 @@ async def judge_edited_report_content(
     metric_signal = _metric_signal(metrics)
     if metric_signal is not None:
         safety_input.append(metric_signal)
-    prompts_signal = _suggested_prompts_signal(suggested_prompts)
-    if prompts_signal is not None:
-        safety_input.append(prompts_signal)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     if reasons_signal is not None:
         safety_input.append(reasons_signal)
