@@ -124,10 +124,10 @@ export interface emailImpactLogicActions {
         errorObject?: any
     }
     turnOnLinkTrackingSuccess: (
-        linkTrackingSave: TeamWorkflowsConfigApi | null,
+        linkTrackingSave: TeamWorkflowsConfigApi,
         payload?: any
     ) => {
-        linkTrackingSave: TeamWorkflowsConfigApi | null
+        linkTrackingSave: TeamWorkflowsConfigApi
         payload?: any
     }
 }
