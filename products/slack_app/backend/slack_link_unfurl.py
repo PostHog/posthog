@@ -1002,7 +1002,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id)
+    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id, user_id=ctx.user.pk)
     metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
@@ -1022,9 +1022,11 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     )
 
 
-def _stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
+def _stored_primary_result(*, team_id: int, experiment_id: int, user_id: int) -> StoredPrimaryResult | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(team_id=team_id, experiment_id=experiment_id)
+        stats = experiments_facade.get_stored_primary_result(
+            team_id=team_id, experiment_id=experiment_id, user_id=user_id
+        )
     except Exception:
         logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment_id)
         return None

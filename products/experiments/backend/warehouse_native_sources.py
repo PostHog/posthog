@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.experiments.backend.metric_resolution import (
     metric_dict_source_nodes,
     metric_dict_uses_warehouse_native_source,
@@ -128,6 +129,55 @@ def validate_warehouse_native_connection(connection_id: str, *, team: Team, user
         raise PermissionDenied(WAREHOUSE_NATIVE_TABLE_ACCESS_ERROR)
 
 
+class WarehouseNativeAccessError(UserAccessControlError):
+    """The error of a query runner's access hook. The publishing gate records a UserAccessControlError and ignores
+    every other error, so a warehouse denial raised as anything else would let the query be published."""
+
+    def __init__(self, connection_id: str, detail: str):
+        super().__init__(resource="external_data_source", required_level="viewer", resource_id=connection_id)
+        self.args = (detail,)
+
+
+def validate_warehouse_native_sources_for_runner(
+    *, exposure_criteria: dict[str, Any] | None, metrics: list[dict[str, Any]], team: Team, user: Any
+) -> str | None:
+    """validate_experiment_warehouse_native_sources for a query runner's access hook."""
+    try:
+        return validate_experiment_warehouse_native_sources(
+            exposure_criteria=exposure_criteria, metrics=metrics, team=team, user=user
+        )
+    except (ValidationError, PermissionDenied) as error:
+        detail = error.detail[0] if isinstance(error.detail, list) else error.detail
+        exposure = warehouse_native_exposure_config(exposure_criteria) or {}
+        raise WarehouseNativeAccessError(str(exposure.get("connection_id") or ""), str(detail)) from error
+
+
+def refuse_anonymous_warehouse_native_reader(user: Any) -> None:
+    """A shared link authenticates without a user, and a cached result is shared by the whole team. A share cannot
+    stand for the totals, as on the query status endpoint."""
+    if user is not None and not isinstance(user, User):
+        raise DjangoPermissionDenied("Sign in to read the results of a warehouse-native experiment.")
+
+
+def user_may_read_warehouse_native_results(
+    team: Team, exposure_criteria: dict[str, Any] | None, user_id: int | None
+) -> bool:
+    """Whether the stored results of the experiment may go to this reader. An experiment that reads events has no
+    connection to check. A warehouse-native result goes only to a user who can read its connection, so no reader
+    means no result."""
+    exposure = warehouse_native_exposure_config(exposure_criteria)
+    if exposure is None:
+        return True
+    user = User.objects.filter(pk=user_id).first() if user_id is not None else None
+    if user is None:
+        return False
+    try:
+        validate_warehouse_native_connection_access(team, user, str(exposure.get("connection_id") or ""))
+    except DjangoPermissionDenied:
+        return False
+    return True
+
+
 def validate_warehouse_native_connection_access(team: Team, user: User | None, connection_id: str) -> None:
     """The check for an async result served by id. Raises the Django PermissionDenied, which the facade can
     hand to the query status endpoint without a DRF import."""
@@ -137,9 +187,9 @@ def validate_warehouse_native_connection_access(team: Team, user: User | None, c
         raise DjangoPermissionDenied("Sign in to read the results of a warehouse-native experiment.")
     try:
         validate_warehouse_native_connection(connection_id, team=team, user=user)
-    except ValidationError as error:
-        # A connection the user cannot see and a deleted connection both come back as an invalid connection.
-        # Either way the totals are not theirs to read.
+    except (ValidationError, PermissionDenied) as error:
+        # A connection the user cannot see and a deleted connection both come back as an invalid connection, and
+        # a table the user cannot read as a permission error. Either way the totals are not theirs to read.
         detail = error.detail[0] if isinstance(error.detail, list) else error.detail
         raise DjangoPermissionDenied(str(detail)) from error
 
