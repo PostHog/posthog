@@ -211,7 +211,7 @@ class TestDashboardImportAPI(APIBaseTest):
         grafana = json.loads(
             _grafana("sum(rate(orders_total[5m]))", "rate(payments_total[5m])", "rate(refunds_total[5m])")
         )
-        grafana["panels"][3]["gridPos"] = {"x": 12, "y": 24, "w": 12, "h": 8}
+        grafana["panels"][3]["gridPos"] = {"x": 12, "y": 16, "w": 12, "h": 8}
         started = self._start(source="grafana", grafana_json=json.dumps(grafana))
         answer = {
             "dashboard_name": "Orders",
@@ -258,8 +258,8 @@ class TestDashboardImportAPI(APIBaseTest):
         assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
         tiles = DashboardTile.objects.filter(dashboard_id=first["dashboard_id"])
         assert tiles.count() == 3
-        # The failed p4 sat beside p3, so p3 takes the whole row.
-        assert tiles.get(insight__name="Panel 3").layouts["sm"] == {"x": 0, "y": 4, "w": 12, "h": 3}
+        # The failed p4 sat beside p2, so p2 takes the whole row.
+        assert tiles.get(insight__name="Panel 2").layouts["sm"] == {"x": 0, "y": 1, "w": 12, "h": 3}
         self.storage.delete.assert_called()
 
     def test_an_agent_panel_without_variable_references_says_so(self) -> None:
