@@ -27,6 +27,7 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalScoutConfig,
     SignalScoutRun,
+    SignalTeamConfig,
 )
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_claims import get_active_claim
@@ -452,6 +453,26 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
         assert second.json()["task_id"] == str(task.id)
         assert second.json()["run_id"] == str(run.id)
         assert Task.objects.filter(signal_report=report).count() == 1
+
+    @parameterized.expand(
+        [
+            ("implement", {"action": "implement", "repository": "example/app"}),
+            ("ask", {"action": "ask", "message": "Why does checkout fail?"}),
+        ]
+    )
+    def test_action_runs_use_the_implementation_image(
+        self, _workflow: MagicMock, _flag_mock: MagicMock, _name: str, body: dict
+    ) -> None:
+        image_id = uuid4()
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=image_id)
+        report = self._report()
+        self._judge(report, "immediately_actionable")
+
+        with _desktop_access():
+            response = self._run(report, body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        assert TaskRun.objects.get(id=response.json()["run_id"]).state["custom_image_id"] == str(image_id)
 
     @parameterized.expand(
         [

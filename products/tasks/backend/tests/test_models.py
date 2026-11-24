@@ -1075,6 +1075,37 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
+            ("implementation", True, {"ai_stage": "implementation"}, "background", "default"),
+            ("discussion", True, {}, "interactive", "default"),
+            ("caller_image_wins", True, {"custom_image_id": "caller-image"}, "interactive", "caller-image"),
+            ("research", True, {"ai_stage": "research"}, "background", None),
+            ("custom_agent", True, {"ai_stage": "custom_agent"}, "background", None),
+            ("no_report_link", False, {}, "interactive", None),
+        ]
+    )
+    def test_create_run_gives_report_runs_the_implementation_image(
+        self, _name, linked, extra_state, mode, expected_image
+    ):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        default_image = str(uuid.uuid4())
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image)
+        task = Task.objects.create(
+            team=self.team,
+            title="Report run",
+            description="From the Inbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=SignalReport.objects.create(team=self.team) if linked else None,
+        )
+
+        run = task.create_run(mode=mode, extra_state=extra_state)
+
+        self.assertEqual(
+            run.state.get("custom_image_id"), default_image if expected_image == "default" else expected_image
+        )
+
+    @parameterized.expand(
+        [
             ("signals_chat", Task.OriginProduct.SIGNALS_CHAT, False, "interactive", "chat"),
             (
                 "internal_scout_suggestions",

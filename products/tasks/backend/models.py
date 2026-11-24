@@ -155,6 +155,10 @@ PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
 INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"scout_suggestions": "scout_suggestions"}
+# Report runs that work in the report's repository: implementation runs and discussions.
+REPORT_RUN_CUSTOM_IMAGE_AI_STAGES = frozenset(
+    {"implementation", INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN["signal_report"]}
+)
 
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
@@ -1313,6 +1317,21 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     state["ai_stage"] = "implementation"
             elif task.origin_product == Task.OriginProduct.SLACK:
                 state["billing_product"] = "posthog_ai"
+
+            # Every start path of a report implementation or discussion run reaches here, so all of them get the project default.
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and task.signal_report_source_id
+                and state.get("ai_stage") in REPORT_RUN_CUSTOM_IMAGE_AI_STAGES
+                and not state.get("custom_image_id")
+            ):
+                from products.signals.backend.facade.agent_instructions import (
+                    get_report_run_custom_image_id,  # noqa: PLC0415 -- Signals models depend on Tasks
+                )
+
+                if report_image_id := get_report_run_custom_image_id(team_id=task.team_id):
+                    state["custom_image_id"] = report_image_id
 
             if (
                 effective_environment == TaskRun.Environment.CLOUD

@@ -3246,6 +3246,39 @@ class TestTaskAPI(BaseTaskAPITest):
             ).exists()
         )
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_inbox_create_pr_run_uses_the_implementation_image(self, _mock_workflow):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
+
+        image_id = uuid.uuid4()
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=image_id)
+        report = SignalReport.objects.create(team=self.team)
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            task_response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Signal Task",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": "implementation",
+                },
+                format="json",
+            )
+        self.assertEqual(task_response.status_code, status.HTTP_201_CREATED)
+
+        run_response = self.client.post(
+            f"/api/projects/@current/tasks/{task_response.json()['id']}/run/",
+            {"mode": "interactive", "run_source": "signal_report", "signal_report_id": str(report.id)},
+            format="json",
+        )
+
+        self.assertEqual(run_response.status_code, status.HTTP_200_OK, run_response.json())
+        run = TaskRun.objects.get(id=run_response.json()["latest_run"]["id"])
+        assert run.state["custom_image_id"] == str(image_id)
+
     @parameterized.expand(
         [
             # no artefact yet → cascade picks the team's only connected repo, so "Create PR" works

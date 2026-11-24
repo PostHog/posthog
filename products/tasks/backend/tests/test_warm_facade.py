@@ -884,13 +884,17 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         [
             ("refused_caller_reuses_the_credential_less_warm", False),
             ("entitled_caller_reuses_the_credentialed_warm", True),
+            ("warm_on_the_implementation_image", False, True),
         ]
     )
-    def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+    def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled, with_image=False):
+        from products.signals.backend.models import SignalReport, SignalTeamConfig
 
+        if with_image:
+            SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=uuid4())
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
+        warm_task, run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
+        assert bool(run.state.get("custom_image_id")) is with_image
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, code_access_allowed=entitled)

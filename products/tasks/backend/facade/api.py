@@ -9727,6 +9727,13 @@ def _find_idling_warm_run(
         .select_related("task")
         .order_by("-created_at")[:20]
     )
+    if custom_image_id is None and signal_report_id is not None:
+        from products.signals.backend.facade.agent_instructions import (
+            get_report_run_custom_image_id,  # noqa: PLC0415 — cross-product read kept off the api import path
+        )
+
+        # `Task.create_run` gave the warm run the report image, so a request that names none expects that image.
+        custom_image_id = get_report_run_custom_image_id(team_id=team_id)
     wanted = (
         runtime_adapter or None,
         model or None,
