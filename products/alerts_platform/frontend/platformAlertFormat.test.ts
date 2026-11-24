@@ -108,6 +108,11 @@ describe('platformAlertFormat', () => {
         ])
     })
 
+    test('configurationListRows keeps an open alert closed once it has one group left, as it has no toggle', () => {
+        const single = makeConfiguration({ id: 'single', alerts: [makeAlert(PlatformAlertStateApi.Firing)] })
+        expect(configurationListRows([single], ['single'])).toEqual([{ kind: 'alert', configuration: single }])
+    })
+
     test.each<[string, Partial<PlatformAlertApi>, string]>([
         [
             'labels in grouping order',

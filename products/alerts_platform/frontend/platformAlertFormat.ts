@@ -195,7 +195,7 @@ export function configurationListRows(
 ): PlatformAlertListRow[] {
     return configurations.flatMap((configuration): PlatformAlertListRow[] => [
         { kind: 'alert', configuration },
-        ...(expandedIds.includes(configuration.id)
+        ...(expandedIds.includes(configuration.id) && configuration.alerts.length > 1
             ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
             : []),
     ])

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
@@ -29,6 +29,8 @@ import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } fro
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
 import { PlatformAlertRouting } from './routing/PlatformAlertRouting'
+
+const SCROLL_BREATHING_ROOM_PX = 320
 
 export const scene: SceneExport = {
     component: PlatformAlertsScene,
@@ -161,6 +163,22 @@ export function PlatformAlertsScene(): JSX.Element {
         onForward: configurationsPage?.next ? () => setPage(page + 1) : undefined,
         onBackward: page > 1 ? () => setPage(page - 1) : undefined,
     })
+    const listRef = useRef<HTMLDivElement>(null)
+    const shownPageRef = useRef(page)
+    useEffect(() => {
+        if (shownPageRef.current === page) {
+            return
+        }
+        shownPageRef.current = page
+        if (!listRef.current) {
+            return
+        }
+        const offsetTop = listRef.current.getBoundingClientRect().top - SCROLL_BREATHING_ROOM_PX
+        if (offsetTop < 0) {
+            const scrollContainer = document.querySelector('main') ?? window
+            scrollContainer.scrollBy(0, offsetTop)
+        }
+    }, [page])
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
@@ -178,7 +196,7 @@ export function PlatformAlertsScene(): JSX.Element {
             Couldn't load alert configurations. Try again in a moment.
         </LemonBanner>
     ) : (
-        <div className="@container/alerts-list">
+        <div ref={listRef} className="@container/alerts-list">
             <LemonTable
                 dataSource={listRows}
                 columns={columns}
