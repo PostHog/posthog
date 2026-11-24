@@ -23,6 +23,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models.user import User
 
+from products.signals.backend.actor_telemetry import actor_properties
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
@@ -343,40 +344,6 @@ def _transition_actor_user(instance: SignalReport) -> User | None:
 def _credited_user(instance: SignalReport) -> User | None:
     """The person an automated transition credits, such as the owner of the pull request that merged."""
     return getattr(instance, "_credited_user", None)
-
-
-def _actor_properties(
-    actor: ArtefactAttribution | None, actor_user: User | None = None, credited_user: User | None = None
-) -> dict[str, Any]:
-    """Actor properties for the status-change label. A transition with no caller-set actor is `system`.
-
-    An actor without a user, such as the PR-merge resolve, keeps its kind and names `credited_user`, so
-    the person counts as active while the ranking labels still read the transition as automatic.
-    """
-    actor = actor or ArtefactAttribution.system()
-    properties: dict[str, Any] = {
-        "actor_kind": actor.kind,
-        "actor_user_uuid": None,
-        "actor_distinct_id": None,
-        "actor_agent": actor.agent_name,
-        "actor_task_id": actor.task_id,
-    }
-    if actor.user_id is None:
-        if credited_user is not None:
-            properties["actor_user_uuid"] = str(credited_user.uuid)
-            properties["actor_distinct_id"] = credited_user.distinct_id
-        return properties
-    # The bulk-state endpoint transitions up to 100 reports for one actor, so it passes the request
-    # user to skip a repeat lookup per report.
-    if actor_user is not None and actor_user.id == actor.user_id:
-        properties["actor_user_uuid"] = str(actor_user.uuid)
-        properties["actor_distinct_id"] = actor_user.distinct_id
-        return properties
-    user = User.objects.filter(id=actor.user_id).values("uuid", "distinct_id").first()
-    if user is not None:
-        properties["actor_user_uuid"] = str(user["uuid"])
-        properties["actor_distinct_id"] = user["distinct_id"]
-    return properties
 
 
 def _status_changed_on_this_save(
@@ -1140,7 +1107,7 @@ def capture_status_change_analytics(
                     **properties,
                     "previous_status": previous_status,
                     "is_first_report": _is_first_visible_report(instance.team_id, report_id),
-                    **_actor_properties(actor, actor_user, credited_user),
+                    **actor_properties(actor, actor_user, credited_user),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback
