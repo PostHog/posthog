@@ -5,7 +5,11 @@ import pytest
 import pymysql
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc import binlog
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import is_connection_error
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import MySQLCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import (
+    MySQLUnsupportedBinlogError,
+    is_connection_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.tests.conftest import DATABASE, connect
 
@@ -26,9 +30,21 @@ def _execute(conn, *statements):
 
 
 class TestVisiblePosition:
-    def test_waits_for_a_writing_transaction_open_when_the_position_was_read(self, mysql_server, root_conn, table):
+    @pytest.mark.parametrize(
+        "open_statements,finish",
+        [
+            (["BEGIN"], "COMMIT"),
+            # A transaction prepared before the pin has its rows before it and its XA COMMIT after it, so the
+            # pin must wait for the commit, and the snapshot after the pin reads its rows.
+            (["XA START 'pinned'", "XA END 'pinned'", "XA PREPARE 'pinned'"], "XA COMMIT 'pinned'"),
+        ],
+        ids=["transaction", "prepared_xa_transaction"],
+    )
+    def test_waits_for_a_writing_transaction_open_when_the_position_was_read(
+        self, mysql_server, root_conn, table, open_statements, finish
+    ):
         writer = connect(mysql_server)
-        _execute(writer, "BEGIN", f"INSERT INTO {table} VALUES (1, 'a')")
+        _execute(writer, open_statements[0], f"INSERT INTO {table} VALUES (1, 'a')", *open_statements[1:])
         result: list[BinlogPosition] = []
         reader = threading.Thread(target=lambda: result.append(binlog.visible_position(root_conn, epoch=0)))
         reader.start()
@@ -36,7 +52,7 @@ class TestVisiblePosition:
             reader.join(timeout=1)
             assert reader.is_alive()
         finally:
-            _execute(writer, "COMMIT")
+            _execute(writer, finish)
             writer.close()
         reader.join(timeout=10)
         assert not reader.is_alive()
@@ -143,3 +159,12 @@ class TestErrorClassification:
     )
     def test_only_reaching_the_server_is_a_connection_error(self, exc, connection):
         assert is_connection_error(exc) is connection
+
+    def test_an_unreadable_event_tells_the_customer_what_to_change(self):
+        info = MySQLCDCAdapter().classify_error(
+            MySQLUnsupportedBinlogError("Set binlog_row_value_options to an empty value.")
+        )
+
+        assert info is not None and not info.retryable
+        assert info.friendly_message.startswith("Set binlog_row_value_options to an empty value.")
+        assert "Repair CDC" in info.friendly_message

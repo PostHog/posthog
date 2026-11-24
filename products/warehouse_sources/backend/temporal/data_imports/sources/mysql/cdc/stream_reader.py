@@ -228,7 +228,10 @@ class MySQLCDCStreamReader:
                     if len(self._buffer):
                         # A prepared XA transaction commits later, after other transactions, which one read
                         # position can't hold. Prepared rows of other databases were never buffered.
-                        raise MySQLUnsupportedBinlogError("XA transactions aren't supported by change data capture")
+                        raise MySQLUnsupportedBinlogError(
+                            "Change data capture can't read a two-phase XA transaction on a synced table. Commit XA "
+                            "transactions with XA COMMIT ... ONE PHASE, or keep them off the synced tables."
+                        )
                     continue
 
                 if isinstance(event, QueryEvent):

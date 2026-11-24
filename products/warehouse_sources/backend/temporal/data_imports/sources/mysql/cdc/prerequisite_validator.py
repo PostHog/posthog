@@ -261,16 +261,29 @@ def _check_tables_have_primary_keys(conn: pymysql.Connection, tables: list[Quali
     clauses = " OR ".join(["(TABLE_SCHEMA = %s AND TABLE_NAME = %s)"] * len(tables))
     args = [part for table in tables for part in (table.database, table.table)]
     with conn.cursor() as cur:
+        cur.execute(f"SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TABLES WHERE {clauses}", args)
+        existing = {(str(db), str(name)) for db, name in cur.fetchall()}
         cur.execute(
             "SELECT DISTINCT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TABLE_CONSTRAINTS "
             f"WHERE CONSTRAINT_TYPE = 'PRIMARY KEY' AND ({clauses})",
             args,
         )
         keyed = {(str(db), str(name)) for db, name in cur.fetchall()}
-    missing = [f"{t.database}.{t.table}" for t in tables if (t.database, t.table) not in keyed]
-    if not missing:
-        return []
-    return [
-        f"These tables have no primary key, which change data capture needs to merge changes: {', '.join(missing)}. "
-        "Add a primary key, or use Full refresh sync for them."
+    absent = [f"{t.database}.{t.table}" for t in tables if (t.database, t.table) not in existing]
+    unkeyed = [
+        f"{t.database}.{t.table}"
+        for t in tables
+        if (t.database, t.table) in existing and (t.database, t.table) not in keyed
     ]
+    errors = []
+    if absent:
+        errors.append(
+            f"These tables don't exist on the server: {', '.join(absent)}. Check the table names and the database "
+            "the source reads."
+        )
+    if unkeyed:
+        errors.append(
+            f"These tables have no primary key, which change data capture needs to merge changes: {', '.join(unkeyed)}. "
+            "Add a primary key, or use Full refresh sync for them."
+        )
+    return errors
