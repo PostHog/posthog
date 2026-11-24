@@ -152,7 +152,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("default_truncated", None, 168, 100, True, 100),
             ("requested_truncated", 500, 600, 500, True, 500),
             ("requested_complete", 500, 300, 300, False, 500),
-            ("requested_above_cap", 60000, 10, 10, False, 50000),
+            ("requested_above_cap", 60000, 50001, 49999, True, 49999),
         ]
     )
     def test_default_row_limit_flags_truncated_results(

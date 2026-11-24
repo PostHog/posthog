@@ -71,6 +71,9 @@ class HogQLHasMorePaginator:
     ) -> "HogQLHasMorePaginator | None":
         is_alert = limit_context == LimitContext.SQL_ALERT
         if not is_alert and isinstance(query, ast.SelectQuery) and not query.limit:
+            if limit is not None and limit > 0:
+                # Leave room under the execution cap for the probe row that proves completeness.
+                limit = min(limit, get_max_limit_for_context(limit_context) - 1)
             return cls.from_limit_context(limit_context=limit_context, limit=limit, offset=offset)
         if offset:
             raise ExposedHogQLError(OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE)
