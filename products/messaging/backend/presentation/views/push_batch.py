@@ -158,7 +158,10 @@ PUSH_BATCH_RESPONSES: dict[int, ResponseDeclaration] = {
         f"than {PUSH_BATCH_MAX_RECIPIENTS} recipients"
     ),
     404: OpenApiResponse(description="Template not found"),
-    413: OpenApiResponse(description="The request body is over 5 MiB"),
+    413: OpenApiResponse(
+        description="The request body is over 5 MiB, or the shared `message_data` plus each recipient's own come to over "
+        "16 MiB across the batch, so nothing was sent"
+    ),
     429: OpenApiResponse(
         description="The batch would go over the send rate limit, or the project is over its quota, so nothing was sent"
     ),
@@ -174,7 +177,8 @@ def push_batch_too_large() -> ExplainedRefusal:
         "The batch is larger than PostHog can send at once, so PostHog didn't send it.",
         code="content_too_large",
         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-        why=f"A batch send takes at most {PUSH_BATCH_BODY_MAX_BYTES // (1024 * 1024)} MiB of request body.",
+        why=f"A batch send takes at most {PUSH_BATCH_BODY_MAX_BYTES // (1024 * 1024)} MiB of request body, and "
+        "the push pipeline takes a limited amount of data in one batch.",
         fix="Split the recipients into smaller batches.",
     )
 
