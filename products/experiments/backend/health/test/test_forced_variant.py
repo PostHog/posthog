@@ -692,7 +692,8 @@ class TestForcedVariantReleaseCondition(TestCase):
     def test_reads_the_share_forced_in_each_variant(self) -> None:
         # Set 1 forces 10 people into test. Set 2 splits the other 990 evenly, so test has 505 people.
         ctx = _context(
-            [{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 10, 2: 990}, remotely_evaluated=0.8)
+            [{**STAFF, "variant": "test"}, EVERYONE],
+            traffic=_traffic({1: 10, 2: 990}, remotely_evaluated=0.8, filters_test_accounts=True),
         )
 
         self.assertEqual(
@@ -703,6 +704,7 @@ class TestForcedVariantReleaseCondition(TestCase):
                     ExperimentHealthValueKey.MATCHED_COUNT: 1000,
                     ExperimentHealthValueKey.TRAFFIC_SINCE_AT: "2026-10-12T13:04:00+00:00",
                     ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: 80.0,
+                    ExperimentHealthValueKey.FILTERS_TEST_ACCOUNTS: True,
                 },
                 [
                     {

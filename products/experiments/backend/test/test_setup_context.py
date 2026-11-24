@@ -221,7 +221,6 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         ("PreviousExperiments", "ExperimentSetupPreviousExperimentsSerializer"),
         ("SharedMetricUsage", "ExperimentSetupSharedMetricSerializer"),
         ("SharedMetrics", "ExperimentSetupSharedMetricsSerializer"),
-        ("ProjectSetupFacts", "ExperimentHealthInputsProjectSerializer"),
     ]
     # Inputs and internal helpers, which the response never carries.
     UNRENDERED = {

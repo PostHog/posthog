@@ -640,6 +640,11 @@
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "error-tracking-tag-rule-sweep",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-weekly-digest",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
@@ -1223,11 +1228,6 @@
     "temporal_workflow_type": "run-signals-scout-suggestions-coordinator",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
-  },
-  {
-    "temporal_workflow_type": "run-tagger",
-    "product": "temporal/ai_observability",
-    "task_queues": "LLMA_EVALS_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "run-trace-evaluation",

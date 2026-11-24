@@ -9,9 +9,10 @@ import type {
     WorkflowProposalOutcomeApi,
     WorkflowProposalVersionOutcomeApi,
 } from '../../generated/api.schemas'
-import { MIN_EVIDENCE_SAMPLE, formatValue } from './suggestionEvidence'
+import { CONVERSION_RATE_LABEL, MIN_EVIDENCE_SAMPLE, formatValue, sampleLabel } from './suggestionEvidence'
 
 const ROW_LABELS: Record<string, string> = {
+    [CONVERSION_RATE_LABEL]: 'Converted',
     'email open rate': 'Opened',
     'click rate': 'Clicked',
     'complaint rate': 'Complaints',
@@ -45,7 +46,7 @@ function Denominator({ reading }: { reading: WorkflowProposalMetricApi }): JSX.E
     if (reading.below_minimum_sample) {
         return (
             <Tooltip
-                title={`${reading.n} tracked sends, under ${MIN_EVIDENCE_SAMPLE}. Too few for the rate to mean anything.`}
+                title={`${reading.n} ${sampleLabel(reading.metric)}, under ${MIN_EVIDENCE_SAMPLE}. Too few for the rate to mean anything.`}
             >
                 <LemonTag type="warning" size="small">
                     n={reading.n}
@@ -64,6 +65,7 @@ export function WorkflowAppliedOutcome({
     outcome: WorkflowProposalOutcomeApi
 }): JSX.Element {
     const published = outcome.versions
+    const aimsAtConversion = published[0]?.target.metric === CONVERSION_RATE_LABEL
     // Only versions that sent something can carry a rate, and a zero bar for one that never ran reads as a drop.
     const charted = published.filter((version) => version.guardrails[0]?.n || version.target.n)
     // The live version and what each version changed come from every published version, not only the
@@ -85,14 +87,17 @@ export function WorkflowAppliedOutcome({
             </div>
             {charted.length === 0 ? (
                 <p className="mb-0 text-secondary text-sm">
-                    No sends recorded on this step yet, so there is nothing to compare.
+                    {aimsAtConversion
+                        ? 'No runs are past their conversion window yet, so there is nothing to compare.'
+                        : 'No sends recorded on this step yet, so there is nothing to compare.'}
                 </p>
             ) : (
                 <>
                     <p className="mb-0 text-secondary text-sm">
-                        The {charted[0].target.metric} of this step on each published version, over the time that
-                        version was live. Other edits ship in these versions too, so read a move as a signal to look
-                        closer, not as proof.
+                        {aimsAtConversion
+                            ? 'The conversion rate of the whole workflow on each published version. It only counts runs past their conversion window, so a recent version has no data until its first runs get there.'
+                            : `The ${charted[0].target.metric} of this step on each published version, over the time that version was live.`}{' '}
+                        Other edits ship in these versions too, so read a move as a signal to look closer, not as proof.
                     </p>
                     <LemonTable
                         size="small"
@@ -172,11 +177,17 @@ export function WorkflowAppliedOutcome({
                                 ),
                             },
                             {
-                                title: 'Sends',
+                                title: aimsAtConversion ? 'Step sends' : 'Sends',
                                 key: 'sends',
                                 width: '15%',
                                 render: (_, version) => (
-                                    <Tooltip title="Every send on this version. Open and click rates read against tracked sends only, shown as n beside each rate.">
+                                    <Tooltip
+                                        title={
+                                            aimsAtConversion
+                                                ? "Every send of this step on this version. The conversion rate reads against the workflow's runs instead, shown as n beside it."
+                                                : 'Every send on this version. Open and click rates read against tracked sends only, shown as n beside each rate.'
+                                        }
+                                    >
                                         <span className="text-secondary">
                                             {version.guardrails[0]?.n ?? version.target.n}
                                         </span>

@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -51,7 +51,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
@@ -116,6 +116,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -585,6 +586,25 @@ SANDBOX_AGENT_RUN_START_BUDGETS: tuple[tuple[str, Budget], ...] = (
 
 
 @extend_schema(tags=["tasks"])
+def _with_first_message_model(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
+    """A copy of a new run's request data, on the model its first message asks for."""
+    message = data.get("pending_user_message")
+    if not isinstance(message, str):
+        return dict(data)
+    selection = RunModelSelection(
+        runtime_adapter=data.get("runtime_adapter"),
+        model=data.get("model"),
+        reasoning_effort=data.get("reasoning_effort"),
+        initial_permission_mode=data.get("initial_permission_mode"),
+    )
+    switched = with_prompt_model_switch(message, selection, team=team, user=user)
+    # Only the changed fields go back, so a field the request left out stays out.
+    changes = {
+        field: value for field, value in dataclasses.asdict(switched).items() if getattr(selection, field) != value
+    }
+    return {**data, **changes}
+
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1055,6 +1075,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_error = create_result.run_error
                 run_started = not run_error
             else:
+                if (
+                    origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+                    and validated_data.get("runtime") != tasks_facade.TaskRuntime.PI
+                ):
+                    # Before warm matching, so a sandbox booted on the picked model is not reused for another.
+                    validated_data = _with_first_message_model(
+                        validated_data, team=self.team, user=cast(User, request.user)
+                    )
                 task = tasks_facade.create_task(
                     self.team_id,
                     self._user_id(),
@@ -1780,6 +1808,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ReportTaskCapExceeded,
         )
 
+        validated_data = request.validated_data
+        if validated_data.get("pending_user_message") and (
+            (visible := tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())) is not None
+            and visible.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+            and visible.runtime != tasks_facade.TaskRuntime.PI
+        ):
+            validated_data = _with_first_message_model(validated_data, team=self.team, user=cast(User, request.user))
+
         run_started = False
         try:
             result = tasks_facade.run_task(
@@ -1787,7 +1823,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.team_id,
                 self._user_id(),
                 validated_data={
-                    **request.validated_data,
+                    **validated_data,
                     **sandbox_run_data,
                     "client_platform": "mobile"
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"
@@ -2253,6 +2289,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _sent_by_run_sandbox: bool = False
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -2422,13 +2459,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not run_context.is_sandbox_run_request(
+        self._sent_by_run_sandbox = run_context.is_sandbox_run_request(
             request=self.request,
             team_id=self.team_id,
             task_id=task_id,
             run_id=run_id,
             include_resume_sources=is_read_only,
-        ) and not run_context.may_read_task_run_context(
+        )
+        if not self._sent_by_run_sandbox and not run_context.may_read_task_run_context(
             request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
@@ -2854,13 +2892,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         entries = request.validated_data["entries"]
         with timer("s3_append"):
-            run = tasks_facade.append_task_run_log(pk, task_id, self.team_id, entries=entries)
+            run = tasks_facade.append_task_run_log(
+                pk,
+                task_id,
+                self.team_id,
+                entries=entries,
+                sent_by_run_sandbox=self._sent_by_run_sandbox,
+            )
         if run is None:
             raise NotFound()
 
         response = Response(TaskRunDetailSerializer(run).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Heartbeat recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run cannot take heartbeats"),
+        },
+        summary="Record a local run heartbeat",
+        description=(
+            "Tell the server that a local run is still alive. The client that drives a local run calls "
+            "this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that "
+            "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
+            "them, along with failed and cancelled runs and runs of a finished task."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="heartbeat",
+        required_scopes=["task:write"],
+    )
+    def heartbeat(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome = tasks_facade.record_local_task_run_heartbeat(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_live_local":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run can no longer take heartbeats. Start a new run to keep working."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,

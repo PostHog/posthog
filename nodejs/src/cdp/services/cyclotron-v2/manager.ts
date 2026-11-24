@@ -387,7 +387,8 @@ export class CyclotronV2Manager {
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
-                 cancel_requested_at = NULL
+                 cancel_requested_at = NULL,
+                 pending_wake = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                  AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
@@ -472,7 +473,8 @@ export class CyclotronV2Manager {
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
                  dequeue_seq = EXCLUDED.dequeue_seq,
-                 cancel_requested_at = NULL
+                 cancel_requested_at = NULL,
+                 pending_wake = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                  AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
@@ -654,24 +656,28 @@ export class CyclotronV2Manager {
 
     /** The key's claim under the rule that keeps it from being reclaimed: unexpired, or its job still exists. */
     async findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null> {
+        return (await this.findIdempotencyKeys([id]))[0]
+    }
+
+    async findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]> {
         const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
         const client = await beforeDeadline(this.lookupPool.connect(), deadline, (late) => late.release())
         let finished = false
         try {
-            const claim = await beforeDeadline(this.readIdempotencyKey(client, id, deadline), deadline)
+            const claims = await beforeDeadline(this.readIdempotencyKeys(client, ids, deadline), deadline)
             finished = true
-            return claim
+            return claims
         } finally {
             // A lookup that didn't finish may still hold a transaction or a stalled socket, so it never goes back.
             client.release(!finished)
         }
     }
 
-    private async readIdempotencyKey(
+    private async readIdempotencyKeys(
         client: PoolClient,
-        id: string,
+        ids: string[],
         deadline: number
-    ): Promise<CyclotronV2IdempotencyKey | null> {
+    ): Promise<(CyclotronV2IdempotencyKey | null)[]> {
         const remainingMs = deadline - Date.now()
         if (remainingMs <= 0) {
             throw new Error('Timed out reading an idempotency key')
@@ -679,14 +685,18 @@ export class CyclotronV2Manager {
         // Postgres cancels the statement itself at the timeout, so a lookup stuck on a lock frees the database too.
         await client.query(`BEGIN; SET LOCAL statement_timeout = ${remainingMs}`)
         try {
-            const { rows } = await client.query<CyclotronV2IdempotencyKey>(
-                `SELECT fingerprint, reply FROM cyclotron_idempotency_keys k
-                 WHERE k.id = $1
+            const { rows } = await client.query<CyclotronV2IdempotencyKey & { id: string }>(
+                `SELECT id, fingerprint, reply FROM cyclotron_idempotency_keys k
+                 WHERE k.id = ANY($1::uuid[])
                      AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
-                [id.toLowerCase()]
+                [ids.map((id) => id.toLowerCase())]
             )
             await client.query('COMMIT')
-            return rows[0] ?? null
+            // Postgres accepts a UUID in any case, with or without hyphens or braces, and answers with its canonical
+            // spelling. Matching on the hex digits alone finds the row for every spelling it accepted.
+            const uuidDigits = (id: string): string => id.toLowerCase().replace(/[^0-9a-f]/g, '')
+            const claims = new Map(rows.map(({ id, fingerprint, reply }) => [uuidDigits(id), { fingerprint, reply }]))
+            return ids.map((id) => claims.get(uuidDigits(id)) ?? null)
         } catch (error) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw error

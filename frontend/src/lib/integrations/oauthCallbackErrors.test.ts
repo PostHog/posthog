@@ -30,6 +30,16 @@ describe('describeOAuthCallbackError', () => {
         expect(describeOAuthCallbackError('access_denied', kind)).toBe(expected)
     })
 
+    it.each([
+        [
+            'bing-ads',
+            'Your Microsoft organization has not enabled the Microsoft Advertising API. Ask a Microsoft admin to grant consent for it in Entra ID, then connect again.',
+        ],
+        ['google-ads', 'Failed due to "invalid_client"'],
+    ])('describes invalid_client for %s', (kind, expected) => {
+        expect(describeOAuthCallbackError('invalid_client', kind)).toBe(expected)
+    })
+
     it('falls back to the raw code for unknown errors so support can identify them', () => {
         expect(describeOAuthCallbackError('some_unmapped_code')).toBe('Failed due to "some_unmapped_code"')
     })

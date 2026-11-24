@@ -5,7 +5,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -35,7 +35,6 @@ from rest_framework.exceptions import ErrorDetail, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -49,6 +48,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -56,6 +56,7 @@ from posthog.permissions import (
     scopes_caller_lacks,
 )
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+from posthog.settings.utils import get_list
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -594,6 +595,7 @@ TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
 EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
 EMAIL_IMPACT_FLAG = "workflows-email-impact"
+EMAIL_BATCH_FLAG = "workflows-email-batch-sends"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -1028,6 +1030,7 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "recipient_unreachable": 422,
         "sandbox_recipient_not_member": 422,
         "sandbox_sender_unavailable": 403,
+        "batch_unavailable": 409,
     }
     # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
@@ -1094,6 +1097,10 @@ def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
 
 
+def require_email_batch_sends(team: Any) -> None:
+    _require_flag(team, EMAIL_BATCH_FLAG)
+
+
 def require_transactional_push_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_PUSH_API_FLAG)
 
@@ -1128,7 +1135,11 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
-def transactional_email_throttles() -> list[BaseThrottle]:
+def transactional_email_throttles(
+    team_id: int,
+) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
+    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
+        return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
         TransactionalEmailBurstThrottle(),
@@ -1193,6 +1204,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     transactional_email_route: str
     _validation_started_at: float | None = None
     _send_reported: bool = False
+    _batch_properties: Mapping[str, Any] = MappingProxyType({})
 
     def _is_transactional_email_send(self) -> bool:
         return getattr(self, "action", None) in self.transactional_email_send_actions
@@ -1434,6 +1446,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                     "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
                     "client": _sending_client(request.headers),
                     **self._body_properties(request),
+                    **self._batch_properties,
                     **properties,
                 },
                 groups=groups(self.organization, self.team),
@@ -1478,7 +1491,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action == "send":
-            return transactional_email_throttles()
+            return transactional_email_throttles(self.team_id)
         return super().get_throttles()
 
     def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
@@ -1811,13 +1824,13 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
-    transactional_email_send_actions = ("email",)
+    transactional_email_send_actions: tuple[str, ...] = ("email",)
     transactional_email_route = "send_email"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        return transactional_email_throttles()
+        return transactional_email_throttles(self.team_id)
 
     def read_object(self) -> MessageTemplateRow | None:
         # The `email` action names its template in the request body, not in the URL.

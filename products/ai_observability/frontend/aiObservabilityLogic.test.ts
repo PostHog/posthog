@@ -41,7 +41,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/evaluations/offline/experiments?tab=datasets')
-        expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
@@ -62,7 +61,7 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
             '/ai-evals/evaluations/offline/datasets/dataset-1?item=item-1'
         )
-        expect(redirectUrl('/llm-analytics/tags/:id', { id: 'tagger-1' })).toBe('/ai-evals/taggers/tagger-1')
+        expect(redirectUrl('/ai-evals/taggers/:id', { id: 'tagger-1' })).toBe('/ai-evals/evaluations')
         expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
             '/ai-evals/evaluations/evaluation-1'
         )

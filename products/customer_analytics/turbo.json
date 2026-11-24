@@ -16,11 +16,16 @@
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/scopes.py",
+                "backend/activity_log_config.py",
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/logic/account_property_projection.py",
                 "backend/logic/person_property_projection.py",
-                "backend/logic/person_property_runs.py"
+                "backend/logic/person_property_runs.py",
+                "backend/account_urls.py",
+                "backend/constants.py",
+                "backend/logic/usage_spike_notifications.py",
+                "backend/test/factories.py"
             ],
             "outputs": [],
             "cache": true

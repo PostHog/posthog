@@ -160,9 +160,9 @@ async function getChangedFiles() {
 // On external PRs these teams are labelled instead of requested as reviewers, so
 // the team is surfaced without being pulled into the queue before triage. Names
 // are the part after `@PostHog/`.
-const LABEL_ONLY_TEAMS_FOR_EXTERNAL = new Set(['team-product-analytics'])
+const LABEL_ONLY_TEAMS_FOR_EXTERNAL = new Set(['team-analytics', 'team-dashboards-and-charts'])
 
-// `team-product-analytics` -> `team/product-analytics`; null for non-team owners.
+// `team-analytics` -> `team/analytics`; null for non-team owners.
 function teamSlugToLabel(name) {
     if (!name || !name.startsWith('team-')) {
         return null

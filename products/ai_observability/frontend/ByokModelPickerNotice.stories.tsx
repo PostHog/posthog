@@ -56,7 +56,8 @@ function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.E
                     loading={byokModelsLoading || providerKeysLoading}
                     footerActions={getModelPickerFooterActions(
                         systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
-                        () => setNewKeyModalOpen(true)
+                        () => setNewKeyModalOpen(true),
+                        null
                     )}
                 />
             )}

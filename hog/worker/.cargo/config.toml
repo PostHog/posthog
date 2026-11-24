@@ -1,0 +1,4 @@
+# Windows has no Visual C++ runtime unless something installed it, and hog ships the worker alone,
+# so the worker carries the C runtime itself.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

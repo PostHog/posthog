@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
  * that cause browser tab freezes. We've observed `[object Object]` appearing in URLs temporarily,
  * suggesting serialization issues that create infinite loops in the URL sync cycle.
  *
- * Owner: team-web-analytics
+ * Owner: team-analytics
  * Context: https://github.com/PostHog/posthog/pull/49891
  *
  * Two detectors share this module:

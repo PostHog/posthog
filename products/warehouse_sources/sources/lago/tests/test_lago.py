@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from products.warehouse_sources.sources.lago import lago as lago_module
 from products.warehouse_sources.sources.lago._config import LagoSourceConfig
@@ -262,3 +265,166 @@ class TestFanout:
         assert result.saved_states and all(
             state.fanout_state is not None and state.next_page is None for state in result.saved_states
         )
+
+    @parameterized.expand(
+        [
+            (
+                "current_usage",
+                "customer_current_usage",
+                [
+                    ScriptedResponse(json={"customer_usage": {"amount_cents": 120, "currency": "EUR"}}),
+                    ScriptedResponse(json={"customer_usage": {"amount_cents": 0, "currency": "EUR"}}),
+                ],
+                [
+                    "/api/v1/customers/cus%2F1/current_usage",
+                    "/api/v1/customers/cus-2/current_usage",
+                ],
+                [None, None],
+                [
+                    {"amount_cents": 120, "lago_subscription_id": "s1", "external_subscription_id": "sub 1"},
+                    {"amount_cents": 0, "lago_subscription_id": "s2", "external_subscription_id": "sub-2"},
+                ],
+            ),
+            (
+                "past_usage_pages",
+                "customer_past_usage",
+                [
+                    _page(
+                        [{"from_datetime": "2024-01-01T00:00:00Z"}],
+                        total_pages=2,
+                        next_page=2,
+                        data_key="usage_periods",
+                    ),
+                    _page([{"from_datetime": "2024-02-01T00:00:00Z"}], total_pages=2, data_key="usage_periods"),
+                    _page([{"from_datetime": "2024-01-01T00:00:00Z"}], data_key="usage_periods"),
+                ],
+                [
+                    "/api/v1/customers/cus%2F1/past_usage",
+                    "/api/v1/customers/cus%2F1/past_usage",
+                    "/api/v1/customers/cus-2/past_usage",
+                ],
+                ["1", "2", "1"],
+                [
+                    {"from_datetime": "2024-01-01T00:00:00Z", "lago_subscription_id": "s1"},
+                    {"from_datetime": "2024-02-01T00:00:00Z", "lago_subscription_id": "s1"},
+                    {"from_datetime": "2024-01-01T00:00:00Z", "lago_subscription_id": "s2"},
+                ],
+            ),
+            (
+                "lifetime_usage_skips_404",
+                "subscription_lifetime_usage",
+                [
+                    ScriptedResponse(
+                        status=404, json={"status": 404, "error": "Not Found", "code": "lifetime_usage_not_found"}
+                    ),
+                    ScriptedResponse(
+                        json={
+                            "lifetime_usage": {
+                                "lago_id": "lu2",
+                                "lago_subscription_id": "s2",
+                                "external_subscription_id": "sub-2",
+                                "current_usage_amount_cents": 500,
+                            }
+                        }
+                    ),
+                ],
+                [
+                    "/api/v1/subscriptions/sub%201/lifetime_usage",
+                    "/api/v1/subscriptions/sub-2/lifetime_usage",
+                ],
+                [None, None],
+                [
+                    {
+                        "lago_id": "lu2",
+                        "lago_subscription_id": "s2",
+                        "external_subscription_id": "sub-2",
+                        "external_customer_id": "cus-2",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_subscription_usage_fans_out_over_each_subscription(
+        self, _name, endpoint, child_responses, child_paths, child_pages, expected_rows
+    ):
+        subscriptions = _page(
+            [
+                {"lago_id": "s1", "external_id": "sub 1", "external_customer_id": "cus/1"},
+                {"lago_id": "s2", "external_id": "sub-2", "external_customer_id": "cus-2"},
+            ],
+            data_key="subscriptions",
+        )
+        result = _driver().run(endpoint, [subscriptions, *child_responses])
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/subscriptions", *child_paths]
+        # The customer id rides in the path and the subscription id in the query, both encoded once.
+        expected_subscription_ids = [
+            "sub 1" if "cus%2F1" in path or "sub%201" in path else "sub-2" for path in child_paths
+        ]
+        if endpoint != "subscription_lifetime_usage":
+            assert result.params("external_subscription_id")[1:] == expected_subscription_ids
+        assert result.params("page")[1:] == child_pages
+        assert [{key: row.get(key) for key in expected} for row, expected in zip(result.rows, expected_rows)] == (
+            expected_rows
+        )
+        assert len(result.rows) == len(expected_rows)
+        assert all(not key.startswith("_") for row in result.rows for key in row)
+
+    def test_plan_entitlements_read_each_plan_once(self):
+        result = _driver().run(
+            "plan_entitlements",
+            [
+                _page([{"lago_id": "p1", "code": "pro/annual"}, {"lago_id": "p2", "code": "basic"}], data_key="plans"),
+                ScriptedResponse(json={"entitlements": [{"code": "seats", "privileges": []}, {"code": "sso"}]}),
+                ScriptedResponse(json={"entitlements": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/plans",
+            "/api/v1/plans/pro%2Fannual/entitlements",
+            "/api/v1/plans/basic/entitlements",
+        ]
+        # The entitlement body has no `meta`, so a second page must never be requested.
+        assert result.params("page")[1:] == [None, None]
+        assert [(row["lago_plan_id"], row["plan_code"], row["code"]) for row in result.rows] == [
+            ("p1", "pro/annual", "seats"),
+            ("p1", "pro/annual", "sso"),
+        ]
+
+
+class TestActivityLogsIncremental:
+    @parameterized.expand(
+        [
+            ("full_refresh", {}, None),
+            ("incremental_first_sync", {"should_use_incremental_field": True}, None),
+            (
+                "incremental_with_watermark",
+                {
+                    "should_use_incremental_field": True,
+                    "incremental_field": "logged_at",
+                    "db_incremental_field_last_value": datetime(2024, 3, 1, 12, 30, tzinfo=UTC),
+                },
+                "2024-03-01T12:30:00Z",
+            ),
+        ]
+    )
+    def test_from_date_is_sent_only_with_a_watermark(self, _name, inputs, expected_from_date):
+        result = _driver().run(
+            "activity_logs",
+            [
+                _page([{"activity_id": "a2"}], total_pages=2, next_page=2, data_key="activity_logs"),
+                _page([{"activity_id": "a1"}], total_pages=2, data_key="activity_logs"),
+            ],
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [row["activity_id"] for row in result.rows] == ["a2", "a1"]
+        # Every page keeps the filter, so later pages never walk back past the watermark.
+        assert result.params("from_date") == [expected_from_date, expected_from_date]
+        assert result.params("page") == ["1", "2"]
+        # Lago returns activity logs newest first, so the read declares no ascending order.
+        assert result.response is not None and result.response.sort_mode is None

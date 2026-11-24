@@ -8,6 +8,8 @@ depend on the provisioning API's login feature.
 The token grants a session with no password or SSO challenge, so
 partner-asserted email ownership is the only barrier: an explicitly verified
 email (``is_email_verified is True``) is required before a session is created.
+A user with an enrolled second factor, or on a domain that enforces SSO, is
+sent to the login page instead.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import structlog
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.normal_login import normal_login_required_reason, normal_login_url
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -71,6 +74,26 @@ def _block_unverified_email(user: User) -> HttpResponseBase:
     if not email_sent:
         params["email_sent"] = "false"
     return HttpResponseRedirect(f"/verify_email/{user.uuid}?{urlencode(params)}")
+
+
+def _session_refusal(user: User, redirect_path: str, *, team_id: int | None, purpose: str) -> HttpResponseBase | None:
+    """Return the redirect for a user who must not get a session from a deep link, or None to log them in."""
+    # Deep-link login has no password challenge and no SSO step, so partner-asserted
+    # email ownership is the only thing standing between an attacker and a session.
+    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
+    # or the org-level email-verification-disabled flag.
+    if user.is_email_verified is not True:
+        return _block_unverified_email(user)
+
+    normal_login_reason = normal_login_required_reason(user)
+    if normal_login_reason is not None:
+        _capture(normal_login_reason.value, user_id=user.id, team_id=team_id, purpose=purpose)
+        logger.warning(
+            "stripe_provisioning.login.normal_login_required", user_id=user.id, reason=normal_login_reason.value
+        )
+        return HttpResponseRedirect(normal_login_url(redirect_path))
+
+    return None
 
 
 def _redirect_path(team_id: int | None, path: str | None) -> str:
@@ -142,16 +165,15 @@ def stripe_provisioning_login(request: Any) -> HttpResponseBase:
         _capture("access_blocked", user_id=user_id)
         return HttpResponseRedirect(ACCOUNT_BLOCKED_LOGIN_URL)
 
-    # Deep-link login has no password challenge and no SSO step, so partner-asserted
-    # email ownership is the only thing standing between an attacker and a session.
-    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
-    # or the org-level email-verification-disabled flag.
-    if user.is_email_verified is not True:
-        return _block_unverified_email(user)
+    redirect_path = _redirect_path(team_id, path)
+
+    refusal = _session_refusal(user, redirect_path, team_id=team_id, purpose=purpose)
+    if refusal is not None:
+        return refusal
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
     _capture("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("stripe_provisioning.login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    return HttpResponseRedirect(_redirect_path(team_id, path))
+    return HttpResponseRedirect(redirect_path)
