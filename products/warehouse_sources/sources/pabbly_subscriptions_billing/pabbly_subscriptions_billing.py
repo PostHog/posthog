@@ -111,9 +111,6 @@ def _fetch_page(
         message = str(data.get("message", ""))
         if _is_no_data_message(message):
             return []
-        if single_object:
-            logger.debug(f"Pabbly: treating error envelope as no row. path={path}, message={message[:200]}")
-            return []
         raise ValueError(f"Pabbly API returned an error for {path}: {message}")
 
     rows = data.get("data")

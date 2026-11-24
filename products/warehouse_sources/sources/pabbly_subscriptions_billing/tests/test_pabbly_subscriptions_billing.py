@@ -154,10 +154,6 @@ class TestGetRowsFanOut:
         [
             ("bad_request", ScriptedResponse(status=400)),
             ("no_data_envelope", ScriptedResponse(json={"status": "error", "message": "No data found"})),
-            (
-                "other_error_envelope",
-                ScriptedResponse(json={"status": "error", "message": "Subscription is not scheduled"}),
-            ),
             ("empty_object", _page({})),
             ("null_data", _page(None)),
         ]
@@ -240,8 +236,16 @@ class TestFetchPage:
         assert result.raised is None
         assert result.rows == []
 
-    def test_other_error_envelope_raises(self) -> None:
-        result = _driver().run("customers", [ScriptedResponse(json={"status": "error", "message": "Invalid user api"})])
+    @parameterized.expand(
+        [
+            ("top_level", "customers", []),
+            # A full-refresh table must not swallow a real error as "no pending change" and sync empty.
+            ("one_row_per_parent", "scheduled_changes", [_page([{"id": "sub_1"}])]),
+        ]
+    )
+    def test_other_error_envelope_raises(self, _name: str, endpoint: str, before: list[ScriptedResponse]) -> None:
+        error = ScriptedResponse(json={"status": "error", "message": "Invalid user api"})
+        result = _driver().run(endpoint, [*before, error])
         assert isinstance(result.raised, ValueError)
         assert "Invalid user api" in str(result.raised)
 

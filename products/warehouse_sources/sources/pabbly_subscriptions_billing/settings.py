@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class PabblyEndpointConfig:
     name: str
     # Path under /api/v1. Fan-out child paths contain a "{parent_id}" placeholder.
@@ -30,8 +30,7 @@ class PabblyEndpointConfig:
     capture_http_samples: bool = False
     # Fan-out: the child path returns one object per parent (not a paged list) and that object has
     # no id of its own, so the table keys on the parent id alone. The request is sent once, without
-    # page/limit, and any error envelope means "no row for this parent" (the parent listing has
-    # already proven the credentials).
+    # page/limit.
     one_row_per_parent: bool = False
 
 
