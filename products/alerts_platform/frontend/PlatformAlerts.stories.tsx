@@ -400,6 +400,55 @@ export const ListRowMenuSnoozedAlertOpen: Story = {
     },
 }
 
+async function openGroupRowMenu(canvasElement: HTMLElement, group: string): Promise<void> {
+    await within(canvasElement).findByText('Errors per service above 50')
+    canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+    await within(canvasElement).findByText(group)
+    canvasElement.querySelector<HTMLElement>(`[aria-label="More options for ${group}"]`)?.click()
+}
+
+export const ListGroupMenuOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await within(document.body).findByText('Snooze group for 1 week')
+    },
+}
+
+export const ListGroupMenuUnsnooze: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=payments-api severity_text=error')
+        await within(document.body).findByText('Unsnooze group')
+    },
+}
+
+export const ListGroupMenuAlertSnoozed: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        { ...GROUPED_CONFIGURATION, snooze_until: '2026-10-06T12:00:00Z' },
+                    ],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        const item = await within(document.body).findByText('Snooze group for 1 hour')
+        item.closest('button')?.dispatchEvent(new MouseEvent('mouseenter'))
+        await within(document.body).findByText('The whole alert is snoozed')
+    },
+}
+
 export const Detail: Story = {
     parameters: { pageUrl: urls.platformAlert(CONFIGURATION.id) },
 }
