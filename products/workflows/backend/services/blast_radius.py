@@ -63,7 +63,9 @@ def _count_audience(
 def _cached_count_audience(
     team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
 ) -> BlastRadiusResult:
-    audience = json.dumps([filters, group_type_index, dedupe_key], sort_keys=True, default=str)
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, team.test_account_filters], sort_keys=True, default=str
+    )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, tuple) and len(cached) == 2:

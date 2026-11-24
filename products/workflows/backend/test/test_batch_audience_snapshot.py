@@ -74,17 +74,30 @@ class TestBatchAudienceSnapshot(TestCase):
 
     @parameterized.expand(
         [
-            ("ready", HogFlowBatchJobAudienceStatus.READY, ["$host"]),
-            ("still_resolving", HogFlowBatchJobAudienceStatus.RESOLVING, []),
+            ("ready", True, ["$host"]),
+            ("still_resolving", False, []),
         ]
     )
-    def test_a_ready_audience_names_the_test_account_filters_it_left_out(self, _dispatch, _name, status, expected):
+    def test_a_ready_audience_names_the_test_account_filters_it_left_out(self, _dispatch, _name, resolved, expected):
         self.team.test_account_filters = [
             {"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"},
             {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"},
         ]
         self.team.save()
-        job = self._job(audience_status=status, filters={"properties": [], "filter_test_accounts": True})
+        job = self._job(
+            audience_status=HogFlowBatchJobAudienceStatus.RESOLVING,
+            filters={"properties": [], "filter_test_accounts": True},
+        )
+        if resolved:
+            with patch(QUERY, return_value=PERSON_IDS):
+                resolve_audience_snapshot(
+                    team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+                )
+        # The audience above already left `$host` out, so a later settings change can't change what the run reports.
+        self.team.test_account_filters = [
+            {"key": "$browser", "type": "event", "value": "Chrome", "operator": "is_not"},
+        ]
+        self.team.save()
 
         snapshot = request_audience_snapshot(
             team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=5

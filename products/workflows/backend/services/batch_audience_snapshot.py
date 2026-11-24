@@ -34,6 +34,9 @@ logger = structlog.get_logger(__name__)
 AUDIENCE_SNAPSHOT_QUERY_TIMEOUT_SECONDS = 1200
 AUDIENCE_SNAPSHOT_WRITE_CHUNK = 5000
 
+# Stored with the run because the project's test account filters can change after the audience resolves.
+SKIPPED_TEST_ACCOUNT_FILTERS_KEY = "skipped_test_account_filters"
+
 # The query only reads, so a stale pooled socket or a query a deploy cancelled is safe to run again too.
 AUDIENCE_QUERY_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, CHQueryErrorQueryWasCancelled)
 
@@ -62,7 +65,7 @@ def _snapshot_status(job: HogFlowBatchJob) -> AudienceSnapshotStatus:
         audience_size=job.audience_size,
         error=job.audience_error,
         skipped_test_account_filters=(
-            skipped_test_account_filter_keys(job.team, batch_job_audience_filters(job))
+            job.filters.get(SKIPPED_TEST_ACCOUNT_FILTERS_KEY, [])
             if status == HogFlowBatchJobAudienceStatus.READY
             else []
         ),
@@ -74,7 +77,7 @@ def request_audience_snapshot(
 ) -> AudienceSnapshotStatus:
     """Start resolving the run's audience, once. Later calls report where the resolution got to."""
     try:
-        job = HogFlowBatchJob.objects.select_related("team", "hog_flow").get(id=batch_job_id, team_id=team_id)
+        job = HogFlowBatchJob.objects.get(id=batch_job_id, team_id=team_id)
     except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
         # DjangoValidationError fires when the id is not a parseable UUID.
         raise WorkflowBatchJobNotFound()
@@ -155,7 +158,7 @@ def resolve_audience_snapshot(
             team_id=team_id, batch_job_id=str(job.id), reason=audience_failure_reason(error)
         )
         return
-    _publish_audience(job, person_ids)
+    _publish_audience(job, person_ids, skipped_test_account_filter_keys(job.team, batch_job_audience_filters(job)))
 
 
 def record_audience_snapshot_failure(*, team_id: int, batch_job_id: str, reason: str) -> None:
@@ -169,7 +172,7 @@ def record_audience_snapshot_failure(*, team_id: int, batch_job_id: str, reason:
     )
 
 
-def _publish_audience(job: HogFlowBatchJob, person_ids: list[str]) -> None:
+def _publish_audience(job: HogFlowBatchJob, person_ids: list[str], skipped_test_account_filters: list[str]) -> None:
     # A redelivered task can run beside the first, and a run that ends waits here, so its cleanup sees these rows.
     with transaction.atomic():
         still_open = (
@@ -187,6 +190,7 @@ def _publish_audience(job: HogFlowBatchJob, person_ids: list[str]) -> None:
             audience_status=HogFlowBatchJobAudienceStatus.READY,
             audience_size=len(person_ids),
             audience_error=None,
+            filters={**job.filters, SKIPPED_TEST_ACCOUNT_FILTERS_KEY: skipped_test_account_filters},
             updated_at=timezone.now(),
         )
 
