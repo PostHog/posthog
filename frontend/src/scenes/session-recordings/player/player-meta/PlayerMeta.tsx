@@ -217,8 +217,8 @@ export function PlayerMeta(): JSX.Element {
                                 )}
                             </>
                         )}
-                        <PlayerMetaExperimentTags />
                     </div>
+                    <PlayerMetaExperimentTags />
                     <PlayerMetaControls size={size} />
                 </div>
             </div>
