@@ -169,6 +169,8 @@ def _release_batch(keys: tuple[Any, ...]) -> None:
 REFRESH_WORKERS = 2
 MAX_QUEUED_REFRESHES = 64
 MAX_REFRESHES_PER_BATCH = 20
+MAX_REFRESHES_PER_SHARE = 16
+_org_refreshes: dict[Any, int] = {}
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
 _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
 
@@ -243,6 +245,10 @@ def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
     kinds = {query["kind"], source.get("kind") if isinstance(source, dict) else None}
     if blocked := kinds & _UNBATCHABLE_KINDS:
         raise InvalidTarget(f"{blocked.pop()} can't be batched. Use /query.")
+    # A batch cancels work on disconnect through ClickHouse only, so queries sent to another engine stay out.
+    nodes = [query, source] if isinstance(source, dict) else [query]
+    if any(node.get("connectionId") or node.get("executionTarget") not in (None, "default") for node in nodes):
+        raise InvalidTarget("Queries on a direct warehouse connection can't be batched. Use /query.")
     raw_filters = parsed.get("filters")
     filters: dict[str, Any] = raw_filters if isinstance(raw_filters, dict) else {}
     # A target that sets its own date_from pins its range, as a tile's date override does.
@@ -335,7 +341,9 @@ def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
     return {"i": index, "error": message}
 
 
-def _refresh_all(*, team: Team, user: User, dashboard_id: Optional[int], queries: list[ResolvedQuery]) -> None:
+def _refresh_all(
+    *, team: Team, user: User, dashboard_id: Optional[int], queries: list[ResolvedQuery], shares: tuple[Any, ...]
+) -> None:
     # The stale results are already in the response. The async path recomputes them for the next read.
     try:
         for query in queries:
@@ -354,8 +362,14 @@ def _refresh_all(*, team: Team, user: User, dashboard_id: Optional[int], queries
                 logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
     finally:
         connections.close_all()
-        for _query in queries:
-            _refresh_slots.release()
+        _release_refreshes(shares, len(queries))
+
+
+def _release_refreshes(shares: tuple[Any, ...], count: int) -> None:
+    with _org_lock:
+        _add_shares(_org_refreshes, shares, -count)
+    for _ in range(count):
+        _refresh_slots.release()
 
 
 def _expire_if_alive(batch_ref: "weakref.ReferenceType[QueryBatch]") -> None:
@@ -366,9 +380,6 @@ def _expire_if_alive(batch_ref: "weakref.ReferenceType[QueryBatch]") -> None:
 
 def _render_body(line: dict[str, Any]) -> bytes:
     return SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
-
-
-type _Job = Callable[[], dict[str, Any]]
 
 
 class QueryBatch:
@@ -394,7 +405,8 @@ class QueryBatch:
         self._read_bytes = 0
         # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
         self._context = copy_context()
-        self._jobs: list[tuple[int, str, _Job]] = []
+        # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
+        self._jobs: list[tuple[int, str, ResolvedQuery]] = []
         self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._response: tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]] | None = None
@@ -474,7 +486,7 @@ class QueryBatch:
         self._to_refresh = [resolved[index] for index in to_refresh]
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
-            self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+            self._jobs.append((index, query_id, resolved[index]))
 
     def _read_chunk(
         self,
@@ -653,11 +665,15 @@ class QueryBatch:
         candidates, self._to_refresh = self._to_refresh[:MAX_REFRESHES_PER_BATCH], []
         # One slot per query, since each enqueues its own calculation. A refresh that finds the queue full is dropped:
         # the stale result is already served and the next read retries.
-        queries: list[ResolvedQuery] = []
-        for query in candidates:
-            if not _refresh_slots.acquire(blocking=False):
-                break
-            queries.append(query)
+        # Shared per organization and user too, so one account cannot keep other organizations' panels from refreshing.
+        with _org_lock:
+            room = MAX_REFRESHES_PER_SHARE - max(_org_refreshes.get(key, 0) for key in self._shares)
+            queries: list[ResolvedQuery] = []
+            for query in candidates[: max(0, room)]:
+                if not _refresh_slots.acquire(blocking=False):
+                    break
+                queries.append(query)
+            _add_shares(_org_refreshes, self._shares, len(queries))
         if not queries:
             return
 
@@ -668,12 +684,12 @@ class QueryBatch:
             user=self._user,
             dashboard_id=self._dashboard_id,
             queries=queries,
+            shares=self._shares,
         )
         try:
             _refresh_pool.submit(self._context.copy().run, refresh_all)
         except RuntimeError:
-            for _query in queries:
-                _refresh_slots.release()
+            _release_refreshes(self._shares, len(queries))
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         if self._cancelled:
@@ -715,16 +731,18 @@ class QueryBatch:
         with self._lock:
             return self._cancelled
 
-    def _work(self, job: _Job, query_id: str) -> None:
+    def _work(self, index: int, query: ResolvedQuery, query_id: str) -> None:
         try:
             with self._lock:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
             with tags_context(team_id=self._team.pk, client_query_id=query_id):
-                line = job()
+                line = self._run(index, query, query_id)
             index, data = line["i"], self._encode(line)
             del line
+            if len(data) > MAX_UNREAD_BYTES:
+                data = self._encode({"i": index, "error": _TOO_LARGE})
             # Waits while the client is behind, so a slow reader holds a few results and a bounded number of bytes,
             # not every finished one. One result is always let through, however large, so the batch cannot stall.
             while not self._unread.acquire(timeout=1.0):
@@ -755,8 +773,8 @@ class QueryBatch:
             if not self._admitted:
                 return False
             self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
-            for _index, query_id, job in self._jobs:
-                self._futures.append(self._pool.submit(self._context.copy().run, self._work, job, query_id))
+            for index, query_id, query in self._jobs:
+                self._futures.append(self._pool.submit(self._context.copy().run, self._work, index, query, query_id))
         return True
 
     def _close(self, complete: bool) -> None:
@@ -785,13 +803,14 @@ class QueryBatch:
             else:
                 pending = [len(remaining)]
                 counter_lock = Lock()
+                shares = self._shares
 
                 def done(_future: Future[None]) -> None:
                     with counter_lock:
                         pending[0] -= 1
                         last = pending[0] == 0
                     if last:
-                        _release_batch(self._shares)
+                        _release_batch(shares)
 
                 for future in remaining:
                     future.add_done_callback(done)
@@ -819,7 +838,7 @@ class QueryBatch:
 
     def _busy_lines(self) -> Iterator[bytes]:
         message = _TIMED_OUT if self._closed else _BUSY
-        for index, _query_id, _job in self._jobs:
+        for index, _query_id, _query in self._jobs:
             yield self._encode({"i": index, "error": message})
 
     def stream(self) -> Iterator[bytes]:
@@ -827,6 +846,7 @@ class QueryBatch:
             yield from self._stream()
         finally:
             self._watchdog.cancel()
+            self.ready = []
             self._open.release()
 
     async def astream(self) -> AsyncIterator[bytes]:
@@ -848,6 +868,7 @@ class QueryBatch:
                 self._response = None
             self._watchdog.cancel()
             await body.aclose()
+            self.ready = []
             self._open.release()
 
     def _stream(self) -> Iterator[bytes]:
@@ -858,7 +879,7 @@ class QueryBatch:
             return
         complete = False
         deadline = self._deadline
-        pending = {index for index, _query_id, _job in self._jobs}
+        pending = {index for index, _query_id, _query in self._jobs}
         try:
             while pending:
                 if monotonic() >= deadline:
@@ -890,7 +911,7 @@ class QueryBatch:
             return
         complete = False
         deadline = self._deadline
-        pending = {index for index, _query_id, _job in self._jobs}
+        pending = {index for index, _query_id, _query in self._jobs}
         try:
             while pending:
                 if monotonic() >= deadline:
