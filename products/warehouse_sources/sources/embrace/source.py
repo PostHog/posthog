@@ -160,7 +160,8 @@ class EmbraceSource(ResumableSource[EmbraceSourceConfig, EmbraceResumeConfig]):
             iconPath="/static/services/embrace.png",
             releaseStatus=ReleaseStatus.BETA,
             caption="Get your Metrics API token from Embrace Settings > Organization > API. "
-            "Imports cover the latest 30 days of hourly metrics, with a one-hour delay. "
+            "Imports cover the latest 30 days of metrics. Hourly tables have a one-hour delay, "
+            "and the daily users table has a one-day delay. "
             "Incremental syncs retain older imported rows. Full refresh replaces them with the latest 30 days.",
             fields=cast(
                 list[FieldType],

@@ -22,6 +22,7 @@ import { EmailEditorFeedback } from './components/EmailEditorFeedback'
 import { EmailEditorSwitch } from './components/EmailEditorSwitch'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
+import { EmailOwnPlainTextNotice } from './components/EmailOwnPlainTextNotice'
 import { EmailSelectionToolbar } from './components/EmailSelectionToolbar'
 import { EmailStylePanel } from './components/EmailStylePanel'
 import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
@@ -407,6 +408,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         </>
                     ) : null}
                     <div className="flex-1" />
+                    {doc.attrs?.ownPlainText && logicProps.value?.text ? (
+                        <EmailOwnPlainTextNotice editor={editor} />
+                    ) : null}
                     <EmailEditorSwitch.ConvertedNotice />
                     <EmailEditorFeedback />
                     <EmailEditorSwitch.UseOldButton />

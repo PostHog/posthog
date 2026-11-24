@@ -7,7 +7,7 @@ import * as yaml from 'js-yaml'
 import {command, CommandOptions} from '../src/shared-image-command'
 import {ReleaseRegistry} from '../src/shared-image-registry'
 import {SourceHistory} from '../src/shared-image-history'
-import {publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
+import {Bootstrap, publishChannels, PublisherOptions, validateRequests} from '../src/shared-image-publisher'
 import {CANONICAL_SOURCE_REPOSITORY, loadPolicy, POLICY_PATH, policyDigest} from '../src/shared-image'
 
 jest.mock('../src/shared-image-command')
@@ -31,6 +31,11 @@ const policy = (paths = ['worker/**'], extra: Record<string, unknown> = {}): str
   images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker', ...extra},
     other: {repository: 'workers/other', filter: 'other'}}}}
 })
+const channelPolicy = (names: string[]): void => {
+  const configured = loadPolicy(policy())
+  configured.images['posthog-cloud'].channels = Object.fromEntries(names.map(name => [name, {repository: `workers/${name}`, filter: 'worker'}]))
+  put(POLICY_PATH, yaml.dump(configured))
+}
 const image = (revision: string, source = `https://github.com/${CANONICAL_SOURCE_REPOSITORY}`, marker = ''): string => {
   const raw = JSON.stringify({schemaVersion: 2, annotations: {'org.opencontainers.image.revision': revision, 'org.opencontainers.image.source': source}, ...(marker ? {marker} : {})})
   const digest = `sha256:${createHash('sha256').update(raw).digest('hex')}`
@@ -47,15 +52,19 @@ const seed = (revision: string): void => {
   const digest = image(revision)
   for (const repository of ['workers/worker', 'workers/other']) tags.get(repository)?.set(alias(revision), digest)
 }
+const refuseSpent = (executable: string, configuration: CommandOptions): void => {
+  if (configuration.timeoutMs <= 0) throw new Error(`${executable}: budget exhausted`)
+}
 const invoke = async (executable: string, args: string[], configuration: CommandOptions): Promise<string> => {
   if (executable === 'git') return jest.requireActual<typeof import('../src/shared-image-command')>('../src/shared-image-command').command('git', args, configuration)
+  refuseSpent(executable, configuration)
   if (executable === 'aws') {
     if (args[args.indexOf('--registry-id') + 1] !== '123456789012') throw new Error('Unexpected fixture registry ID')
     const repository = args[args.indexOf('--repository-name') + 1]
     const entries = tags.get(repository) ?? new Map<string, string>()
     if (args[1] === 'list-images') {
       const all = [
-        ...Array.from(untagged.get(repository) ?? [], imageDigest => ({imageDigest})),
+        ...(args.includes('tagStatus=TAGGED') ? [] : Array.from(untagged.get(repository) ?? [], imageDigest => ({imageDigest}))),
         ...[...entries].map(([imageTag, imageDigest]) => ({imageTag, imageDigest}))
       ]
       const offset = args.includes('--next-token') ? Number(args[args.indexOf('--next-token') + 1]) : 0
@@ -86,6 +95,17 @@ const invoke = async (executable: string, args: string[], configuration: Command
   }
   throw new Error(`Unexpected external command: ${executable}`)
 }
+const hold = (executable: string, configuration: CommandOptions, release: Promise<unknown>): Promise<void> => new Promise((resolve, reject) => {
+  refuseSpent(executable, configuration)
+  const timer = setTimeout(() => reject(new Error(`${executable}: timed out`)), configuration.timeoutMs)
+  void release.then(() => { clearTimeout(timer); resolve() })
+})
+const latch = (): {done: Promise<void>; release: () => void} => {
+  let release = (): void => undefined
+  const done = new Promise<void>(resolve => { release = resolve })
+  return {done, release}
+}
+const controlTime = (): void => { jest.useFakeTimers({doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask']}) }
 
 beforeEach(() => {
   repo = mkdtempSync(path.join(tmpdir(), 'shared-image-publisher-'))
@@ -103,7 +123,7 @@ beforeEach(() => {
   put(POLICY_PATH, policy()); put('worker/run.py', 'base'); base = commit(); seed(base)
   external.mockReset().mockImplementation(invoke)
 })
-afterEach(() => rmSync(repo, {recursive: true, force: true}))
+afterEach(() => { jest.useRealTimers(); rmSync(repo, {recursive: true, force: true}) })
 
 describe('shared-image publication', () => {
   test('historical policy reads preserve literal YAML bytes and accept executable regular files', async () => {
@@ -240,6 +260,9 @@ describe('shared-image publication', () => {
     options.force = ['posthog-cloud/worker']; await publishChannels(options)
     git('checkout', '--detach', first); build(); await publishChannels(options)
     expect([...tags.get('workers/worker')!.keys()].filter(tag => /^r\d{12}-[a-f0-9]{6}$/.test(tag)).sort().pop()).toBe(saved)
+    const listings = external.mock.calls.filter(([executable, args]) => executable === 'aws' && args[1] === 'list-images').map(([, args]) => args)
+    expect(listings.some(args => args.includes('--next-token'))).toBe(true)
+    expect(listings.filter(args => args[args.indexOf('--filter') + 1] !== 'tagStatus=TAGGED')).toEqual([])
   })
 
   test.each([
@@ -341,8 +364,8 @@ describe('shared-image publication', () => {
     if (mode === 'missing seed') { untagged.get('workers/worker')!.add(image(base)); entries.set(options.alias, options.digest) }
     if (mode === 'stray tag') entries.set('latest', image(base))
     if (mode === 'conflict') entries.set(alias(base), image(base, 'https://example.invalid/conflict'))
-    if (mode === 'seed digest from another revision' || mode === 'present seed from another revision') options.bootstrap!.digest = image(options.revision)
-    if (mode.startsWith('present seed')) entries.set(alias(base), options.bootstrap!.digest)
+    if (mode === 'seed digest from another revision' || mode === 'present seed from another revision') (options.bootstrap as Bootstrap).digest = image(options.revision)
+    if (mode.startsWith('present seed')) entries.set(alias(base), (options.bootstrap as Bootstrap).digest)
     if (mode === 'newer seed') {
       put('future.txt', 'future seed'); const future = commit()
       options.bootstrap = {channel: 'posthog-cloud/worker', revision: future, digest: image(future)}
@@ -453,6 +476,7 @@ describe('shared-image publication', () => {
     expect((await publishChannels(options)).find(row => row.channel.endsWith('/worker'))).toMatchObject({decision: 'blocked', reason: expect.stringContaining('cannot change')})
   })
 
+  const requested = (name: string): Bootstrap => ({channel: `posthog-cloud/${name}`, revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`})
   test.each([
     ['force scalar', '*', undefined],
     ['force unknown', ['posthog-cloud/missing'], undefined],
@@ -463,23 +487,109 @@ describe('shared-image publication', () => {
     ['unknown seed channel', [], {channel: 'posthog-cloud/missing', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}],
     ['short seed revision', [], {channel: 'posthog-cloud/worker', revision: 'a', digest: `sha256:${'a'.repeat(64)}`}],
     ['invalid seed digest', [], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: 'invalid'}],
-    ['seed with force', ['posthog-cloud/worker'], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}]
-  ])('request validation rejects %s', (_name, force, bootstrap) => {
-    expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
+    ['seed with force', ['posthog-cloud/worker'], {channel: 'posthog-cloud/worker', revision: 'a'.repeat(40), digest: `sha256:${'a'.repeat(64)}`}, 'Bootstrap requires an empty force list'],
+    ['a list with no seeds', [], [], 'Bootstrap requires at least one seed'],
+    ['a list with a repeated channel', [], [requested('worker'), requested('other'), requested('worker')], 'Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker'],
+    ['a list with a seed with an extra key', [], [requested('worker'), {...requested('other'), extra: true}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with a digest inside an array', [], [requested('worker'), {...requested('other'), digest: [requested('other').digest]}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with a revision inside an array', [], [requested('worker'), {...requested('other'), revision: [requested('other').revision]}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with force for another channel', ['posthog-cloud/other'], [requested('worker')], 'Bootstrap requires an empty force list'],
+    ['a list with a revision object that cannot become a string', [], [requested('worker'), {...requested('other'), revision: {toString: 7}}], 'digest in seed 1 (posthog-cloud/other)']
+  ])('request validation rejects %s', (_name, force, bootstrap, message = String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires') => {
+    expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(message)
+  })
+
+  test('bootstrap seeds every listed channel and blocks only the seed that fails', async () => {
+    const names = ['worker', 'other', 'third']
+    channelPolicy(names); base = commit()
+    put('unrelated.txt', 'later build'); commit(); build()
+    for (const name of names) tags.set(`workers/${name}`, new Map())
+    const conflict = image(base, 'https://example.invalid/conflict')
+    tags.get('workers/other')!.set(alias(base), conflict)
+    options.bootstrap = names.map(name => ({channel: `posthog-cloud/${name}`, revision: base, digest: image(base)}))
+    const results = await publishChannels(options)
+    expect(results).toHaveLength(3)
+    expect(results).toContainEqual({channel: 'posthog-cloud/other', decision: 'blocked', reason: expect.stringContaining('posthog-cloud/other: seed digest conflict')})
+    expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/other.json'))).toBe(false)
+    expect([...tags.get('workers/other')!]).toEqual([[alias(base), conflict]])
+    for (const name of ['worker', 'third']) {
+      expect(results).toContainEqual(expect.objectContaining({channel: `posthog-cloud/${name}`, decision: 'published', tag: alias(base), digest: image(base)}))
+      expect(tags.get(`workers/${name}`)!.get(alias(base))).toBe(image(base))
+      expect(JSON.parse(readFileSync(path.join(options.evidence, `bootstrap/posthog-cloud/${name}.json`), 'utf8'))).toMatchObject({
+        destination: {registry: options.registry, repository: `workers/${name}`}, seedRevision: base, tag: alias(base), digest: image(base), outcome: 'present-at-expected-digest'
+      })
+    }
+  })
+
+  test.each([
+    ['is cut off at its deadline', false],
+    ['finishes just after its deadline', true]
+  ])('a seed whose copy %s is blocked at that deadline and gets no receipt', async (_mode, finishes) => {
+    for (const entries of tags.values()) entries.clear()
+    put('unrelated.txt', 'later build'); commit(); build()
+    options.bootstrap = ['worker', 'other'].map(name => ({channel: `posthog-cloud/${name}`, revision: base, digest: image(base)}))
+    Object.assign(options.budgets, {concurrency: 1, channelMs: 10000})
+    const copy = latch()
+    let copyStartedAt: number | undefined
+    const copyStarted = latch()
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'helper' && args[1] === 'publish' && configuration.env?.ECR_REPO === 'workers/worker') {
+        copyStartedAt = Date.now(); copyStarted.release()
+        if (finishes) setTimeout(copy.release, deadline - Date.now())
+        await hold('helper', configuration, copy.done)
+      }
+      return invoke(executable, args, configuration)
+    })
+    controlTime()
+    const deadline = Date.now() + options.budgets.channelMs
+    const run = publishChannels(options)
+    await Promise.race([copyStarted.done, run])
+    expect(copyStartedAt).toBeLessThan(deadline)
+    await jest.advanceTimersByTimeAsync(deadline - Date.now())
+    copy.release()
+    const results = await run
+    expect(results).toContainEqual({channel: 'posthog-cloud/worker', decision: 'blocked', reason: 'posthog-cloud/worker: Error: posthog-cloud/worker: channel deadline reached'})
+    expect(results).toContainEqual(expect.objectContaining({channel: 'posthog-cloud/other', decision: 'published', tag: alias(base)}))
+    expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/other.json'))).toBe(true)
+    expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'))).toBe(false)
+    expect(tags.get('workers/worker')!.has(alias(base))).toBe(finishes)
+  })
+
+  test('a receipt that cannot be written blocks its channel and the next seed still runs', async () => {
+    for (const entries of tags.values()) entries.clear()
+    put('unrelated.txt', 'later build'); commit(); build()
+    options.bootstrap = ['worker', 'other'].map(name => ({channel: `posthog-cloud/${name}`, revision: base, digest: image(base)}))
+    options.budgets.concurrency = 1
+    mkdirSync(path.join(options.evidence, 'bootstrap/posthog-cloud/worker.json'), {recursive: true})
+    const results = await publishChannels(options)
+    expect(results).toEqual([
+      {channel: 'posthog-cloud/worker', decision: 'blocked', reason: expect.stringMatching(/^posthog-cloud\/worker: Error: EISDIR/)},
+      expect.objectContaining({channel: 'posthog-cloud/other', decision: 'published', tag: alias(base)})
+    ])
+    expect(JSON.parse(readFileSync(path.join(options.evidence, 'results.json'), 'utf8'))).toEqual(results)
+    expect(existsSync(path.join(options.evidence, 'bootstrap/posthog-cloud/other.json'))).toBe(true)
+  })
+
+  test('a bootstrap list with a repeated channel is refused before any registry call', async () => {
+    put('unrelated.txt', 'later build'); commit(); build()
+    options.bootstrap = ['worker', 'other', 'worker'].map(name => ({channel: `posthog-cloud/${name}`, revision: base, digest: image(base)}))
+    await expect(publishChannels(options)).rejects.toThrow('Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker')
+    expect(external.mock.calls.filter(([executable]) => executable !== 'git')).toEqual([])
   })
 
   test('omitted retry delays wait five and fifteen seconds before the third policy blob fetch publishes', async () => {
     put('worker/run.py', 'changed'); commit(); build()
     delete options.budgets.retryDelaysMs
     const policyBlob = git('rev-parse', `${options.revision}:${POLICY_PATH}`)
-    let fetchAttempts = 0
+    const fetchAttempts: number[] = []
     external.mockImplementation(async (executable, args, configuration) => {
       if (executable === 'git') {
-        if (args[0] === 'cat-file' && args[1] === '-e' && args[2] === policyBlob && fetchAttempts < 3) {
+        if (args[0] === 'cat-file' && args[1] === '-e' && args[2] === policyBlob && fetchAttempts.length < 3) {
           throw new Error('policy blob is missing')
         }
         if (args[0] === 'fetch') {
-          if (++fetchAttempts < 3) throw new Error('transient policy blob fetch failure')
+          fetchAttempts.push(Date.now())
+          if (fetchAttempts.length < 3) throw new Error('transient policy blob fetch failure')
           return ''
         }
         return execFileSync('git', args, {
@@ -489,18 +599,15 @@ describe('shared-image publication', () => {
       return invoke(executable, args, configuration)
     })
     jest.useFakeTimers()
-    const waits = jest.spyOn(global, 'setTimeout')
     try {
       const result = publishChannels(options).catch((error: unknown) => error)
       await jest.runAllTimersAsync()
-      expect(waits.mock.calls.map(([, delay]) => delay)).toEqual([5000, 15000])
-      expect(fetchAttempts).toBe(3)
+      expect(fetchAttempts.slice(1).map((time, index) => time - fetchAttempts[index])).toEqual([5000, 15000])
       expect(await result).toContainEqual(expect.objectContaining({
         channel: 'posthog-cloud/worker', decision: 'published', outcome: 'present-at-expected-digest'
       }))
       expect(tags.get('workers/worker')!.get(options.alias)).toBe(options.digest)
     } finally {
-      waits.mockRestore()
       jest.useRealTimers()
     }
   })
@@ -628,6 +735,121 @@ describe('shared-image publication', () => {
       })
     }
     expect(peak).toBe(8)
+  })
+
+  test('a channel waiting on its own history frees its slot at its deadline and copies nothing afterwards', async () => {
+    const names = Array.from({length: 9}, (_, index) => `worker-${index + 1}`)
+    channelPolicy(names); const frontier = commit()
+    put('worker/run.py', 'slow frontier'); const slowFrontier = commit()
+    for (const name of names) {
+      const revision = name === 'worker-1' ? slowFrontier : frontier
+      tags.set(`workers/${name}`, new Map([[alias(revision), image(revision)]]))
+    }
+    put('worker/run.py', 'changed'); commit(); build()
+    Object.assign(options.budgets, {maxChannels: 40, concurrency: 8, channelMs: 10000})
+    const laterStartMs = 1000
+    const slowHistory = latch()
+    const sharedHistory = latch()
+    const slowHistoryStarted = latch()
+    let slowRead: Promise<string> | undefined
+    let ninthListedAt: number | undefined
+    external.mockImplementation(async (executable, args, configuration) => {
+      const repository = args[args.indexOf('--repository-name') + 1]
+      if (executable === 'aws' && args[1] === 'list-images' && repository === 'workers/worker-1') jest.advanceTimersByTime(laterStartMs)
+      if (executable === 'aws' && args[1] === 'list-images' && repository === 'workers/worker-9') ninthListedAt = Date.now()
+      if (executable === 'git' && args.includes('--name-status')) {
+        if (args.includes(`${slowFrontier}..${options.revision}`)) {
+          slowHistoryStarted.release()
+          slowRead = hold('git', configuration, slowHistory.done).then(() => invoke(executable, args, configuration))
+          return slowRead
+        }
+        await hold('git', configuration, sharedHistory.done)
+      }
+      return invoke(executable, args, configuration)
+    })
+    controlTime()
+    const slowDeadline = Date.now() + options.budgets.channelMs
+    const run = publishChannels(options)
+    await Promise.race([slowHistoryStarted.done, run])
+    expect(ninthListedAt).toBeUndefined()
+    await jest.advanceTimersByTimeAsync(slowDeadline - Date.now())
+    await new Promise(resolve => setImmediate(resolve))
+    expect(ninthListedAt).toBe(slowDeadline)
+    sharedHistory.release()
+    slowHistory.release()
+    const results = await run
+    expect(results).toContainEqual({channel: 'posthog-cloud/worker-1', decision: 'blocked', reason: 'posthog-cloud/worker-1: Error: posthog-cloud/worker-1: channel deadline reached'})
+    for (const name of names.slice(1)) {
+      expect(results).toContainEqual(expect.objectContaining({channel: `posthog-cloud/${name}`, decision: 'published', tag: options.alias}))
+      expect(tags.get(`workers/${name}`)!.get(options.alias)).toBe(options.digest)
+    }
+    expect(await slowRead).toContain('worker/run.py')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(external.mock.calls.filter(([executable, args, configuration]) => executable === 'helper' && args[1] === 'publish' && configuration.env?.ECR_REPO === 'workers/worker-1')).toEqual([])
+    expect(tags.get('workers/worker-1')!.has(options.alias)).toBe(false)
+  })
+
+  test('a shared comparison outlasting one channel still serves the channel with more time left', async () => {
+    channelPolicy(['early', 'present', 'late']); const frontier = commit()
+    put('worker/run.py', 'changed'); commit(); build()
+    for (const name of ['early', 'late']) tags.set(`workers/${name}`, new Map([[alias(frontier), image(frontier)]]))
+    tags.set('workers/present', new Map([[options.alias, options.digest]]))
+    options.budgets.channelMs = 10000
+    const comparison = latch()
+    const comparisonStarted = latch()
+    const present = latch()
+    const lateStarted = latch()
+    external.mockImplementation(async (executable, args, configuration) => {
+      const repository = args[args.indexOf('--repository-name') + 1]
+      if (executable === 'aws' && repository === 'workers/present') await hold('aws', configuration, present.done)
+      if (executable === 'aws' && repository === 'workers/late') lateStarted.release()
+      if (executable === 'git' && args.includes('--name-status')) {
+        comparisonStarted.release()
+        await hold('git', configuration, comparison.done)
+      }
+      return invoke(executable, args, configuration)
+    })
+    controlTime()
+    const earlyDeadline = Date.now() + options.budgets.channelMs
+    const run = publishChannels(options)
+    await Promise.race([comparisonStarted.done, run])
+    jest.advanceTimersByTime(options.budgets.channelMs / 2)
+    present.release()
+    await Promise.race([lateStarted.done, run])
+    await jest.advanceTimersByTimeAsync(earlyDeadline - Date.now())
+    comparison.release()
+    const results = await run
+    expect(results).toContainEqual({channel: 'posthog-cloud/early', decision: 'blocked', reason: 'posthog-cloud/early: Error: posthog-cloud/early: channel deadline reached'})
+    expect(results).toContainEqual(expect.objectContaining({channel: 'posthog-cloud/late', decision: 'published', tag: options.alias}))
+    expect(tags.get('workers/late')!.get(options.alias)).toBe(options.digest)
+    expect(tags.get('workers/early')!.has(options.alias)).toBe(false)
+    expect(external.mock.calls.filter(([executable, args]) => executable === 'git' && args.includes('--name-status') && args.includes(`${frontier}..${options.revision}`))).toHaveLength(1)
+  })
+
+  test.each([
+    ['equals', 10000],
+    ['comes before', 6000]
+  ])('an action total that %s the allowance blocks the running channel and the channel after it by name', async (_mode, totalMs) => {
+    put('worker/run.py', 'changed'); put('other/file.py', 'changed'); commit(); build()
+    Object.assign(options.budgets, {concurrency: 1, channelMs: 10000, totalMs})
+    const comparisonStarted = latch()
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'git' && args.includes('--name-status')) {
+        comparisonStarted.release()
+        await hold('git', configuration, new Promise(() => undefined))
+      }
+      return invoke(executable, args, configuration)
+    })
+    controlTime()
+    const actionDeadline = Date.now() + totalMs
+    const run = publishChannels(options)
+    await Promise.race([comparisonStarted.done, run])
+    await jest.advanceTimersByTimeAsync(actionDeadline - Date.now())
+    expect(await run).toEqual([
+      {channel: 'posthog-cloud/worker', decision: 'blocked', reason: 'posthog-cloud/worker: Error: posthog-cloud/worker: action total reached'},
+      {channel: 'posthog-cloud/other', decision: 'blocked', reason: 'posthog-cloud/other: Error: posthog-cloud/other: action total reached'}
+    ])
+    expect(external.mock.calls.filter(([executable, args]) => executable !== 'git' && args.includes('workers/other'))).toEqual([])
   })
 
   test.each(['destination', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {

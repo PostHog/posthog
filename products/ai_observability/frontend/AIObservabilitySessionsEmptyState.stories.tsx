@@ -12,6 +12,12 @@ import {
 function checklistWith(status: InstrumentationCheckStatusEnumApi): InstrumentationChecklistApi {
     return {
         window_days: 30,
+        agent_prompt: null,
+        passing:
+            status === InstrumentationCheckStatusEnumApi.Ok || status === InstrumentationCheckStatusEnumApi.Dismissed
+                ? 1
+                : 0,
+        total: 1,
         checks: [
             {
                 key: AIObservabilityInstrumentationCheckEnumApi.Sessions,

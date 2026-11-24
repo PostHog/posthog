@@ -130,6 +130,13 @@ async def _publish_table(
         folder_path,
         row_count=None if inputs.incremental else inputs.row_count,
     )
+    if not create_result.published:
+        await logger.ainfo(
+            "skipped_publish_of_older_staged_folder",
+            saved_query_id=str(saved_query.id),
+            table_id=str(create_result.table.id),
+            staged_folder=folder_path,
+        )
 
     with tracer.start_as_current_span("prepare_queryable_table.link_table"):
         await _update_saved_query_with_table(saved_query, create_result.table)
