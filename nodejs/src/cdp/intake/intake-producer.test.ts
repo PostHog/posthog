@@ -70,7 +70,7 @@ describe('IntakeProducer', () => {
     ] as const)('produces a %s run to its topic, keyed by its run id', async (kind, output, fingerprint) => {
         const run = invocation({ acceptedAt: '2026-11-12T10:00:00.000Z' })
 
-        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint }, 'shadow')
+        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint }, 'async')
 
         expect(outcome).toBe('acked')
         expect(produced).toEqual([
@@ -89,7 +89,7 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['shadow', 'transactional-email', 'msk-broker:9094', 'msk'],
+        ['async', 'transactional-email', 'msk-broker:9094', 'msk'],
         ['async', 'workflow-webhook', '', 'warpstream'],
         ['async', 'transactional-push', 'msk-broker:9094', 'msk'],
     ] as const)(
@@ -125,7 +125,7 @@ describe('IntakeProducer', () => {
 
         const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: run },
-            'shadow'
+            'async'
         )
 
         expect(outcome).toBe('too_large')
@@ -141,7 +141,7 @@ describe('IntakeProducer', () => {
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'workflow-webhook', invocation: invocation() },
-            'shadow'
+            'async'
         )
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
 
@@ -276,7 +276,7 @@ describe('IntakeProducer', () => {
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'workflow-webhook', invocation: invocation() },
-            'shadow'
+            'async'
         )
         await jest.advanceTimersByTimeAsync(400)
 
@@ -285,14 +285,12 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['', '', 'off'],
-        ['7', '', 'shadow'],
-        ['*', '', 'shadow'],
-        ['', '7', 'async'],
-        ['7', '7', 'async'],
-        ['8,9', '10', 'off'],
-    ])('runs team 7 with shadow teams %p and async teams %p as %s', (shadow, asyncTeams, mode) => {
-        const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_SHADOW_TEAMS: shadow, CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
+        ['', 'off'],
+        ['7', 'async'],
+        ['*', 'async'],
+        ['10', 'off'],
+    ])('runs team 7 with async teams %p as %s', (asyncTeams, mode) => {
+        const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
 
         expect(modeOf(7)).toBe(mode)
     })

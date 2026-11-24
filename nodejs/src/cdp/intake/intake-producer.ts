@@ -16,7 +16,7 @@ import { encodeJob } from '../services/cyclotron-v2/job-codec'
 import { CyclotronJobInvocation } from '../types'
 import { EncodedIntakeMessage, RunKind, encodeIntakeMessage } from './message'
 
-export type IntakeMode = 'off' | 'shadow' | 'async'
+export type IntakeMode = 'off' | 'async'
 export type IntakeCluster = 'msk' | 'warpstream'
 export type IntakeOutput = CdpIntakeRunOutput
 export type IntakeProduceOutcome = 'acked' | 'unacked' | 'too_large' | 'invalid'
@@ -50,11 +50,10 @@ const ackMs = new Histogram({
 })
 
 export const intakeModeOf = (
-    config: Pick<CdpConfig, 'CDP_INTAKE_KAFKA_SHADOW_TEAMS' | 'CDP_INTAKE_KAFKA_ASYNC_TEAMS'>
+    config: Pick<CdpConfig, 'CDP_INTAKE_KAFKA_ASYNC_TEAMS'>
 ): ((teamId: number) => IntakeMode) => {
     const isAsync = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_ASYNC_TEAMS, true)
-    const isShadow = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_SHADOW_TEAMS, true)
-    return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
+    return (teamId) => (isAsync(teamId) ? 'async' : 'off')
 }
 
 export const pushIntakeModeOf = (
@@ -126,7 +125,6 @@ export class IntakeProducer {
             kind,
             fingerprint,
             reply,
-            shadow: mode === 'shadow',
             job: { ...encodeJob(this.seal(invocation)), id: invocation.id },
         })
         if (encoded.status !== 'encoded') {

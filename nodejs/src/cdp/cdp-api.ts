@@ -2005,7 +2005,7 @@ export class CdpApi {
             let committed: Committed
             try {
                 // Two sends with one key can both pass the lookup above, and the insert lets only one through.
-                ;[committed] = await intake.launch([run], { wait: 'committed' })
+                ;[committed] = await intake.launch([run])
             } catch (error) {
                 if (isLockTimeout(error)) {
                     return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
