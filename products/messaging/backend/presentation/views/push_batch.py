@@ -90,7 +90,7 @@ class SendPushBatchSerializer(serializers.Serializer):
         required=False,
         default=dict,
         help_text="Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by "
-        "variable name.",
+        "variable name. At most 256 KiB as JSON.",
     )
     recipients = PushBatchRecipientsField(
         help_text=f"Who gets the notification: 1 to {PUSH_BATCH_MAX_RECIPIENTS} people, each sent their own "
@@ -153,7 +153,8 @@ PUSH_BATCH_RESPONSES: dict[int, ResponseDeclaration] = {
     ),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't a transactional push template or its workflow is turned "
-        "off, a recipient has no valid `idempotency_key` or shares one with another recipient, or there are more "
+        "off, a recipient has no valid `idempotency_key` or shares one with another recipient, the shared "
+        "`message_data` is over 256 KiB, or there are more "
         f"than {PUSH_BATCH_MAX_RECIPIENTS} recipients"
     ),
     404: OpenApiResponse(description="Template not found"),
