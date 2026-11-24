@@ -8831,6 +8831,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
                 "slack_progress_message_ts": "1700000000.000100",
                 "run_source": "manual",
+                "caller_ends_run": True,
             },
         )
 
@@ -8921,6 +8922,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "slack_actor_slack_user_id": "U_OTHER_ACTOR",
                     "slack_progress_message_ts": "1700000000.999999",
                     "run_source": "signal_report",
+                    "caller_ends_run": False,
+                    "end_run_when_done": True,
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
@@ -8991,6 +8994,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["slack_progress_message_ts"] == "1700000000.000100"
         assert run.state["run_source"] == "manual"
+        assert run.state["caller_ends_run"] is True
+        assert "end_run_when_done" not in run.state
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["scout_trial"] == trial_context
@@ -9054,6 +9059,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "slack_actor_user_id",
                     "slack_actor_slack_user_id",
                     "run_source",
+                    "caller_ends_run",
                     "scratch",
                 ],
             },
@@ -9105,6 +9111,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
+        assert run.state["caller_ends_run"] is True
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["scout_trial"] == trial_context

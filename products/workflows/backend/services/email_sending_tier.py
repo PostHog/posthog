@@ -61,7 +61,7 @@ class TeamSendingHistory:
         return min(1.0, self.hard_bounced / self.sent) if self.sent else 0.0
 
     @property
-    def rates_are_clean(self) -> bool:
+    def complaints_are_clean(self) -> bool:
         if self.sent == 0:
             # Nothing sent means no rate to measure, and callers pair this with the volume bar,
             # which a team that sent nothing cannot clear. Complaints still count through the
@@ -72,15 +72,24 @@ class TeamSendingHistory:
         # complaint per 1,000 sends is exactly the line, so on a smaller window a single complaint
         # would read as dirty. Below the floor, complaints only count through the absolute
         # backstop, and the bounce rate does not count at all.
-        complaints_are_dirty = self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE and (
-            self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
-            or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+        return not (
+            self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE
+            and (
+                self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
+                or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+            )
         )
-        bounces_are_dirty = (
+
+    @property
+    def bounces_are_clean(self) -> bool:
+        return not (
             self.hard_bounce_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
             and self.sent >= settings.WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS
         )
-        return not (complaints_are_dirty or bounces_are_dirty)
+
+    @property
+    def rates_are_clean(self) -> bool:
+        return self.complaints_are_clean and self.bounces_are_clean
 
     @property
     def observed_rates_are_clean(self) -> bool:
@@ -385,13 +394,17 @@ def build_sending_history_windows(
     recent_after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    feature: Feature = Feature.ENRICHMENT,
+    workload: Workload = Workload.DEFAULT,
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window, from one query.
 
     The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
     fetched at, so its edge can be up to a day coarser than `recent_after`.
     """
-    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    daily_by_team = _fetch_daily_metrics(
+        after=after, before=before, team_ids=team_ids, workload=workload, feature=feature
+    )
     recent_key = recent_after.strftime("%Y-%m-%d")
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
@@ -408,14 +421,15 @@ def _fetch_daily_metrics(
     before: Optional[datetime],
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
+    feature: Feature = Feature.ENRICHMENT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
-    # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
-    # state in the background, so it is enrichment, not a customer-facing query. One context here
-    # covers the daily sweep, the admin recompute, and the backfill command.
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
+    # guard in local dev. Celery adds only task identity, not a product or feature. The tier jobs
+    # derive state in the background, so they default to enrichment; the reputation page passes its
+    # own customer-facing feature.
+    with tags_context(product=Product.WORKFLOWS, feature=feature):
         return fetch_app_metric_daily_totals_by_team(
             app_source=APP_SOURCE,
             name=metric_names,

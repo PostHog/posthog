@@ -1,8 +1,11 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.test.normal_login import GOOGLE_SSO_SETTINGS, NormalLoginRequirement, require_normal_login
 
 from ee.api.agentic_provisioning.constants import DEEP_LINK_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
@@ -263,6 +266,32 @@ class TestAgenticLogin(ProvisioningTestBase):
         assert res.status_code == 302
         assert res["Location"] == "/login?error_code=access_blocked"
         assert self.client.get("/api/users/@me/").status_code == 401
+
+    @parameterized.expand([(requirement,) for requirement in NormalLoginRequirement])
+    @override_settings(**GOOGLE_SSO_SETTINGS)
+    def test_user_who_needs_normal_login_lands_on_login_without_a_session(self, requirement: NormalLoginRequirement):
+        require_normal_login(self.user, self.organization, requirement)
+        token = self._create_deep_link_token()
+
+        res = self.client.get(f"/agentic/login?token={token}")
+
+        assert res.status_code == 302
+        assert res["Location"] == f"/login?next=%2Fproject%2F{self.team.id}"
+        assert self.client.get("/api/users/@me/").status_code == 401
+
+    def test_user_who_needs_normal_login_keeps_the_destination_fragment(self):
+        require_normal_login(self.user, self.organization, NormalLoginRequirement.TOTP)
+        token = "test_fragment_path_token"
+        cache.set(
+            f"{DEEP_LINK_CACHE_PREFIX}{token}",
+            {"user_id": self.user.id, "team_id": self.team.id, "path": f"/project/{self.team.id}/replay#id=abc123"},
+            timeout=600,
+        )
+
+        res = self.client.get(f"/agentic/login?token={token}")
+
+        assert res.status_code == 302
+        assert res["Location"] == f"/login?next=%2Fproject%2F{self.team.id}%2Freplay#id=abc123"
 
     def test_path_token_redirects_to_path(self):
         token = "test_path_token"
