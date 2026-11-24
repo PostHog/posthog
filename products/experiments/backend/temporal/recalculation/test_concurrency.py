@@ -82,7 +82,7 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
             connections.close_all()
 
     with (
-        patch("products.experiments.backend.recalculation._cancel_superseded_workflows"),
+        patch("products.experiments.backend.recalculation.cancel_superseded_workflows"),
         ThreadPoolExecutor(max_workers=1) as executor,
     ):
         with transaction.atomic():

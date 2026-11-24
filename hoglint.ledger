@@ -489,7 +489,7 @@ export-shape	products.experiments.backend.hogql_queries.experiment_query_builder
 export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.legacy_migration	export-denied(model)	1
 export-shape	products.experiments.backend.models.experiment.Experiment	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.experiments.backend.models.team_experiments_config.TeamExperimentsConfig	products.experiments.backend.facade.queries	export-denied(model)	1
-export-shape	products.experiments.backend.temporal.recalculation_metrics.ExperimentsRecalculationMetricsInterceptor	products.experiments.backend.facade.temporal	export-shape(class)	1
+export-shape	products.experiments.backend.temporal.recalculation.metrics.ExperimentsRecalculationMetricsInterceptor	products.experiments.backend.facade.temporal	export-shape(class)	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_CANARY_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
