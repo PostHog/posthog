@@ -2478,7 +2478,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # Wizard runs route to the unbilled `onboarding` gateway product, which allowlists only
         # these models. Dropping the pin puts the run back on the agent-server's premium default,
         # which that product rejects, so every wizard cloud run would 403 at the gateway. Changing
-        # the pin means changing the allowlist in services/llm-gateway too.
+        # the pin means changing the `onboarding` entry in PRODUCT_ALLOWED_MODELS too.
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")

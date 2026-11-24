@@ -216,19 +216,10 @@ MODAL_TOKEN_ID=<token_id>
 MODAL_TOKEN_SECRET=<token_secret>
 ```
 
-> **Docker sandboxes derive the LLM gateway from `SITE_URL`.** It reaches the sandbox as
-> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
-> `host.docker.internal` to the local gateway on 3308. Any other host — an ngrok domain set for
-> Slack or webhook testing, for instance — falls through to the production gateway, which a local
-> run token cannot authenticate against. The failure is silent: the agent boots, sends its first
-> prompt, and idles until its inactivity window closes it, with nothing in the gateway or agent
-> logs. If `SITE_URL` is not localhost, set
-> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` as well.
-
 ### Tunnel gateway, API, and MCP
 
 If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
-you'll need to expose the Django API, LLM gateway, and MCP server publicly. We use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
+you'll need to expose the Django API, AI gateway, and MCP server publicly. We use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
 
 The eval harness sets Funnel up and tears it down automatically on a Modal run, so for evals you don't need to do any of this by hand — it only needs the daemon running and Funnel enabled (below). This section is for driving a Modal sandbox manually (e.g. from a task run).
 
@@ -242,7 +233,7 @@ Then enable Funnel for the tailnet and this node in the [admin console](https://
 
 ```bash
 tailscale funnel --bg --https=443 8000    # Django API
-tailscale funnel --bg --https=8443 3308   # LLM gateway
+tailscale funnel --bg --https=8443 8080   # AI gateway
 tailscale funnel --bg --https=10000 8787  # MCP server
 ```
 
@@ -250,7 +241,8 @@ Find your node's public hostname (the MagicDNS name) with `tailscale status --js
 
 ```bash
 SANDBOX_API_URL=https://<node>.<tailnet>.ts.net
-SANDBOX_LLM_GATEWAY_URL=https://<node>.<tailnet>.ts.net:8443
+SANDBOX_AI_GATEWAY_URL=https://<node>.<tailnet>.ts.net:8443
+SANDBOX_AI_GATEWAY_WORKER_URL=http://localhost:8080
 SANDBOX_MCP_URL=https://<node>.<tailnet>.ts.net:10000/mcp
 ```
 
@@ -285,7 +277,7 @@ what it derives itself. Both are reserved keys: a sandbox environment cannot set
 Account audit runs use the reserved `account_audit` origin and AI product, and must
 carry the server-set `internal` flag before they can mint a token. Add
 `account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
-Their Python gateway fallback uses `background_agents`. Autoresearch training runs
+Autoresearch training runs
 follow the same rules with the reserved `autoresearch` origin and AI product, so
 `SANDBOX_AI_GATEWAY_PRODUCTS` must list `autoresearch` or training runs fail to
 start. Signup onboarding stays
@@ -294,9 +286,9 @@ waits three minutes for cost accounting before reporting the audit result. Audit
 internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
 audit reasserts this policy; only the platform service allowlist stays reachable.
 
-When a run lands on the Python gateway unexpectedly, check those two variables first.
-Their absence means no token was minted, so the agent falls back to deriving the
-product from the task run it fetches at boot, which is the path that fails quietly.
+A gateway-billed run fails at provisioning with `gateway_token_unavailable` when its product is not in
+`SANDBOX_AI_GATEWAY_PRODUCTS`, when `SANDBOX_AI_GATEWAY_URL` or `SANDBOX_AI_GATEWAY_MINT_KEY` is unset,
+or when the worker refuses the mint. The `tasks.gateway_token.refused` metric carries the refusal reason.
 
 ### ReviewHog project access
 

@@ -1626,8 +1626,7 @@ WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
     )
 ]
 
-# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
-# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+# Model the path-cleaning-suggestion job sends to the AI gateway.
 WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
     "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
 )

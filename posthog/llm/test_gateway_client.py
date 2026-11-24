@@ -67,9 +67,9 @@ class TestResolveAIGatewayConfig:
         [
             (AI_GATEWAY_URL, True),
             ("http://ai-gateway.example/v1", False),
-            ("http://localhost:3308/v1", True),
-            ("http://127.0.0.1:3308/v1", True),
-            ("http://[::1]:3308/v1", True),
+            ("http://localhost:8080/v1", True),
+            ("http://127.0.0.1:8080/v1", True),
+            ("http://[::1]:8080/v1", True),
             ("http://localhost.example.com/v1", False),
         ],
     )
