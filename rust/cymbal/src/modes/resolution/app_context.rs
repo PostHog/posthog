@@ -4,6 +4,7 @@ use tokio::sync::Semaphore;
 
 use crate::core::config::ResolverConfig;
 use crate::core::resolver::build_symbol_resolver;
+use crate::core::team_window::TeamWindowCounter;
 use crate::error::UnhandledError;
 use crate::symbolication::symbol::SymbolResolver;
 
@@ -19,6 +20,7 @@ use super::Config as ServiceConfig;
 /// Resolution mode owns symbol resolution only.
 pub struct ResolutionAppContext {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
+    pub team_frame_cache_misses: Arc<TeamWindowCounter>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
     pub load_monitor: LoadMonitor,
     pub service_instance_id: String,
@@ -30,6 +32,7 @@ impl ResolutionAppContext {
         service: &ServiceConfig,
     ) -> Result<Self, UnhandledError> {
         let symbol_resolver = build_symbol_resolver(resolver).await?;
+        let team_frame_cache_misses = symbol_resolver.team_frame_cache_misses();
         // Symbol-resolution concurrency is the shared knob on the resolver config.
         let symbol_resolution_limiter = Arc::new(Semaphore::new(
             resolver.symbol_resolution_concurrency.max(1),
@@ -40,7 +43,8 @@ impl ResolutionAppContext {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         Ok(Self {
-            symbol_resolver,
+            symbol_resolver: Arc::new(symbol_resolver),
+            team_frame_cache_misses,
             symbol_resolution_limiter,
             load_monitor,
             service_instance_id,

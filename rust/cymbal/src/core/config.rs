@@ -1,10 +1,16 @@
-use std::num::NonZeroUsize;
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    sync::Arc,
+    time::Duration,
+};
 
 use aws_config::{BehaviorVersion, Region};
 use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use sqlx::PgPool;
 use tracing::{info, warn};
+
+use crate::core::team_window::TeamWindowCounter;
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
 /// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
@@ -138,6 +144,45 @@ pub struct ResolverConfig {
     // Comma-separated previous secrets still accepted for verification during zero-downtime rotation.
     #[envconfig(default = "")]
     pub internal_api_secret_fallbacks: String,
+
+    #[envconfig(nested = true)]
+    pub team_metrics: TeamMetricsConfig,
+}
+
+#[derive(Envconfig, Clone)]
+pub struct TeamMetricsConfig {
+    #[envconfig(default = "60")]
+    pub team_metrics_window_secs: NonZeroU64,
+
+    #[envconfig(default = "10")]
+    pub team_metrics_max_teams: usize,
+
+    #[envconfig(default = "50")]
+    pub team_metrics_issue_created_floor: NonZeroU64,
+
+    #[envconfig(default = "500")]
+    pub team_metrics_frame_cache_miss_floor: NonZeroU64,
+}
+
+impl TeamMetricsConfig {
+    pub fn window(&self) -> Duration {
+        Duration::from_secs(self.team_metrics_window_secs.get())
+    }
+
+    pub fn counter(
+        &self,
+        name: &'static str,
+        help: &'static str,
+        floor: NonZeroU64,
+    ) -> Arc<TeamWindowCounter> {
+        Arc::new(TeamWindowCounter::new(
+            name,
+            help,
+            self.window(),
+            floor,
+            self.team_metrics_max_teams,
+        ))
+    }
 }
 
 impl ResolverConfig {

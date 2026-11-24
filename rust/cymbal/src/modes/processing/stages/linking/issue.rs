@@ -420,6 +420,7 @@ async fn resolve_issue(
         .await?;
 
         txn.commit().await?;
+        context.team_issues_created.record(team_id);
         drop(conn);
 
         send_issue_created_notification(

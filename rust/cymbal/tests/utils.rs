@@ -52,7 +52,9 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, T) {
-    get_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await
+    let (status, body, _) =
+        get_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await;
+    (status, body)
 }
 
 #[allow(dead_code)]
@@ -62,7 +64,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
-) -> (StatusCode, T) {
+) -> (StatusCode, T, Arc<AppContext>) {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.object_storage_bucket = storage_bucket.clone();
     configure(&mut config);
@@ -77,7 +79,10 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
 
     let ctx = Arc::new(app_ctx);
 
-    let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
+    let res = get_router(ctx.clone())
+        .oneshot(request_factory())
+        .await
+        .unwrap();
 
     let status = res.status();
 
@@ -90,7 +95,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     // Deserialize the JSON into your struct
     let body: T = serde_json::from_slice(body_bytes.to_bytes())
         .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
-    (status, body)
+    (status, body, ctx)
 }
 
 async fn ensure_remote_resolution(

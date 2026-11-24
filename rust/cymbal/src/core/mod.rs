@@ -13,5 +13,6 @@ pub mod resolver;
 pub mod sanitize;
 pub mod shutdown;
 pub mod symbolication;
+pub mod team_window;
 pub mod types;
 pub(crate) mod write_attribution;
