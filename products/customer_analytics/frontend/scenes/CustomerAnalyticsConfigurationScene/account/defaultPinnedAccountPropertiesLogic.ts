@@ -243,6 +243,7 @@ export const defaultPinnedAccountPropertiesLogic = kea<defaultPinnedAccountPrope
                             return { roles, complete: false }
                         }
                         seenNextUrls.add(page.next)
+                        // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
                         page = await api.get<PaginatedResponse<RoleType>>(page.next)
                     }
                     return { roles, complete: false }
