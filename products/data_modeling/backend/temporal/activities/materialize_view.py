@@ -243,6 +243,7 @@ KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
 COMPACT_FILE_THRESHOLD = 200
+FULL_REFRESH_WRITER_PROPERTIES = deltalake.WriterProperties(compression="ZSTD", compression_level=4)
 
 # how often the producer/consumer wake from a blocking queue op to re-check the
 # stop flag
@@ -1099,6 +1100,7 @@ async def _materialize_fully(
                         mode="overwrite",
                         schema_mode="overwrite",
                         storage_options=storage_options,
+                        writer_properties=FULL_REFRESH_WRITER_PROPERTIES,
                     )
                     delta_table = await _open_delta_table(table_uri, storage_options)
                 else:
@@ -1109,6 +1111,7 @@ async def _materialize_fully(
                         mode="append",
                         schema_mode="merge",
                         storage_options=storage_options,
+                        writer_properties=FULL_REFRESH_WRITER_PROPERTIES,
                     )
             # Staged only once the batch is committed: a run that announces rows it then fails to write
             # cannot take the announcement back.
