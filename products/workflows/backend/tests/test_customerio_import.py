@@ -1302,7 +1302,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
-        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
+        served = {hero, hero_webp, f"{hero}?w=1(2&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served or url == stalled else 404)
@@ -1321,7 +1321,7 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
                 f'<img src="{hero_webp}"><img src="{sized}"><style>.a{{background:url({logo})}}.b{{background:url(&quot;{logo}&quot;)}}</style>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1(2&h=2"><img src="{stalled}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
@@ -1357,7 +1357,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
         assert guide not in requested
-        assert requested.count(f"{hero}?w=1&h=2") == 1
+        assert requested.count(f"{hero}?w=1(2&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
         design = json.dumps(
             next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
