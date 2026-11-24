@@ -51,6 +51,7 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { plainTextFromHtml } from './helpers/email-text'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -530,6 +531,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
+    textPartTeams?: string
     attachmentSendDeadlineMs?: number
     ownershipCheckTimeoutMs?: number
 }
@@ -640,6 +642,7 @@ export class EmailService {
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
+    private textPartTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -668,6 +671,14 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+        this.textPartTeams = buildIntegerMatcher(this.sesConfig.textPartTeams, true)
+    }
+
+    private textPart(params: CyclotronInvocationQueueParametersEmailType, teamId: number): string {
+        if (params.text || !params.html || !this.textPartTeams(teamId)) {
+            return params.text ?? ''
+        }
+        return plainTextFromHtml(params.html)
     }
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
@@ -1576,11 +1587,12 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const text = this.textPart(params, result.invocation.teamId)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            ...(params.text ? { text: params.text } : {}),
+            ...(text ? { text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1662,16 +1674,18 @@ export class EmailService {
                   params.preheader
               )
             : null
-        if (
-            files.length > 0 &&
+        const fitsInMessage = (text: string): boolean =>
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? ''],
+                [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
-            ) > MESSAGE_MAX_BYTES
-        ) {
+            ) <= MESSAGE_MAX_BYTES
+        if (files.length > 0 && !fitsInMessage(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
+        const candidateText = this.textPart(params, result.invocation.teamId)
+        // The text part made from the html adds to the message, so it goes out only when the message still fits.
+        const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
@@ -1686,7 +1700,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                        ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
