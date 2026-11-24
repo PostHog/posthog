@@ -2843,7 +2843,7 @@ def claim_and_fail_stale_run(
     if quiet_since is not None:
         claimable = claimable.filter(quiet_since_q(quiet_since))
     with transaction.atomic():
-        claimed = claimable.update(status=TaskRun.Status.FAILED)
+        claimed = claimable.update(status=TaskRun.Status.FAILED, completed_at=django_timezone.now())
         if claimed and state_updates:
             TaskRun.update_state_atomic(run_id, updates=state_updates)
     if not claimed:
