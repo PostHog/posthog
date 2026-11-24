@@ -663,6 +663,24 @@ export class CyclotronV2Worker {
                 }
             }
 
+        const deferWrite = releaseWrite(
+            'defer',
+            async (db, { scheduledAt, state, fileBytes }: CyclotronV2DeferOptions) => {
+                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
+                return db.query(
+                    `UPDATE cyclotron_jobs
+                     SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
+                         scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
+                         dequeue_seq = COALESCE($4, dequeue_seq),
+                         state = COALESCE($5, state),
+                         file_bytes = CASE WHEN $7 THEN $6::bigint ELSE file_bytes END
+                     WHERE id = $1 AND lock_id = $2`,
+                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null, fileBytes !== undefined]
+                )
+            }
+        )
+
         return {
             id: row.id,
             lockId,
@@ -777,21 +795,9 @@ export class CyclotronV2Worker {
                 )
             }),
 
-            defer: releaseWrite('defer', async (db, input: CyclotronV2DeferOptions) => {
-                const { scheduledAt, state, fileBytes } = CyclotronV2DeferOptionsSchema.parse(input)
-                const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
-                return db.query(
-                    `UPDATE cyclotron_jobs
-                     SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
-                         scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
-                         dequeue_seq = COALESCE($4, dequeue_seq),
-                         state = COALESCE($5, state),
-                         file_bytes = CASE WHEN $7 THEN $6::bigint ELSE file_bytes END
-                     WHERE id = $1 AND lock_id = $2`,
-                    [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null, fileBytes !== undefined]
-                )
-            }),
+            // Parsed before the write claims the handle, so a refused defer leaves the job ackable.
+            defer: async (input: CyclotronV2DeferOptions): Promise<void> =>
+                deferWrite(CyclotronV2DeferOptionsSchema.parse(input)),
 
             cancel: releaseWrite('cancel', (db) =>
                 db.query(

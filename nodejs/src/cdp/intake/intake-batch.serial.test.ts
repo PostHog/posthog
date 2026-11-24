@@ -12,7 +12,6 @@ import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { CdpOutputs } from '../cdp-services'
@@ -278,21 +277,23 @@ describe('insertIntakeBatch', () => {
             { 'auto.offset.reset': 'earliest' } as never
         )
         try {
-            const output = new SingleIngestionOutput(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, topicName, producer, 'test')
+            const output = new SingleIngestionOutput('intake-file-bytes-test', topicName, producer, 'test')
             const { id } = await produceSealed(
                 { send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] } },
                 output
             )
             await producer.flush()
 
-            const delivered: Message[] = []
+            let received: (batch: Message[]) => void = () => undefined
+            const delivered = new Promise<Message[]>((resolve) => (received = resolve))
             await consumer.connect((batch) => {
-                delivered.push(...batch)
+                if (batch.length) {
+                    received(batch)
+                }
                 return Promise.resolve()
             })
-            await waitForExpect(() => expect(delivered).toHaveLength(1), 30_000)
 
-            await insertIntakeBatch(delivered, services, OPTIONS)
+            await insertIntakeBatch(await delivered, services, OPTIONS)
 
             const [job] = await storedJobs([id])
             expect(job.fileBytes).toBe('1000')

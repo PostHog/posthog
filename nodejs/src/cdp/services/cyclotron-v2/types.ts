@@ -76,7 +76,7 @@ export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleO
 
 export const CyclotronV2DeferOptionsSchema = z.object({
     scheduledAt: z.date(),
-    state: encodedStateFields.state,
+    state: z.instanceof(Buffer).optional(),
     fileBytes: encodedStateFields.fileBytes,
 })
 
