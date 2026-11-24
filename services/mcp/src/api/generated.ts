@@ -133477,9 +133477,9 @@ export namespace Schemas {
          * @nullable
          */
       first_seen?: string | null;
-      /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+      /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested and the count fit the read budget. */
       series_count?: number;
-      /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+      /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested and the count fit the read budget. */
       tag_key_count?: number;
       /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
       classic_histogram?: _MetricClassicHistogram;

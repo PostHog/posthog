@@ -9,6 +9,7 @@ from typing import Any
 from django.core.cache import cache
 
 import re2
+import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -21,6 +22,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
@@ -28,6 +30,8 @@ from products.metrics.backend.facade.enums import MetricNameMatchMode
 from products.metrics.backend.metric_query_runner import points_query
 from products.metrics.backend.metrics4_samples import reads_metrics4_only
 from products.metrics.backend.search import ilike_pattern, ilike_prefix_pattern
+
+logger = structlog.get_logger(__name__)
 
 # Autocomplete tolerates partial results, so reads break at the budget instead of erroring.
 _QUERY_SETTINGS = HogQLGlobalSettings(
@@ -330,10 +334,12 @@ class MetricNamesQueryRunner:
         )
         return dict(response.results)
 
-    def _series_stats(self, names: Sequence[str]) -> dict[str, SeriesStats]:
+    def _series_stats(self, names: Sequence[str]) -> dict[str, SeriesStats] | None:
         """Approximate series count and distinct datapoint attribute key count per name, within the lookback.
 
-        Throws at the read budget: a partial scan would undercount exactly the metrics with the most series.
+        The scan throws at the read budget, because a partial scan would undercount exactly the metrics
+        with the most series. Past the budget this returns None, so the names go out without stats
+        instead of failing the whole list.
         """
         if not names:
             return {}
@@ -359,13 +365,17 @@ class MetricNamesQueryRunner:
         if self.services:
             query.where = ast.And(exprs=[query.where, self._services_expr()])
         query.limit = ast.Constant(value=len(names))
-        response = execute_hogql_query(
-            query_type="MetricNamesSeriesStatsQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.METRICS,
-            settings=_SPARKLINE_QUERY_SETTINGS,
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="MetricNamesSeriesStatsQuery",
+                query=query,
+                team=self.team,
+                workload=Workload.METRICS,
+                settings=_SPARKLINE_QUERY_SETTINGS,
+            )
+        except CHQueryErrorTooManyBytes:
+            logger.warning("metrics_series_stats_over_read_budget", team_id=self.team.id, name_count=len(names))
+            return None
         return {
             name: SeriesStats(series_count=int(series), tag_key_count=int(tag_keys))
             for name, series, tag_keys in response.results
