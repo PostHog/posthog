@@ -94,7 +94,7 @@ Batch the layout writes (one publish for an initial layout, surgical patches aft
 Users leave feedback as comment threads on the canvas.
 Run `exec search ^canvas-comments-(list|retrieve)$` first.
 If both tools are present, list the threads with them before and after changing the canvas, and address the open ones — a comment naming a broken widget is your brief for fixing it.
-These tools return every thread on the canvas, including threads without a task. If either tool is absent, use the task comment tools as `working-with-task-comments` describes.
+These tools return every thread on the canvas, including threads without a task. If either tool is absent, use the task comment tools.
 
 ## Editing a grid
 
