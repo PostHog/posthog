@@ -858,7 +858,7 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         name: 'Transactional push notification',
         plural: 'transactional push notifications',
         description:
-            'Making a push template transactional and sending push notifications from it with a project secret key.',
+            'Making a push template transactional, sending pushes from it, and reading their status with a project secret key.',
         group: 'Messaging',
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/workflows/push-notifications',
