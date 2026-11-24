@@ -53,6 +53,7 @@ class TestTemplateImages(SimpleTestCase):
                 f'<img srcset="{HERO} 1x, https://mcusercontent.com/b,c.png 2x, https://x.example.com/d.png 3x">',
                 f'<img srcset="{COPY} 1x, {COPY} 2x, https://x.example.com/d.png 3x">',
             ),
+            ("accents_and_spaces", '<img src="https://mcusercontent.com/a/été 1.png">', f'<img src="{COPY}">'),
             ("background", f'<td background="{HERO}">', f'<td background="{COPY}">'),
             ("css_plain", f"<style>a{{background:url({HERO})}}</style>", f"<style>a{{background:url({COPY})}}</style>"),
             (
@@ -64,6 +65,11 @@ class TestTemplateImages(SimpleTestCase):
                 "css_escaped_quotes",
                 f'<td style="background:url(&quot;{HERO}&quot;)">',
                 f'<td style="background:url(&quot;{COPY}&quot;)">',
+            ),
+            (
+                "css_apostrophe_entity",
+                f'<td style="background:url(&apos;{HERO}&apos;)">',
+                f'<td style="background:url(&apos;{COPY}&apos;)">',
             ),
             (
                 "outlook_vml",

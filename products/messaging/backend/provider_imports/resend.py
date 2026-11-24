@@ -27,6 +27,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.message_suppression import SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -713,7 +714,10 @@ def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> 
     senders = _senders(context.team_id)
     keys = [_template_key(t) for t in templates]
     code_keys = code_email_keys(context.team_id, keys)
-    taken = taken_template_keys(context.team_id, keys)
+    template_keys = set(
+        MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
+    )
+    taken = template_keys | code_keys
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for template in templates:
