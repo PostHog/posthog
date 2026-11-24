@@ -1517,6 +1517,23 @@ describe('Workflows E2E (postgres-v2)', () => {
             })
 
             it.each([
+                ['__proto__', match],
+                ['constructor', { kind: 'recheck' }],
+            ])('records a wake for a step whose id is %s', async (stepId, wake) => {
+                const id = await parkOutOfReach()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET action_id = $2 WHERE id = $1`, [id, stepId])
+
+                await (matcher as any).recordPendingWakes([
+                    { id, wakes: parseJSON(`{"${stepId}": ${JSON.stringify(wake)}}`) },
+                ])
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(true)
+                expect(Object.keys(row.pending_wake)).toEqual([stepId])
+                expect(row.pending_wake[stepId]).toMatchObject(wake)
+            })
+
+            it.each([
                 ['while the run is parked', false],
                 ['after the run parked again with the match still unapplied', true],
             ])('keeps a recorded match when a re-check for the same step follows %s', async (_name, reparked) => {

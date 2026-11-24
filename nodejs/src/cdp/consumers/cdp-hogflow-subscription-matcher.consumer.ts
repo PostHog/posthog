@@ -671,7 +671,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
             // A worker holds this job, so it may be about to park on any of the flow's waits.
             if (candidate.status === 'running') {
-                const wakes: PendingWakeWrite['wakes'] = {}
+                // Step ids are user-chosen strings, so these maps have no prototype for an id such as `__proto__` to hit.
+                const wakes: PendingWakeWrite['wakes'] = Object.create(null)
                 for (const wait of hogflow.actions) {
                     if (wait.type !== 'wait_until_condition') {
                         continue
@@ -808,7 +809,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async recordPendingWakes(writes: PendingWakeWrite[]): Promise<void> {
         const wakesById = new Map<string, PendingWakeWrite['wakes']>()
         for (const w of writes) {
-            const merged = { ...wakesById.get(w.id) }
+            const merged: PendingWakeWrite['wakes'] = Object.assign(Object.create(null), wakesById.get(w.id))
             for (const [actionId, wake] of Object.entries(w.wakes)) {
                 if (merged[actionId]?.kind !== 'match') {
                     merged[actionId] = wake
@@ -832,9 +833,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             for (const row of locked.rows) {
                 const existing = (row.pending_wake ?? {}) as Record<string, { kind: string; at: string }>
                 const dequeuedAt = new Date(row.last_transition).getTime()
-                const changed: PendingWakeWrite['wakes'] = {}
+                const changed: PendingWakeWrite['wakes'] = Object.create(null)
                 for (const [actionId, wake] of Object.entries(wakesById.get(row.id) ?? {})) {
-                    const current = existing[actionId]
+                    const current = Object.hasOwn(existing, actionId) ? existing[actionId] : undefined
                     // A parked row keeps only entries its next dequeue has yet to apply.
                     const fresh =
                         current && (row.status === 'available' || new Date(current.at).getTime() >= dequeuedAt)
@@ -851,7 +852,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 updateWakes.push(sanitizeJsonbValue(changed))
                 updateWakeNow.push(
                     row.status === 'available' &&
-                        row.action_id in changed &&
+                        Object.hasOwn(changed, row.action_id) &&
                         !decodeJobState(row).state?.currentAction?.cohortLookupAttempts
                 )
             }
