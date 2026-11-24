@@ -566,13 +566,65 @@ function parseWatchedAnswer(text) {
 // syntax error hides that file's imports. That cannot under-test here: a file broken on master
 // fails ruff and every import of it, and a file the PR broke sits in a product
 // Turbo already selects.
-function readImportGraph(file) {
+function readImportMap(file) {
     try {
-        return productGraphFromImportMap(JSON.parse(fs.readFileSync(file, 'utf-8')))
+        return JSON.parse(fs.readFileSync(file, 'utf-8'))
     } catch (e) {
-        console.error(`::warning::Could not parse the hoglint map (${e.message}) — the dependent cascade widens to every product`)
+        console.error(
+            `::warning::Could not parse the hoglint map (${e.message}) — the dependent cascade widens to every product and no product counts as isolated`
+        )
         return null
     }
+}
+
+// Code outside a product runs more of the product than the files it imports: each of those
+// files runs what it imports in turn. So a product's watched set grows by every file of the
+// product that is reachable inside it from a file code outside imports, or from a watched file.
+// The map holds every import, a function-local one too, so the closure follows those as well.
+// Without a map no product counts as isolated.
+function closeWatchedSets(watched, fileMap) {
+    if (watched.status !== 'ok') {
+        return watched
+    }
+    if (fileMap === null) {
+        return unreadWatchedSets('unavailable', watched.digest)
+    }
+    const importsInside = new Map()
+    const importedFromOutside = new Map()
+    const add = (map, key, value) => {
+        if (!map.has(key)) {
+            map.set(key, new Set())
+        }
+        map.get(key).add(value)
+    }
+    for (const [imported, importers] of Object.entries(fileMap)) {
+        const product = productOfFile(imported)
+        if (product === null) {
+            continue
+        }
+        for (const importer of importers) {
+            if (productOfFile(importer) === product) {
+                add(importsInside, importer, imported)
+            } else {
+                add(importedFromOutside, product, imported)
+            }
+        }
+    }
+    const closed = new Map()
+    for (const [product, files] of watched.watched) {
+        const reached = new Set()
+        const queue = [...files, ...(importedFromOutside.get(product) ?? [])]
+        while (queue.length > 0) {
+            const file = queue.pop()
+            if (reached.has(file)) {
+                continue
+            }
+            reached.add(file)
+            queue.push(...(importsInside.get(file) ?? []))
+        }
+        closed.set(product, reached)
+    }
+    return { ...watched, watched: closed }
 }
 
 // Runs `hoglint watched --map` in repoRoot and returns { graph, watched }: the product graph or
@@ -591,7 +643,9 @@ function runHoglint(repoRoot) {
             ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'watched', '--level', 'isolated', '--out', watchedFile, '--map', mapFile],
             { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS }
         )
-        return { graph: readImportGraph(mapFile), watched: parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')) }
+        const fileMap = readImportMap(mapFile)
+        const watched = closeWatchedSets(parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')), fileMap)
+        return { graph: fileMap === null ? null : productGraphFromImportMap(fileMap), watched }
     } catch (e) {
         console.error(
             `::warning::hoglint watched failed (${e.message}) — no product counts as isolated and the dependent cascade widens to every product`
@@ -1953,6 +2007,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     parseWatchedAnswer,
+    closeWatchedSets,
     loadWatchedSets,
     watchedPolicyChanges,
     productsWithWatchedChanges,

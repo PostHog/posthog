@@ -11,6 +11,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const {
+    closeWatchedSets,
     decideJsonTargets,
     decideProductChange,
     decideSelection,
@@ -588,6 +589,30 @@ test('an isolated product skips Django only when the diff leaves its watched set
         const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
         assert.deepEqual({ products, runLegacy, runLegacyReason }, expected, JSON.stringify(overrides))
     }
+})
+
+// Core imports canvas's facade and its models; each goes on to import a logic file. A core test
+// runs those logic files too, so a change to one must run Django.
+test('a product file that outside code reaches through the product runs Django, and a missing map isolates nothing', () => {
+    const fileMap = {
+        'products/canvas/backend/facade/api.py': ['posthog/api/canvas.py'],
+        'products/canvas/backend/models.py': ['posthog/models/test/test_canvas.py'],
+        'products/canvas/backend/logic/layout.py': ['products/canvas/backend/facade/api.py'],
+        'products/canvas/backend/logic/sizing.py': ['products/canvas/backend/models.py'],
+        'products/canvas/backend/logic/unused.py': ['products/canvas/backend/tests/test_unused.py'],
+    }
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap)
+    const cases = [
+        ['products/canvas/backend/logic/layout.py', true],
+        ['products/canvas/backend/logic/sizing.py', true],
+        ['products/canvas/backend/logic/unused.py', false],
+    ]
+    for (const [file, runLegacy] of cases) {
+        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
+    }
+    const unread = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), null)
+    assert.equal(unread.status, 'unavailable')
+    assert.equal(decideCanvas({ watched: unread }).runLegacyReason, 'watched_unavailable')
 })
 
 // Each case is an answer the diff cannot be judged by, so every product and Django run.
