@@ -1,6 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconEllipsis } from '@posthog/icons'
+import { LemonMenu } from '@posthog/lemon-ui'
+
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { useNotebookJupyterCommands } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,6 +11,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { applyVisualizationType, columnsFromResponse } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Query } from '~/queries/Query/Query'
@@ -15,6 +19,8 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import { ChartDisplayType } from '~/types'
 
 import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+import { savedSqlResultTables, sqlResultMenu } from 'products/notebooks/frontend/sqlResultMenu'
+import type { SavedSqlResultTable } from 'products/notebooks/frontend/sqlResultSnapshot'
 
 import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -59,6 +65,7 @@ export type NotebookNodeSQLV2Attributes = {
     // Send the code to that connection verbatim instead of compiling it from HogQL.
     sendRawQuery?: boolean | null
     runId?: string | null
+    savedWarehouseTables?: SavedSqlResultTable[] | null
     result?: NotebookNodeSQLV2Result | null
     // How the run that produced `result` ended. An interrupt persists a partial result just
     // like a completed run does, so the result alone can't tell the two apart on a reload.
@@ -146,6 +153,23 @@ export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResp
         : inferTypes(result),
 })
 
+function sqlOutputActions(
+    chartToggle: JSX.Element | null,
+    items: ReturnType<typeof sqlResultMenu>
+): JSX.Element | null {
+    if (!items.length) {
+        return chartToggle
+    }
+    return (
+        <>
+            {chartToggle}
+            <LemonMenu items={items} placement="bottom-end">
+                <LemonButton size="xsmall" icon={<IconEllipsis />} aria-label="SQL result actions" />
+            </LemonMenu>
+        </>
+    )
+}
+
 const Component = ({
     attributes,
     updateAttributes,
@@ -154,7 +178,8 @@ const Component = ({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, sqlV2ReturnVariable, sqlV2ReturnVariableUsage, isEditable } =
         useValues(nodeLogic)
-    const { navigateToNode } = useActions(nodeLogic)
+    const { navigateToNode, setMenuItems } = useActions(nodeLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
@@ -191,6 +216,52 @@ const Component = ({
     const { reportRunFinished } = useActions(notebookDataframeHintLogic({ shortId: notebookShortId }))
     const runStatus = attributes.runStatus ?? null
     const previousRunStatusRef = useRef(runStatus)
+    const resultMenu = useMemo(() => {
+        if (!isEditable || outputOnly || !currentTeamId) {
+            return []
+        }
+        const runId = attributes.runId
+        const savedTables = savedSqlResultTables(attributes.savedWarehouseTables)
+        return sqlResultMenu({
+            source:
+                runId && result && !isRunning && !runError && (!runStatus || runStatus === 'done')
+                    ? { projectId: String(currentTeamId), shortId: notebookShortId, nodeId, runId }
+                    : null,
+            columns: result?.columns,
+            defaultName: returnVariable,
+            savedTables,
+            onTableSaved: (table) => {
+                const existing = savedSqlResultTables(nodeLogic.props.attributes.savedWarehouseTables)
+                updateAttributes({ savedWarehouseTables: [...existing.filter((item) => item.id !== table.id), table] })
+            },
+            onRemoveLink: (id) => {
+                const existing = savedSqlResultTables(nodeLogic.props.attributes.savedWarehouseTables)
+                updateAttributes({ savedWarehouseTables: existing.filter((table) => table.id !== id) })
+            },
+        })
+    }, [
+        attributes.runId,
+        attributes.savedWarehouseTables,
+        currentTeamId,
+        isEditable,
+        isRunning,
+        nodeLogic,
+        nodeId,
+        notebookShortId,
+        outputOnly,
+        result,
+        returnVariable,
+        runError,
+        runStatus,
+        updateAttributes,
+    ])
+
+    useEffect(() => {
+        if (!isJupyterMode) {
+            setMenuItems(resultMenu)
+            return () => setMenuItems(null)
+        }
+    }, [isJupyterMode, resultMenu, setMenuItems])
 
     useEffect(() => {
         const previousRunStatus = previousRunStatusRef.current
@@ -330,7 +401,7 @@ const Component = ({
                 onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
                 isEditable={isEditable}
                 valueOverride={showsChart ? <div className="h-80 flex flex-col">{visualization}</div> : undefined}
-                footerExtra={
+                footerExtra={sqlOutputActions(
                     cachedResults ? (
                         <LemonButton
                             size="xsmall"
@@ -343,8 +414,9 @@ const Component = ({
                         >
                             {showsChart ? 'Show table' : 'Show chart'}
                         </LemonButton>
-                    ) : null
-                }
+                    ) : null,
+                    resultMenu
+                )}
             />
         )
     }
@@ -523,6 +595,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: false,
         },
         runId: {
+            default: null,
+        },
+        savedWarehouseTables: {
             default: null,
         },
         result: {

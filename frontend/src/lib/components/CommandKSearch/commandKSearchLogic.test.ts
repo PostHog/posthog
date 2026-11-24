@@ -1,7 +1,10 @@
 import { router } from 'kea-router'
 
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
@@ -18,6 +21,27 @@ describe('commandKSearchLogic', () => {
     })
 
     afterEach(() => logic.unmount())
+
+    test.each<[boolean, string[]]>([
+        [false, []],
+        [true, ['Home', 'Chats', 'Analytics', 'People', 'Products', 'Settings']],
+    ])('with the new navigation set to %s, lists its sidebar sections', (enabled, names) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: enabled })
+
+        expect(logic.values.localLists.sidebar.map((item) => item.name)).toEqual(names)
+    })
+
+    it('opens the sidebar section of a sidebar row', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        const shell = todayShellLogic()
+        shell.mount()
+
+        logic.values.localLists.sidebar.find((item) => item.name === 'People')?.onSelect?.()
+
+        expect(shell.values.activePane).toBe('people')
+        expect(shell.values.sidebarOpen).toBe(true)
+        shell.unmount()
+    })
 
     test.each([
         ['typing', (): void => logic.actions.inputChanged('revenue', 7, false)],
