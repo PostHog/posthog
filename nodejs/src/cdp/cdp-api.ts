@@ -840,15 +840,17 @@ export class CdpApi {
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
             }
-            if (await this.rejectsDeactivatedOrganization(team.id, res)) {
-                return
-            }
-
             globals = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
             const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            // Transformations keep running for a deactivated organization, so their previews do too.
+            const isTransformation = functionType === 'transformation' || functionType === 'transformation_log'
+            if (!isTransformation && (await this.rejectsDeactivatedOrganization(team.id, res))) {
+                return
+            }
 
             if (functionType === 'transformation_log') {
                 // Log transformations run against a log record, not an event
