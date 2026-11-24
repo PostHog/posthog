@@ -351,6 +351,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
                 if (view) {
                     return [
+                        first,
                         {
                             key: view.id,
                             name: view.name,

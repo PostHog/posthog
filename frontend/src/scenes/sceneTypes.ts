@@ -215,6 +215,7 @@ export enum Scene {
     VerifyEmail = 'VerifyEmail',
     WarehouseDestinations = 'WarehouseDestinations',
     WarehouseDestinationConnect = 'WarehouseDestinationConnect',
+    WarehouseHome = 'WarehouseHome',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',

@@ -14,6 +14,9 @@ import { SidePanel } from '../sidepanel/SidePanel'
 import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 
 const TodayShell = lazyWithRetry(() => import('~/layout/today/TodayShell').then((m) => ({ default: m.TodayShell })))
+const TodayWarehouseHeader = lazyWithRetry(() =>
+    import('~/layout/today/TodayWarehouseHeader').then((m) => ({ default: m.TodayWarehouseHeader }))
+)
 
 export function TodayPhoneLayout({
     children,
@@ -24,7 +27,7 @@ export function TodayPhoneLayout({
 }): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { isLayoutNavCollapsed, navbarWidth, sidePanelWidth } = useValues(panelLayoutLogic)
-    const { leftNavWidth, phoneHeaderHidden, sidebarVisible } = useValues(todayShellLogic)
+    const { leftNavWidth, phoneHeaderHidden, sidebarVisible, warehouseHeaderShown } = useValues(todayShellLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const drawerOpen = mobileLayout && sidebarVisible
@@ -54,6 +57,14 @@ export function TodayPhoneLayout({
                 inert={drawerOpen}
                 sidePanel={<SidePanel />}
                 sidePanelOverlapsMain={sidePanelOpen}
+                grid
+                header={
+                    warehouseHeaderShown && (
+                        <Suspense fallback={null}>
+                            <TodayWarehouseHeader className="col-span-2 row-start-1" />
+                        </Suspense>
+                    )
+                }
             >
                 {children}
             </MainContentColumn>

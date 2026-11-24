@@ -43,6 +43,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     automate: { label: 'Automate', title: 'Automate', icon: <IconDecisionTree /> },
     data: { label: 'Data', title: 'Data', icon: <IconDatabase /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    warehouse: { label: 'Warehouse', title: 'Warehouse', icon: <IconDatabase /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 

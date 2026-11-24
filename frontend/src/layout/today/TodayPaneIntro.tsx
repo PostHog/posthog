@@ -30,7 +30,7 @@ export function TodayPaneIntro({ pane }: { pane: TodayRailPane }): JSX.Element |
     const titleId = useId()
 
     // Home opens no sidebar, so it has no intro.
-    if (pane === 'home' || closed || (!closing && !isIntroShown(pane))) {
+    if (pane === 'home' || pane === 'warehouse' || closed || (!closing && !isIntroShown(pane))) {
         return null
     }
 
