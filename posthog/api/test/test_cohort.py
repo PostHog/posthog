@@ -9326,7 +9326,20 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             not turned_off_during_the_edit,
         )
 
-    def test_a_refused_edit_that_would_stop_realtime_keeps_the_build_running(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "refused_static_criteria_edit",
+                {"is_static": True, "filters": {"properties": {"type": "AND", "values": [_REALTIME_PERSON_LEAF]}}},
+                400,
+                False,
+            ),
+            ("saved_edit_into_criteria_the_processor_skips", {"filters": _SKIPPED_PAGEVIEW_FILTERS}, 200, True),
+        ]
+    )
+    def test_an_edit_that_stops_realtime_supersedes_the_build_only_when_it_saves(
+        self, _name: str, edit: dict, status: int, superseded: bool
+    ) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -9342,15 +9355,11 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         )
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
-                {"is_static": True, "filters": {"properties": {"type": "AND", "values": [_REALTIME_PERSON_LEAF]}}},
-                format="json",
-            )
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
 
         participation.refresh_from_db()
-        assert response.status_code == 400, response.json()
-        assert participation.superseded_at is None
+        assert response.status_code == status, response.json()
+        assert (participation.superseded_at is not None) == superseded
 
     @parameterized.expand(
         [
@@ -9377,8 +9386,8 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         cohort.refresh_from_db()
         assert response.status_code == 200, response.json()
         assert (cohort.cohort_type, cohort.last_backfill_events_at) == (CohortType.REALTIME, None)
-        assert [call.kwargs["args"][1::2] for call in self.enqueue_backfill.call_args_list] == [
-            [cohort.id, CohortBackfillKind.BEHAVIORAL]
+        assert [call.kwargs["args"] for call in self.enqueue_backfill.call_args_list] == [
+            [self.team.id, cohort.id, CohortBackfillTrigger.COHORT_CREATED, CohortBackfillKind.BEHAVIORAL]
         ]
 
     @parameterized.expand(
