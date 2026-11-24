@@ -67,6 +67,10 @@ class TestCrossJoinOptimizer(SimpleTestCase):
         [
             ("SELECT l.number, r.number FROM numbers(2) l ALL INNER JOIN numbers(2) r ON l.number = r.number",),
             (
+                "SELECT n.number FROM numbers(1) l ALL INNER JOIN events r ON l.number = length(r.event) "
+                "RIGHT JOIN numbers(2) n ON l.number = n.number ORDER BY n.number",
+            ),
+            (
                 "SELECT l.event, r.event FROM events l ALL INNER JOIN events r(event, uuid) "
                 "ON l.distinct_id = r.distinct_id",
             ),
@@ -122,6 +126,18 @@ class TestCrossJoinOptimizer(SimpleTestCase):
 
 class TestCrossJoinResults(ClickhouseTestMixin, BaseTest):
     allow_dual_schema_snapshots = True
+
+    def test_explicit_inner_join_followed_by_right_join_preserves_results(self) -> None:
+        query = """
+            SELECT n.number FROM numbers(1) l
+            ALL INNER JOIN events r ON l.number = length(r.event)
+            RIGHT JOIN numbers(2) n ON l.number = n.number
+            ORDER BY n.number
+        """
+        original = execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(optimizeCrossJoins=False))
+        optimized = execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(optimizeCrossJoins=True))
+        assert original.results == []
+        assert optimized.results == original.results
 
     @parameterized.expand([("person_id", 9), ("distinct_id", 5)])
     @time_machine.travel("2023-02-03", tick=False)

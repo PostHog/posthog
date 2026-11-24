@@ -417,6 +417,8 @@ class LazyTableResolver(TraversingVisitor):
         return (
             bool(self.context.modifiers.optimizeCrossJoins)
             and join.join_type == "ALL INNER JOIN"
+            # A later outer join can preserve rows that the outer team guard would have filtered.
+            and join.next_join is None
             and not join.table_final
             and not join.table_args
             and not join.column_aliases
