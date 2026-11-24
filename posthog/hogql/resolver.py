@@ -497,6 +497,7 @@ class _FieldRootCollector(TraversingVisitor):
         self.deep = deep
         self.roots: set[str] = set()
         self._lambda_args: list[set[str]] = []
+        self._local_ctes: list[set[str]] = []
 
     def visit_lambda(self, node: ast.Lambda):
         self._lambda_args.append(set(node.args))
@@ -507,7 +508,11 @@ class _FieldRootCollector(TraversingVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.deep:
-            super().visit_select_query(node)
+            self._local_ctes.append(set(node.ctes or {}))
+            try:
+                super().visit_select_query(node)
+            finally:
+                self._local_ctes.pop()
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         if self.deep:
@@ -516,7 +521,9 @@ class _FieldRootCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         if node.chain:
             root = str(node.chain[0])
-            if not any(root in args for args in self._lambda_args):
+            if not any(root in args for args in self._lambda_args) and not any(
+                root in names for names in self._local_ctes
+            ):
                 self.roots.add(root)
 
 
@@ -1285,8 +1292,9 @@ class Resolver(CloningVisitor):
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
             if node.select_from is not None:
+                local_names = set(node.ctes)
                 for cte in node.ctes.values():
-                    if self._scalar_alias_reads_from(cte, from_scalar_aliases, set(node.ctes)):
+                    if self._scalar_alias_reads_from(cte, from_scalar_aliases, local_names):
                         from_scalar_aliases[cte.name] = cte
                 if from_scalar_aliases:
                     # Something read before FROM finishes resolves its alias on first use, see _resolve_pending_alias.
@@ -2929,9 +2937,12 @@ class Resolver(CloningVisitor):
         type: Optional[ast.Type] = None
 
         # If the field contains at least two parts, the first might be a table.
+        ctes = self.ctes
         if len(node.chain) > 1 and name not in scope.tables:
-            self._find_scalar_alias(name)
-        type = lookup_table_by_name(scope, self.ctes, node)
+            cte = self._find_scalar_alias(name)
+            if cte is not None and self.ctes.get(name) is not cte:
+                ctes = {**self.ctes, name: cte}
+        type = lookup_table_by_name(scope, ctes, node)
 
         # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
@@ -2972,7 +2983,7 @@ class Resolver(CloningVisitor):
             if nested_match:
                 type, qualifier_length = nested_match
 
-        if type and len(node.chain) == 1 and name in self.ctes:
+        if type and len(node.chain) == 1 and name in self.ctes and not (scope.is_lambda_type and name in scope.aliases):
             # ClickHouse prefers a WITH alias over a column with the same name.
             self._find_scalar_alias(name)
 

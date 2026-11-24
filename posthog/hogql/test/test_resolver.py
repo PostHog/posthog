@@ -1104,6 +1104,26 @@ class TestResolver(BaseTest):
             )
         self.assertIn("Unable to resolve field: x", str(e.exception))
 
+    def test_pending_outer_alias_dotted_reference_in_subquery(self):
+        resolved = resolve_types(
+            self._select(
+                "WITH properties AS p, (SELECT p.$browser) AS b SELECT b FROM events JOIN numbers(1) n ON b = 'Chrome'"
+            ),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
+    def test_lambda_argument_shadows_outer_table_bound_alias(self):
+        resolved = resolve_types(
+            self._select("WITH timestamp AS x SELECT (SELECT arrayMap(x -> x, [1]) FROM numbers(1)) FROM events"),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
     def test_ctes_scalar_alias_dotted_property_paths_in_joins(self):
         self.assertEqual(
             self._print_hogql(
@@ -1369,6 +1389,10 @@ class TestResolver(BaseTest):
     @parameterized.expand(
         [
             ("unused", "WITH number AS n SELECT n FROM numbers(1) UNION ALL SELECT 0"),
+            (
+                "nested_shadow",
+                "WITH number AS n SELECT n FROM numbers(1) UNION ALL SELECT (WITH 1 AS n SELECT n) FROM events",
+            ),
             (
                 "nested_unused",
                 "WITH number AS n SELECT n FROM numbers(1) UNION ALL (SELECT 0 UNION ALL SELECT n FROM numbers(1))",
