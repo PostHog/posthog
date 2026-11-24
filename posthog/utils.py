@@ -740,6 +740,7 @@ def _build_template_context(
             "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
+            "uploaded_media_origin": settings.UPLOADED_MEDIA_PUBLIC_URL or None,
             **posthog_app_context,
         }
 
@@ -1836,6 +1837,8 @@ def get_instance_available_sso_providers() -> dict[str, bool]:
         "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
         "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
         "google-oauth2": False,
+        # Demo social signups get is_staff, and ChatGPT has no trusted-domain restriction like Google has there
+        "chatgpt": not settings.DEMO and bool(settings.SOCIAL_AUTH_CHATGPT_KEY and settings.SOCIAL_AUTH_CHATGPT_SECRET),
     }
 
     # Get license information
@@ -2042,6 +2045,7 @@ def refresh_requested_by_client(request: Request) -> bool | str:
         request,
         allowed_values=[
             "async",
+            "async_except_on_cache_miss",
             "blocking",
             "force_async",
             "force_blocking",

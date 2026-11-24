@@ -22,9 +22,9 @@ const STRENGTH_VALUE_CLASSES: Record<RankingStrength, string> = {
 }
 
 /**
- * The three ranking scores in funnel order, in the card's meta row on the Recommended and Personalized
- * sorts. The chip stays neutral and each value takes the color of its own strength. An unscored
- * report keeps the muted tag that the score sorts show. On the Personalized sort the hover card leads
+ * The three ranking scores in funnel order, in the card's meta row on the Recommended
+ * sort. The chip stays neutral and each value takes the color of its own strength. An unscored
+ * report keeps the muted tag that the score sorts show. On the personal order the hover card leads
  * with the report's place on the user's own list.
  */
 export function ReportCardRankingPill({

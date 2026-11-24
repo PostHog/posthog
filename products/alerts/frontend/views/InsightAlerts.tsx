@@ -74,15 +74,8 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
     const listSearchParams = { ...searchParams, alert_id: undefined }
     const logic = alertsLogic()
     const { deleteAlert, loadAlerts, toggleAlertEnabled } = useActions(logic)
-    const {
-        alertsSortedByState,
-        alertsResponseLoading,
-        deletingAlertIds,
-        pagination,
-        isFiltering,
-        togglingAlertIds,
-        alertDestinationCounts,
-    } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, deletingAlertIds, pagination, isFiltering, togglingAlertIds } =
+        useValues(logic)
 
     const { alert, alertLoading } = useValues(alertLogic({ alertId }))
 
@@ -203,7 +196,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             render: (_, alert) => (
                 <AlertRowMenu
                     alert={alert}
-                    destinationCount={alertDestinationCounts[alert.id] ?? 0}
+                    destinationCount={alert.destination_count ?? 0}
                     deleting={deletingAlertIds.has(alert.id)}
                     onDelete={() => {
                         LemonDialog.open({

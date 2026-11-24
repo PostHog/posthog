@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     route,
     scripted_network,
 )
@@ -220,6 +221,97 @@ class TestFanOutRows:
 
         assert isinstance(result.raised, RESTClientRetryableError)
 
+    @pytest.mark.parametrize(
+        "endpoint,parent_key,parent_path,instances_root,results_suffix,parent_column",
+        [
+            ("meeting_polls", "meetings", "/users/u1/meetings", "/past_meetings", "polls", "meeting"),
+            ("webinar_polls", "webinars", "/users/u1/webinars", "/past_webinars", "polls", "webinar"),
+            ("webinar_qa", "webinars", "/users/u1/webinars", "/past_webinars", "qa", "webinar"),
+        ],
+    )
+    def test_poll_and_qa_entries_are_numbered_per_instance(
+        self,
+        endpoint: str,
+        parent_key: str,
+        parent_path: str,
+        instances_root: str,
+        results_suffix: str,
+        parent_column: str,
+    ) -> None:
+        anonymous = {"name": "Anonymous Attendee", "email": "", "question_details": [{"answer": "Yes"}]}
+        named = {"name": "Ada", "email": "ada@example.com", "question_details": [{"answer": "No"}]}
+        responses = {
+            "/oauth/token": _TOKEN,
+            "/v2/users": ScriptedResponse(json={"users": [{"id": "u1"}], "next_page_token": ""}),
+            f"/v2{parent_path}": ScriptedResponse(json={parent_key: [{"id": 111}], "next_page_token": ""}),
+            f"/v2{instances_root}/111/instances": ScriptedResponse(
+                json={parent_key: [{"uuid": "inst1=="}, {"uuid": "inst2=="}, {"uuid": "inst3=="}]}
+            ),
+            # Two anonymous respondents share every field, so only their position tells them apart.
+            f"/v2{instances_root}/inst1%3D%3D/{results_suffix}": ScriptedResponse(
+                json={"id": 111, "questions": [anonymous, anonymous, named]}
+            ),
+            f"/v2{instances_root}/inst2%3D%3D/{results_suffix}": ScriptedResponse(
+                json={"id": 111, "questions": [named]}
+            ),
+            # An instance older than a year, or one that had no poll, is skipped.
+            f"/v2{instances_root}/inst3%3D%3D/{results_suffix}": ScriptedResponse(
+                status=400, json={"code": 12702, "message": "Can not access a meeting a year ago."}
+            ),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            assert request.path in responses, f"unexpected request {request.path}"
+            return responses[request.path]
+
+        result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        assert [
+            (row[f"{parent_column}_id"], row[f"{parent_column}_uuid"], row["entry_index"], row["name"])
+            for row in result.rows
+        ] == [
+            (111, "inst1==", 0, "Anonymous Attendee"),
+            (111, "inst1==", 1, "Anonymous Attendee"),
+            (111, "inst1==", 2, "Ada"),
+            (111, "inst2==", 0, "Ada"),
+        ]
+        assert all("_uuid_path" not in row for row in result.rows)
+
+    @pytest.mark.parametrize(
+        "endpoint,child_path,data_key,child_row,parent_column",
+        [
+            ("webinar_panelists", "/webinars/{id}/panelists", "panelists", {"id": "pan1", "name": "Ada"}, "webinar_id"),
+            ("webinar_instances", "/past_webinars/{id}/instances", "webinars", {"uuid": "inst=="}, "webinar_id"),
+        ],
+    )
+    def test_single_page_child_skips_invalid_parent_instead_of_retrying(
+        self, endpoint: str, child_path: str, data_key: str, child_row: dict[str, Any], parent_column: str
+    ) -> None:
+        responses = {
+            "/oauth/token": _TOKEN,
+            "/v2/users": ScriptedResponse(json={"users": [{"id": "u1"}], "next_page_token": ""}),
+            "/v2/users/u1/webinars": ScriptedResponse(
+                json={"webinars": [{"id": 111}, {"id": 222}], "next_page_token": ""}
+            ),
+            # Without a page token, code 300 means the webinar ID is invalid, which a retry cannot fix.
+            "/v2" + child_path.format(id=111): ScriptedResponse(
+                status=400, json={"code": 300, "message": "Invalid webinar ID."}
+            ),
+            "/v2" + child_path.format(id=222): ScriptedResponse(json={data_key: [child_row]}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            assert request.path in responses, f"unexpected request {request.path}"
+            return responses[request.path]
+
+        with patch("time.sleep"):
+            result = _driver().run(endpoint, respond)
+
+        assert result.raised is None
+        assert result.rows == [{**child_row, parent_column: 222}]
+        assert result.paths.count("/v2" + child_path.format(id=111)) == 1
+
 
 class TestInstanceRows:
     @pytest.mark.parametrize(
@@ -321,6 +413,91 @@ class TestMonthlyWindowRows:
         assert len(result.rows) == 2 * len(expected_starts)
 
     @pytest.mark.parametrize(
+        "inputs,expected_months",
+        [
+            ({}, [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10), (2026, 11)]),
+            # The cursor's month is read again, because it may have been partial.
+            (
+                {"incremental_field": "date", "db_incremental_field_last_value": dt.date(2026, 10, 15)},
+                [(2026, 10), (2026, 11)],
+            ),
+            ({"incremental_field": "date", "db_incremental_field_last_value": "2026-11-30"}, [(2026, 11)]),
+            (
+                {"incremental_field": "date", "db_incremental_field_last_value": dt.date(2025, 1, 1)},
+                [(2026, 6), (2026, 7), (2026, 8), (2026, 9), (2026, 10), (2026, 11)],
+            ),
+        ],
+    )
+    def test_report_daily_reads_one_request_per_month(
+        self, inputs: dict[str, Any], expected_months: list[tuple[int, int]]
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            assert request.path == "/v2/report/daily", f"unexpected request {request.url}"
+            year, month = int(str(request.param("year"))), int(str(request.param("month")))
+            day = {"date": f"{year}-{month:02d}-01", "meetings": 2, "meeting_minutes": 34}
+            return ScriptedResponse(json={"year": year, "month": month, "dates": [day]})
+
+        result = _driver().run("report_daily", respond, **inputs)
+
+        requests = [r for r in result.requests if r.path == "/v2/report/daily"]
+        assert [(int(str(r.param("year"))), int(str(r.param("month")))) for r in requests] == expected_months
+        assert [row["date"] for row in result.rows] == [f"{y}-{m:02d}-01" for y, m in expected_months]
+        assert result.raised is None
+
+    @pytest.mark.parametrize(
+        "inputs,expected_first_range,expected_window_count",
+        [
+            # A first sync starts before AI Companion summaries existed.
+            ({}, ("2023-01-01T00:00:00Z", "2023-01-31T23:59:59Z"), 47),
+            (
+                {
+                    "incremental_field": "summary_created_time",
+                    "db_incremental_field_last_value": dt.datetime(2026, 11, 3, 23, 30, tzinfo=dt.UTC),
+                },
+                ("2026-11-03T00:00:00Z", "2026-11-17T23:59:59Z"),
+                1,
+            ),
+            (
+                {
+                    "incremental_field": "summary_created_time",
+                    "db_incremental_field_last_value": "2026-10-20T08:00:00Z",
+                },
+                ("2026-10-20T00:00:00Z", "2026-10-31T23:59:59Z"),
+                2,
+            ),
+        ],
+    )
+    def test_meeting_summaries_walk_month_windows_by_creation_time(
+        self, inputs: dict[str, Any], expected_first_range: tuple[str, str], expected_window_count: int
+    ) -> None:
+        summary = {"meeting_uuid": "sum==", "summary_created_time": "2026-11-05T10:00:00Z"}
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            assert request.path == "/v2/meetings/meeting_summaries", f"unexpected request {request.url}"
+            if not str(request.param("from")).startswith("2026-11"):
+                return ScriptedResponse(json={"summaries": [], "next_page_token": ""})
+            if request.param("next_page_token") is None:
+                return ScriptedResponse(json={"summaries": [summary], "next_page_token": "t1"})
+            return ScriptedResponse(json={"summaries": [{**summary, "meeting_uuid": "sum2=="}], "next_page_token": ""})
+
+        result = _driver().run("meeting_summaries", respond, **inputs)
+
+        first_pages = [
+            r
+            for r in result.requests
+            if r.path == "/v2/meetings/meeting_summaries" and r.param("next_page_token") is None
+        ]
+        assert (first_pages[0].param("from"), first_pages[0].param("to")) == expected_first_range
+        assert first_pages[-1].param("to") == "2026-11-17T23:59:59Z"
+        assert len(first_pages) == expected_window_count
+        assert {r.param("time_filter_field") for r in first_pages} == {"summary_created_time"}
+        assert result.rows == [summary, {**summary, "meeting_uuid": "sum2=="}]
+
+    @pytest.mark.parametrize(
         "inputs,expected_u1_ranges",
         [
             # A first sync starts at the user's creation date.
@@ -393,6 +570,9 @@ class TestMonthlyWindowRows:
 
         assert result.raised is not None
         assert result.rows == []
+        # A missing scope never clears on retry, so the job must stop retrying instead of
+        # burning its whole retry budget on the same 400.
+        assert error_message_matches(str(result.raised), ZoomSource().get_non_retryable_errors())
 
 
 class TestZoomSourceResponse:
@@ -412,6 +592,12 @@ class TestZoomSourceResponse:
             ("group_members", True),
             ("report_users", False),
             ("recordings", False),
+            ("report_daily", False),
+            ("meeting_summaries", False),
+            ("webinar_panelists", False),
+            ("meeting_polls", False),
+            ("webinar_polls", False),
+            ("webinar_qa", False),
         ],
     )
     def test_chained_tables_are_not_resumable(self, endpoint: str, resumable: bool) -> None:

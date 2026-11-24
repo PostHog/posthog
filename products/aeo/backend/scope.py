@@ -12,7 +12,7 @@ from django.db.models import Q
 
 from posthog.dataclasses import frozen
 
-from products.aeo.backend.brand import SEGMENT_SQL, brand_regex, segment_filter, segment_sql_params
+from products.aeo.backend.brand import SEGMENT_SQL, check_segment_filter, segment_sql_params
 from products.aeo.backend.facade.contracts import BrandedSegment
 
 
@@ -20,17 +20,18 @@ from products.aeo.backend.facade.contracts import BrandedSegment
 class CheckScope:
     segment: BrandedSegment = BrandedSegment.ALL
     # None keeps every engine or topic. An empty topic keeps the checks of prompts that had no topic.
+    # A topic matches regardless of letter case, because the topic lists merge such spellings into one.
     engine: str | None = None
     topic: str | None = None
 
 
-def scope_filter(scope: CheckScope, target_domains: list[str]) -> Q:
+def scope_filter(scope: CheckScope) -> Q:
     """`AEOCitationCheck` rows in the scope. The topic is the one the prompt had when the check ran."""
-    condition = segment_filter(scope.segment, target_domains)
+    condition = check_segment_filter(scope.segment)
     if scope.engine is not None:
         condition &= Q(engine=scope.engine)
     if scope.topic is not None:
-        condition &= Q(prompt_topic=scope.topic)
+        condition &= Q(prompt_topic__iexact=scope.topic)
     return condition
 
 
@@ -42,13 +43,13 @@ def scope_without_segment(scope: CheckScope) -> CheckScope:
 # `scope_sql_params`. The casts let Postgres type a null parameter.
 SCOPE_SQL = (
     f"{SEGMENT_SQL} AND (%s::text IS NULL OR check_row.engine = %s) "
-    "AND (%s::text IS NULL OR check_row.prompt_topic = %s)"
+    "AND (%s::text IS NULL OR upper(check_row.prompt_topic) = upper(%s))"
 )
 
 
-def scope_sql_params(scope: CheckScope, target_domains: list[str]) -> list[str | None]:
+def scope_sql_params(scope: CheckScope) -> list[str | None]:
     return [
-        *segment_sql_params(scope.segment, target_domains),
+        *segment_sql_params(scope.segment),
         scope.engine,
         scope.engine,
         scope.topic,
@@ -58,17 +59,15 @@ def scope_sql_params(scope: CheckScope, target_domains: list[str]) -> list[str |
 
 # `SCOPE_SQL` for statements that take named parameters, filled from `named_scope_sql_params`.
 NAMED_SCOPE_SQL = (
-    "(%(scope_segment)s = 'all' OR coalesce(check_row.prompt_text ~* %(scope_brand)s::text, false) = "
-    "(%(scope_segment)s = 'branded')) "
+    "(%(scope_segment)s = 'all' OR check_row.prompt_branded = (%(scope_segment)s = 'branded')) "
     "AND (%(scope_engine)s::text IS NULL OR check_row.engine = %(scope_engine)s) "
-    "AND (%(scope_topic)s::text IS NULL OR check_row.prompt_topic = %(scope_topic)s)"
+    "AND (%(scope_topic)s::text IS NULL OR upper(check_row.prompt_topic) = upper(%(scope_topic)s))"
 )
 
 
-def named_scope_sql_params(scope: CheckScope, target_domains: list[str]) -> dict[str, Any]:
+def named_scope_sql_params(scope: CheckScope) -> dict[str, Any]:
     return {
         "scope_segment": scope.segment.value,
-        "scope_brand": brand_regex(target_domains),
         "scope_engine": scope.engine,
         "scope_topic": scope.topic,
     }

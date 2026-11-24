@@ -128,6 +128,7 @@ interface RawJobRow {
     action_id: string | null
     cancel_requested_at: string | Date | null
     dequeue_seq: string | null
+    pending_wake: Record<string, unknown> | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -1874,6 +1875,26 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
+                const first = uuidv7()
+                const second = uuidv7()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'b')])
+
+                expect(
+                    await manager.findIdempotencyKeys([
+                        second.toUpperCase(),
+                        uuidv7(),
+                        first.replace(/-/g, ''),
+                        `{${second}}`,
+                    ])
+                ).toEqual([
+                    { fingerprint: 'b', reply: null },
+                    null,
+                    { fingerprint: 'a', reply: null },
+                    { fingerprint: 'b', reply: null },
+                ])
+            })
+
             it('reports the stored fingerprint of a key that answers replayed or mismatch', async () => {
                 const id = uuidv7()
                 await manager.claimJobs([keyed(id, 'a')])
@@ -2880,6 +2901,60 @@ describe('Cyclotron V2', () => {
 
             expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
+
+        it.each([
+            {
+                written: 'during the hold, for the step it parks on',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: true,
+                kept: true,
+            },
+            {
+                written: 'before the hold',
+                key: 'wait-a',
+                at: "last_transition - interval '1 second'",
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, for another step',
+                key: 'wait-b',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, by a park that keeps its backoff',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: false,
+                due: false,
+                kept: true,
+            },
+        ])(
+            'reschedule() onto a wait with a wake recorded $written wakes it: $due',
+            async ({ key, at, opts, due, kept }) => {
+                const { id, job } = await seedAndDequeue({ actionId: 'wait-a' })
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET pending_wake = jsonb_build_object($2::text, jsonb_build_object('kind', 'match', 'at', ${at})) WHERE id = $1`,
+                    [id, key]
+                )
+
+                await job.reschedule({
+                    actionId: 'wait-a',
+                    scheduledAt: new Date(Date.now() + 3600_000),
+                    wakeOnPendingWake: opts,
+                })
+
+                expect(await jobIsDue(id)).toBe(due)
+                const row = await queryJob(id)
+                expect(Object.keys(row.pending_wake ?? {})).toEqual(kept ? ['wait-a'] : [])
+            }
+        )
 
         it('reschedule() returns job to available', async () => {
             const { id, job } = await seedAndDequeue()
@@ -4879,8 +4954,11 @@ describe('Cyclotron V2', () => {
             }
             const expired = uuidv7()
             const live = uuidv7()
-            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            // Kept past its expiry while the matcher may still hold an event that arrived before it.
+            const justExpired = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 600_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            await insertWatcher(justExpired, new Date(Date.now() - 60_000))
             const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
@@ -4907,9 +4985,9 @@ describe('Cyclotron V2', () => {
             writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
-                [expired, live],
+                [expired, live, justExpired],
             ])
-            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            expect(remaining.rows.map((r) => r.id).sort()).toEqual([live, justExpired].sort())
             const remainingKeys = await assertPool.query(
                 `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
                 [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]

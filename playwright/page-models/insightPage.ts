@@ -97,10 +97,11 @@ export class InsightPage {
         return this
     }
 
-    async save(): Promise<void> {
-        const originalUrl = this.page.url()
-        const originalPathname = new URL(originalUrl).pathname
-
+    /**
+     * Pass `returnsTo` when the insight was opened from a dashboard. Saving it returns to that dashboard,
+     * so save() waits for the dashboard's path instead of the insight's view mode.
+     */
+    async save({ returnsTo }: { returnsTo?: string } = {}): Promise<void> {
         // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
         await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
 
@@ -111,48 +112,30 @@ export class InsightPage {
             { timeout: 30000 }
         )
 
-        // Saving switches back to view mode, which re-fetches the insight. Drain that
-        // fetch before returning — left in flight, its response can land after a later
-        // edit and clobber it (see waitForInsightLoad).
-        const insightReloaded = this.waitForInsightLoad()
+        // A save that stays on the insight switches to view mode, which re-fetches the insight.
+        // That response can arrive after a later edit and overwrite the edit. save() waits for it (see waitForInsightLoad).
+        const insightReloaded = returnsTo ? null : this.waitForInsightLoad()
 
         await this.saveButton.click()
 
         const saveResponse = await saveRequestPromise
+        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
 
         if (saveResponse.status() >= 400) {
-            const errorToast = this.page.locator('[data-attr="error-toast"]').first()
             const errorText = (await errorToast.textContent().catch(() => null))?.trim()
             throw new Error(`Insight save failed with ${saveResponse.status()}${errorText ? `: ${errorText}` : ''}`)
         }
 
-        const successToast = this.page
-            .locator('[data-attr="success-toast"]')
-            .filter({ hasText: 'Insight saved' })
-            .first()
-        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+        if (returnsTo) {
+            const dashboardPathname = new URL(returnsTo).pathname
+            await this.page.waitForURL((url) => url.pathname === dashboardPathname, { timeout: 30000 })
+            return
+        }
 
-        await expect(async () => {
-            const currentPathname = new URL(this.page.url()).pathname
-
-            if (await errorToast.isVisible().catch(() => false)) {
-                const errorText = (await errorToast.textContent().catch(() => null))?.trim()
-                throw new Error(`Insight save showed an error toast${errorText ? `: ${errorText}` : ''}`)
-            }
-
-            if (currentPathname !== originalPathname) {
-                return
-            }
-
-            if (await this.editButton.isVisible().catch(() => false)) {
-                return
-            }
-
-            await expect(successToast.or(this.editButton)).toBeVisible()
-        }).toPass({ timeout: 30000 })
-
-        if (new URL(this.page.url()).pathname === originalPathname) {
-            await expect(this.editButton).toBeVisible()
+        await expect(this.editButton.or(errorToast)).toBeVisible({ timeout: 30000 })
+        if (await errorToast.isVisible()) {
+            const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+            throw new Error(`Insight save showed an error toast${errorText ? `: ${errorText}` : ''}`)
         }
 
         await insightReloaded

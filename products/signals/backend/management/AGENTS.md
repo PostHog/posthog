@@ -87,6 +87,36 @@ python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid>
 
 For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
 
+## Purging named reports and scratchpad entries
+
+Use these for a data deletion request that names reports or scout memories, instead of a script in a production shell.
+Both commands only preview until you pass `--execute`, and both touch one team's rows only.
+
+`purge_signal_reports` permanently deletes a list of reports.
+The preview prints each report's status, its signal count in ClickHouse, and the rows a hard delete removes from each model.
+It also prints the `document_embeddings` filters for the signal and report ids, for a physical delete that the command does not do.
+It refuses the whole list when an id is missing, belongs to another team, or has a `SignalReportRefund` row.
+With `--execute` it queues `deleted` plus cleared content for every signal of the report (the `retract_source_signals` change), tombstones the report embeddings, then hard deletes the reports in one transaction.
+Every report must already have status `deleted`; `--soft-delete` runs the `signal-report-deletion` workflow first for the ones that do not.
+The hard delete is the last step, so a run that fails before it is resumed by running the same command.
+The ClickHouse updates are queued `update-signal-spend` workflows that retry on their own and land after the command returns.
+
+```bash
+uv run manage.py purge_signal_reports --team-id 1 --report-ids <uuid> <uuid>
+uv run manage.py purge_signal_reports --team-id 1 --report-ids-file ids.txt --soft-delete --execute
+```
+
+`purge_signal_scratchpad` deletes scratchpad entries chosen by `--scout-skill` (entries that scout's runs created, or a `pipeline:*` writer's), by `--keys`, or `--all`.
+The preview lists the keys it deletes and the keys it keeps, and warns when a matching scout is enabled or ran in the last 24 hours, since a running scout can write new entries.
+The delete runs in one transaction and rolls back when the entries changed since the preview.
+
+```bash
+uv run manage.py purge_signal_scratchpad --team-id 1 --scout-skill signals-scout-general
+uv run manage.py purge_signal_scratchpad --team-id 1 --keys "report:abc" "followup:x" --execute
+```
+
+Neither command covers scout run records or task run logs.
+
 ## Repository selection (agentic)
 
 Test the repo selection flow in isolation:
@@ -191,8 +221,9 @@ reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
 `uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
 batch of verified implementation PRs that need participant snapshots. Remove
-`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
-100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+`--dry-run` to queue the GitHub refresh. `--limit` bounds the PRs each invocation
+checks (default 100, maximum 1000), so a batch can queue fewer when some PRs are not
+verified implementation PRs; use the printed `--after` cursor to continue. Run it without a
 cursor again to retry missing snapshots. The worker repairs missing merge times
 before checking the seven-day window. Completed snapshots are skipped.
 
@@ -342,11 +373,18 @@ An optional `model_arms` list sends a share of people to another model, so model
 ```
 
 Each arm takes a contiguous range of a salted hash of the user id, in list order, so a person keeps one arm across projects, and a higher percentage keeps the people the arm had.
-An arm sets `model` and optionally `reasoning_effort` and `timeout_seconds`. People outside every arm keep the top-level values.
+An arm sets `model` and optionally `reasoning_effort`, `timeout_seconds` and `service_tier`. People outside every arm keep the top-level values.
 A new `model_arms_salt` draws a new split. At most 5 arms, with unique names other than `default`, and percentages above 0 that add up to at most 100.
 One invalid arm or key turns every arm off and logs `personal_inbox_ranking_model_arms_invalid`.
 The model is in the input hash, so only a person who moves into or out of an arm gets a rebuild.
 `personal inbox ranking built` and the model call carry `model_arm`: the arm name, or `default`.
+
+The optional `service_tier` key (`default`, `flex` or `priority`) sets the provider tier of `tick` and `first_summary` builds, which nobody waits on, and an arm's `service_tier` replaces it for that arm.
+`on_demand_service_tier` sets the tier of `on_demand` builds. A missing key sends no tier, and an invalid one is logged and sends no tier.
+The tiers are not in the input hash, so a tier change rebuilds no list.
+When flex refuses a call with an error that `is_flex_recoverable` accepts, other than a timeout, the build retries once with no tier if at least 15 seconds of `timeout_seconds` remain.
+A tier that the provider rejects with a 400 is left out of later calls with that model, as a rejected `reasoning_effort` is.
+`personal inbox ranking built` carries `service_tier` (requested), `served_service_tier` (from the response) and `service_tier_fallback`.
 
 A person with no ready activity summary gets a list in model order with no model call, marked `personalized: False` and `fallback_reason: no_activity_summary`.
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
@@ -387,7 +425,9 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
     "max_concurrency": 4,
     "max_tick_builds_per_day": 100,
     "max_org_share": 0.25,
-    "max_error_rate": 0.5
+    "max_error_rate": 0.5,
+    "precheck_hours": 0,
+    "precheck_sample_share": 0.1
   }
 }
 ```
@@ -396,6 +436,7 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 - **Due pairs:** a member with a ready activity summary, activity in the last `active_days`, and a latest list that was built or checked longer ago than `target_interval_minutes`, or no list.
 - **Order:** paying organizations first, then the most recent activity, then the oldest list. One organization takes at most `max_org_share` of `max_pairs_per_tick`.
 - **Unchanged inputs:** the pair activity compares the input hash first. A match calls no model and sets `checked_at` on the latest row, so the pair is not due again until `target_interval_minutes` passes, and `for_me` serves that row as fresh. An enabled tick raises `freshness_minutes` to at least `target_interval_minutes`, so a plain read does not rebuild a list inside the tick's interval. A row whose model call failed, timed out or answered outside the schema, or that skipped the model without AI approval, is built again instead.
+- **Pre-check:** `precheck_hours` (default 0, which turns it off, at most 48) lets the pair skip the full gather. A fingerprint (`../personal_ranking/precheck.py`) hashes the facts that can move the input hash: the person's open reports (named as reviewer or claimed) with their status, text checksums, actionability and window membership, the artefacts, pull requests and assignments of those reports, the summary version, the inbox activity counts and exclusions, the flags that change the pools, and the config. A full check that finds no change stores the fingerprint in the cache for `precheck_hours`. A later fingerprint that is the same, for the same latest row, records `checked_at` with no gather. A new row, a cache miss, a read error, or an expired fingerprint runs the full check, so every pair gets a full check at least once in `precheck_hours`. Pull request states that only the tasks product holds are not in the fingerprint, and the expiry covers them. `precheck_sample_share` (0 to 1, default 0.1) of the hits run the full check too. Keep the sample until `precheck_disagreed` stays at 0 in every region.
 - **Limits:** a build that calls the model spends `max_tick_builds_per_day` (one Redis token bucket per region, closed when Redis is unreachable) and then the shared `max_builds_per_day`. `max_tick_builds_per_day` is limited to 80% of `max_builds_per_day`, so `refresh` and `focus` requests keep a reserve. To run the tick above that, raise the shared limit too. The tick stops at the first refusal, at `max_error_rate` after 10 model calls, and when 60% of its interval has passed.
 - **Locks:** the pair takes the same per-person lock as `for_me`, so a tick skips a person whose build is running.
 - **Concurrency:** the tick keeps `max_concurrency` pairs running and starts the next pair as soon as any pair finishes. A stop starts no further pair, and the pairs already running finish. The pairs never started stay due for the next tick.
@@ -403,6 +444,8 @@ The `tick` object of the `personal-inbox-ranking` payload holds its levers. With
 
 Each enabled tick captures `personal inbox ranking tick` with the due pairs, the pairs it picked, a count per pair status (`built`, `failed`, `unchanged`, `running`, `not_enrolled`, `tick_limited`, `shared_limited`), the stop reason, `oldest_due_hours`, `fresh_share`, the enrolled organizations and teams, and the duration.
 It also carries `unchanged_pair_seconds_p50`, `unchanged_pair_seconds_p95`, `built_pair_seconds_p50` and `built_pair_seconds_p95`: the seconds from the start of a pair to its result, for sizing `max_concurrency` and `max_pairs_per_tick`.
+`prechecked_pair_seconds_p50` and `prechecked_pair_seconds_p95` time the `unchanged` pairs that the pre-check confirmed, and the `unchanged_*` fields then time only the pairs that the full check confirmed.
+`precheck_hit`, `precheck_miss`, `precheck_agreed` and `precheck_disagreed` count the pairs by pre-check outcome. A disagreement is a sampled hit where the full check found a change, and the pair builds as usual. Each one also logs `signals.personal_ranking.precheck_disagreed`.
 `personal inbox ranking built` and the model call's trace carry `trigger` (`tick`, `on_demand` or `first_summary`), so cost can be split by what started a build.
 
 `due_pairs`, `due_without_list` and `oldest_due_hours` are read when the tick plans, before it does any work.

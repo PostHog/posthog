@@ -293,11 +293,11 @@ export interface AEOKeywordModifierApi {
 export interface AEOKeywordModifierReportApi {
     /** The 50 modifiers used by the most answers, most first. */
     modifiers: AEOKeywordModifierApi[]
-    /** Length of the window in days. */
+    /** Length of the window in days, from 'window_from' to 'window_to'. */
     days: number
     /** First day of the window, in the project's timezone. */
     window_from: string
-    /** Last day of the window (today), in the project's timezone. */
+    /** Last day of the window, in the project's timezone. */
     window_to: string
     /**
      * The keyword filter, normalized. Null when the report covers every answer.
@@ -374,11 +374,11 @@ export interface AEOKeywordReportRowApi {
 export interface AEOKeywordReportApi {
     /** One row per keyword in the project's list, by keyword, including keywords with no match. */
     keywords: AEOKeywordReportRowApi[]
-    /** Length of the window in days. */
+    /** Length of the window in days, from 'window_from' to 'window_to'. */
     days: number
     /** First day of the window, in the project's timezone. */
     window_from: string
-    /** Last day of the window (today), in the project's timezone. */
+    /** Last day of the window, in the project's timezone. */
     window_to: string
     /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
     answers: number
@@ -909,6 +909,96 @@ export interface AEOVisibilityDashboardApi {
     name: string
 }
 
+export interface AEOPromptMoverApi {
+    /** Id of the prompt. Pass it to the prompt endpoints for its stats and checks. */
+    prompt_id: string
+    /** The prompt's current text. */
+    prompt: string
+    /** The prompt's current topic. Empty when it has none. */
+    topic: string
+    /** Answered checks of the prompt in the current window. */
+    answers: number
+    /** Of 'answers', the ones that name the brand. An answer that cites the site counts as a mention. */
+    mentioned: number
+    /** Share (0-1) of 'answers' that name the brand. */
+    mention_rate: number
+    /** Answered checks of the prompt in the window before. */
+    previous_answers: number
+    /** Of 'previous_answers', the ones that name the brand. */
+    previous_mentioned: number
+    /** Share (0-1) of 'previous_answers' that name the brand. */
+    previous_mention_rate: number
+    /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+    change: number
+}
+
+export interface AEOPageMoverApi {
+    /** The cited URL on one of the project's own domains, as the engine returned it. */
+    url: string
+    /** Answered checks in the current window that cite this URL. */
+    answers_citing: number
+    /** Share (0-1) of the response's 'answers' that cite this URL. */
+    citation_rate: number
+    /** Answered checks in the window before that cite this URL. */
+    previous_answers_citing: number
+    /** Share (0-1) of the response's 'previous_answers' that cite this URL. */
+    previous_citation_rate: number
+    /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+    change: number
+}
+
+/**
+ * * `all` - All
+ * * `branded` - Branded
+ * * `non_branded` - Non-branded
+ */
+export type BrandedSegmentEnumApi = (typeof BrandedSegmentEnumApi)[keyof typeof BrandedSegmentEnumApi]
+
+export const BrandedSegmentEnumApi = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
+export interface AEOPromptSetMoversApi {
+    /** Up to 5 prompts whose mention rate rose the most against the window before, largest gain first. */
+    prompt_gainers: AEOPromptMoverApi[]
+    /** Up to 5 prompts whose mention rate fell the most against the window before, largest loss first. */
+    prompt_losers: AEOPromptMoverApi[]
+    /** Up to 5 pages on the project's own domains whose citation rate rose the most, largest gain first. */
+    page_gainers: AEOPageMoverApi[]
+    /** Up to 5 pages on the project's own domains whose citation rate fell the most, largest loss first. */
+    page_losers: AEOPageMoverApi[]
+    /** Length of each window in days. */
+    days: number
+    /** First day of the current window, in the project's timezone. */
+    window_from: string
+    /** Last day of the current window, in the project's timezone. */
+    window_to: string
+    /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded */
+    branded: BrandedSegmentEnumApi
+    /**
+     * The answer engine every count covers, as requested. Null when every engine counts.
+     * @nullable
+     */
+    engine: string | null
+    /**
+     * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+     * @nullable
+     */
+    topic: string | null
+    /** Answered checks in the current window: the denominator of every page's 'citation_rate'. */
+    answers: number
+    /** Answered checks in the window before: the denominator of every page's 'previous_citation_rate'. */
+    previous_answers: number
+    /** The fewest answers a prompt needs in each window to be listed. The page lists are empty when either window has fewer answers in total. */
+    min_answers: number
+}
+
 export interface AEOPromptSetCountsApi {
     /**
      * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
@@ -1005,6 +1095,19 @@ export interface AEOPromptSetTopicCountsApi {
     active_prompts: number
 }
 
+export interface AEOPromptSetEngineTopicCountsApi {
+    /** Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'. */
+    readonly mention_rate: number
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
+    engine: string
+    /** Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'. */
+    topic: string
+    /** Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'. */
+    answers: number
+    /** Of those answers, how many name the brand. A cited answer counts as a mention. */
+    mentioned: number
+}
+
 export interface AEOPromptSetDomainApi {
     /** Host of the cited URLs, for example 'docs.example.com'. */
     domain: string
@@ -1038,21 +1141,8 @@ export interface AEOPromptSetSearchApi {
     engines: string[]
 }
 
-/**
- * * `all` - All
- * * `branded` - Branded
- * * `non_branded` - Non-branded
- */
-export type BrandedSegmentEnumApi = (typeof BrandedSegmentEnumApi)[keyof typeof BrandedSegmentEnumApi]
-
-export const BrandedSegmentEnumApi = {
-    All: 'all',
-    Branded: 'branded',
-    NonBranded: 'non_branded',
-} as const
-
 export interface AEOPromptSetOverviewApi {
-    /** Checks across the prompt set in the last 'days' days. */
+    /** Checks across the prompt set from 'window_from' to 'window_to'. */
     current: AEOPromptSetCountsApi
     /** The same counts for the 'days' days before 'window_from'. */
     previous: AEOPromptSetCountsApi
@@ -1062,6 +1152,8 @@ export interface AEOPromptSetOverviewApi {
     daily: AEOPromptDailyEngineStatsApi[]
     /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
     topics: AEOPromptSetTopicCountsApi[]
+    /** The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero. */
+    engine_topics: AEOPromptSetEngineTopicCountsApi[]
     /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
     top_domains: AEOPromptSetDomainApi[]
     /** The 20 web searches the engines ran most while answering in the current window, ranked by how many prompts triggered them, with how often those answers cited the project. */
@@ -1070,7 +1162,7 @@ export interface AEOPromptSetOverviewApi {
     days: number
     /** First day of the current window, in the project's timezone. */
     window_from: string
-    /** Last day of the current window (today), in the project's timezone. */
+    /** Last day of the current window, in the project's timezone. */
     window_to: string
     /** Prompts that are on and not archived: the ones the next daily run takes. */
     prompts_tracked: number
@@ -1179,7 +1271,7 @@ export interface AEOPromptSetRankingsApi {
     days: number
     /** First day of the current window, in the project's timezone. */
     window_from: string
-    /** Last day of the current window (today), in the project's timezone. */
+    /** Last day of the current window, in the project's timezone. */
     window_to: string
     /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
      *
@@ -2312,18 +2404,6 @@ export interface AcknowledgeCelebrationResponseApi {
     acknowledged: boolean
 }
 
-/**
- * * `user` - user
- * * `team` - team
- */
-export type AchievementDefinitionScopeEnumApi =
-    (typeof AchievementDefinitionScopeEnumApi)[keyof typeof AchievementDefinitionScopeEnumApi]
-
-export const AchievementDefinitionScopeEnumApi = {
-    User: 'user',
-    Team: 'team',
-} as const
-
 export interface AchievementStageApi {
     /** Stage number within the track, 1-5. */
     stage: number
@@ -2340,11 +2420,6 @@ export interface AchievementDefinitionApi {
     display_name: string
     /** One-line description of what the track rewards. */
     description: string
-    /** Whether the track is tracked per user or per team.
-     *
-     * * `user` - user
-     * * `team` - team */
-    scope: AchievementDefinitionScopeEnumApi
     /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
     is_experiment_track: boolean
     /** The five stages of this track, in ascending threshold order. */
@@ -2384,10 +2459,8 @@ export interface PendingCelebrationApi {
 export interface AchievementsListResponseApi {
     /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
     definitions: AchievementDefinitionApi[]
-    /** The requesting user's progress on per-user tracks. */
+    /** The requesting user's progress on each track. */
     user_progress: AchievementProgressApi[]
-    /** The team's progress on per-team tracks. */
-    team_progress: AchievementProgressApi[]
     /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
     pending_celebrations: PendingCelebrationApi[]
 }
@@ -3191,11 +3264,17 @@ export type AeoKeywordsModifiersParams = {
      */
     branded?: AeoKeywordsModifiersBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3235,11 +3314,17 @@ export type AeoKeywordsReportParams = {
      */
     branded?: AeoKeywordsReportBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3274,11 +3359,17 @@ export type AeoPromptsListParams = {
      */
     branded?: boolean | null
     /**
-     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
      * @maxLength 64
@@ -3295,7 +3386,7 @@ export type AeoPromptsListParams = {
      */
     limit?: number
     /**
-     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered from date_from to date_to without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean
     /**
@@ -3351,11 +3442,17 @@ export type AeoPromptsCitationsParams = {
      */
     branded?: AeoPromptsCitationsBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com).
      * @minLength 1
@@ -3403,6 +3500,50 @@ export const AeoPromptsCitationsBranded = {
     NonBranded: 'non_branded',
 } as const
 
+export type AeoPromptsMoversParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsMoversBranded
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null
+}
+
+export type AeoPromptsMoversBranded = (typeof AeoPromptsMoversBranded)[keyof typeof AeoPromptsMoversBranded]
+
+export const AeoPromptsMoversBranded = {
+    All: 'all',
+    Branded: 'branded',
+    NonBranded: 'non_branded',
+} as const
+
 export type AeoPromptsOverviewParams = {
     /**
      * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
@@ -3414,11 +3555,17 @@ export type AeoPromptsOverviewParams = {
      */
     branded?: AeoPromptsOverviewBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3452,11 +3599,17 @@ export type AeoPromptsRankingsParams = {
      */
     branded?: AeoPromptsRankingsBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64

@@ -156,6 +156,28 @@ class TestHarvestTransport:
                 True,
                 datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC),
             ),
+            (
+                "invoice_messages",
+                "invoices",
+                "invoice_id",
+                True,
+                datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC),
+            ),
+            (
+                "estimate_messages",
+                "estimates",
+                "estimate_id",
+                True,
+                datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC),
+            ),
+            ("estimate_messages", "estimates", "estimate_id", False, None),
+            (
+                "user_billable_rates",
+                "users",
+                "user_id",
+                True,
+                datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC),
+            ),
         ]
     )
     def test_fanout_walks_every_parent_and_tags_rows_with_the_parent_id(
@@ -211,6 +233,51 @@ class TestHarvestTransport:
         # One 404 must not abort the fan-out and drop every later parent's rows.
         assert result.raised is None
         assert [(row[parent_key], row["id"]) for row in result.rows] == [(20, 2)]
+
+    def test_pto_balances_binds_each_user_in_the_query_and_keys_rows_by_policy(self) -> None:
+        balance = {"year": 2026, "as_of": "2026-05-04", "used_days": "2.0"}
+        result = _driver().run(
+            "pto_balances",
+            route(
+                {
+                    "/v2/users": [_page([{"id": 10}, {"id": 20}], data_key="users")],
+                    "/v2/pto/balances": [
+                        ScriptedResponse(
+                            json={
+                                "user": {"id": 10, "name": "Example User"},
+                                "balances": [
+                                    {**balance, "pto_type": {"id": 101, "name": "Vacation"}},
+                                    {**balance, "pto_type": {"id": 102, "name": "Sick"}},
+                                ],
+                            }
+                        ),
+                        ScriptedResponse(
+                            json={"user": {"id": 20, "name": "Other User"}, "balances": [{**balance, "pto_type": None}]}
+                        ),
+                    ],
+                }
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.datetime(2026, 5, 4, tzinfo=datetime.UTC),
+        )
+
+        assert result.raised is None
+        # Without user_id Harvest answers with the caller's own balances for every user.
+        balance_requests = [r for r in result.requests if r.path == "/v2/pto/balances"]
+        assert [r.param("user_id") for r in balance_requests] == ["10", "20"]
+        # The endpoint documents no paging or modified-since params.
+        assert {r.param("per_page") for r in balance_requests} == {None}
+        assert {r.param("updated_since") for r in balance_requests} == {None}
+        assert [r.param("per_page") for r in result.requests if r.path == "/v2/users"] == ["1000"]
+        # The policy id is part of the primary key, so it must be a top-level column.
+        assert [(row["user_id"], row["year"], row["pto_type_id"]) for row in result.rows] == [
+            (10, 2026, 101),
+            (10, 2026, 102),
+            (20, 2026, None),
+        ]
+        response = result.response
+        assert response is not None
+        assert response.primary_keys == ["user_id", "year", "pto_type_id"]
 
     def test_fanout_resume_skips_completed_parents(self) -> None:
         result = _driver().run(

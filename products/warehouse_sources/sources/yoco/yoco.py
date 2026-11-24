@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     build_dependent_resource,
     coerce_datetime_to_utc,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -46,12 +47,6 @@ class YocoResumeConfig:
     completed: Optional[list[str]] = None
     current: Optional[str] = None
     child_state: Optional[dict[str, Any]] = None
-
-
-def _format_datetime(value: datetime) -> str:
-    # Whole seconds only, which rounds the lower bound down. `__gte` is inclusive anyway, so a
-    # sync re-reads a few boundary rows (the merge dedupes them) rather than skipping any.
-    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: str) -> Optional[datetime]:
@@ -98,8 +93,8 @@ class YocoCursorPaginator(BasePaginator):
         else:
             request.params["cursor"] = self._cursor
         if self.date_field and self._window_start is not None and self._window_end is not None:
-            request.params[f"{self.date_field}__gte"] = _format_datetime(self._window_start)
-            request.params[f"{self.date_field}__lte"] = _format_datetime(self._window_end)
+            request.params[f"{self.date_field}__gte"] = format_datetime(self._window_start)
+            request.params[f"{self.date_field}__lte"] = format_datetime(self._window_end)
 
     def init_request(self, request: Request) -> None:
         self._apply_params(request)
@@ -140,8 +135,8 @@ class YocoCursorPaginator(BasePaginator):
         if self._cursor is not None:
             state["cursor"] = self._cursor
         if self.date_field and self._window_start is not None and self._window_end is not None:
-            state["window_start"] = _format_datetime(self._window_start)
-            state["window_end"] = _format_datetime(self._window_end)
+            state["window_start"] = format_datetime(self._window_start)
+            state["window_end"] = format_datetime(self._window_end)
         return state or None
 
     def set_resume_state(self, state: dict[str, Any]) -> None:

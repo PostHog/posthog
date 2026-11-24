@@ -270,7 +270,7 @@ describe("resolveModelConfigs", () => {
     },
     {
       row: {
-        id: "moonshotai/kimi-k3",
+        id: "moonshotai/kimi-k3.1-pro",
         owned_by: "posthog",
         api_shapes: ["openai-chat-completions", "anthropic-messages"],
       },

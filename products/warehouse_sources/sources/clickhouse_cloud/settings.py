@@ -48,8 +48,10 @@ class ClickhouseCloudEndpointConfig:
     # but not verifiable without live credentials, so both incremental endpoints are merge-only —
     # append would materialize re-pulled rows as duplicates.
     supports_append: bool = False
-    # backups has no org-wide list endpoint; it fans out one request per service.
+    # backups and clickpipes have no org-wide list endpoint; they fan out one request per service.
     fan_out_over_services: bool = False
+    # The list follows `nextCursor` (passed back as `cursor`) until it is null.
+    cursor_paginated: bool = False
     should_sync_default: bool = True
     # Re-read window (seconds) the pipeline subtracts from the incremental watermark before it
     # reaches the source, so each run re-pulls recently-restated records.
@@ -108,6 +110,29 @@ CLICKHOUSE_CLOUD_ENDPOINTS: dict[str, ClickhouseCloudEndpointConfig] = {
         partition_key="startedAt",
         fan_out_over_services=True,
         description="Backups for every service in the organization (one API request per service).",
+    ),
+    "clickpipes": ClickhouseCloudEndpointConfig(
+        name="clickpipes",
+        path="/v1/organizations/{organization_id}/services/{service_id}/clickpipes",
+        primary_keys=["organizationId", "serviceId", "id"],
+        partition_key="createdAt",
+        fan_out_over_services=True,
+        cursor_paginated=True,
+        description="ClickPipes ingestion pipelines for every service in the organization, with their source, destination, scaling, and current state.",
+    ),
+    "postgres_services": ClickhouseCloudEndpointConfig(
+        name="postgres_services",
+        path="/v1/organizations/{organization_id}/postgres",
+        primary_keys=["organizationId", "id"],
+        partition_key="createdAt",
+        description="All managed Postgres services in the organization, including provider, region, version, size, and state.",
+    ),
+    "roles": ClickhouseCloudEndpointConfig(
+        name="roles",
+        path="/v1/organizations/{organization_id}/roles",
+        primary_keys=["organizationId", "id"],
+        cursor_paginated=True,
+        description="System and custom roles in the organization, with their assigned actors and policies.",
     ),
 }
 

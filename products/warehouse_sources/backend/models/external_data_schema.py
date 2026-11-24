@@ -289,6 +289,8 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 FAILURE_STREAK_KEY = "failure_streak"
 FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+# Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
+FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
 
 
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
@@ -572,6 +574,11 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         except ValueError:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    @property
+    def manual_run_requested(self) -> bool:
+        """Whether someone asked for a sync since the streak's last failed run."""
+        return self._failure_streak.get(FAILURE_STREAK_MANUAL_RUN_KEY) is True
 
     def note_failed_run(self, failed_at: datetime) -> None:
         """Add one failed run to the streak, in memory.
@@ -2037,6 +2044,88 @@ def update_sync_type_config_keys(
         return config
 
 
+def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
+    """Let the next run of each failing schema go ahead instead of standing down.
+
+    A run of a schema that keeps failing stands down until its gap has passed. Someone asking for a sync has
+    usually just changed what made it fail, and a run that stands down creates no job, so their sync would
+    show as Running with nothing behind it.
+    """
+    failing_ids = ExternalDataSchema.objects.filter(
+        id__in=list(schema_ids), team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
+    ).values_list("id", flat=True)
+
+    def _mark(config: dict[str, Any]) -> None:
+        streak = config.get(FAILURE_STREAK_KEY)
+        if isinstance(streak, dict):
+            streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
+
+    for schema_id in failing_ids:
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
+
+
+def persist_schema_metadata(
+    schema: "ExternalDataSchema",
+    *,
+    schema_metadata: dict[str, Any],
+    detected_primary_keys: list[str] | None = None,
+) -> list[str]:
+    """Store discovered `schema_metadata` on a schema row, plus `detected_primary_keys` when the row
+    has no primary key yet, and drop `enabled_columns` the source no longer has. Returns the dropped
+    column names and refreshes `schema` in place.
+
+    Only these keys are merged, under the row lock, because syncs write other `sync_type_config`
+    keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
+    table of a source, so a row whose stored values already match is not written.
+    """
+    # Function-local because the `common.sql` package pulls dlt, temporalio and pyarrow into `django.setup()`.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (  # noqa: PLC0415
+        extract_available_column_names,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (  # noqa: PLC0415
+        PrunedColumns,
+        compute_projected_columns,
+        prune_enabled_columns,
+    )
+
+    available_names = extract_available_column_names(schema_metadata)
+
+    def _prune(row: ExternalDataSchema) -> PrunedColumns:
+        pruned = prune_enabled_columns(row.enabled_columns, available_names)
+        # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
+        # read always projects the incremental field it is given, but not a stored primary key: some sources
+        # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
+        # stale selection so the next read fails on the dropped column.
+        incremental_field = row.incremental_field if row.should_use_incremental_field else None
+        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
+            return PrunedColumns(kept=row.enabled_columns, removed=[])
+        return pruned
+
+    stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
+    if (
+        stored.get("schema_metadata") == schema_metadata
+        and (not detected_primary_keys or stored.get("primary_key_columns"))
+        and not _prune(schema).removed
+    ):
+        return []
+
+    def _merge(config: dict[str, Any]) -> None:
+        config["schema_metadata"] = schema_metadata
+        # Never replace a stored key, such as an explicit override chosen at source creation.
+        if detected_primary_keys and not config.get("primary_key_columns"):
+            config["primary_key_columns"] = detected_primary_keys
+
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        pruned = _prune(locked)
+        if pruned.removed:
+            locked.enabled_columns = pruned.kept
+            locked.save(update_fields=["enabled_columns", "updated_at"])
+        schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)
+    schema.enabled_columns = locked.enabled_columns
+    return pruned.removed
+
+
 def save_repartition_checkpoint_if_claimed(
     schema: ExternalDataSchema, *, claim_token: str, checkpoint: dict[str, Any]
 ) -> bool:
@@ -2386,6 +2475,23 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
 class DirectSchemaReconciliation:
     active_schemas: list[ExternalDataSchema]
     stale_schemas: list[ExternalDataSchema]
+
+
+def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) -> list[ExternalDataSchema]:
+    """A source's schemas that are not deleted, with their linked table loaded in the same query."""
+    return list(
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, deleted=False).select_related("table")
+    )
+
+
+def source_has_column_restricted_schemas(source_id: str | uuid.UUID, team_id: int) -> bool:
+    """Whether the column picker hides columns on any table of this source."""
+    # `deleted` is nullable and the live catalog treats NULL as active, so exclude only True.
+    return (
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, enabled_columns__isnull=False)
+        .exclude(deleted=True)
+        .exists()
+    )
 
 
 def get_schemas_for_direct_reconciliation(

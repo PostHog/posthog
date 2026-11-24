@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "destination_ids": {
-            "description": "Destination IDs from the destinations list, to delete with their HogFunctions.",
+            "description": "Destination IDs from the destinations list or from creating the destination, to delete with their HogFunctions.",
             "items": {
                 "type": "string"
             },

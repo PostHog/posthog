@@ -9,6 +9,7 @@ import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/t
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -21,6 +22,20 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
+
+import { QuillAnyWith100SamplingWarning } from './QuillAnyWith100SamplingWarning'
+import { QuillEventTriggerOptions } from './QuillEventTriggerOptions'
+import { QuillLegacyRecordingConditions } from './QuillLegacyRecordingConditions'
+import { QuillLinkedFlagSelector } from './QuillLinkedFlagSelector'
+import { QuillMinimumDurationSetting } from './QuillMinimumDurationSetting'
+import { QuillMobileMinimumDuration } from './QuillMobileMinimumDuration'
+import { QuillRecordingExclusions } from './QuillRecordingExclusions'
+import { QuillRecordingTriggersSummary } from './QuillRecordingTriggersSummary'
+import { QuillReplayTriggers } from './QuillReplayTriggers'
+import { QuillSampling } from './QuillSampling'
+import { QuillSdkCompatibilityBanner } from './QuillSdkCompatibilityBanner'
+import { QuillUrlBlocklistOptions } from './QuillUrlBlocklistOptions'
+import { QuillUrlTriggerOptions } from './QuillUrlTriggerOptions'
 
 export { TRIGGER_GROUPS_MIN_SDK_VERSION }
 
@@ -37,6 +52,7 @@ function AnyWith100SamplingWarning({
     isV2TriggersEnabled: boolean
 }): JSX.Element | null {
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
     const storedSampleRate = currentTeam?.session_recording_sample_rate
@@ -48,6 +64,10 @@ function AnyWith100SamplingWarning({
 
     if (matchType !== 'any' || sampleRate !== 100 || storedSampleRate == null || !hasOtherCondition) {
         return null
+    }
+
+    if (todayRailNav) {
+        return <QuillAnyWith100SamplingWarning isV2TriggersEnabled={isV2TriggersEnabled} />
     }
 
     return (
@@ -88,6 +108,16 @@ function TriggerPanelHeader({
 function LinkedFlagSelector(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillLinkedFlagSelector
+                flag={currentTeam?.session_recording_linked_flag ?? null}
+                onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
+            />
+        )
+    }
 
     return (
         <PayGateMini
@@ -149,6 +179,11 @@ function UrlTriggerOptions(): JSX.Element | null {
         cancelProposingUrlTrigger,
         setCheckUrlTrigger,
     } = useActions(replayTriggersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillUrlTriggerOptions />
+    }
 
     return (
         <IngestionControls.UrlConfig
@@ -193,6 +228,11 @@ function UrlBlocklistOptions(): JSX.Element | null {
         cancelProposingUrlBlocklist,
         setCheckUrlBlocklist,
     } = useActions(replayTriggersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillUrlBlocklistOptions />
+    }
 
     return (
         <IngestionControls.UrlConfig
@@ -221,6 +261,13 @@ function UrlBlocklistOptions(): JSX.Element | null {
 function EventTriggerOptions(): JSX.Element | null {
     const { eventTriggerConfig } = useValues(replayTriggersLogic)
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillEventTriggerOptions platform="web" events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -248,8 +295,20 @@ function EventTriggerOptions(): JSX.Element | null {
 function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const storedSampleRate = currentTeam?.session_recording_sample_rate
+
+    if (todayRailNav) {
+        return (
+            <QuillSampling
+                platform="web"
+                isDefault={storedSampleRate == null}
+                initialSampleRate={toDisplaySampleRate(storedSampleRate)}
+                onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+            />
+        )
+    }
 
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING} featureDetail="session-replay-sampling">
@@ -279,8 +338,20 @@ function Sampling(): JSX.Element {
 function MobileSampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const storedSampleRate = currentTeam?.session_recording_sample_rate
+
+    if (todayRailNav) {
+        return (
+            <QuillSampling
+                platform="mobile"
+                isDefault={storedSampleRate == null}
+                initialSampleRate={toDisplaySampleRate(storedSampleRate)}
+                onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+            />
+        )
+    }
 
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING} featureDetail="session-replay-sampling">
@@ -309,6 +380,17 @@ function MobileSampling(): JSX.Element {
 function MobileEventTriggers(): JSX.Element {
     const { eventTriggerConfig } = useValues(replayTriggersLogic)
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillEventTriggerOptions
+                platform="mobile"
+                events={eventTriggerConfig}
+                onChange={updateEventTriggerConfig}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -342,6 +424,16 @@ function MobileEventTriggers(): JSX.Element {
 function MobileMinimumDuration(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillMobileMinimumDuration
+                value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
+            />
+        )
+    }
 
     return (
         <PayGateMini
@@ -376,6 +468,16 @@ function MobileMinimumDuration(): JSX.Element {
 function MinimumDurationSetting(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillMinimumDurationSetting
+                value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
+            />
+        )
+    }
 
     return (
         <PayGateMini
@@ -437,8 +539,30 @@ function LegacyRecordingConditions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const statuses = useHeaderStatuses(currentTeam)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
+
+    if (todayRailNav) {
+        return (
+            <QuillLegacyRecordingConditions
+                statuses={statuses}
+                summary={
+                    currentTeam && (
+                        <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
+                    )
+                }
+                samplingWarning={
+                    <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
+                }
+                urlTriggerOptions={<UrlTriggerOptions />}
+                eventTriggerOptions={<EventTriggerOptions />}
+                linkedFlagSelector={<LinkedFlagSelector />}
+                sampling={<Sampling />}
+                minimumDuration={<MinimumDurationSetting />}
+            />
+        )
+    }
 
     return (
         <>
@@ -503,6 +627,16 @@ function LegacyRecordingConditions(): JSX.Element {
 function RecordingExclusions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const statuses = useHeaderStatuses(currentTeam)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillRecordingExclusions
+                blocklistStatus={statuses.blocklistStatus}
+                urlBlocklistOptions={<UrlBlocklistOptions />}
+            />
+        )
+    }
 
     return (
         <div>
@@ -536,8 +670,23 @@ function SdkCompatibilityBanner(): JSX.Element {
     } = useValues(replayTriggersLogic)
     const { hasLegacyTriggers } = useValues(replayTriggersV2Logic)
     const { showCreateFromLegacyModal, setIsAddingGroup } = useActions(replayTriggersV2Logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const trafficBannerAction = hasLegacyTriggers
+        ? {
+              children: 'Migrate legacy conditions',
+              onClick: showCreateFromLegacyModal,
+          }
+        : {
+              children: 'Add trigger group',
+              onClick: () => setIsAddingGroup(true),
+          }
 
     if (shouldMinimizeLegacyConditions) {
+        if (todayRailNav) {
+            return <QuillSdkCompatibilityBanner kind="minimized" />
+        }
+
         return (
             <LemonBanner type="success">
                 Your recent web SDK traffic is effectively all on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups
@@ -548,21 +697,12 @@ function SdkCompatibilityBanner(): JSX.Element {
     }
 
     if (webTrafficIsRecent && !hasV2TriggerGroups) {
+        if (todayRailNav) {
+            return <QuillSdkCompatibilityBanner kind="recent-traffic" action={trafficBannerAction} />
+        }
+
         return (
-            <LemonBanner
-                type="info"
-                action={
-                    hasLegacyTriggers
-                        ? {
-                              children: 'Migrate legacy conditions',
-                              onClick: showCreateFromLegacyModal,
-                          }
-                        : {
-                              children: 'Add trigger group',
-                              onClick: () => setIsAddingGroup(true),
-                          }
-                }
-            >
+            <LemonBanner type="info" action={trafficBannerAction}>
                 Your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, but you haven't set up trigger
                 groups yet. Recording still uses the legacy conditions below. Newer SDKs fall back to them when no
                 trigger groups exist, so nothing changes until you migrate.
@@ -572,6 +712,17 @@ function SdkCompatibilityBanner(): JSX.Element {
 
     if (hasOutdatedWebSdk) {
         const pct = outdatedWebTraffic.share < 0.01 ? '<1' : Math.round(outdatedWebTraffic.share * 100).toString()
+
+        if (todayRailNav) {
+            return (
+                <QuillSdkCompatibilityBanner
+                    kind="outdated-sdk"
+                    pct={pct}
+                    outdatedCount={outdatedWebTraffic.outdatedCount}
+                />
+            )
+        }
+
         return (
             <LemonBanner type="info">
                 About <strong>{pct}%</strong> of recent web traffic (
@@ -582,6 +733,10 @@ function SdkCompatibilityBanner(): JSX.Element {
                 configurations are sent meanwhile, so nothing is lost.
             </LemonBanner>
         )
+    }
+
+    if (todayRailNav) {
+        return <QuillSdkCompatibilityBanner kind="compatibility" />
     }
 
     return (
@@ -604,8 +759,38 @@ export function ReplayTriggers(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
+
+    if (todayRailNav) {
+        return (
+            <QuillReplayTriggers
+                matchType={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                onChangeMatchType={(value) => updateCurrentTeam({ session_recording_trigger_match_type_config: value })}
+                selectedPlatform={selectedPlatform}
+                onSelectPlatform={selectPlatform}
+                isV2TriggersEnabled={!!isV2TriggersEnabled}
+                shouldMinimizeLegacyConditions={shouldMinimizeLegacyConditions}
+                sdkCompatibilityBanner={<SdkCompatibilityBanner />}
+                recordingExclusions={<RecordingExclusions />}
+                legacyRecordingConditions={<LegacyRecordingConditions />}
+                summary={
+                    currentTeam && (
+                        <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
+                    )
+                }
+                mobileTriggers={
+                    <>
+                        <MobileEventTriggers />
+                        <LinkedFlagSelector />
+                        <MobileSampling />
+                        <MobileMinimumDuration />
+                    </>
+                }
+            />
+        )
+    }
 
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
@@ -707,6 +892,16 @@ const RecordingTriggersSummary = ({
     selectedPlatform: ReplayPlatform
 }): JSX.Element => {
     const triggers = useTriggers(currentTeam, selectedPlatform)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillRecordingTriggersSummary
+                recordingEnabled={!!currentTeam?.session_recording_opt_in}
+                triggers={triggers}
+            />
+        )
+    }
 
     if (!currentTeam?.session_recording_opt_in) {
         return (

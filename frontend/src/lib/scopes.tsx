@@ -180,6 +180,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 // posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
+    'person:write',
     'feature_flag:read',
     'account:read',
     'account:write',
@@ -197,6 +198,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'transactional_email:write',
     'llm_prompt:read',
     'logs:read',
+    'logs:write',
     'business_knowledge:read',
 ] as const
 

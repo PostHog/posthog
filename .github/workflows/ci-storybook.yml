@@ -153,8 +153,16 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name == 'pull_request' # Master pushes and the nightly run test everything
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: Visual regression tests pass
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: Build Storybook (depot-ubuntu-24.04)
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       frontend:
                         - 'patches/jest-junit@16.0.0.patch'
@@ -623,6 +631,125 @@ jobs:
                     $VR_PARTIAL)
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
+    # A required commit status that never arrives blocks the PR. When change detection
+    # decides that a commit needs no visual run, this job tells Visual Review, which then
+    # posts a passing status for that commit. It reports nothing when a job before it
+    # failed or the run was cancelled, because then no decision was made.
+    # Not in the needs of the required gate: a failed report shows as this failed job and
+    # a missing status, and must not turn the gate red.
+    # Off until the repository variable is set, because the report only does something
+    # once the repo keeps its baselines in Visual Review.
+    # The job needs the changes job. When that job fails or times out, this one is skipped and
+    # no status arrives for the commit, so a re-run of the workflow is the repair.
+    vr-skip:
+        name: Report no Visual Review run needed
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+        timeout-minutes: 10
+        needs: [changes, build-storybook, select-stories]
+        # !cancelled() stops the skips of build-storybook and select-stories from
+        # cascading to this job. Each arm then requires the jobs it reads to have succeeded.
+        if: |
+            !cancelled()
+            && vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true'
+            && github.repository == 'PostHog/posthog'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+            && needs.changes.result == 'success'
+            && (
+                needs.changes.outputs.frontend != 'true'
+                || (
+                    needs.build-storybook.result == 'success'
+                    && needs.select-stories.result == 'success'
+                    && needs.select-stories.outputs.should_run == 'false'
+                )
+            )
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # The baseline file's config block names the API host, the team and the repo, as
+            # it does for the CLI. The job reads the default branch's copy, because the host
+            # receives the token and a pull request can change its own copy. Only connection
+            # errors are retried: on a 502 the backend already tried to post the status, and
+            # a re-run of this job is the repair. A 404 or 405 means a backend that does not
+            # have this call yet, so the job passes. The token goes to curl on stdin, so it
+            # never shows in the process list.
+            - name: Report no Visual Review run needed
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BASELINE: frontend/snapshots.yml
+                  VR_RUN_TYPE: storybook
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  if [ -z "$VR_TOKEN" ]; then
+                      echo "::notice::No token is available for this pull request, so no status was reported."
+                      exit 0
+                  fi
+                  api=$(yq '.config.api // ""' "$VR_BASELINE")
+                  team=$(yq '.config.team // ""' "$VR_BASELINE")
+                  repo=$(yq '.config.repo // ""' "$VR_BASELINE")
+                  if [ -z "$api" ] || [ -z "$team" ] || [ -z "$repo" ]; then
+                      echo "::error::$VR_BASELINE has no complete config block (api, team, repo)."
+                      exit 1
+                  fi
+                  url="${api%/}/api/projects/${team}/visual_review/runs/skip/"
+                  body=$(jq -cn \
+                      --arg repo_id "$repo" \
+                      --arg run_type "$VR_RUN_TYPE" \
+                      --arg commit_sha "$VR_COMMIT" \
+                      --arg branch "$VR_BRANCH" \
+                      --argjson pr_number "$VR_PR" \
+                      '{repo_id: $repo_id, run_type: $run_type, commit_sha: $commit_sha, branch: $branch, pr_number: $pr_number}')
+                  response="$RUNNER_TEMP/vr-skip-response.txt"
+                  status=""
+                  for attempt in 1 2 3; do
+                      if status=$(printf 'Authorization: Bearer %s\n' "$VR_TOKEN" | curl -sS \
+                          --connect-timeout 10 --max-time 30 \
+                          -H @- -H 'Content-Type: application/json' \
+                          --data "$body" -o "$response" -w '%{http_code}' "$url"); then
+                          break
+                      fi
+                      status=""
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep $((attempt * 5))
+                      fi
+                  done
+                  case "$status" in
+                      200)
+                          jq -r '.detail' "$response"
+                          ;;
+                      404 | 405)
+                          # A deployed backend answers 404 only for a repo it does not know. That is a
+                          # wrong config, and passing on it would hide a status that never arrives.
+                          if [ "$(jq -r '.detail // empty' "$response" 2>/dev/null)" = 'Repo not found' ]; then
+                              echo "::error::Visual Review does not know the repo in $VR_BASELINE."
+                              exit 1
+                          fi
+                          echo "::notice::Visual Review answered $status, so it has no report for commits that need no run yet. Nothing was reported."
+                          cat "$response"
+                          ;;
+                      502)
+                          echo "::error::Visual Review could not post the commit status. Re-run this job to try again."
+                          cat "$response"
+                          exit 1
+                          ;;
+                      "")
+                          echo "::error::Visual Review did not answer after 3 attempts."
+                          exit 1
+                          ;;
+                      *)
+                          echo "::error::Visual Review answered $status."
+                          cat "$response"
+                          exit 1
+                          ;;
+                  esac
+
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
@@ -652,10 +779,36 @@ jobs:
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
+            - name: Sparse source checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with: &storybook-runner-checkout
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      .npmrc
+                      .nvmrc
+                      tsconfig.json
+                      babel.config.*
+                      .babelrc
+                      *.stories.*
+                      owners.yaml
+                      CODEOWNERS
+                      /common/storybook/
+                      /frontend/plugins/
+                      /frontend/snapshots.yml
+                      /patches/
+                      /.github/actions/trunk-quarantine-gate/
+                      /.github/scripts/verify-storybook-new-stories.sh
+                      /.github/scripts/trunk-codeowners.sh
+                      /packages/owners-yaml/
+                      /bin/fix-rdkafka-paths
+                      /.husky/
+                      /.git-blame-ignore-revs
+                      product.yaml
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -683,13 +836,15 @@ jobs:
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
+            # The runner store holds only what the install below links, about a third of the
+            # full Storybook closure, so its own key keeps it apart from the full store.
             - name: Restore pnpm cache
               id: pnpm-restore
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: pnpm-${{ runner.os }}-
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-storybook-runner-${{ runner.os }}-
 
             - name: Get pnpm cache path
               id: pnpm-cache
@@ -712,8 +867,11 @@ jobs:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
+            # No `...`: the shards serve a prebuilt dist, so the test runner needs only the
+            # storybook package's own dependencies, not the @posthog/frontend tree that the
+            # build job compiles.
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+              run: pnpm --filter=@posthog/storybook install --frozen-lockfile
 
             # Inside the playwright container pnpm keeps its store on the workspace mount.
             # actions/cache keys an entry on key plus path, so this is a separate entry
@@ -723,7 +881,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # The container's cache path and recorded checkout path differ from the host.
             # Each runner provider needs a master shard to seed its separate cache.
@@ -1014,9 +1172,7 @@ jobs:
             OPT_OUT_CAPTURE: 1
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+              with: *storybook-runner-checkout
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -1044,12 +1200,13 @@ jobs:
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
+            # Same runner store and install as the visual-regression shards.
             - name: Restore pnpm cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: pnpm-${{ runner.os }}-
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-storybook-runner-${{ runner.os }}-
 
             - name: Get pnpm cache path
               id: pnpm-cache
@@ -1073,7 +1230,7 @@ jobs:
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
             - name: Install dependencies
-              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+              run: pnpm --filter=@posthog/storybook install --frozen-lockfile
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -1111,7 +1268,7 @@ jobs:
                       || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
                   MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
                   [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
-                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                  git fetch --no-tags --depth=1 --filter=blob:none "https://github.com/$REPO" "$MERGE_BASE" \
                       || skip "Could not fetch merge base $MERGE_BASE"
                   echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
                   .github/scripts/verify-storybook-new-stories.sh "$MERGE_BASE" 3

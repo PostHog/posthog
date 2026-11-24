@@ -281,13 +281,38 @@ class TestHookdeckRedaction:
     def test_redacts_credential_bearing_fields(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
         assert _redact_secrets(row) == expected
 
-    def test_credential_endpoint_rows_are_redacted_end_to_end(self) -> None:
-        result = _driver().run(
-            "destinations", [_response([{"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}}], None)]
-        )
+    @pytest.mark.parametrize(
+        "endpoint, row, expected",
+        [
+            (
+                "destinations",
+                {"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}},
+                {"id": "des_1", "auth_method": REDACTED},
+            ),
+            (
+                "bulk_request_retries",
+                {
+                    "id": "bch_1",
+                    "type": "requests.retry",
+                    "query": {"source_id": ["src_1"], "headers": {"authorization": "Bearer fake-token"}},
+                    "in_progress": False,
+                },
+                {
+                    "id": "bch_1",
+                    "type": "requests.retry",
+                    "query": {"source_id": ["src_1"], "headers": {"authorization": REDACTED}},
+                    "in_progress": False,
+                },
+            ),
+        ],
+    )
+    def test_credential_endpoint_rows_are_redacted_end_to_end(
+        self, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_response([row], None)])
 
         assert result.raised is None
-        assert result.rows == [{"id": "des_1", "auth_method": REDACTED}]
+        assert result.rows == [expected]
 
     def test_non_credential_endpoint_rows_pass_through_untouched(self) -> None:
         # `events` isn't flagged as credential-bearing, so an auth-shaped key must not be masked.
@@ -455,22 +480,50 @@ class TestHookdeckMetrics:
         assert params["date_range[end]"] == "2026-03-10T12:34:56.789Z"
         assert params["granularity"] == "1h"
 
-    def test_query_uses_bracket_arrays_and_rows_are_flattened(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, path, point, expected_row",
+        [
+            (
+                "queue_depth_metrics",
+                "/metrics/queue-depth",
+                {
+                    "time_bucket": "2026-03-04T02:00:00.000Z",
+                    "dimensions": {"destination_id": "des_1"},
+                    "metrics": {"max_depth": 12, "max_age": 3.5},
+                },
+                {"time_bucket": "2026-03-04T02:00:00.000Z", "destination_id": "des_1", "max_depth": 12, "max_age": 3.5},
+            ),
+            (
+                "event_metrics",
+                "/metrics/events",
+                {
+                    "time_bucket": "2026-03-04T02:00:00.000Z",
+                    "dimensions": {"source_id": "src_1", "webhook_id": "web_1", "destination_id": "des_1"},
+                    "metrics": {"count": 9, "failed_count": 1, "error_rate": 11.11},
+                },
+                {
+                    "time_bucket": "2026-03-04T02:00:00.000Z",
+                    "source_id": "src_1",
+                    "webhook_id": "web_1",
+                    "destination_id": "des_1",
+                    "count": 9,
+                    "failed_count": 1,
+                    "error_rate": 11.11,
+                },
+            ),
+        ],
+    )
+    def test_query_uses_bracket_arrays_and_rows_are_flattened(
+        self, endpoint: str, path: str, point: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
+        metrics = HOOKDECK_ENDPOINTS[endpoint].metrics
+        assert metrics is not None
+
         result = _driver().run(
-            "queue_depth_metrics",
+            endpoint,
             [
                 ScriptedResponse(
-                    status=200,
-                    json={
-                        "data": [
-                            {
-                                "time_bucket": "2026-03-04T02:00:00.000Z",
-                                "dimensions": {"destination_id": "des_1"},
-                                "metrics": {"max_depth": 12, "max_age": 3.5},
-                            }
-                        ],
-                        "metadata": {"granularity": "1h", "truncated": False},
-                    },
+                    status=200, json={"data": [point], "metadata": {"granularity": "1h", "truncated": False}}
                 )
             ],
             should_use_incremental_field=True,
@@ -479,13 +532,13 @@ class TestHookdeckMetrics:
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"time_bucket": "2026-03-04T02:00:00.000Z", "destination_id": "des_1", "max_depth": 12, "max_age": 3.5}
-        ]
+        assert result.rows == [expected_row]
+        # Every dimension is part of the primary key, so a row missing one could not merge.
+        assert set(HOOKDECK_ENDPOINTS[endpoint].primary_keys) <= set(expected_row)
         request = result.requests[0]
-        assert request.path == f"/{API_VERSION}/metrics/queue-depth"
-        assert request.query["measures[]"] == ("max_depth", "max_age")
-        assert request.query["dimensions[]"] == ("destination_id",)
+        assert request.path == f"/{API_VERSION}{path}"
+        assert request.query["measures[]"] == metrics.measures
+        assert request.query["dimensions[]"] == metrics.dimensions
         assert request.param("date_range[start]") == "2026-03-04T02:00:00.000Z"
 
     def test_truncated_response_fails_the_sync(self) -> None:

@@ -15,6 +15,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BusinessKnowledgeTabs } from '../../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { USAGE_PERIOD_DAYS, businessKnowledgeUsageLogic } from './businessKnowledgeUsageLogic'
+import { UsageMeters } from './UsageMeters'
 import { UsageSummary } from './UsageSummary'
 import { UsageTopSourcesTable } from './UsageTopSourcesTable'
 
@@ -44,7 +45,7 @@ export function BusinessKnowledgeUsageScene(): JSX.Element {
             <BusinessKnowledgeTabs activeTab="usage" />
             <SceneSection
                 title="Usage"
-                description="How often the support agent cited your knowledge when it worked on a ticket."
+                description="How much knowledge this project ingested and how often it was searched."
                 className="gap-y-2"
                 actions={
                     <LemonSegmentedButton
@@ -69,34 +70,45 @@ export function BusinessKnowledgeUsageScene(): JSX.Element {
                         <LemonSkeleton className="h-20 w-full" />
                         <LemonSkeleton className="h-48 w-full" />
                     </div>
-                ) : usage.cited_run_count === 0 ? (
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <p className="m-0 text-sm text-secondary">
-                            No agent run cited your knowledge in the last {pluralize(usage.days, 'day')}. The support
-                            agent cites a source when it uses it on a ticket. Add sources that cover common support
-                            questions, and check that the support agent is turned on.
-                        </p>
-                    </LemonCard>
                 ) : (
-                    <div className="flex flex-col gap-2">
-                        <UsageSummary usage={usage} />
-                        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
-                            <span className="text-sm text-secondary">Agent runs that cited knowledge, per day</span>
-                            <Sparkline
-                                type="bar"
-                                className="h-24 w-full"
-                                data={dailyCounts}
-                                labels={dailyLabels}
-                                name="Agent runs"
-                                loading={usageLoading}
-                            />
-                        </LemonCard>
-                        <SceneSection title="Most cited sources" titleSize="sm" className="gap-y-2">
-                            <UsageTopSourcesTable sources={usage.top_sources} />
-                        </SceneSection>
-                    </div>
+                    <UsageMeters usage={usage} />
                 )}
             </SceneSection>
+            {usage && !usageLoadFailed && (
+                <SceneSection
+                    title="Citations"
+                    description="How often the support agent cited your knowledge when it worked on a ticket."
+                    className="gap-y-2"
+                >
+                    {usage.cited_run_count === 0 ? (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <p className="m-0 text-sm text-secondary">
+                                No agent run cited your knowledge in the last {pluralize(usage.days, 'day')}. The
+                                support agent cites a source when it uses it on a ticket. Add sources that cover common
+                                support questions, and check that the support agent is turned on.
+                            </p>
+                        </LemonCard>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <UsageSummary usage={usage} />
+                            <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
+                                <span className="text-sm text-secondary">Agent runs that cited knowledge, per day</span>
+                                <Sparkline
+                                    type="bar"
+                                    className="h-24 w-full"
+                                    data={dailyCounts}
+                                    labels={dailyLabels}
+                                    name="Agent runs"
+                                    loading={usageLoading}
+                                />
+                            </LemonCard>
+                            <SceneSection title="Most cited sources" titleSize="sm" className="gap-y-2">
+                                <UsageTopSourcesTable sources={usage.top_sources} />
+                            </SceneSection>
+                        </div>
+                    )}
+                </SceneSection>
+            )}
         </SceneContent>
     )
 }

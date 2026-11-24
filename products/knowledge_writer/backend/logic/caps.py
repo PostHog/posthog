@@ -1,18 +1,16 @@
 from datetime import timedelta
 from uuid import UUID
 
-from django.db import connection
 from django.utils import timezone
 
 import structlog
 
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.tasks.backend.facade import api as tasks_facade
 
 from ..settings import WriterSettings
-from .records import JOIN_STATE_KEY, PUBLICATION_CLAIM_STATE_KEY, SECTION_STATE_KEY, is_publication_claim_live
+from .records import PULL_REQUEST_FAILURE_STATE_KEY, PULL_REQUEST_STATE_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -21,16 +19,6 @@ OPEN_PULL_REQUEST_CAP = 10
 
 
 class WriterCapReached(Exception):
-    pass
-
-
-class WriterSectionBusy(Exception):
-    def __init__(self, section: str, busy_task_id: UUID) -> None:
-        super().__init__(section)
-        self.busy_task_id = busy_task_id
-
-
-class WriterRerunTaken(Exception):
     pass
 
 
@@ -45,52 +33,44 @@ def daily_run_cap_reached(writer: WriterSettings) -> bool:
     return len(recent_run_ids) >= DAILY_RUN_CAP
 
 
-@frozen
-class InFlightWriterRuns:
-    unpublished_runs: int
-    busy_task_id_by_section: dict[str, UUID]
-
-
-def in_flight_writer_runs(writer: WriterSettings) -> InFlightWriterRuns:
+def in_flight_writer_run_count(writer: WriterSettings) -> int:
     running_task_ids = tasks_facade.owner_origin_open_task_ids(
         team_id=writer.team_id,
         created_by_id=writer.user_id,
         origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
     )
-    claimed_task_ids = tasks_facade.owner_origin_task_ids_with_state_entry(
+    return len(running_task_ids | publishing_task_ids(writer))
+
+
+def publishing_task_ids(writer: WriterSettings) -> set[UUID]:
+    recent_task_ids = tasks_facade.owner_origin_recent_task_ids(
         team_id=writer.team_id,
         created_by_id=writer.user_id,
         origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
-        key=PUBLICATION_CLAIM_STATE_KEY,
+        since=timezone.now() - timedelta(days=1),
+        limit=DAILY_RUN_CAP,
     )
-    publishing_task_ids = {
+    completed_task_ids = {
+        latest_run.task_id
+        for latest_run in tasks_facade.get_latest_run_by_task(recent_task_ids).values()
+        if latest_run.status == tasks_facade.TaskRunStatus.COMPLETED
+    }
+    if not completed_task_ids:
+        return set()
+    return completed_task_ids - settled_task_ids(writer)
+
+
+def settled_task_ids(writer: WriterSettings) -> set[UUID]:
+    return {
         task_id
-        for task_id in claimed_task_ids
-        if is_publication_claim_live(
-            tasks_facade.read_task_state_entry(task_id, writer.team_id, PUBLICATION_CLAIM_STATE_KEY)
+        for key in (PULL_REQUEST_STATE_KEY, PULL_REQUEST_FAILURE_STATE_KEY)
+        for task_id in tasks_facade.owner_origin_task_ids_with_state_entry(
+            team_id=writer.team_id,
+            created_by_id=writer.user_id,
+            origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+            key=key,
         )
     }
-    in_flight_task_ids = running_task_ids | publishing_task_ids
-    unpublished_runs = 0
-    busy_task_id_by_section: dict[str, UUID] = {}
-    for task_id in in_flight_task_ids:
-        if tasks_facade.read_task_state_entry(task_id, writer.team_id, JOIN_STATE_KEY) is None:
-            unpublished_runs += 1
-        section = tasks_facade.read_task_state_entry(task_id, writer.team_id, SECTION_STATE_KEY)
-        if isinstance(section, str) and section:
-            busy_task_id_by_section[section] = task_id
-    return InFlightWriterRuns(unpublished_runs=unpublished_runs, busy_task_id_by_section=busy_task_id_by_section)
-
-
-def claim_section(writer: WriterSettings, section: str) -> None:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            [f"knowledge-writer-section:{writer.team_id}:{section}"],
-        )
-    busy_task_id = in_flight_writer_runs(writer).busy_task_id_by_section.get(section)
-    if busy_task_id is not None:
-        raise WriterSectionBusy(section, busy_task_id)
 
 
 def alert_cap_reached(cap: str, *, team_id: int, dedupe_id: str) -> None:

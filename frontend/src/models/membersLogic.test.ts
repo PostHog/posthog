@@ -9,6 +9,7 @@ import {
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 
+import { ApiConfig } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -100,6 +101,23 @@ describe('membersLogic', () => {
             expect(result).not.toContain(MOCK_USER_UUID)
             expect(result).toContain(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
         })
+    })
+
+    it('loads the members when the organization ID arrives after the load was asked for', async () => {
+        ApiConfig.setCurrentOrganizationId(null)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllMembers()
+        }).toFinishAllListeners()
+        expect(logic.values.members).toBeNull()
+
+        await expectLogic(logic, () => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess(MOCK_DEFAULT_ORGANIZATION)
+        }).toFinishAllListeners()
+        expect(logic.values.members?.map((member) => member.user.uuid)).toEqual([
+            MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid,
+            MOCK_USER_UUID,
+        ])
     })
 
     describe('postRemoveMember', () => {

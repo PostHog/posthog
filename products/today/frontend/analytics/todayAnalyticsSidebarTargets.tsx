@@ -14,6 +14,7 @@ import {
 
 import { urls } from 'scenes/urls'
 
+import { sidebarProductCopy } from '~/layout/panel-layout/sidebarProductMeta'
 import type { TodayExplainerPreview } from '~/layout/today/todayPreviewCards'
 import { InsightShortId } from '~/types'
 
@@ -88,10 +89,23 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
         },
         urls.subscriptions()
     ),
-    product_analytics: sidebarPage('Product analytics', <IconGraph />, urls.analyticsProductHome()),
-    web_analytics: sidebarPage('Web analytics', <IconPieChart />, urls.webAnalytics()),
-    sql_editor: sidebarPage('SQL editor', <IconDatabase />, urls.sqlEditor()),
-    new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew()),
+    product_analytics: sidebarPage(
+        'Product analytics',
+        <IconGraph />,
+        urls.insights(),
+        sidebarProductCopy('Product analytics')
+    ),
+    web_analytics: sidebarPage(
+        'Web analytics',
+        <IconPieChart />,
+        urls.webAnalytics(),
+        sidebarProductCopy('Web analytics')
+    ),
+    sql_editor: sidebarPage('SQL editor', <IconDatabase />, urls.sqlEditor(), sidebarProductCopy('SQL editor')),
+    new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew(), {
+        description: 'Build a chart from your events, such as a trend, a funnel, or retention over time.',
+        example: 'Chart how many people signed up each week this quarter.',
+    }),
 }
 
 /** Where a layout item leads, or null for a page this version of the app does not know. */

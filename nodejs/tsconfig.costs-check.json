@@ -1,0 +1,12 @@
+{
+    // The generated provider union and the hand-written alias map are one contract:
+    // every alias target must stay a member of `CanonicalProvider`. The full project
+    // typecheck needs the workspace packages built, so this project typechecks just
+    // that pair with the production compiler options.
+    "extends": "./tsconfig.json",
+    "include": [
+        "src/ingestion/pipelines/ai/costs/provider-matching.ts",
+        "src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts",
+        "src/ingestion/pipelines/ai/costs/providers/types.ts"
+    ]
+}

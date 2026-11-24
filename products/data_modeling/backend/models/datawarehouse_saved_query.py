@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
+from opentelemetry import trace
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -31,14 +32,12 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.hogql.database.models import DecimalDatabaseField, FieldOrTable, SavedQuery, clickhouse_decimal_scale
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
@@ -48,6 +47,7 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
@@ -59,30 +59,9 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
-
-_IN_SUBQUERY_OPS = (
-    ast.CompareOperationOp.In,
-    ast.CompareOperationOp.NotIn,
-    ast.CompareOperationOp.GlobalIn,
-    ast.CompareOperationOp.GlobalNotIn,
-)
-
-
-def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
-    for branch in extract_select_queries(select_query):
-        branch.limit = ast.Constant(value=0)
-        branch.offset = None
-
-
-class _InSubqueryZeroRows(TraversingVisitor):
-    # ClickHouse builds the set of an IN subquery before it plans the outer read, so the outer LIMIT 0
-    # does not stop that read. A scalar subquery keeps its rows, because an empty one is a ClickHouse error.
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        super().visit_compare_operation(node)
-        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
-            _limit_to_zero_rows(node.right)
 
 
 def validate_saved_query_name(value: str) -> None:
@@ -301,6 +280,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
         return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
 
+    @tracer.start_as_current_span("saved_query.schedule_materialization")
     def schedule_materialization(
         self,
         *,
@@ -430,7 +410,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
         try:
-            materialize_saved_query(self, triggered_by_id=triggered_by_id)
+            materialize_saved_query(self, trigger=MaterializationRunTrigger.MANUAL, triggered_by_id=triggered_by_id)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -525,15 +505,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             raise Exception("Saved query is missing a query definition")
         return bind_window_start_sql(query["query"])
 
+    @tracer.start_as_current_span("saved_query.infer_columns")
     def get_columns(
-        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+        self,
+        user: Optional["User"] = None,
+        *,
+        bypass_warehouse_access_control: bool = False,
+        database: Database | None = None,
     ) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
-
-        # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(self.sql)
-        _limit_to_zero_rows(select_query)
-        _InSubqueryZeroRows().visit(select_query)
+        from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            describe_query_columns,
+        )
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
@@ -541,29 +523,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(
-                    select_query,
+                described_columns = describe_query_columns(
+                    parse_select(self.sql),
                     team=self.team,
                     user=user,
-                    query_type="HogQLQuery",
-                    refresh_stale_view_columns=False,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=database,
                 )
-        result = response.types
 
-        if result is None:
-            raise Exception("No columns types provided by clickhouse in get_columns")
-
-        columns = {
-            str(item[0]): {
-                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                "clickhouse": item[1],
+        return {
+            column.name: {
+                "hogql": hogql_type_name_for_clickhouse_type(column.ch_type),
+                "clickhouse": column.ch_type,
                 "valid": True,
             }
-            for item in result
+            for column in described_columns
         }
-
-        return columns
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
         columns = self.columns or {}
@@ -581,6 +556,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def s3_tables(self):
         return self.get_s3_tables()
 
+    @tracer.start_as_current_span("saved_query.resolve_source_tables")
     def get_s3_tables(self, database=None):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database
@@ -649,7 +625,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMotherDuckTable,
         DirectTrinoTable,
     ]:
-        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
+        if (
+            self.table is not None
+            and self.table.team_id == self.team_id
+            and self.is_materialized
+            and modifiers is not None
+            and modifiers.useMaterializedViews
+        ):
             table = self.table.hogql_definition(modifiers)
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)
@@ -702,6 +684,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
+
+            field = fields[column]
+            if isinstance(field, DecimalDatabaseField):
+                field.scale = clickhouse_decimal_scale(clickhouse_type)
 
         return fields
 

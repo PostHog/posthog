@@ -818,6 +818,10 @@ class TestPostgresSourceNonRetryableErrors:
                 'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
                 "temporarily unavailable",
             ),
+            (
+                "canceling statement due to lock timeout",
+                "lock timeout",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
@@ -2325,6 +2329,24 @@ class TestPostgresSourceRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Metadata-probe statement timeout should not be non-retryable: {error_msg}"
 
+    def test_lock_timeout_is_classified_retryable(self, source):
+        # `_has_duplicate_primary_keys`'s pre-read probe re-raises `LockNotAvailable` immediately
+        # (no in-process retry), and `get_rows`'s server-cursor DECLARE and keyset-page reads
+        # re-raise the same raw error once their own bounded in-process retry budget is spent.
+        # Without this classification, every one of those floods error tracking at `exception`
+        # level (see `_handle_import_error`) instead of being treated as the self-recovering
+        # condition it is.
+        error_msg = "canceling statement due to lock timeout"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Lock timeout should be classified retryable: {error_msg}"
+
+    def test_lock_timeout_is_not_also_non_retryable(self, source):
+        error_msg = "canceling statement due to lock timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Lock timeout should not be non-retryable: {error_msg}"
+
 
 def _raise_eof() -> None:
     # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
@@ -2890,6 +2912,13 @@ class TestIsConnectionDroppedError:
             # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
             # (already covered by the type check); same transient class, so the reconnect must catch it.
             psycopg.errors.ProtocolViolation("idle transaction timeout"),
+            # PgBouncer's own `client_idle_timeout` setting disconnects a client that is not inside
+            # a transaction and has gone longer than the configured limit without a statement in
+            # flight — exactly what the offset-chunking fallback's autocommit connection does
+            # between pages while the destination's slow delta-merge runs. Same bare error-packet
+            # shape as `query_wait_timeout`/`idle transaction timeout` above; same transient class,
+            # so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("client_idle_timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
@@ -3090,6 +3119,13 @@ class TestIsConnectionLimitError:
             psycopg.errors.ProtocolViolation(
                 "server login has been failing, cached error: remaining connection slots are "
                 "reserved for roles with the SUPERUSER attribute (server_login_retry)"
+            ),
+            # PgBouncer's own instance-wide max_client_conn refusal — the exact message seen in
+            # production against a Supabase pooler. Distinct literal from Supavisor's EMAXCONN
+            # variant above, so it needs its own substring match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: '
+                "FATAL:  no more connections allowed (max_client_conn)"
             ),
         ],
     )
@@ -6171,11 +6207,51 @@ class TestValidateCredentialsErrorMapping:
         with (
             mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
             mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
-            mock.patch.object(source, "get_schemas", return_value=[]),
+            mock.patch.object(source, "get_schemas", return_value=[mock.MagicMock()]),
         ):
             valid, error = source.validate_credentials(config, team_id=1)
 
         assert (valid, error) == (True, None)
+
+    @pytest.mark.parametrize(
+        "schema, table_name, discovered, expected",
+        [
+            ("public", None, [], (False, "Your database has no tables in the schema you entered.")),
+            ("  analytics  ", None, [], (False, "Your database has no tables in the schema you entered.")),
+            ("", None, [], (False, "Your database has no tables to import.")),
+            ("   ", None, [], (False, "Your database has no tables to import.")),
+            (None, None, [], (False, "Your database has no tables to import.")),
+            ("public", None, [mock.sentinel.table], (True, None)),
+            # A table-scoped check must not start failing for a table that has since been dropped.
+            ("public", "orders", [], (True, None)),
+        ],
+    )
+    def test_empty_discovery_is_rejected_with_a_field_specific_message(
+        self, source, schema, table_name, discovered, expected
+    ):
+        job_inputs = {
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+        }
+        if schema is not None:
+            job_inputs["schema"] = schema
+        config = source.parse_config(job_inputs)
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", return_value=discovered),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1, schema_name=table_name)
+
+        expected_valid, expected_prefix = expected
+        assert valid is expected_valid
+        if expected_prefix is None:
+            assert error is None
+        else:
+            assert error is not None and error.startswith(expected_prefix)
 
 
 class TestPostgresSchemaDiscovery:

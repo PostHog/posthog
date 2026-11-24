@@ -101,8 +101,6 @@ describe('DiscussReportButton', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         inboxTaskKickoffLogic.mount()
         discussReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'discussReport').mockImplementation(discussReport)
@@ -204,7 +202,6 @@ describe('DiscussReportButton', () => {
         const user = userEvent.setup()
         const report = makeReport([SUGGESTION])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         })
         await expectLogic(inboxTaskKickoffLogic, () =>
@@ -327,7 +324,6 @@ describe('DiscussReportButton', () => {
 
     it('sends Get it merged with the merge intent in one click from the Ask AI menu', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const user = userEvent.setup()
@@ -362,7 +358,6 @@ describe('DiscussReportButton', () => {
         ['the flag is off', false, withPullRequest(makeReport(), 'open', 'approved')],
     ])('does not offer Get it merged when %s', async (_name, flagEnabled, report) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: flagEnabled,
         })
         const user = userEvent.setup()
@@ -387,7 +382,6 @@ describe('DiscussReportButton', () => {
 
     it('sends Make it green with the fix CI intent when CI fails on an unapproved PR', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const report = withPullRequest(makeReport(), 'open', 'review_required')
@@ -449,7 +443,6 @@ describe('DiscussReportButton', () => {
         ['the PR is already merged', 'failure', true, 'merged', false],
     ] as const)('offers no Resolve conflicts when %s', async (_name, conclusion, conflicting, state, makesGreen) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
-            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
         })
         const report = withPullRequest(makeReport(), state, 'review_required')

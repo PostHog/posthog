@@ -129,6 +129,14 @@ describe('compareQuery', () => {
         expect(compareQuery(plain, styled)).toBe(false)
     })
 
+    it.each([false, true])('treats dashboard funnel summaries as visualization-only (%s)', (enabled) => {
+        const plain: FunnelsQuery = { kind: NodeKind.FunnelsQuery, series: [] }
+        const withSummary: FunnelsQuery = { ...plain, funnelsFilter: { showSummaryOnDashboards: enabled } }
+
+        expect(compareQuery(plain, withSummary, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+        expect(compareQuery(plain, withSummary)).toBe(false)
+    })
+
     it.each([
         ['reuses the result between a line chart and a bar chart', ChartDisplayType.ActionsBar, true],
         ['reloads between a line chart and a metric', ChartDisplayType.Metric, false],

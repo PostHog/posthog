@@ -131,7 +131,13 @@ class TestGetRows:
         assert result.session_options[0]["allow_redirects"] is False
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
-    @parameterized.expand([("secret_endpoint", "sources", False), ("plain_endpoint", "jobs", True)])
+    @parameterized.expand(
+        [
+            ("secret_endpoint", "sources", False),
+            ("lists_secret_connectors", "destination_connection_checks", False),
+            ("plain_endpoint", "jobs", True),
+        ]
+    )
     def test_capture_disabled_for_secret_bearing_endpoints(self, _name: str, endpoint: str, capture: bool) -> None:
         # The adapter captures the raw body before `_drop_sensitive_fields` runs, so capture must be
         # off for endpoints whose responses carry the connector `config` secrets.
@@ -264,6 +270,56 @@ class TestJobFanOut:
         )
 
         assert isinstance(result.raised, requests.HTTPError)
+
+
+SOURCE_A = "44444444-4444-4444-8444-444444444444"
+SOURCE_B = "55555555-5555-4555-8555-555555555555"
+
+
+def _connection_check(check_id: str, status: str = "FAILURE") -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "status": status,
+        "reason": "access denied" if status == "FAILURE" else None,
+        "created_at": "2026-04-01T00:00:00Z",
+        "reported_at": "2026-04-01T00:00:05Z",
+    }
+
+
+class TestConnectionChecks:
+    @parameterized.expand(
+        [
+            ("sources", "source_connection_checks", "/api/v1/sources/", "source_id"),
+            ("destinations", "destination_connection_checks", "/api/v1/destinations/", "destination_id"),
+        ]
+    )
+    def test_reads_latest_check_per_connector_and_skips_unchecked(
+        self, _name: str, endpoint: str, list_path: str, id_field: str
+    ) -> None:
+        connector = {"name": "prod", "type": "s3", "config": {"secret": "do-not-store"}}
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    list_path: [
+                        ScriptedResponse(json=[{"id": SOURCE_A, **connector}, {"id": SOURCE_B, **connector}, {}])
+                    ],
+                    f"{list_path}{SOURCE_A}/connection-check": [ScriptedResponse(json=_connection_check("chk-1"))],
+                    f"{list_path}{SOURCE_B}/connection-check": [
+                        ScriptedResponse(status=404, json={"detail": "no check"})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            list_path,
+            f"{list_path}{SOURCE_A}/connection-check",
+            f"{list_path}{SOURCE_B}/connection-check",
+        ]
+        assert result.rows == [{**_connection_check("chk-1"), id_field: SOURCE_A}]
+        assert result.response is not None and result.response.supports_resume is False
 
 
 def _event(event_id: str, created_at: str = "2026-03-01T00:00:00Z") -> dict[str, Any]:

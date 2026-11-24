@@ -161,8 +161,8 @@ def write_parquet(
     table: pa.Table,
     snapshot_date: str | None = None,
     schema_version: int | None = None,
-) -> None:
-    """Write one Parquet object at a deterministic key.
+) -> int:
+    """Write one Parquet object at a deterministic key, and return its size in bytes.
 
     Spooled to a temp file and uploaded with `upload_fileobj` rather than held as bytes for
     `put_object`: the embeddings and model-data snapshots carry a 1536-float vector per live report,
@@ -176,8 +176,10 @@ def write_parquet(
         metadata[SCHEMA_VERSION_METADATA_KEY] = str(schema_version)
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
+        size = spool.tell()
         spool.seek(0)
         client.upload_fileobj(spool, bucket, key, ExtraArgs={"Metadata": metadata})
+    return size
 
 
 def object_snapshot_date(client, bucket: str, key: str) -> str | None:

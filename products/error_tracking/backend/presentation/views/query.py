@@ -95,6 +95,20 @@ def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, o
     )
 
 
+def external_issue_payload(reference: contracts.ErrorTrackingExternalReference) -> dict[str, object]:
+    return {
+        "id": str(reference.id),
+        "integration": {
+            "id": reference.integration.id,
+            "kind": reference.integration.kind,
+            "display_name": reference.integration.display_name,
+        },
+        "external_url": reference.external_url,
+        "external_id": reference.external_id,
+        "title": reference.title,
+    }
+
+
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
@@ -308,6 +322,15 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=contracts.IssueSummaryStatus.UNAVAILABLE, summary=None, reason=None
             )
         summary_finished_at = time.monotonic()
+        # Linked work is optional too, so a failed provider lookup still returns the issue facts.
+        external_issues: list[contracts.ErrorTrackingExternalReference] | None
+        try:
+            external_issues = facade_api.list_issue_external_references(self.team.id, issue_basics.id)
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.id, "issue_id": issue_id})
+            external_issues = None
+        if external_issues is not None:
+            payload["external_issues"] = [external_issue_payload(reference) for reference in external_issues]
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
         payload["summary_status"] = summary_read.status.value
@@ -321,6 +344,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             include_sparkline=include_sparkline,
             summary_status=summary_read.status.value,
             summary_reason=summary_read.reason.value if summary_read.reason is not None else None,
+            external_issue_count=len(external_issues) if external_issues is not None else None,
             facts_ms=round((summary_started_at - started_at) * 1000),
             summary_wait_ms=round((summary_finished_at - summary_started_at) * 1000),
         )

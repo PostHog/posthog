@@ -51,7 +51,10 @@ describe('eventsSceneLogic', () => {
         expect(logic.values.query).toEqual(query)
     })
 
-    test.each<[string, FlagEvaluationsModeEnumApi, Partial<EventsQuery>, FlagCallsNote | null]>([
+    // The last field is flag_calls_only_in_flag_evaluations. It defaults to what the backend sends for a team on the
+    // events table, which is true only on mode 2. A rest parameter stops Jest from treating that optional field as
+    // the `done` callback on four-field rows.
+    test.each<[string, FlagEvaluationsModeEnumApi, Partial<EventsQuery>, FlagCallsNote | null, boolean?]>([
         ['an unfiltered list', FlagEvaluationsModeEnumApi.Number2, {}, 'stored-separately'],
         [
             'a list filtered to another event',
@@ -114,17 +117,33 @@ describe('eventsSceneLogic', () => {
             { event: '$feature_flag_called', after: 'all' },
             null,
         ],
-    ])('decides which flag calls note shows for %s', (_name, mode, eventFilter, expected) => {
-        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
-        const query: DataTableNode = {
-            kind: NodeKind.DataTableNode,
-            source: { kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'], ...eventFilter },
+        ['an unfiltered list on native JSON events', FlagEvaluationsModeEnumApi.Number0, {}, 'stored-separately', true],
+        [
+            'flag calls over all time on native JSON events',
+            FlagEvaluationsModeEnumApi.Number0,
+            { event: '$feature_flag_called', after: 'all' },
+            'retention',
+            true,
+        ],
+    ])(
+        'decides which flag calls note shows for %s',
+        (...[_name, mode, eventFilter, expected, onlyInFlagEvaluations]) => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations:
+                    onlyInFlagEvaluations ?? mode === FlagEvaluationsModeEnumApi.Number2,
+            })
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'], ...eventFilter },
+            }
+
+            logic.actions.setQuery(query)
+
+            expect(logic.values.flagCallsNote).toBe(expected)
         }
-
-        logic.actions.setQuery(query)
-
-        expect(logic.values.flagCallsNote).toBe(expected)
-    })
+    )
 
     test.each<
         [
@@ -226,7 +245,11 @@ describe('eventsSceneLogic', () => {
                     },
                 },
             })
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             const lookup = getEventLookupQuery(LOOKUP_UUID)
             const query: DataTableNode = {
                 ...lookup,
@@ -278,6 +301,7 @@ describe('eventsSceneLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            flag_calls_only_in_flag_evaluations: true,
         })
         router.actions.push(
             combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: getEventLookupQuery(LOOKUP_UUID) }).url

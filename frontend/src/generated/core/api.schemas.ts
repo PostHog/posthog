@@ -738,6 +738,67 @@ export interface OrganizationNotificationLockBulkUpdateApi {
 }
 
 /**
+ * * `not_a_partner` - Not a provisioning partner
+ * * `in_review` - In review
+ * * `waiting_for_staff` - Waiting for PostHog staff
+ * * `on` - On
+ * * `off` - Off
+ * * `blocked` - Blocked
+ */
+export type PartnerProvisioningStatusEnumApi =
+    (typeof PartnerProvisioningStatusEnumApi)[keyof typeof PartnerProvisioningStatusEnumApi]
+
+export const PartnerProvisioningStatusEnumApi = {
+    NotAPartner: 'not_a_partner',
+    InReview: 'in_review',
+    WaitingForStaff: 'waiting_for_staff',
+    On: 'on',
+    Off: 'off',
+    Blocked: 'blocked',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `accepted` - Accepted
+ * * `rejected` - Rejected
+ * * `needs_human` - Needs staff review
+ */
+export type ProvisioningReviewStatusEnumApi =
+    (typeof ProvisioningReviewStatusEnumApi)[keyof typeof ProvisioningReviewStatusEnumApi]
+
+export const ProvisioningReviewStatusEnumApi = {
+    Pending: 'pending',
+    Accepted: 'accepted',
+    Rejected: 'rejected',
+    NeedsHuman: 'needs_human',
+} as const
+
+/**
+ * The review an app went through to become a provisioning partner, as its owners see it.
+ *
+ * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+ * review checks, which would teach an abusive app what to fake.
+ */
+export interface PartnerReviewApi {
+    /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+     *
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `rejected` - Rejected
+     * * `needs_human` - Needs staff review */
+    readonly status: ProvisioningReviewStatusEnumApi
+    /** When the app registered for provisioning. */
+    readonly opened_at: string
+    /**
+     * When the current decision was made. Null while pending.
+     * @nullable
+     */
+    readonly decided_at: string | null
+    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+    readonly partner_message: string
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
@@ -749,6 +810,18 @@ export interface OrganizationOAuthApplicationApi {
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
     is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
     readonly created: string
     readonly updated: string
 }
@@ -1817,6 +1890,13 @@ export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
     id: string
 }
 
+export interface TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi {
+    /** Organization role whose members inherit these properties. */
+    role_id: string
+    /** Ordered account properties shown to members of this role. */
+    pinned_properties: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1835,6 +1915,8 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
     /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
     default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+    /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+    role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi[]
 }
 
 /**
@@ -2973,6 +3055,16 @@ export interface TeamRealtimeCohortsApi {
     max_cohorts: number | null
 }
 
+/**
+ * * `issue_summaries` - Issue Summaries
+ */
+export type ErrorTrackingAIFeatureEnumApi =
+    (typeof ErrorTrackingAIFeatureEnumApi)[keyof typeof ErrorTrackingAIFeatureEnumApi]
+
+export const ErrorTrackingAIFeatureEnumApi = {
+    IssueSummaries: 'issue_summaries',
+} as const
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3765,10 +3857,6 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -3816,6 +3904,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Realtime cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -4665,10 +4755,6 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
     /**
      * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
      * @nullable
@@ -4716,6 +4802,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Realtime cohorts as the request's user sees them in this project. */
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
+    /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+    readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -5885,7 +5973,7 @@ export interface UploadedMediaStartUploadApi {
      */
     name: string
     /**
-     * Library to add this image to once uploaded, e.g. 'email'.
+     * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
      * @maxLength 100
      */
     purpose: string
@@ -6425,13 +6513,24 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
+export interface OrganizationExternalProjectLinkApi {
+    readonly id: string
+    /** Name shown for the project in the project switcher. */
+    readonly name: string
+    /** Full URL of the project on the other PostHog instance. */
+    readonly url: string
+}
+
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string
@@ -6483,6 +6582,11 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
@@ -6540,6 +6644,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly ip_restrictions_warning: string | null
+    /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+    readonly external_project_links: readonly OrganizationExternalProjectLinkApi[]
 }
 
 /**
@@ -7828,7 +7934,7 @@ export const UploadedMediaListPurpose = {
 } as const
 
 /**
- * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
  */
 export type UploadedMediaCreateBodyPurpose =
     (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
@@ -7837,12 +7943,13 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
     purpose?: UploadedMediaCreateBodyPurpose
 }
 

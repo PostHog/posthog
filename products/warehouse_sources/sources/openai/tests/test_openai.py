@@ -270,6 +270,24 @@ class TestProjectFanOut:
             ("project_users", "/v1/organization/projects", PROJECT_USERS_PATH, "project_id"),
             ("group_users", "/v1/organization/groups", "/v1/organization/groups/{parent_id}/users", "group_id"),
             ("user_roles", "/v1/organization/users", "/v1/organization/users/{parent_id}/roles", "user_id"),
+            (
+                "chat_completion_messages",
+                "/v1/chat/completions",
+                "/v1/chat/completions/{parent_id}/messages",
+                "completion_id",
+            ),
+            (
+                "fine_tuning_job_events",
+                "/v1/fine_tuning/jobs",
+                "/v1/fine_tuning/jobs/{parent_id}/events",
+                "fine_tuning_job_id",
+            ),
+            (
+                "fine_tuning_job_checkpoints",
+                "/v1/fine_tuning/jobs",
+                "/v1/fine_tuning/jobs/{parent_id}/checkpoints",
+                "fine_tuning_job_id",
+            ),
         ]
     )
     def test_child_rows_carry_their_parent_id(
@@ -286,7 +304,7 @@ class TestProjectFanOut:
                 return _entity_page([{"id": "shared_child"}], has_more=False)
             raise AssertionError(f"Unexpected request: {request.path}")
 
-        result = _driver().run(endpoint, respond)
+        result = _driver(project_api_key="sk-proj-test").run(endpoint, respond)
 
         assert result.raised is None
         assert sorted((row[parent_key], row["id"]) for row in result.rows) == [
@@ -313,12 +331,14 @@ class TestProjectFanOut:
 class TestPlatformTables:
     @parameterized.expand(
         [
-            ("models", "/v1/models", None),
-            ("chat_completions", "/v1/chat/completions", "100"),
+            ("models", "/v1/models", None, None),
+            ("chat_completions", "/v1/chat/completions", "100", None),
+            ("fine_tuning_jobs", "/v1/fine_tuning/jobs", "100", None),
+            ("vector_stores", "/v1/vector_stores", "100", "assistants=v2"),
         ]
     )
     def test_platform_tables_authenticate_with_the_project_key(
-        self, endpoint: str, path: str, expected_limit: str | None
+        self, endpoint: str, path: str, expected_limit: str | None, expected_beta: str | None
     ) -> None:
         # OpenAI rejects Admin API keys outside the organization endpoints.
         result = _driver(project_api_key="sk-proj-test").run(
@@ -330,6 +350,7 @@ class TestPlatformTables:
         assert result.paths == [path]
         assert {request.headers["authorization"] for request in result.requests} == {"Bearer sk-proj-test"}
         assert result.params("limit") == [expected_limit]
+        assert [request.headers.get("openai-beta") for request in result.requests] == [expected_beta]
 
     def test_missing_project_key_fails_with_a_non_retryable_error_before_any_request(self) -> None:
         result = _driver().run("batches", always(_entity_page([], has_more=False)))

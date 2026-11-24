@@ -35,6 +35,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import type { CollectionNodeLoadMeta } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import {
     CachedMCPDashboardQueryResponse,
@@ -168,6 +169,7 @@ export interface BucketRow {
     tool_calls: number
     errors: number
     p95: number
+    users: number
 }
 
 export interface KPIMetric {
@@ -184,6 +186,7 @@ export interface KPIData {
     toolCalls: KPIMetric
     errorRatePct: KPIMetric
     p95LatencyMs: KPIMetric
+    users: KPIMetric
 }
 
 // Window-level figures that can't be summed from per-bucket rows: distinct users and a percentile.
@@ -278,6 +281,7 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
+    users: { ...EMPTY_METRIC, goodDirection: 'up' },
 }
 
 export function deltaPct(current: number, previous: number): number | null {
@@ -315,6 +319,7 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
         tool_calls: Number(r[2] ?? 0),
         errors: Number(r[3] ?? 0),
         p95: Number(r[4] ?? 0),
+        users: Number(r[5] ?? 0),
     }))
 }
 
@@ -410,12 +415,19 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             sparklineLabels,
             goodDirection: 'down',
         },
-        // The headline value comes from PeriodTotals; a period p95 can't be built from bucket p95s.
+        // The headline values come from PeriodTotals: a period p95 can't be built from bucket p95s,
+        // and summing per-bucket distinct users counts a returning user once per bucket.
         p95LatencyMs: {
             ...EMPTY_METRIC,
             sparkline: current.map((r) => r.p95),
             sparklineLabels,
             goodDirection: 'down',
+        },
+        users: {
+            ...EMPTY_METRIC,
+            sparkline: current.map((r) => r.users),
+            sparklineLabels,
+            goodDirection: 'up',
         },
     }
 }
@@ -446,6 +458,7 @@ export interface mcpDashboardOverviewLogicValues {
     interval: IntervalType
     kpiIncompleteTail: boolean
     kpis: KPIData
+    loadedSections: SectionFlags
     loadingSections: SectionFlags
     modelRows: ModelRow[]
     notableSessions: NotableSession[]
@@ -470,10 +483,10 @@ export interface mcpDashboardOverviewLogicActions {
     } // dataNodeCollectionLogic
     collectionNodeLoadDataSuccess: (
         id: string,
-        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta?: CollectionNodeLoadMeta | undefined
     ) => {
         id: string
-        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+        meta: CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     endPageVisit: () => {
         value: true
@@ -531,6 +544,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dashboardBatched: (featureFlags: FeatureFlagsSet) => boolean
         dashboardLoading: (loadingSections: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         failedLoads: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SectionFlags
+        loadedSections: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SectionFlags
         feedbackLoadFailed: (failedLoads: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         kpis: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => KPIData
         periodTotals: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => PeriodTotals
@@ -653,6 +667,16 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     DASHBOARD_SECTIONS.filter((section) => !!sections[section]?.error).map((section) => [section, true])
                 ),
         ],
+        loadedSections: [
+            (s) => [s.sections],
+            (sections: SectionResults): SectionFlags =>
+                Object.fromEntries(
+                    DASHBOARD_SECTIONS.filter((section) => !!sections[section]?.results).map((section) => [
+                        section,
+                        true,
+                    ])
+                ),
+        ],
         feedbackLoadFailed: [
             (s) => [s.failedLoads],
             (failedLoads: SectionFlags): boolean => Object.values(failedLoads).some(Boolean),
@@ -770,6 +794,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     ...periodTotals.p95LatencyMs,
                     sparkline: kpis.p95LatencyMs.sparkline,
                     sparklineLabels: kpis.p95LatencyMs.sparklineLabels,
+                },
+                users: {
+                    ...kpis.users,
+                    ...periodTotals.users,
+                    sparkline: kpis.users.sparkline,
+                    sparklineLabels: kpis.users.sparklineLabels,
                 },
             }),
         ],

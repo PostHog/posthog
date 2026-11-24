@@ -21,6 +21,17 @@ PAGE_SIZE = 200
 # skew; the merge on primary keys dedupes the overlap.
 TIMEZONE_SKEW_LOOKBACK_SECONDS = 24 * 60 * 60
 
+# Allocation listings take no `per_page` and return pages of 50.
+ALLOCATIONS_PAGE_SIZE = 50
+
+
+@dataclasses.dataclass(frozen=True)
+class MaxioFanoutConfig:
+    """A child endpoint read once for each (subscription, component) row of `subscription_components`."""
+
+    # The child endpoints accept only some component kinds and reject the others with an error.
+    component_kinds: frozenset[str]
+
 
 @dataclasses.dataclass(frozen=True)
 class MaxioEndpointConfig:
@@ -39,6 +50,13 @@ class MaxioEndpointConfig:
     # Events-style monotonic integer cursor (`since_id`, inclusive) instead of a
     # datetime window.
     uses_since_id: bool = False
+    # Cursor field filtered through the date-only `since_date` param. The schema lookback
+    # moves the watermark back one day before it is truncated to a date.
+    since_date_field: str | None = None
+    page_size: int = PAGE_SIZE
+    # False for endpoints that take no `per_page` param and use a fixed page size.
+    sends_page_size: bool = True
+    fanout: MaxioFanoutConfig | None = None
     # Static params sent on every request.
     extra_params: dict[str, str | int | bool] = dataclasses.field(default_factory=dict)
     # Explicit stable sort applied on every run (guards against page-boundary drift).
@@ -205,6 +223,54 @@ ENDPOINTS: dict[str, MaxioEndpointConfig] = {
         incremental_fields=[],
         extra_params={"include": "currency_prices"},
         sort_params={"direction": "asc"},
+    ),
+    "reason_codes": MaxioEndpointConfig(
+        path="/reason_codes.json",
+        data_selector="[*].reason_code",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[],
+    ),
+    "invoice_events": MaxioEndpointConfig(
+        path="/invoices/events.json",
+        data_selector="events",
+        primary_keys=["id"],
+        partition_keys=["timestamp"],
+        incremental_fields=[
+            {
+                "label": "id",
+                "type": IncrementalFieldType.Integer,
+                "field": "id",
+                "field_type": IncrementalFieldType.Integer,
+            }
+        ],
+        # Events always come back in ascending id order; `since_id` is exclusive here.
+        uses_since_id=True,
+        # Without this flag the API leaves out `change_invoice_status` events.
+        extra_params={"with_change_invoice_status": "true"},
+    ),
+    "subscription_component_usages": MaxioEndpointConfig(
+        path="/subscriptions/{subscription_id}/components/{component_id}/usages.json",
+        data_selector="[*].usage",
+        primary_keys=["subscription_id", "component_id", "id"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("created_at")],
+        since_date_field="created_at",
+        fanout=MaxioFanoutConfig(component_kinds=frozenset({"metered_component", "prepaid_usage_component"})),
+    ),
+    "subscription_component_allocations": MaxioEndpointConfig(
+        path="/subscriptions/{subscription_id}/components/{component_id}/allocations.json",
+        data_selector="[*].allocation",
+        # Older allocations carry no `allocation_id`.
+        primary_keys=["subscription_id", "component_id", "timestamp"],
+        partition_keys=["timestamp"],
+        # No server-side filter — full refresh only.
+        incremental_fields=[],
+        page_size=ALLOCATIONS_PAGE_SIZE,
+        sends_page_size=False,
+        fanout=MaxioFanoutConfig(
+            component_kinds=frozenset({"quantity_based_component", "on_off_component", "prepaid_usage_component"})
+        ),
     ),
 }
 

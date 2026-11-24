@@ -18,7 +18,6 @@ import {
     isPropertyFilterAwaitingValue,
     isPropertyGroupFilterLike,
 } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -29,6 +28,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'

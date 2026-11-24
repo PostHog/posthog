@@ -81,7 +81,7 @@ PLAYGROUND_MODELS_BY_PROVIDER: dict[str, list[str]] = {
     display_name.lower(): config.PLAYGROUND_MODELS for display_name, config in PROVIDERS
 }
 
-# Model picked when an eval/tagger has no explicit model_configuration and the provider is
+# Model picked when an eval has no explicit model_configuration and the provider is
 # dictated by the team's active key (e.g. an Anthropic BYOK key implies an Anthropic model).
 DEFAULT_MODEL_BY_PROVIDER: dict[str, str] = {
     display_name.lower(): config.DEFAULT_MODEL for display_name, config in PROVIDERS

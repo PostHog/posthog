@@ -5,7 +5,7 @@ import zipfile
 import tempfile
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -14,16 +14,29 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.amplitude.settings import (
+    AMPLITUDE_DATA_API_HOSTS,
     AMPLITUDE_ENDPOINTS,
+    AMPLITUDE_EXPERIMENT_HOSTS,
     AMPLITUDE_HOSTS,
+    COMPOSITION_ENDPOINT,
+    COMPOSITION_PROPERTIES,
+    DASHBOARD_LOOKBACK_DAYS,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_EXPORT_LATENCY_HOURS,
     EVENTS_EXPORT_WINDOW_HOURS,
+    EXPERIMENT_PAGE_SIZE,
+    RETENTION_ENDPOINT,
+    RETENTION_RETURN_EVENT,
+    RETENTION_START_EVENT,
+    REVENUE_LTV_ENDPOINT,
+    REVENUE_LTV_METRICS,
+    AmplitudeApi,
     AmplitudeEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -60,6 +73,13 @@ class AmplitudeRetryableError(Exception):
 # activity and re-downloads the window, rather than failing the sync outright.
 AMPLITUDE_INVALID_ARCHIVE_ERROR = "Amplitude export response was not a valid zip archive"
 
+AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR = "Amplitude Management API key is not set"
+AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR = "Amplitude rejected the Management API key"
+
+
+class AmplitudeManagementKeyError(Exception):
+    pass
+
 
 @dataclasses.dataclass(frozen=False)
 class AmplitudeResumeConfig:
@@ -69,6 +89,10 @@ class AmplitudeResumeConfig:
 
 def _host(region: str) -> str:
     return AMPLITUDE_HOSTS.get(region, AMPLITUDE_HOSTS["us"])
+
+
+def _management_headers(management_api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {management_api_key}", "Accept": "application/json"}
 
 
 def _auth_headers(api_key: str, secret_key: str) -> dict[str, str]:
@@ -133,6 +157,29 @@ def validate_credentials(api_key: str, secret_key: str, region: str) -> tuple[bo
             "Organization settings → Projects in Amplitude) and that the selected region matches your project.",
         )
     return False, f"Unexpected response from Amplitude (status {response.status_code})."
+
+
+def validate_management_api_key(management_api_key: str, region: str) -> tuple[bool, Optional[str]]:
+    url = f"{AMPLITUDE_EXPERIMENT_HOSTS.get(region, AMPLITUDE_EXPERIMENT_HOSTS['us'])}/api/1/deployments?limit=1"
+    try:
+        response = make_tracked_session(redact_values=(management_api_key,)).get(
+            url, headers=_management_headers(management_api_key), timeout=30
+        )
+    except Exception as e:
+        return (
+            False,
+            f"Could not reach Amplitude Experiment ({e}). Please check your network and selected region, then retry.",
+        )
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code in (401, 403):
+        return (
+            False,
+            "Amplitude rejected the Management API key. Create a key under Experiment → Management API in "
+            "Amplitude, and check that the selected region matches your project.",
+        )
+    return False, f"Unexpected response from Amplitude Experiment (status {response.status_code})."
 
 
 @retry_with_deadline(
@@ -277,16 +324,67 @@ def _get_list_rows(
     config: AmplitudeEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
+    host = (
+        AMPLITUDE_DATA_API_HOSTS.get(region, AMPLITUDE_DATA_API_HOSTS["us"])
+        if config.api == AmplitudeApi.DATA
+        else _host(region)
+    )
     session = make_tracked_session()
     yield from _fetch_list(
         session,
-        _host(region),
+        host,
         config.path,
         _auth_headers(api_key, secret_key),
         config.data_selector,
         config.name,
         logger,
     )
+
+
+def _get_experiment_management_rows(
+    management_api_key: Optional[str],
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
+) -> Iterator[dict[str, Any]]:
+    if not management_api_key:
+        raise AmplitudeManagementKeyError(
+            f"{AMPLITUDE_MISSING_MANAGEMENT_KEY_ERROR}: the {config.name} table reads the Experiment Management API"
+        )
+
+    host = AMPLITUDE_EXPERIMENT_HOSTS.get(region, AMPLITUDE_EXPERIMENT_HOSTS["us"])
+    headers = _management_headers(management_api_key)
+    session = make_tracked_session(redact_values=(management_api_key,))
+
+    cursor: Any = None
+    while True:
+        params: dict[str, Any] = {**config.params, "limit": EXPERIMENT_PAGE_SIZE}
+        if cursor is not None:
+            params["cursor"] = cursor
+        url = f"{host}{config.path}?{urlencode(params)}"
+
+        response = _get(session, url, headers)
+        if response.status_code in (401, 403):
+            raise AmplitudeManagementKeyError(
+                f"{AMPLITUDE_INVALID_MANAGEMENT_KEY_ERROR}: status={response.status_code}"
+            )
+        if not response.ok:
+            logger.error(f"Amplitude {config.name} error: status={response.status_code}, body={response.text[:500]}")
+            response.raise_for_status()
+
+        body = response.json()
+        items = body.get(config.data_selector) if isinstance(body, dict) and config.data_selector else None
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                yield {k: v for k, v in item.items() if k not in config.excluded_fields}
+        resumable_source_manager.safe_point()
+
+        next_cursor = body.get("nextCursor") if isinstance(body, dict) else None
+        # Stop on a repeated cursor too, so a server that echoes it back cannot loop forever.
+        if next_cursor is None or next_cursor == "" or next_cursor == cursor:
+            return
+        cursor = next_cursor
 
 
 def _get_fanout_rows(
@@ -341,10 +439,174 @@ def _get_fanout_rows(
             yield row
 
 
+def _parse_chart_date(label: Any, end: date) -> date:
+    if not isinstance(label, str):
+        raise ValueError(f"Amplitude returned an unrecognized chart date: {label!r}")
+    try:
+        return date.fromisoformat(label)
+    except ValueError:
+        pass
+    # The retention chart labels its dates as "Aug 14", with no year. Every date in the window is
+    # on or before `end`, and the window is shorter than a year, so the year is the latest one
+    # that does not put the date after `end`.
+    for year in (end.year, end.year - 1):
+        try:
+            parsed = datetime.strptime(f"{label} {year}", "%b %d %Y").date()
+        except ValueError:
+            continue
+        if parsed <= end:
+            return parsed
+    raise ValueError(f"Amplitude returned an unrecognized chart date: {label!r}")
+
+
+@frozen
+class DashboardWindow:
+    start: date
+    end: date
+
+    @property
+    def params(self) -> dict[str, str]:
+        return {"start": self.start.strftime("%Y%m%d"), "end": self.end.strftime("%Y%m%d")}
+
+
+def _dashboard_window() -> DashboardWindow:
+    end = datetime.now(UTC).date()
+    return DashboardWindow(start=end - timedelta(days=DASHBOARD_LOOKBACK_DAYS - 1), end=end)
+
+
+def _fetch_chart(
+    session: requests.Session,
+    host: str,
+    headers: dict[str, str],
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+    params: dict[str, str],
+) -> dict[str, Any]:
+    url = f"{host}{config.path}?{urlencode(params)}"
+    response = _get(session, url, headers)
+    if not response.ok:
+        logger.error(f"Amplitude {config.name} error: status={response.status_code}, body={response.text[:500]}")
+        response.raise_for_status()
+
+    body = response.json()
+    data = body.get(config.data_selector) if isinstance(body, dict) and config.data_selector else None
+    return data if isinstance(data, dict) else {}
+
+
+def _first_series(data: dict[str, Any]) -> dict[str, Any]:
+    # We send no segments, so the chart has a single series.
+    series = data.get("series")
+    if isinstance(series, list) and series and isinstance(series[0], dict):
+        return series[0]
+    return {}
+
+
+def _get_retention_rows(
+    api_key: str,
+    secret_key: str,
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    window = _dashboard_window()
+    data = _fetch_chart(
+        make_tracked_session(),
+        _host(region),
+        _auth_headers(api_key, secret_key),
+        config,
+        logger,
+        params={
+            "se": json.dumps({"event_type": RETENTION_START_EVENT}),
+            "re": json.dumps({"event_type": RETENTION_RETURN_EVENT}),
+            "rm": "nday",
+            "i": "1",
+            **window.params,
+        },
+    )
+
+    values = _first_series(data).get("values")
+    if not isinstance(values, dict):
+        return
+    for label, buckets in values.items():
+        if not isinstance(buckets, list):
+            continue
+        cohort_date = _parse_chart_date(label, window.end)
+        # Index 0 holds the cohort size, and index N + 1 holds day N retention.
+        for index, bucket in enumerate(buckets[1:]):
+            if isinstance(bucket, dict):
+                yield {**bucket, "date": cohort_date, "day": index}
+
+
+def _get_composition_rows(
+    api_key: str,
+    secret_key: str,
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
+) -> Iterator[dict[str, Any]]:
+    window = _dashboard_window()
+    host = _host(region)
+    headers = _auth_headers(api_key, secret_key)
+    session = make_tracked_session()
+
+    for prop in COMPOSITION_PROPERTIES:
+        data = _fetch_chart(
+            session,
+            host,
+            headers,
+            config,
+            logger,
+            params={**window.params, "p": prop},
+        )
+        series = data.get("series")
+        counts = series[0] if isinstance(series, list) and series and isinstance(series[0], list) else []
+        x_values = data.get("xValues")
+        for value, users in zip(x_values if isinstance(x_values, list) else [], counts):
+            # Values of different properties share one column, so keep them all as strings.
+            yield {"property": prop, "value": str(value), "users": users}
+        resumable_source_manager.safe_point()
+
+
+def _get_revenue_ltv_rows(
+    api_key: str,
+    secret_key: str,
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
+) -> Iterator[dict[str, Any]]:
+    window = _dashboard_window()
+    host = _host(region)
+    headers = _auth_headers(api_key, secret_key)
+    session = make_tracked_session()
+
+    for metric_param, metric in REVENUE_LTV_METRICS.items():
+        data = _fetch_chart(
+            session,
+            host,
+            headers,
+            config,
+            logger,
+            params={
+                **window.params,
+                "m": str(metric_param),
+                "i": "1",
+            },
+        )
+        values = _first_series(data).get("values")
+        if isinstance(values, dict):
+            for label, row in values.items():
+                if isinstance(row, dict):
+                    yield {**row, "date": _parse_chart_date(label, window.end), "metric": metric}
+        resumable_source_manager.safe_point()
+
+
 def _get_rows(
     api_key: str,
     secret_key: str,
     region: str,
+    management_api_key: Optional[str],
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
@@ -362,6 +624,14 @@ def _get_rows(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
+    elif endpoint == RETENTION_ENDPOINT:
+        yield from _get_retention_rows(api_key, secret_key, region, config, logger)
+    elif endpoint == COMPOSITION_ENDPOINT:
+        yield from _get_composition_rows(api_key, secret_key, region, config, logger, resumable_source_manager)
+    elif endpoint == REVENUE_LTV_ENDPOINT:
+        yield from _get_revenue_ltv_rows(api_key, secret_key, region, config, logger, resumable_source_manager)
+    elif config.requires_management_api_key:
+        yield from _get_experiment_management_rows(management_api_key, region, config, logger, resumable_source_manager)
     elif config.fanout is not None:
         yield from _get_fanout_rows(api_key, secret_key, region, config, logger)
     else:
@@ -377,6 +647,7 @@ def amplitude_source(
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    management_api_key: Optional[str] = None,
 ) -> SourceResponse:
     config = AMPLITUDE_ENDPOINTS[endpoint]
 
@@ -386,6 +657,7 @@ def amplitude_source(
             api_key=api_key,
             secret_key=secret_key,
             region=region,
+            management_api_key=management_api_key,
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,

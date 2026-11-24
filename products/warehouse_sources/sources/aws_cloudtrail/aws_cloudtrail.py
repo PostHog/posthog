@@ -27,13 +27,13 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
 )
 
 logger = structlog.get_logger(__name__)
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 TRANSPORT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=1,
@@ -147,7 +147,7 @@ class AwsCloudTrailClient:
 
 
 def normalize_row(item: dict[str, Any], endpoint: CloudTrailEndpoint, region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    row = {camel_to_snake(key): value for key, value in item.items()}
     row["region"] = region
     for column in endpoint.timestamps:
         value = row.get(column)

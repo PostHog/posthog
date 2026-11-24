@@ -1,4 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import type { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -186,22 +190,75 @@ describe('evaluationPreviewLogic', () => {
     it.each([
         [
             'code that does not compile',
+            evaluation,
             [400, { error: 'Compilation error on line 2: unexpected token', code: 'hog_compile_error' }],
             'Compilation error on line 2: unexpected token',
             'Compilation error on line 2: unexpected token',
+            false,
         ],
-        ['a busy server', [500, { detail: 'Too many queries' }], 'Too many queries', null],
-    ] as [string, [number, Record<string, string>], string, string | null][])(
+        [
+            'a judge setting the server rejects',
+            {
+                ...evaluation,
+                evaluation_type: 'llm_judge',
+                evaluation_config: { prompt: 'Is it helpful?' },
+                model_configuration: { provider: 'openai', model: 'gpt-4.1-mini', provider_key_id: 'key-1' },
+            } as EvaluationConfig,
+            [400, { type: 'validation_error', code: 'null', detail: 'This field may not be null.' }],
+            'This field may not be null.',
+            null,
+            false,
+        ],
+        ['a busy server', evaluation, [500, { detail: 'Too many queries' }], 'Too many queries', null, true],
+    ] as [string, EvaluationConfig, [number, Record<string, string>], string, string | null, boolean][])(
         'reports %s',
-        async (_name, response, testError, codeError) => {
-            failure = response
-            mount(evaluation)
-            await expectLogic(logic).toFinishAllListeners()
+        async (_name, config, response, testError, codeError, toastedAndCaptured) => {
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            const capture = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            let toasted: boolean
+            let captured: boolean
+            try {
+                failure = response
+                mount(config)
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.testRows({ auto: false })).toFinishAllListeners()
+                toasted = toast.mock.calls.length > 0
+                captured = capture.mock.calls.some(([error]) => (error as ApiError).status === response[0])
+            } finally {
+                toast.mockRestore()
+                capture.mockRestore()
+            }
 
             expect(logic.values.testError).toBe(testError)
             expect(logic.values.codeError).toBe(codeError)
+            expect(toasted).toBe(toastedAndCaptured)
+            expect(captured).toBe(toastedAndCaptured)
         }
     )
+
+    it('shows a sampling rate the server rejects without reporting it', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:teamId/evaluations/sample_traffic/': () => [
+                    400,
+                    { type: 'validation_error', code: 'max_value', detail: 'Ensure this value is at most 100.' },
+                ],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        const capture = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        try {
+            mount(evaluation)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.samplesError).toBe('Ensure this value is at most 100.')
+            expect(toast).not.toHaveBeenCalled()
+            expect(capture.mock.calls.some(([error]) => (error as ApiError).status === 400)).toBe(false)
+        } finally {
+            toast.mockRestore()
+            capture.mockRestore()
+        }
+    })
 
     it.each([
         ['result', null, true],

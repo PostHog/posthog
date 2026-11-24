@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, PartitionFormat
 
-PaginationStyle = Literal["paging", "skip"]
+PaginationStyle = Literal["paging", "skip", "single"]
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,8 @@ class MailgunEndpointConfig:
     # Fans out over every mailing list on the account, with a `{list_address}` placeholder in the path.
     list_scoped: bool = False
     # "paging" endpoints return opaque next/previous URLs in a `paging` object and
-    # terminate with an empty `items` page; "skip" endpoints use limit/skip offsets.
+    # terminate with an empty `items` page; "skip" endpoints use limit/skip offsets; "single"
+    # endpoints return every row in one response and take no paging parameters.
     pagination: PaginationStyle = "paging"
     page_size: int = 100
     # Response key that holds the page's rows.
@@ -31,8 +32,8 @@ class MailgunEndpointConfig:
 
 # Of these list endpoints, only the Events API exposes a server-side timestamp filter (`begin`/`end`
 # epoch seconds with `ascending=yes`), so it's the only one advertised as incremental. Domains,
-# suppressions, the allowlist, mailing lists and their members, tags, templates, and subaccounts
-# have no updated-at filter — full refresh only. Domain-scoped rows get a `domain` column injected
+# suppressions, the allowlist, mailing lists and their members, tags, templates, subaccounts, IPs
+# and IP pools have no updated-at filter — full refresh only. Domain-scoped rows get a `domain` column injected
 # so primary keys stay unique across domains, and list-scoped rows a `list_address` column.
 MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
     "domains": MailgunEndpointConfig(
@@ -134,7 +135,27 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         data_key="subaccounts",
         primary_keys=["id"],
     ),
+    "ips": MailgunEndpointConfig(
+        name="ips",
+        path="/v3/ips",
+        pagination="single",
+        # `items` holds bare IP strings; `details` holds one object per IP with its flags.
+        data_key="details",
+        primary_keys=["ip"],
+    ),
+    "ip_pools": MailgunEndpointConfig(
+        name="ip_pools",
+        path="/v3/ip_pools",
+        pagination="single",
+        data_key="ip_pools",
+        primary_keys=["pool_id"],
+    ),
 }
+
+# Fans out over every template of every sending domain. Version tags are unique per template only.
+TEMPLATE_VERSIONS_ENDPOINT = "template_versions"
+TEMPLATE_VERSIONS_PATH = "/v3/{domain}/templates/{template}/versions"
+TEMPLATE_VERSIONS_PRIMARY_KEYS = ["domain", "template_name", "tag"]
 
 LOGS_ENDPOINT = "logs"
 LOGS_PATH = "/v1/analytics/logs"
@@ -149,6 +170,8 @@ LOGS_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 METRICS_PATH = "/v1/analytics/metrics"
+USAGE_METRICS_PATH = "/v1/analytics/usage/metrics"
+BOUNCE_CLASSIFICATION_PATH = "/v2/bounce-classification/metrics"
 
 # Sending metrics requested from the Metrics API, as named in Mailgun's metric and rate
 # definitions. Rates come back as strings.
@@ -182,11 +205,36 @@ METRICS: tuple[str, ...] = (
 )
 
 
+# Account usage counters from the usage metrics API, as named in its response schema.
+USAGE_METRICS: tuple[str, ...] = (
+    "processed_count",
+    "email_validation_count",
+    "email_validation_public_count",
+    "email_validation_valid_count",
+    "email_validation_single_count",
+    "email_validation_bulk_count",
+    "email_validation_list_count",
+    "email_validation_mailgun_count",
+    "email_validation_mailjet_count",
+    "email_preview_count",
+    "email_preview_failed_count",
+    "link_validation_count",
+    "link_validation_failed_count",
+    "seed_test_count",
+    "ip_blocklist_monitoring_count",
+    "domain_blocklist_monitoring_count",
+)
+
+
 @dataclass(frozen=True)
 class MailgunMetricsEndpointConfig:
     name: str
     # Metrics API dimension each daily row breaks down by. None gives account-wide totals.
     dimension: Optional[str] = None
+    path: str = METRICS_PATH
+    metrics: tuple[str, ...] = METRICS
+    # The usage metrics request takes no pagination object, and one day of account totals is one row.
+    paginated: bool = True
 
     @property
     def primary_keys(self) -> list[str]:
@@ -204,8 +252,44 @@ MAILGUN_METRICS_ENDPOINTS: dict[str, MailgunMetricsEndpointConfig] = {
         MailgunMetricsEndpointConfig(name="tag_metrics", dimension="tag"),
         MailgunMetricsEndpointConfig(name="country_metrics", dimension="country"),
         MailgunMetricsEndpointConfig(name="recipient_provider_metrics", dimension="recipient_provider"),
+        MailgunMetricsEndpointConfig(
+            name="usage_metrics", path=USAGE_METRICS_PATH, metrics=USAGE_METRICS, paginated=False
+        ),
     )
 }
+
+# Daily bounce and delay counts from the v2 bounce classification API, which replaced the v1
+# per-domain classification routes. Criticality and severity are already split out by the
+# metric names, so the rows break down by sending domain, recipient provider and category.
+# `timestamp` isn't requested: each request's start/end window is already exactly one
+# `resolution` bucket wide, Mailgun's response carries a `timestamp` per row regardless of the
+# requested dimensions, and requesting it anyway pushes the dimension count against an
+# undocumented per-request cap on this endpoint.
+BOUNCE_CLASSIFICATION_ENDPOINT = "bounce_classification_metrics"
+BOUNCE_CLASSIFICATION_DIMENSIONS: tuple[str, ...] = ("domain.name", "entity-name", "category")
+BOUNCE_CLASSIFICATION_METRICS: tuple[str, ...] = (
+    "critical_bounce_count",
+    "non_critical_bounce_count",
+    "critical_delay_count",
+    "non_critical_delay_count",
+    "classified_failures_count",
+    "delivered_smtp_count",
+    "critical_bounce_rate",
+    "non_critical_bounce_rate",
+    "critical_delay_rate",
+    "non_critical_delay_rate",
+)
+# Response keys use dots and dashes (`domain.name`, `entity-name`); rows carry them as snake_case.
+BOUNCE_CLASSIFICATION_PRIMARY_KEYS = ["timestamp", "domain_name", "entity_name", "category"]
+
+BOUNCE_CLASSIFICATION_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "timestamp",
+        "type": IncrementalFieldType.DateTime,
+        "field": "timestamp",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
 
 METRICS_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -216,11 +300,16 @@ METRICS_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
-ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys()) + tuple(MAILGUN_METRICS_ENDPOINTS.keys()) + (LOGS_ENDPOINT,)
+ENDPOINTS = (
+    tuple(MAILGUN_ENDPOINTS.keys())
+    + tuple(MAILGUN_METRICS_ENDPOINTS.keys())
+    + (LOGS_ENDPOINT, TEMPLATE_VERSIONS_ENDPOINT, BOUNCE_CLASSIFICATION_ENDPOINT)
+)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields},
     LOGS_ENDPOINT: LOGS_INCREMENTAL_FIELDS,
+    BOUNCE_CLASSIFICATION_ENDPOINT: BOUNCE_CLASSIFICATION_INCREMENTAL_FIELDS,
     **dict.fromkeys(MAILGUN_METRICS_ENDPOINTS, METRICS_INCREMENTAL_FIELDS),
 }
 

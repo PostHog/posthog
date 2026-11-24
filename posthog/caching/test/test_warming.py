@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
+    DASHBOARD_V2_WARMING_START_WINDOW,
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
     insights_to_keep_fresh,
@@ -16,8 +17,10 @@ from posthog.caching.warming import (
     warm_insight_cache_task,
 )
 from posthog.constants import AvailableFeature
+from posthog.errors import unknown_type_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
+from posthog.query_cache import QueryCache
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.query_cache.read_history import record_read
 from posthog.scheduling.jitter import deterministic_offset
@@ -238,6 +241,70 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
             self.assertNotIn("eta", remaining_tasks[0].options)
             self.assertEqual(remaining_tasks[0].options["expires"], expected_start + WARMING_CHAIN_LIFETIME)
 
+    @parameterized.expand(
+        [
+            ("flag_on", True, DASHBOARD_V2_WARMING_START_WINDOW),
+            ("flag_off", False, WARMING_START_WINDOW),
+        ]
+    )
+    def test_dashboard_v2_warms_only_tiles_read_since_their_last_compute(
+        self, _name: str, flag_on: bool, start_window: timedelta
+    ) -> None:
+        dispatched_at = datetime.now(UTC)
+        self.team1.extra_settings = {"insights_cache_warming": True}
+        self.team1.save(update_fields=["extra_settings"])
+        dashboard = Dashboard.objects.create(team=self.team1, last_accessed_at=dispatched_at)
+        # (last compute age, last read age) per tile; None means no compute recorded or never read.
+        tiles: dict[str, tuple[timedelta | None, timedelta | None]] = {
+            "never_computed_read": (None, timedelta(hours=2)),
+            "unread": (None, None),
+            "read_after_compute": (timedelta(hours=3), timedelta(hours=1)),
+            "read_only_before_compute": (timedelta(hours=2), timedelta(hours=5)),
+        }
+        insight_ids: dict[str, int] = {}
+        for name, (compute_age, read_age) in tiles.items():
+            insight = Insight.objects.create(team=self.team1)
+            insight_ids[name] = insight.pk
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+            target_age = dispatched_at - timedelta(minutes=1)
+            if compute_age is None:
+                update_target_age(
+                    team_id=self.team1.pk, insight_id=insight.pk, dashboard_id=dashboard.pk, target_age=target_age
+                )
+            else:
+                QueryCache(
+                    team_id=self.team1.pk, cache_key=f"warming_{name}", insight_id=insight.pk, dashboard_id=dashboard.pk
+                ).store_result(
+                    response={"results": [], "last_refresh": (dispatched_at - compute_age).isoformat()},
+                    target_age=target_age,
+                )
+            if read_age is not None:
+                record_read(
+                    team_id=self.team1.pk, insight_id=insight.pk, dashboard_id=dashboard.pk, at=dispatched_at - read_age
+                )
+
+        with (
+            time_machine.travel(dispatched_at, tick=False),
+            patch("posthog.caching.utils.sync_execute", return_value=[]),
+            patch(
+                "posthog.caching.warming.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag == "dashboard-v2",
+            ),
+            patch("posthog.caching.warming.warm_insight_cache_task.si") as warm_task,
+            patch("posthog.caching.warming.chain") as warm_chain,
+        ):
+            schedule_warming_for_teams_task()
+
+        expected = ["never_computed_read", "read_after_compute"] if flag_on else list(tiles)
+        self.assertCountEqual(
+            [call.args for call in warm_task.call_args_list],
+            [(insight_ids[name], dashboard.pk) for name in expected],
+        )
+        self.assertEqual(
+            warm_chain.return_value.apply_async.call_args.kwargs["eta"],
+            dispatched_at + deterministic_offset(str(self.team1.pk), start_window),
+        )
+
 
 class TestWarmInsightCacheTask(APIBaseTest):
     def test_warms_the_cache_key_a_dashboard_with_variables_reads(self):
@@ -313,12 +380,19 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("no timestamp binding"), "hogql_query_error"),
+            ("clickhouse_user_safe", unknown_type_error("Variant(Int64, UInt64)", code=50), "unknown_type"),
+        ]
+    )
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")
-    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=QueryError("no timestamp binding"))
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
     def test_query_errors_are_reported_as_an_event_instead_of_being_captured(
-        self, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
+        self, _name, error, expected_error_code, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
     ):
+        mock_calculate.side_effect = error
         insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
         capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
 
@@ -328,4 +402,4 @@ class TestWarmInsightCacheTask(APIBaseTest):
         capture_ph_event.assert_called_once()
         assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
-        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"
+        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == expected_error_code

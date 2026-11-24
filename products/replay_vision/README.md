@@ -85,6 +85,19 @@ Replay vision runs only on PostHog Cloud and in local development. A scan needs 
 - `backend/admin.py` — Django admin registrations.
 - `frontend/` — kea-first scenes and logics for the scanner management UI; `frontend/generated/` carries the generated API types.
 
+## Credit limit and free credits
+
+Billing is the only source of an organization's credit limit and free credits.
+It syncs both into `organization.usage["replay_vision_credits"]` as `limit` and `free_tier_units`, and Replay Vision reads them from there.
+
+Until billing has synced both, the organization has no credits:
+nothing scans, sweeps skip their tick without turning scanners off or skipping sessions, and the API answers 503 `billing_sync_pending`.
+The first read for such an organization asks billing to sync it, at most once every ten minutes, so it usually unblocks within seconds.
+
+Instances with no billing service (local dev, self-hosted) set `REPLAY_VISION_MONTHLY_CREDIT_QUOTA` instead.
+An organization billing never synced then gets that many credits per period, all of them free.
+`.env.development` sets it for local dev; cloud leaves it unset.
+
 ## Per-org credit limit override
 
 `REPLAY_VISION_ORG_CREDIT_LIMIT_OVERRIDES` caps monthly credit spend for named organizations, on top

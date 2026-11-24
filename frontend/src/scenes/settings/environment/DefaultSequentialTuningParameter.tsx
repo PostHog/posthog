@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
+import { NumberFieldGroup, NumberFieldInput, NumberFieldRoot } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
@@ -20,6 +22,7 @@ export function DefaultSequentialTuningParameter(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useQuillSurface()
 
     const savedValue = experimentsConfig?.default_sequential_tuning_parameter ?? null
     const displayValue = savedValue ?? DEFAULT_SEQUENTIAL_TUNING_PARAMETER
@@ -51,6 +54,29 @@ export function DefaultSequentialTuningParameter(): JSX.Element {
             return
         }
         updateExperimentsConfig({ default_sequential_tuning_parameter: rounded })
+    }
+
+    if (todayRailNav) {
+        return (
+            <NumberFieldRoot
+                className="w-32"
+                value={localValue !== undefined && Number.isFinite(localValue) ? localValue : null}
+                onValueChange={(value: number | null) => setLocalValue(value ?? undefined)}
+                min={1}
+                max={MAX_SEQUENTIAL_TUNING_PARAMETER}
+                allowOutOfRange
+                disabled={experimentsConfigLoading}
+                disabledReason={restrictionReason}
+            >
+                <NumberFieldGroup>
+                    <NumberFieldInput
+                        aria-invalid={isInvalid || undefined}
+                        onBlur={commit}
+                        onKeyDown={(event) => event.key === 'Enter' && commit()}
+                    />
+                </NumberFieldGroup>
+            </NumberFieldRoot>
+        )
     }
 
     return (

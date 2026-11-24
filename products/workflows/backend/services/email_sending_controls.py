@@ -47,6 +47,7 @@ def suspend_email_sending(
                 changed_at=None, previously_suspended_at=config.email_sending_suspended_at
             )
         previous_tier = config.email_sending_tier
+        pinned = config.email_sending_tier_pinned
         suspended_at = timezone.now()
         config.email_sending_suspended_at = suspended_at
         config.email_sending_suspension_reason = reason
@@ -58,12 +59,16 @@ def suspend_email_sending(
         # which the periodic sweep skips.
         config.email_sending_tier = MIN_EMAIL_SENDING_TIER
         config.email_sending_tier_updated_at = suspended_at
+        # Counts as a demotion even when the team was already at the lowest tier, so the sends from
+        # before the suspension cannot lift it straight back to the trusted floor once reinstated.
+        config.email_sending_tier_demoted_at = suspended_at
         config.save(
             update_fields=[
                 "email_sending_suspended_at",
                 "email_sending_suspension_reason",
                 "email_sending_tier",
                 "email_sending_tier_updated_at",
+                "email_sending_tier_demoted_at",
             ]
         )
     log_email_sending_tier_change(
@@ -71,6 +76,7 @@ def suspend_email_sending(
         previous_tier=previous_tier,
         new_tier=MIN_EMAIL_SENDING_TIER,
         reason="staff_suspension",
+        pin_change=(pinned, pinned),
         user_id=user_id,
         was_impersonated=was_impersonated,
     )

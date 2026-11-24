@@ -1,9 +1,13 @@
 import { EventEmitter } from 'node:events'
 import https from 'node:https'
+import type { Pool } from 'pg'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { captureSender, toCaptureEvent } from '@/audit/exporter'
+import { measureAuditExportLag } from '@/audit/lag'
+import { auditExportLagSeconds } from '@/audit/metrics'
 import type { AuditExportConfig } from '@/lib/config'
+import { logger } from '@/lib/logging'
 
 const CONFIG: AuditExportConfig = {
     host: 'https://capture.example.com',
@@ -29,6 +33,32 @@ const ROW = {
     outcome: 'ok',
     request_id: null,
 }
+
+describe('measureAuditExportLag', () => {
+    afterEach(() => {
+        auditExportLagSeconds.set(0)
+        vi.restoreAllMocks()
+    })
+
+    it('sets the lag gauge from the query result', async () => {
+        const query = vi.fn().mockResolvedValue({ rows: [{ lag: '120' }] })
+        await measureAuditExportLag({ query } as unknown as Pool)
+
+        expect(query.mock.calls[0]?.[0]).toContain('min(occurred_at)')
+        expect(query.mock.calls[0]?.[0]).toContain('exported_at IS NULL')
+        expect((await auditExportLagSeconds.get()).values[0]?.value).toBe(120)
+    })
+
+    it('keeps the last gauge value when the query fails', async () => {
+        auditExportLagSeconds.set(42)
+        const query = vi.fn().mockRejectedValue(new Error('database unavailable'))
+        const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined)
+
+        await expect(measureAuditExportLag({ query } as unknown as Pool)).resolves.toBeUndefined()
+        expect((await auditExportLagSeconds.get()).values[0]?.value).toBe(42)
+        expect(warn).toHaveBeenCalledWith('audit:lag_query_failed', { error: 'database unavailable' })
+    })
+})
 
 describe('toCaptureEvent', () => {
     it.each(['dev', 'prod-us', 'prod-eu'])('tags the event with environment %s', (environment) => {

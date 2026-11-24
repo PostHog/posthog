@@ -410,7 +410,10 @@ class TestFetchPrData:
             mock_paginated,
             _pr_json(number=456, head_sha="abc123"),
             comments=[_comment_json(comment_id=9001)],
-            files=[_file_json(filename="src/module.py", status="modified", patch=patch)],
+            files=[
+                _file_json(filename="src/module.py", status="modified", patch=patch),
+                {**_file_json(filename="src/notes.md", status="renamed"), "previous_filename": "src/AGENTS.md"},
+            ],
         )
 
         fetcher = PRFetcher("owner", "repo", 456, token="test-token")
@@ -424,9 +427,10 @@ class TestFetchPrData:
         assert len(comments) == 1
         assert comments[0].id == 9001
 
-        assert len(files) == 1
+        assert len(files) == 2
         assert files[0].filename == "src/module.py"
         assert len(files[0].changes) > 0
+        assert files[1].previous_filename == "src/AGENTS.md"
 
         # The diff snapshot anchors findings to the exact reviewed code via the header + raw patch.
         assert "=== src/module.py [modified] ===" in diff

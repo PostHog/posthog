@@ -53,7 +53,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
-from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
 from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -777,6 +777,76 @@ class TestOAuthAPI(APIBaseTest):
         else:
             self.assertIn("error=access_denied", response.json()["redirect_to"])
             self.assertEqual(OAuthGrant.objects.count(), grants_before)
+
+    @parameterized.expand(
+        [
+            ("organization", "organization", True, 403),
+            ("team", "team", True, 403),
+            ("all", "all", True, 403),
+            ("current_organization", "team", False, 200),
+            ("auto_organization", "organization", True, 200, "auto"),
+            ("auto_team", "team", True, 200, "auto"),
+            ("auto_current_organization", "team", False, 302, "auto"),
+            ("first_party", "organization", True, 403, "first_party"),
+        ]
+    )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_authorize_checks_grant_two_factor_policy(
+        self,
+        _name: str,
+        access_level: str,
+        target_strict: bool,
+        expected_status: int,
+        approval_path: str = "consent",
+    ) -> None:
+        # The user has no 2FA and keeps a lax organization current, so session auth alone lets them through.
+        strict_org, _, strict_team = Organization.objects.bootstrap(self.user, name="Strict organization")
+        strict_org.enforce_2fa = True
+        strict_org.save()
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = timezone.now().timestamp()
+        session.save()
+        target_org = strict_org if target_strict else self.organization
+        target_team = strict_team if target_strict else self.team
+        body = {
+            **self.base_authorization_post_body,
+            "access_level": access_level,
+            "scoped_organizations": [str(target_org.id)] if access_level == "organization" else [],
+            "scoped_teams": [target_team.id] if access_level == "team" else [],
+        }
+        grants_before = OAuthGrant.objects.count()
+
+        if approval_path == "consent":
+            response = self.client.post("/oauth/authorize/", body)
+        else:
+            if approval_path == "first_party":
+                self.confidential_application.is_first_party = True
+                self.confidential_application.save()
+            else:
+                OAuthAccessToken.objects.create(
+                    application=self.confidential_application,
+                    user=self.user,
+                    token="existing_two_factor_policy_token",
+                    expires=timezone.now() + timedelta(hours=1),
+                    scope="openid",
+                    scoped_organizations=body["scoped_organizations"] if access_level == "organization" else None,
+                    scoped_teams=body["scoped_teams"] if access_level == "team" else None,
+                )
+            response = self.client.get(self.base_authorization_url + "&scope=openid&approval_prompt=auto")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 403:
+            self.assertContains(response, "two_factor_setup_required", status_code=403)
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        elif approval_path == "auto" and target_strict:
+            # Auto-approval falls back to the consent screen, whose POST gets the 2FA denial the app prompts on.
+            self.assertIn("oauth_scope_resolution", response.context["posthog_app_context"])
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        else:
+            self.assertEqual(OAuthGrant.objects.count(), grants_before + 1)
 
     @parameterized.expand(
         [
@@ -2417,6 +2487,24 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("dcr_empty_ceiling", "is_dcr_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("cimd_empty_ceiling", "is_cimd_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("dcr_seeded_ceiling", "is_dcr_client", ["experiment:read"], "* openid", {"experiment:read", "openid"}),
+        ]
+    )
+    def test_refresh_resolves_wildcard_token_of_self_registered_client(
+        self, _name, registration_field, ceiling, token_scope, expected
+    ):
+        setattr(self.confidential_application, registration_field, True)
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
             ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
             ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
         ]
@@ -4007,15 +4095,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("metrics:read", wildcard_reads)
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
-    def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
-        # Existing clients (the PostHog Desktop CLI today) still send scope=*
-        # against apps that have no explicit ceiling. Until wildcard retirement
-        # (#60342) lands, those broad-default apps keep accepting it.
+    @parameterized.expand(
+        [
+            # Existing clients (the PostHog Desktop CLI today) still send scope=*
+            # against apps that have no explicit ceiling. Until wildcard retirement
+            # (#60342) lands, those broad-default apps keep accepting it.
+            ("manual", None, {"*"}),
+            ("dcr", "is_dcr_client", set(UNPRIVILEGED_SCOPES)),
+            ("cimd", "is_cimd_client", set(UNPRIVILEGED_SCOPES)),
+        ]
+    )
+    def test_authorize_wildcard_under_empty_app_ceiling(self, _name, registration_field, expected_scopes):
+        if registration_field:
+            setattr(self.confidential_application, registration_field, True)
+            self.confidential_application.save()
+
         response = self._authorize_post("*")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        code = parse_qs(urlparse(redirect_to).query)["code"][0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.content)
+        self.assertEqual(set(token_response.json()["scope"].split()), expected_scopes)
 
     # --- Required vs. optional scopes (OAuthApplication.optional_scopes) ---
 
@@ -4661,8 +4765,16 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
 
-    def test_introspection_with_json_body(self):
+    @parameterized.expand(
+        [
+            ("current_names", "openid", "openid"),
+            ("renamed_scope", "openid stamphog:read", "openid code_review_approval:read"),
+        ]
+    )
+    def test_introspection_with_json_body(self, _name, stored_scope, introspected_scope):
         access_token, _ = self._create_access_and_refresh_tokens()
+        access_token.scope = stored_scope
+        access_token.save(update_fields=["scope"])
 
         authorization_header = self.get_basic_auth_header(
             "test_confidential_client_id", "test_confidential_client_secret"
@@ -4678,7 +4790,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
-        self.assertEqual(data["scope"], "openid")
+        self.assertEqual(data["scope"], introspected_scope)
 
     def test_introspection_with_missing_token_returns_inactive(self):
         authorization_header = self.get_basic_auth_header(

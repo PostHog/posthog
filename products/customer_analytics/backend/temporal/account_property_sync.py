@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -23,6 +23,9 @@ from products.customer_analytics.backend.facade.temporal_contracts import (
     FinalizeAccountPropertySyncRunsInput,
     StageAccountPropertySyncInput,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from datetime import timedelta
@@ -839,7 +842,7 @@ ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [
     SyncWarehouseAccountPropertiesWorkflow,
     SyncWarehouseAccountPropertiesFanoutWorkflow,
 ]
-ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
+ACCOUNT_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     start_warehouse_account_property_runs_activity,
     finalize_warehouse_account_property_runs_activity,
     stage_warehouse_account_property_files_activity,

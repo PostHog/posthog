@@ -643,8 +643,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
     @property
     def _include_events(self) -> bool:
-        """Only the single-trace view reads span events. The column is large, so list queries skip it."""
-        return bool(self.query.traceId) and not self.query.excludeAttributes
+        """The single-trace view reads span events. The column is large, so list queries skip it unless they ask."""
+        return bool(self.query.traceId or self.query.includeEvents) and not self.query.excludeAttributes
 
     def _events_column(self) -> ast.Expr:
         # Select an empty array when skipped, so the positional result mapping stays stable.

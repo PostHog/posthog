@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from functools import partial
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -64,7 +64,9 @@ class CustomerIOImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         try:
             resolved_key = customerio_config.resolve_app_api_key(team_id, api_key)
         except customerio_config.ConfigIncomplete as e:

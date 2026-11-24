@@ -31,6 +31,7 @@ from products.warehouse_sources.sources.whop.settings import (
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
     RESOURCE_TO_EVENT_PREFIX,
+    RETIRED_ENDPOINTS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     WHOP_API_KEYS_URL,
     WHOP_API_VERSION_2025_01_01,
@@ -114,7 +115,8 @@ class WhopSource(
                             "dashboard. Grant it read access to the resources you want to sync: "
                             "`company:basic:read`, `member:basic:read`, `payment:basic:read`, "
                             "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read`, "
-                            "`invoice:basic:read`, `social_account:read`, `payout:withdrawal:read` and "
+                            "`invoice:basic:read`, `social_account:read`, `payout:withdrawal:read`, "
+                            "`payout:transfer:read`, `courses:read` and "
                             "`company:balance:read`, plus `developer:manage_webhook` if "
                             "you want PostHog to register the webhook for you."
                         ),
@@ -185,6 +187,7 @@ class WhopSource(
             "is not available on API version": (
                 "This table isn't available on the Whop API version this source uses. Turn off syncing for this table."
             ),
+            **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

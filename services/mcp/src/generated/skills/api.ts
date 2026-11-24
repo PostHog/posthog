@@ -58,6 +58,8 @@ export const llmSkillsCreateBodyFilesItemPathMax = 500
 export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
 export const llmSkillsCreateBodyFilesItemContentTypeMax = 100
 
+export const llmSkillsCreateBodyVersionDescriptionMax = 400
+
 export const LlmSkillsCreateBody = () => zod
     .object({
         name: zod
@@ -114,6 +116,13 @@ export const LlmSkillsCreateBody = () => zod
             )
             .optional()
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
+        version_description: zod
+            .string()
+            .max(llmSkillsCreateBodyVersionDescriptionMax)
+            .optional()
+            .describe(
+                'Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.'
+            ),
     })
     .describe('Create serializer — accepts bundled files and owners as write-only input on POST.')
 

@@ -21,23 +21,36 @@ export function defaultListCohortName(broadcastName: string, date: string): stri
     return `${name && name !== 'New broadcast' ? `${name} recipients` : 'Broadcast recipients'}, ${date}`
 }
 
+type MaybeNegatedFilter = AnyPropertyFilter & { negation?: boolean }
+
+function isCohortExclusion(filter: AnyPropertyFilter): boolean {
+    return (
+        filter.type === PropertyFilterType.Cohort &&
+        ((filter as MaybeNegatedFilter).negation === true || filter.operator === PropertyOperator.NotIn)
+    )
+}
+
 /** Whether a condition sends to a cohort's members, as opposed to excluding them. */
 export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
-    return filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
+    return filter.type === PropertyFilterType.Cohort && !isCohortExclusion(filter)
+}
+
+export function withCohortExclusionOperator(filter: AnyPropertyFilter): AnyPropertyFilter {
+    if (!isCohortExclusion(filter)) {
+        return filter
+    }
+    const { negation: _negation, ...rest } = filter as MaybeNegatedFilter
+    return { ...rest, operator: PropertyOperator.NotIn } as AnyPropertyFilter
 }
 
 export const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'conditionHash'])
 
 export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
     return audienceProperties.map((filter) => {
-        const { negation, ...rest } = filter as AnyPropertyFilter & { negation?: boolean }
-        const queryFilter = Object.fromEntries(
+        const { negation: _negation, ...rest } = withCohortExclusionOperator(filter) as MaybeNegatedFilter
+        return Object.fromEntries(
             Object.entries(rest).filter(([key]) => !COMPUTED_FILTER_KEYS.has(key))
         ) as AnyPersonScopeFilter
-        if (queryFilter.type === PropertyFilterType.Cohort && negation === true) {
-            queryFilter.operator = PropertyOperator.NotIn
-        }
-        return queryFilter
     })
 }
 

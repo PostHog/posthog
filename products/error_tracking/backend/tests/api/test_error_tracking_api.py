@@ -30,15 +30,19 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
+from posthog.redis import get_client
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.token_bucket import Budget, consume
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
+from products.error_tracking.backend.facade.contracts import IssueSummarizeOutcome
 from products.error_tracking.backend.logic import (
+    issue_summaries,
     symbol_sets as symbol_sets_logic,
     team_flags,
 )
@@ -53,12 +57,17 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueSummary,
     ErrorTrackingIssueTag,
     ErrorTrackingRelease,
+    ErrorTrackingSettings,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
-from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueAssignRequestSerializer
+from products.error_tracking.backend.presentation.views.issues import (
+    SUMMARIZE_ERRORS,
+    ErrorTrackingIssueAssignRequestSerializer,
+)
 from products.error_tracking.backend.presentation.views.symbol_sets import (
     BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS,
     ErrorTrackingSymbolSetBulkCheckUploadSerializer,
@@ -67,8 +76,11 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
     STORED_CONTENT,
     SUMMARY_STATES,
     lock_held,
+    summarize_state,
     summary_state,
 )
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -135,6 +147,67 @@ class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
         assert serializer.is_valid() == expected_valid
         if not expected_valid:
             assert "symbol_sets" in serializer.errors
+
+
+class TestSummarizeErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (outcome.value, outcome)
+            for outcome in IssueSummarizeOutcome
+            if outcome
+            not in {IssueSummarizeOutcome.READY, IssueSummarizeOutcome.DISABLED, IssueSummarizeOutcome.ISSUE_MISSING}
+        ]
+    )
+    def test_every_refusal_has_an_error_response(self, _name: str, outcome: IssueSummarizeOutcome) -> None:
+        status_code, error_type, detail = SUMMARIZE_ERRORS[outcome]
+        assert 400 <= status_code < 600 and error_type and detail
+
+
+def _drain_on_demand_budget(test: "TestErrorTracking", _issue: ErrorTrackingIssue, _completions: Mock) -> None:
+    tiny = Budget(burst=1, per_hour=1)
+    test.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_ON_DEMAND_BUDGET", tiny))
+    consume(f"{issue_summaries.ISSUE_SUMMARY_ON_DEMAND_BUDGET_KEY_PREFIX}:{test.team.id}", tiny)
+
+
+SUMMARIZE_REFUSALS: list[tuple[str, Callable[..., object], int, str, str]] = [
+    (
+        "setting_off",
+        lambda test, _issue, _completions: ErrorTrackingSettings.objects.filter(team=test.team).update(
+            ai_issue_summaries_enabled=False
+        ),
+        403,
+        "setting_off",
+        "authentication_error",
+    ),
+    (
+        "out_of_credits",
+        lambda test, _issue, _completions: add_limited_team_tokens(
+            QuotaResource.AI_CREDITS,
+            {test.team.api_token: int(datetime.now(UTC).timestamp()) + 3600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        ),
+        402,
+        "out_of_credits",
+        "invalid_request",
+    ),
+    ("rate_limited", _drain_on_demand_budget, 429, "rate_limited", "throttled_error"),
+    (
+        "in_progress",
+        lambda test, issue, _completions: get_client().set(
+            issue_summaries._lock_key(test.team.id, issue.id), "claim:other"
+        ),
+        409,
+        "in_progress",
+        "invalid_request",
+    ),
+    (
+        "model_fails",
+        lambda _test, _issue, completions: completions.configure_mock(side_effect=TimeoutError("slow")),
+        503,
+        "failed",
+        "server_error",
+    ),
+]
 
 
 class TestErrorTracking(APIBaseTest):
@@ -281,7 +354,7 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_tag_correction_holds_against_jev_and_logs_the_person(self) -> None:
         self._enable_issue_tags()
         issue = self.create_issue()
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
 
         with patch("products.error_tracking.backend.presentation.views.issues.is_impersonated", return_value=True):
             response = self.client.patch(
@@ -289,7 +362,7 @@ class TestErrorTracking(APIBaseTest):
                 data={"key": BLOCKS_CHECKOUT.key, "applied": False},
                 format="json",
             )
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {
@@ -575,7 +648,7 @@ class TestErrorTracking(APIBaseTest):
     def _issue_tag_correction(self) -> tuple[str, str, dict]:
         self._enable_issue_tags()
         issue = self.create_issue(["fingerprint"])
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
         return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": False}
 
     def _issue_tag_repeated_correction(self) -> tuple[str, str, dict]:
@@ -902,13 +975,16 @@ class TestErrorTracking(APIBaseTest):
         flag: bool,
         readable: bool,
         approved: bool,
+        setting: bool,
         stored: bool,
         expected_status: str,
         expected_reason: str | None,
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
+        with summary_state(
+            self, issue.id, flag=flag, readable=readable, approved=approved, setting=setting, stored=stored
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
@@ -936,6 +1012,55 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary")
 
         assert response.status_code == 404
+
+    def _summarize(self, issue_id: object) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summarize")
+
+    def test_summarize_writes_the_summary_once(self) -> None:
+        issue = self.create_issue()
+
+        with summarize_state(self) as completions:
+            first = self._summarize(issue.id)
+            second = self._summarize(issue.id)
+
+        assert first.status_code == 200, first.json()
+        assert first.json()["status"] == "ready"
+        assert {key: first.json()["summary"][key] for key in STORED_CONTENT} == STORED_CONTENT
+        assert second.json() == first.json()
+        assert completions.call_count == 1
+        stored = ErrorTrackingIssueSummary.objects.for_team(self.team.id).get(issue_id=issue.id)
+        assert stored.content == STORED_CONTENT
+
+    @parameterized.expand(SUMMARIZE_REFUSALS)
+    def test_summarize_refusal(
+        self,
+        _name: str,
+        arrange: Callable[..., object],
+        expected_status: int,
+        expected_code: str,
+        expected_type: str,
+    ) -> None:
+        issue = self.create_issue()
+
+        with summarize_state(self) as completions:
+            arrange(self, issue, completions)
+            response = self._summarize(issue.id)
+
+        assert response.status_code == expected_status, response.json()
+        assert (response.json()["code"], response.json()["type"]) == (expected_code, expected_type)
+        assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand([("issue", True), ("malformed_id", False)])
+    def test_summarize_outside_the_flag_answers_like_a_missing_route(self, _name: str, real_issue: bool) -> None:
+        issue_id = self.create_issue().id if real_issue else "not-a-uuid"
+
+        with summarize_state(self, flag=False) as completions:
+            response = self._summarize(issue_id)
+        missing_route = self.client.post(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/not_a_route")
+
+        assert (response.status_code, response.json()) == (missing_route.status_code, missing_route.json())
+        assert completions.call_count == 0
+        assert not ErrorTrackingIssueSummary.objects.for_team(self.team.id).exists()
 
     @parameterized.expand(
         [

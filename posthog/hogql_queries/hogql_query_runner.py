@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
@@ -354,19 +354,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def single_flight_variant(self) -> str:
-        # The query service cap and custom settings change the execution time without reaching the cache key.
+        # The API key cap and custom settings change the execution time without reaching the cache key.
         max_execution_time: Optional[int] = (
             self.QUERY_SERVICE_MAX_EXECUTION_TIME
-            if self._capped_for_query_service()
+            if self._capped_for_api_key()
             else (self.settings.max_execution_time if self.settings else None)
         )
         return f"{super().single_flight_variant()}:max_execution_time={max_execution_time}"
 
-    def _capped_for_query_service(self) -> bool:
+    def _capped_for_api_key(self) -> bool:
         return bool(
-            self.is_query_service
+            (self.is_query_service or self._is_api_key_run_without_extended_time())
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+        )
+
+    def _is_api_key_run_without_extended_time(self) -> bool:
+        return self.limit_context == LimitContext.QUERY and is_api_key_access_method(
+            get_query_tag_value("access_method")
         )
 
     def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -379,7 +384,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
         self._sql_classification = None
-        if self._capped_for_query_service():
+        if self._capped_for_api_key():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
             self.settings.max_threads = 60

@@ -1,14 +1,24 @@
 """SQL for the events batch export model."""
 
+import typing
+from collections.abc import Sequence
 from string import Template
 
-from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
+from posthog.hogql.printer.events_json_document import (
+    EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+    json_document_sql,
+    person_document_sql,
+)
+
+if typing.TYPE_CHECKING:
+    from products.batch_exports.backend.service import BatchExportField
 
 SELECT_FROM_EVENTS_VIEW = Template(
     """
 SELECT
     $fields
 FROM (
+    WITH JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
         timestamp AS timestamp,
@@ -21,8 +31,9 @@ FROM (
         toString(person_id) AS person_id,
         nullIf(properties, '') AS properties,
         nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        nullIf(extracted_properties.1, '') AS set,
+        nullIf(extracted_properties.2, '') AS set_once,
+        nullIf(extracted_properties.3, '') AS ip
     FROM
         events
     PREWHERE
@@ -52,6 +63,7 @@ INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
+    WITH JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
         timestamp AS timestamp,
@@ -64,8 +76,9 @@ FROM (
         toString(person_id) AS person_id,
         nullIf(properties, '') AS properties,
         nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        nullIf(extracted_properties.1, '') AS set,
+        nullIf(extracted_properties.2, '') AS set_once,
+        nullIf(extracted_properties.3, '') AS ip
     FROM
         events
     PREWHERE
@@ -138,30 +151,53 @@ SELECT_FROM_EVENTS_VIEW_RECENT = Template(
 SELECT
     $fields
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        inserted_at AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events_recent AS events
-    PREWHERE
-        events_recent.inserted_at >= {interval_start:DateTime64}
-        AND events_recent.inserted_at < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
+    SELECT DISTINCT ON (team_id, event, distinct_id_hash, uuid_hash)
+        team_id,
+        timestamp,
+        event,
+        distinct_id,
+        uuid,
+        _inserted_at,
+        created_at,
+        elements_chain,
+        person_id,
+        properties,
+        person_properties,
+        set,
+        set_once,
+        ip
+    FROM (
+        -- ClickHouse runs the dedup on one thread and evaluates its SELECT list after it. This subquery is below
+        -- the dedup, so the parse of `properties` runs on every read thread.
+        SELECT
+            team_id AS team_id,
+            timestamp AS timestamp,
+            event AS event,
+            distinct_id AS distinct_id,
+            toString(uuid) AS uuid,
+            inserted_at AS _inserted_at,
+            created_at AS created_at,
+            elements_chain AS elements_chain,
+            toString(person_id) AS person_id,
+            nullIf(properties, '') AS properties,
+            nullIf(person_properties, '') AS person_properties,
+            JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
+            nullIf(extracted_properties.1, '') AS set,
+            nullIf(extracted_properties.2, '') AS set_once,
+            nullIf(extracted_properties.3, '') AS ip,
+            cityHash64(events_recent.distinct_id) AS distinct_id_hash,
+            cityHash64(events_recent.uuid) AS uuid_hash
+        FROM
+            events_recent AS events
+        PREWHERE
+            events_recent.inserted_at >= {interval_start:DateTime64}
+            AND events_recent.inserted_at < {interval_end:DateTime64}
+        WHERE
+            team_id = {team_id:Int64}
+            AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
+            AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
+            $filters
+    )
     $order
 ) AS events
 FORMAT ArrowStream
@@ -180,30 +216,53 @@ INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        inserted_at AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
-    FROM
-        events_recent AS events
-    PREWHERE
-        events_recent.inserted_at >= {interval_start:DateTime64}
-        AND events_recent.inserted_at < {interval_end:DateTime64}
-    WHERE
-        team_id = {team_id:Int64}
-        AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
-        AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
-        $filters
+    SELECT DISTINCT ON (team_id, event, distinct_id_hash, uuid_hash)
+        team_id,
+        timestamp,
+        event,
+        distinct_id,
+        uuid,
+        _inserted_at,
+        created_at,
+        elements_chain,
+        person_id,
+        properties,
+        person_properties,
+        set,
+        set_once,
+        ip
+    FROM (
+        -- ClickHouse runs the dedup on one thread and evaluates its SELECT list after it. This subquery is below
+        -- the dedup, so the parse of `properties` runs on every read thread.
+        SELECT
+            team_id AS team_id,
+            timestamp AS timestamp,
+            event AS event,
+            distinct_id AS distinct_id,
+            toString(uuid) AS uuid,
+            inserted_at AS _inserted_at,
+            created_at AS created_at,
+            elements_chain AS elements_chain,
+            toString(person_id) AS person_id,
+            nullIf(properties, '') AS properties,
+            nullIf(person_properties, '') AS person_properties,
+            JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
+            nullIf(extracted_properties.1, '') AS set,
+            nullIf(extracted_properties.2, '') AS set_once,
+            nullIf(extracted_properties.3, '') AS ip,
+            cityHash64(events_recent.distinct_id) AS distinct_id_hash,
+            cityHash64(events_recent.uuid) AS uuid_hash
+        FROM
+            events_recent AS events
+        PREWHERE
+            events_recent.inserted_at >= {interval_start:DateTime64}
+            AND events_recent.inserted_at < {interval_end:DateTime64}
+        WHERE
+            team_id = {team_id:Int64}
+            AND (length({include_events:Array(String)}) = 0 OR event IN {include_events:Array(String)})
+            AND (length({exclude_events:Array(String)}) = 0 OR event NOT IN {exclude_events:Array(String)})
+            $filters
+    )
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -220,30 +279,53 @@ SELECT_FROM_DISTRIBUTED_EVENTS_RECENT = Template(
 SELECT
     $fields
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(distributed_events_recent.distinct_id), cityHash64(distributed_events_recent.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        inserted_at AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$$set_once'), '') AS set_once
-    FROM
-        distributed_events_recent AS events
-    PREWHERE
-        distributed_events_recent.inserted_at >= %(interval_start)s::DateTime64
-        AND distributed_events_recent.inserted_at < %(interval_end)s::DateTime64
-    WHERE
-        team_id = %(team_id)s::Int64
-        AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
-        AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-        $filters
+    SELECT DISTINCT ON (team_id, event, distinct_id_hash, uuid_hash)
+        team_id,
+        timestamp,
+        event,
+        distinct_id,
+        uuid,
+        _inserted_at,
+        created_at,
+        elements_chain,
+        person_id,
+        properties,
+        person_properties,
+        set,
+        set_once,
+        ip
+    FROM (
+        -- ClickHouse runs the dedup on one thread and evaluates its SELECT list after it. This subquery is below
+        -- the dedup, so the parse of `properties` runs on every read thread.
+        SELECT
+            team_id AS team_id,
+            timestamp AS timestamp,
+            event AS event,
+            distinct_id AS distinct_id,
+            toString(uuid) AS uuid,
+            inserted_at AS _inserted_at,
+            created_at AS created_at,
+            elements_chain AS elements_chain,
+            toString(person_id) AS person_id,
+            nullIf(properties, '') AS properties,
+            nullIf(person_properties, '') AS person_properties,
+            JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
+            nullIf(extracted_properties.1, '') AS set,
+            nullIf(extracted_properties.2, '') AS set_once,
+            nullIf(extracted_properties.3, '') AS ip,
+            cityHash64(distributed_events_recent.distinct_id) AS distinct_id_hash,
+            cityHash64(distributed_events_recent.uuid) AS uuid_hash
+        FROM
+            distributed_events_recent AS events
+        PREWHERE
+            distributed_events_recent.inserted_at >= %(interval_start)s::DateTime64
+            AND distributed_events_recent.inserted_at < %(interval_end)s::DateTime64
+        WHERE
+            team_id = %(team_id)s::Int64
+            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+            $filters
+    )
     $order
 ) AS events
 FORMAT ArrowStream
@@ -263,30 +345,53 @@ INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(distributed_events_recent.distinct_id), cityHash64(distributed_events_recent.uuid))
-        team_id AS team_id,
-        timestamp AS timestamp,
-        event AS event,
-        distinct_id AS distinct_id,
-        toString(uuid) AS uuid,
-        inserted_at AS _inserted_at,
-        created_at AS created_at,
-        elements_chain AS elements_chain,
-        toString(person_id) AS person_id,
-        nullIf(properties, '') AS properties,
-        nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$$set_once'), '') AS set_once
-    FROM
-        distributed_events_recent AS events
-    PREWHERE
-        distributed_events_recent.inserted_at >= %(interval_start)s::DateTime64
-        AND distributed_events_recent.inserted_at < %(interval_end)s::DateTime64
-    WHERE
-        team_id = %(team_id)s::Int64
-        AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
-        AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-        $filters
+    SELECT DISTINCT ON (team_id, event, distinct_id_hash, uuid_hash)
+        team_id,
+        timestamp,
+        event,
+        distinct_id,
+        uuid,
+        _inserted_at,
+        created_at,
+        elements_chain,
+        person_id,
+        properties,
+        person_properties,
+        set,
+        set_once,
+        ip
+    FROM (
+        -- ClickHouse runs the dedup on one thread and evaluates its SELECT list after it. This subquery is below
+        -- the dedup, so the parse of `properties` runs on every read thread.
+        SELECT
+            team_id AS team_id,
+            timestamp AS timestamp,
+            event AS event,
+            distinct_id AS distinct_id,
+            toString(uuid) AS uuid,
+            inserted_at AS _inserted_at,
+            created_at AS created_at,
+            elements_chain AS elements_chain,
+            toString(person_id) AS person_id,
+            nullIf(properties, '') AS properties,
+            nullIf(person_properties, '') AS person_properties,
+            JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
+            nullIf(extracted_properties.1, '') AS set,
+            nullIf(extracted_properties.2, '') AS set_once,
+            nullIf(extracted_properties.3, '') AS ip,
+            cityHash64(distributed_events_recent.distinct_id) AS distinct_id_hash,
+            cityHash64(distributed_events_recent.uuid) AS uuid_hash
+        FROM
+            distributed_events_recent AS events
+        PREWHERE
+            distributed_events_recent.inserted_at >= %(interval_start)s::DateTime64
+            AND distributed_events_recent.inserted_at < %(interval_end)s::DateTime64
+        WHERE
+            team_id = %(team_id)s::Int64
+            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+            $filters
+    )
 ) AS events
 SETTINGS
     -- This is half of configured MAX_MEMORY_USAGE for batch exports.
@@ -304,6 +409,7 @@ SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
 SELECT
     $fields
 FROM (
+    WITH JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
         timestamp AS timestamp,
@@ -316,8 +422,9 @@ FROM (
         toString(person_id) AS person_id,
         nullIf(properties, '') AS properties,
         nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        nullIf(extracted_properties.1, '') AS set,
+        nullIf(extracted_properties.2, '') AS set_once,
+        nullIf(extracted_properties.3, '') AS ip
     FROM
         events
     WHERE
@@ -344,6 +451,7 @@ INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
+    WITH JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         team_id AS team_id,
         timestamp AS timestamp,
@@ -356,8 +464,9 @@ FROM (
         toString(person_id) AS person_id,
         nullIf(properties, '') AS properties,
         nullIf(person_properties, '') AS person_properties,
-        nullIf(JSONExtractString(properties, '$set'), '') AS set,
-        nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
+        nullIf(extracted_properties.1, '') AS set,
+        nullIf(extracted_properties.2, '') AS set_once,
+        nullIf(extracted_properties.3, '') AS ip
     FROM
         events
     WHERE
@@ -375,6 +484,12 @@ SETTINGS
     log_comment=%(log_comment)s
 """
 )
+
+
+# Every `JSONExtractString` call parses the whole `properties` document, so the legacy events templates that dedup
+# extract `$set`, `$set_once` and `$ip` with one `JSONExtract` call. A field with this expression reads the extracted
+# `ip` column, because the expression itself parses the document one more time.
+EXTRACTED_FIELD_EXPRESSIONS = {"nullIf(JSONExtractString(properties, '$ip'), '')": "ip"}
 
 
 EVENT_COUNT_BY_INTERVAL = """
@@ -403,44 +518,50 @@ SETTINGS
 """
 
 
-# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
-# which is why the native query's SETTINGS carry it.
-_PROPERTIES_DOCUMENT = event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties")
-SERIALIZED_EVENTS_JSON_SOURCE = """(
-    SELECT *,
-        nullIf(JSONExtractRaw(properties, '$set'), '') AS set,
-        nullIf(JSONExtractRaw(properties, '$set_once'), '') AS set_once,
-        nullIf(JSONExtractRaw(properties, '$unset'), '') AS unset,
-        nullIf(JSONExtractRaw(properties, '$group_set'), '') AS group_set
-    FROM (
-        SELECT * REPLACE (
-            toString(uuid) AS uuid,
-            toString(person_id) AS person_id,
-            __PROPERTIES_DOCUMENT__ AS properties,
-            __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
-        )
-        FROM events_json
-    )
-)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
-    "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
-)
+# The native table exports `properties` and `person_properties` in their stored shape, built member by member the
+# way a HogQL read of the whole document builds them. Unlike the legacy tables:
+# - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
+# - temporary properties are not exported, so the legacy `set`, `set_once`, `unset` and `group_set`
+#   fields are always empty.
+# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
+# why the native query's SETTINGS carry it.
+# `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
+# here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
+_NATIVE_EVENTS_FIELD_EXPRESSIONS = {
+    "properties": json_document_sql(
+        "events.properties",
+        exclude_empty_key="$feature_flags",
+        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+    ),
+    "person_properties": person_document_sql("events.person_properties"),
+    **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
+}
 
 
 def native_events_export_query(
-    fields: str,
+    fields: Sequence["BatchExportField"],
     filters: str = "",
     *,
     order: str = "",
     s3_function: str | None = None,
 ) -> str:
+    """The export query for the native events table.
+
+    `filters` and any custom field expressions must be printed for the new events schema. They read the typed
+    `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
+    own `properties` and `person_properties` fields.
+    """
+    select = ", ".join(
+        f"{_NATIVE_EVENTS_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+        for field in fields
+    )
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
-SELECT {fields}
+SELECT {select}
 FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        *, timestamp AS _inserted_at
-    FROM {SERIALIZED_EVENTS_JSON_SOURCE} AS events
+        * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), timestamp AS _inserted_at
+    FROM events_json AS events
     WHERE team_id = {{team_id:Int64}}
         AND (%(interval_start)s::Nullable(DateTime64) IS NULL OR timestamp >= %(interval_start)s::Nullable(DateTime64))
         AND timestamp < {{interval_end:DateTime64}}

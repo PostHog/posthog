@@ -328,7 +328,8 @@ def token(
             command = "`hogli posthog:login`"
         raise AuthError(
             f"{headline}\n"
-            f"  Run {command} once. It opens a browser and asks for no API key.\n"
+            f"  Run {command} once on this machine. It opens a browser, asks for no API key,\n"
+            "  and every checkout and worktree on the machine then shares the sign-in.\n"
             f"  Or set {KEY_ENV_VARS[0]} for an unattended caller."
         )
     return login(scopes=scopes, host=host).access_token

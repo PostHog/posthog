@@ -1,6 +1,7 @@
 import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
+    nameExecRead,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
@@ -95,6 +96,8 @@ export interface InstructionsContext {
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
     metricCatalog?: MetricCatalogContent | undefined
+    learnToolEnabled?: boolean | undefined
+    splitWrites?: boolean | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
@@ -262,6 +265,21 @@ export class InstructionsFormatter {
         ]
     }
 
+    buildLearnToolDescription(): string {
+        return this.skillsFirstSection(false)
+    }
+
+    private skillsFirstSection(execSyntax: boolean): string {
+        return formatPrompt(SKILLS_FIRST, {
+            learn_call: execSyntax
+                ? 'run `learn -s "<task keywords>"` here'
+                : 'call the `learn` tool with `learn -s "<task keywords>"`',
+            skill_store_note: execSyntax
+                ? ''
+                : ' Find and load skills with `learn`, not with `skill-list` or `skill-get`: those manage the skills your team stores and do not hold the built-in PostHog skills.',
+        })
+    }
+
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
      *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
@@ -297,6 +315,7 @@ export class InstructionsFormatter {
         return this.compose(
             [
                 PROJECT_SCOPE,
+                ...(ctx.learnToolEnabled ? [this.skillsFirstSection(false)] : []),
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
@@ -362,7 +381,7 @@ export class InstructionsFormatter {
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             PROJECT_SCOPE,
-            ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.skillsEnabled ? [this.skillsFirstSection(true)] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]
@@ -541,7 +560,7 @@ export class InstructionsFormatter {
         // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
-            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled, ctx.splitWrites),
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
@@ -556,6 +575,7 @@ export class InstructionsFormatter {
             .filter((s) => s.length > 0)
             .join('\n\n')
         // An empty placeholder on its own line would otherwise leave a double blank line.
-        return formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
+        const rendered = formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
+        return ctx.splitWrites ? nameExecRead(rendered) : rendered
     }
 }

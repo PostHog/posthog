@@ -1,5 +1,7 @@
-"""Logs alerts the logs API reads from the alerts platform: those with no logs row, which only the
-platform keeps, and the copies the platform owns, whose settings it keeps.
+"""Logs alerts the logs API reads from and writes to the alerts platform: those with no logs row, which
+only the platform keeps, and the copies the platform owns, whose settings it keeps. A copy whose logs row
+was deleted is one of the first kind, under its logs row's id. An edit of either kind writes the platform
+alone.
 
 Each function takes ids and returns the platform's view, so the logs API presents the alert with
 `LogsAlertConfiguration.from_platform_view` and never holds a row it could save.
@@ -35,10 +37,25 @@ _LOGS: Final = (SourceKind.LOGS.value,)
 
 
 def native_alert_view(*, team_id: int, alert_id: UUID, lock: bool = False) -> PlatformAlertConfigurationView | None:
-    """The team's logs alert with no logs row under `alert_id`, or None. With `lock`, call it inside a
+    """The team's logs alert with no logs row whose public id is `alert_id`, or None: one created without
+    a logs row, or a copy the platform owns whose logs row is gone. With `lock`, call it inside a
     transaction."""
+    return _platform_view(team_id=team_id, alert_id=alert_id, lock=lock, rowless_only=True)
+
+
+def _platform_view(
+    *, team_id: int, alert_id: UUID, lock: bool, rowless_only: bool
+) -> PlatformAlertConfigurationView | None:
     view = get_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=alert_id, lock=lock)
-    return view if view is not None and view.legacy_configuration_id is None else None
+    if view is not None and view.legacy_configuration_id is None:
+        return view
+    copy = owned_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=[alert_id]).get(alert_id)
+    if copy is None:
+        return None
+    # A logs row on any team, such as the environment of the copy's project, still serves the alert itself.
+    if rowless_only and LogsAlertConfiguration.objects.filter(id=alert_id).exists():
+        return None
+    return get_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=copy.id, lock=lock)
 
 
 def native_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> tuple[tuple[datetime, UUID], ...]:
@@ -47,7 +64,7 @@ def native_alert_keys(team_id: int, *, created_by_uuid: UUID | None = None) -> t
 
 
 def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
-    """The named logs alerts with no logs row, in no particular order."""
+    """The named logs alerts created without a logs row, in no particular order."""
     if not alert_ids:
         return ()
     page = list_configurations(
@@ -102,12 +119,12 @@ def update_native(
     snooze_until: datetime | None,
     snooze_changed: bool,
 ) -> PlatformAlertConfigurationView | None:
-    """Writes a logs API edit onto the configuration. `changes` holds the logs API's fields, only the
-    ones the edit names. None when the alert is gone.
+    """Writes a logs API edit onto the configuration the platform owns, and leaves any logs row as it was.
+    `changes` holds the logs API's fields, only the ones the edit names. None when the alert is gone.
 
     Raises `InvalidPlatformAlertEdit` for an edit the platform's logs schema rejects.
     """
-    view = native_alert_view(team_id=team_id, alert_id=alert_id, lock=True)
+    view = _platform_view(team_id=team_id, alert_id=alert_id, lock=True, rowless_only=False)
     if view is None:
         return None
     alert = LogsAlertConfiguration.from_platform_view(view, team_id=team_id, now=timezone.now())
@@ -116,7 +133,7 @@ def update_native(
     return update_configuration(
         team_id=team_id,
         source_kinds=_LOGS,
-        configuration_id=alert_id,
+        configuration_id=view.id,
         change=platform_change_of(alert, grouping, labels, annotations),
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
@@ -126,4 +143,7 @@ def update_native(
 def delete_native(*, team_id: int, alert_id: UUID) -> bool:
     """Deletes the configuration, closing its firing and removing its destinations. False when it was
     already gone."""
-    return delete_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=alert_id)
+    view = native_alert_view(team_id=team_id, alert_id=alert_id)
+    if view is None:
+        return False
+    return delete_configuration(team_id=team_id, source_kinds=_LOGS, configuration_id=view.id)

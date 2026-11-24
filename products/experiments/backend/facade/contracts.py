@@ -271,30 +271,6 @@ class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
     DEFINITION = "definition"
 
 
-class HealthExposureInputsStatus(LabeledStrEnum):
-    READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
-    STALE = "stale"
-    # No cached answer. A calculation runs in the background.
-    CALCULATING = "calculating"
-    NOT_LAUNCHED = "not_launched"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The query could not be built, or no answer is cached and the last background calculation failed.
-    FAILED = "failed"
-
-
-class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
-    READ = "read"
-    NOT_NEEDED = "not_needed"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The reader is denied a flag call property that the scan reads.
-    DENIED_PROPERTIES = "denied_properties"
-    NO_FLAG_VERSION = "no_flag_version"
-    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
-    # request's scan was still running and did not answer in time.
-    UNKNOWN = "unknown"
-
-
 class ExperimentHealthFlagChangeKind(LabeledStrEnum):
     SPLIT = "split"
     # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
@@ -555,6 +531,10 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "other_draft_experiment_count",
         "Other draft experiments on the same feature flag that are not archived",
     )
+    FILTERS_TEST_ACCOUNTS = (
+        "filters_test_accounts",
+        "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None
@@ -609,16 +589,67 @@ class ExperimentHealthCheckResult:
 @frozen
 class ExperimentHealthReleaseCondition:
     """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
-    must match, and the group type it assigns variants by (None for users)."""
+    must match, the group type it assigns variants by (None for users), and the variant it serves to all of them (None
+    when the split picks one)."""
 
     rollout_percentage: float
     property_count: int
     aggregation_group_type_index: int | None
+    variant: str | None
+    # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
+    # None on a flag that buckets by device ID, because a request without a device ID skips the earlier sets that need
+    # the bucketing hash and can reach the set anyway.
+    reachable: bool | None
+
+
+@frozen
+class ExperimentHealthExposureSetup:
+    """What the exposure criteria count as an exposure. Neither an event nor an action means the flag's calls."""
+
+    event: str | None
+    action: str | None
+    # The event, or the action's name, that has to follow a user's flag call before the user counts.
+    activation: str | None
+
+
+class ExperimentHealthStatsMethod(LabeledStrEnum):
+    BAYESIAN = "bayesian", "Bayesian"
+    FREQUENTIST = "frequentist", "Frequentist"
+
+
+class ExperimentHealthMultipleVariantHandling(LabeledStrEnum):
+    EXCLUDE = "exclude", "Exclude from analysis"
+    FIRST_SEEN = "first_seen", "Use first seen variant"
+
+
+@frozen
+class ExperimentHealthAnalysisSetup:
+    """What the results calculation reads besides the metrics, resolved as the calculation resolves it. A
+    `*_from_project_default` field is true when the experiment doesn't set the value, so the calculation takes the
+    project's default."""
+
+    stats_method: ExperimentHealthStatsMethod
+    confidence_level: float
+    sequential_testing: bool | None
+    sequential_testing_from_project_default: bool
+    cuped: bool
+    cuped_lookback_days: int | None
+    cuped_from_project_default: bool
+    cuped_lookback_days_from_project_default: bool
+    # The names of the calculated metrics whose type CUPED doesn't support. Empty when CUPED is off.
+    metrics_without_cuped_support: tuple[str, ...]
+    filters_test_accounts: bool | None
+    test_account_filter_count: int
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None
+    only_count_matured_users: bool
+    baseline_variant: str
+    excluded_variants: tuple[str, ...]
 
 
 @frozen
 class ExperimentHealthSetup:
-    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, who counts
+    as exposed, and how the results are calculated."""
 
     # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
@@ -628,6 +659,9 @@ class ExperimentHealthSetup:
     evaluation_runtime: str
     evaluation_contexts: tuple[str, ...]
     ensure_experience_continuity: bool
+    # None when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+    exposure: ExperimentHealthExposureSetup | None
+    analysis: ExperimentHealthAnalysisSetup
 
 
 @frozen
@@ -870,6 +904,44 @@ class ExperimentRef:
     created_by_id: int | None
 
 
+class WebExperimentNotFound(Exception):
+    """Raised when the project has no web experiment with the id."""
+
+
+@frozen
+class WebExperimentConfig:
+    """A web experiment, as the web experiments API and the toolbar show it.
+
+    `variants` holds every variant of the feature flag with the rollout percentage that the flag stores, plus
+    the transforms that the experiment stores for that variant. When the flag has no variants, it holds the
+    variants that the experiment stores.
+    """
+
+    id: int
+    name: str
+    created_at: datetime
+    # The stored key of the flag. A soft-deleted flag keeps its tombstone suffix here.
+    feature_flag_key: str
+    variants: dict[str, Any]
+
+
+WebExperimentWriteField = Literal["name", "created_at", "variants"]
+
+
+@frozen
+class WebExperimentWrite:
+    """The fields of a web experiment that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update sets only those fields. A create needs a
+    name and variants, and does not read `created_at`.
+    """
+
+    fields_set: frozenset[WebExperimentWriteField]
+    name: str | None = None
+    created_at: datetime | None = None
+    variants: dict[str, Any] | None = None
+
+
 @frozen
 class MetricCalculationKeys:
     """The calculation key of each metric on an experiment. Result rows and the stored metric
@@ -1058,11 +1130,76 @@ class TeamExperimentsSettingsUpdate:
 
 @frozen
 class LinkedExperiment:
-    """An experiment that is not deleted, as the flag it uses lists it."""
+    """An experiment that is not deleted, as the flag or the shared metric it uses lists it."""
 
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class ListAccess:
+    """Which records the access control rules let a list show the viewer.
+
+    This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
+    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
+    viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+class SavedMetricNotFound(Exception):
+    """Raised when the team has no shared metric with the id."""
+
+
+@frozen
+class SavedMetric:
+    """A shared metric, as the shared metrics API shows it.
+
+    `query` names each action it references by the current name of that action. A deleted action keeps the
+    name that the metric stored.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    query: dict[str, Any]
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    tags: tuple[str, ...]
+
+
+@frozen
+class SavedMetricListFilters:
+    # Each term must match the name, the description or a tag of the metric.
+    search_terms: tuple[str, ...] = ()
+    # Keeps the metrics whose query references this event, directly or through an action.
+    event: str | None = None
+
+
+SavedMetricWriteField = Literal["name", "description", "query", "tags"]
+
+
+@frozen
+class SavedMetricWrite:
+    """The fields of a shared metric that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update keeps the stored value of every other
+    field, and keeps the tags unless `tags` is in `fields_set`.
+    """
+
+    fields_set: frozenset[SavedMetricWriteField]
+    name: str | None = None
+    description: str | None = None
+    query: dict[str, Any] | None = None
+    tags: tuple[str, ...] = ()
 
 
 @frozen
@@ -1150,3 +1287,18 @@ class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None
     detail: str = ""
+
+
+@frozen
+class Proportion:
+    trials: int
+    successes: int
+
+
+@frozen
+class ProportionTestResult:
+    # Treatment minus control in proportion units, absolute because a control at 0% has no relative change.
+    difference: float
+    confidence_interval: tuple[float, float]
+    p_value: float
+    is_significant: bool

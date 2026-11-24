@@ -107,6 +107,10 @@ jobs:
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # Consumed as a file list by the markdown lint step, which narrows a pull request's
+            # scan to the files it changes instead of all 2018 in the repository.
+            markdown_files: ${{ steps.filter.outputs.markdown_files }}
+            all_files_count: ${{ steps.filter.outputs.all_files_count }}
             # The API caps lists at 3000 rows. Renames expand to two paths, so a
             # count mismatch also keeps the full scan rather than trusting a partial list.
             markdown: >-
@@ -157,9 +161,25 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: Frontend Tests Pass
+                  reuse-filters: |
+                      frontend
+                      frontend_code
+                      replay_shared
+                      complexity
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: |
+                      Frontend formatting
+                      Frontend typechecking
+                      Jest test (replay-shared)
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       all_files:
                         - '**'
@@ -513,7 +533,65 @@ jobs:
 
             - name: Lint markdown files
               if: needs.changes.outputs.markdown != 'false'
-              run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
+              env:
+                  # The files this run matched in the `markdown` filter, in paths-filter's
+                  # `escape` list format: space separated, backslash escaped. Empty on a push
+                  # and on the hourly cron, where the filter step is skipped.
+                  MARKDOWN_CHANGED: ${{ needs.changes.outputs.markdown_files }}
+                  # A merge-queue run is a pull_request event on a `trunk-merge/` branch, and
+                  # it is the gate: it keeps the repo-wide scan the `markdown` output already
+                  # gives it.
+                  TRUNK_MERGE: ${{ startsWith(github.head_ref, 'trunk-merge/') }}
+                  # The pull request's own file count against the count the filter saw. They
+                  # disagree when the API capped the list (3000 rows) or a rename expanded one
+                  # path into two, and a partial list cannot be narrowed to.
+                  CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+                  FILTERED_FILES: ${{ needs.changes.outputs.all_files_count }}
+              run: |
+                  config=.config/.markdownlint-cli2.jsonc
+                  # A scan of every markdown file in the repository is 2018 files and about
+                  # 80s, and both grow with the repository while its findings can only come
+                  # from the files a diff changes: every markdownlint rule is per file, so a
+                  # lint result never depends on a file the diff left alone. A pull request
+                  # therefore lints the markdown it changes. Master's push run and the merge
+                  # queue still scan everything, which is where drift that no single diff
+                  # shows up in, and the merge gate itself, are covered.
+                  #
+                  # A diff that moves the lint configuration, or the ignore rules it reads,
+                  # changes the verdict for files it does not touch, so it keeps the full scan.
+                  # A toolchain file changes which markdownlint runs and is not handled here;
+                  # the repo-wide runs after it cover the version bump.
+                  narrow=true
+                  targets=()
+                  if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" != "$FILTERED_FILES" ]; then
+                      narrow=false
+                  fi
+                  if [ "$TRUNK_MERGE" = "true" ]; then
+                      narrow=false
+                  fi
+                  # xargs re-parses the escape format, one path per line, and the format
+                  # escapes a newline in a name as a backslash plus a literal newline. One in
+                  # the list would split a path in two before the check below sees it.
+                  if [[ "$MARKDOWN_CHANGED" == *$'\n'* ]]; then
+                      narrow=false
+                  fi
+                  while IFS= read -r path; do
+                      [ -n "$path" ] || continue
+                      case "$path" in
+                          # markdownlint-cli2 reads its arguments as globs. A name outside this
+                          # safe set would match a different file or none, so it falls back.
+                          *[!a-zA-Z0-9,._+:@%/-]*) narrow=false ;;
+                          *.md | *.mdx) targets+=("$path") ;;
+                          .markdownlint* | */.markdownlint* | .config/* | .gitignore | */.gitignore) narrow=false ;;
+                      esac
+                  done < <(printf '%s' "$MARKDOWN_CHANGED" | xargs -r -n 1 printf '%s\n')
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$narrow" = true ] && [ "${#targets[@]}" -gt 0 ]; then
+                      echo "Linting the ${#targets[@]} markdown file(s) this pull request changes"
+                      pnpm exec markdownlint-cli2 --config "$config" "${targets[@]}"
+                  else
+                      echo "Linting every markdown file"
+                      pnpm exec markdownlint-cli2 --config "$config" "**/*.{md,mdx}"
+                  fi
 
     frontend-bundle-size:
         name: Frontend checks
@@ -947,7 +1025,7 @@ jobs:
               run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
 
             - parallel:
-                  - name: Run typescript check (tsgo)
+                  - name: Run TypeScript check (tsc)
                     run: pnpm --filter=@posthog/frontend typescript:check
 
                   - name: Check if schema.json and validators.js are up to date
@@ -1028,33 +1106,34 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run as many selective shards as the tests reachable from the changed
-        # files need under the file limit in .github/scripts/jest-select.js. The
-        # merge queue runs the full four-shard fanout. A copy of the repository lands
-        # on a slower GitHub-hosted runner pool, so it gets a longer budget.
+        # The fanout is fixed at eight chunks and each shard selects its own tests
+        # (see the matrix comment below). A copy of the repository lands on a slower
+        # GitHub-hosted runner pool, so it gets a longer budget.
         timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 20 || 30 }}
-        needs: [changes, select-jest-tests]
-        # A status function is required because select-jest-tests is skipped on the
-        # merge queue's run and on master pushes, and a skipped need would otherwise
-        # cascade a skip here.
+        needs: changes
+        # A status function is required because changes is skipped on the merge
+        # queue's run, and a skipped need would otherwise cascade a skip here.
         # !cancelled() rather than always() so a superseded run's shards stop promptly.
         # Skipped on master push: the merge queue already ran the full matrix for every
         # landed commit, and the hourly scheduled run keeps master's jest coverage and
         # its Trunk flaky baseline.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
-            && needs.select-jest-tests.outputs.should_run != 'false'
             && github.event_name != 'push'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On PRs, select-jest-tests narrows this to the tests reachable from the
-            # changed frontend source files, skips jest entirely (should_run=false) on
-            # a draft whose selection can't be trusted, or emits the full fanout when a
-            # ready PR's can't be. On the merge queue's run and the hourly scheduled run
-            # the job is skipped and this default applies: the full four-chunk fanout.
-            # Master pushes do not reach here at all (see the `if` above).
+            # Eight chunks, always, and each shard decides what to run from the diff
+            # itself rather than reading a matrix handed down by select-jest-tests.
+            # That job installs pnpm (33s) and counts the tests reachable from the
+            # changed files (~75s more on a warmed store) before any shard can start,
+            # so gating the matrix on it put ~1.9 minutes of selector work on the
+            # frontend lane ahead of a shard's own ~1.5 minutes of setup. The cost of
+            # the fixed fanout is up to four extra free ubuntu-24.04 shards on a small
+            # selection; the big selections lose nothing, since the old file-count
+            # limit also capped the matrix at eight.
+            #
             # `segment` is a single fixed value: it survives only as the naming
             # token for job, JUnit file and artifact, which the timings reporter
             # parses as `junit-results-frontend-<segment>-<chunk>`. There used to
@@ -1062,7 +1141,10 @@ jobs:
             # ee/ holds no frontend code and nothing under frontend/, products/,
             # common/ or packages/ imports from it, so the two segments ran
             # byte-identical suites.
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
+            matrix:
+                segment: [app]
+                chunk: [1, 2, 3, 4, 5, 6, 7, 8]
+                shard_count: [8]
 
         steps:
             # ubuntu-24.04 hands out several CPU models, and the same shard runs up to
@@ -1072,9 +1154,41 @@ jobs:
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            # The diff is computed per shard, in parallel with (and independent of)
+            # the other shards, instead of once in select-jest-tests before the matrix
+            # can start. Same `...` base as that job and as find-affected-stories.
+            # Skip it off pull requests (the hourly schedule has no base ref):
+            # classifyChanges reads a skipped diff as "unavailable" and runs everything.
+            - name: Compute changed files
+              id: diff
+              if: github.event_name == 'pull_request'
+              continue-on-error: true
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
+                  wc -l < /tmp/changed.txt
+
+            # Classification is local and cheap (a few seconds against a warm tree) and
+            # needs no dependencies, so every shard can do it. A shard whose diff is
+            # unavailable falls back to the full fanout exactly as the selector did.
+            - name: Plan this shard's selection
+              id: plan
+              env:
+                  DIFF_OUTCOME: ${{ steps.diff.outcome }}
+                  PR_DRAFT: ${{ github.event.pull_request.draft }}
+                  # The two cases the old selector job excluded from narrowing, kept here
+                  # because it no longer stands between the shards and the diff: the merge
+                  # queue's run gates master, and `run-ci-frontend` asks for the full suite.
+                  FORCE_FULL: ${{ startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-frontend') }}
+              run: node .github/scripts/jest-select.js plan
+
             - name: Mint setup-action GitHub token
               id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              if: steps.plan.outputs.needs_dependencies == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -1083,6 +1197,7 @@ jobs:
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
+              if: steps.plan.outputs.needs_dependencies == 'true'
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
@@ -1097,9 +1212,9 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: ${{ matrix.shard_count || 4 }}
-                  MODE: ${{ needs.select-jest-tests.outputs.mode }}
-                  CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  SHARD_COUNT: ${{ matrix.shard_count }}
+                  MODE: ${{ steps.plan.outputs.mode }}
+                  CHANGED_FILES: ${{ steps.plan.outputs.changed_files }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
                   # Trunk attributes flakes by test file; jest-junit's default suite name is the
@@ -1107,6 +1222,22 @@ jobs:
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: |
+                  # An empty mode means the plan step itself failed; the selector treated any
+                  # planning failure as "run everything", so do the same here.
+                  MODE=${MODE:-full}
+                  if [ "$MODE" = "skip" ]; then
+                      # A draft whose selection can't be trusted: its ready run selects
+                      # again, so this shard runs nothing and reports green.
+                      echo "::notice::Draft with an untrusted test selection; skipping this shard."
+                      exit 0
+                  fi
+                  if [ "$MODE" = "selective" ] && [ -z "$CHANGED_FILES" ]; then
+                      # Nothing in the diff resolves to a Jest source file (a .scss-only
+                      # change, say). `--findRelatedTests` with no paths is an error, and
+                      # the selector used to skip the whole job for this case.
+                      echo "::notice::No Jest sources in the diff; skipping this shard."
+                      exit 0
+                  fi
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
                       # source files and runs the matching tests. Sharding keeps broad
@@ -1115,7 +1246,7 @@ jobs:
                       # No --testPathPattern: it is mutually exclusive with
                       # --findRelatedTests (jest folds both into one path regex and
                       # matches nothing), and CHANGED_FILES is already scoped to
-                      # frontend source files by select-jest-tests. --passWithNoTests
+                      # frontend source files by jest-select.js. --passWithNoTests
                       # so a changed source file with no related test doesn't fail the
                       # run — the merge queue's trunk-merge/** run is the gate.
                       pnpm --filter=@posthog/frontend build:products
@@ -1411,7 +1542,8 @@ jobs:
                         "changed_file_count": ${{ needs.select-jest-tests.outputs.changed_file_count || 'null' }},
                         "selected_file_count": ${{ needs.select-jest-tests.outputs.selected_file_count || 'null' }},
                         "related_test_count": ${{ needs.select-jest-tests.outputs.related_test_count || 'null' }},
-                        "shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
+                        "shard_count": ${{ toJSON(needs.jest.result == 'skipped' && '0' || '8') }},
+                        "recommended_shard_count": ${{ needs.select-jest-tests.outputs.shard_count || 'null' }},
                         "full_run_reason_category": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_category || '') }},
                         "full_run_reason_detail": ${{ toJSON(needs.select-jest-tests.outputs.full_run_reason_detail || '') }},
                         "jest_result": ${{ toJSON(needs.jest.result) }},

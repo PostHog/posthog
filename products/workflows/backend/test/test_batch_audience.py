@@ -244,3 +244,37 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert size.realtime_cohort is None
         mixed = size.realtime_cohort_with_other_conditions
         assert (mixed.id if mixed else None) == (cohort.pk if expect_flagged else None)
+
+    @parameterized.expand(
+        [
+            ("same_audience_cached", FILTERS, None, True, (2, 2)),
+            ("uncached_caller_counts_again", FILTERS, None, False, (3, 3)),
+            ("other_filters_count_again", {"properties": []}, None, True, (3, 3)),
+            ("other_dedupe_key_counts_again", FILTERS, "email", True, (3, 3)),
+        ]
+    )
+    def test_audience_size_reuses_a_recent_count_only_for_the_same_audience(
+        self, _name, filters, dedupe_key, use_cached_counts, expected
+    ):
+        self._create_audience(["a@x.com", "b@x.com"])
+        get_audience_size(
+            team_id=self.team.pk,
+            filters=FILTERS,
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=True,
+            use_cached_counts=True,
+        )
+        _create_person(team=self.team, distinct_ids=["user-3"], uuid=_uuid(3), properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters=filters,
+            group_type_index=None,
+            dedupe_key=dedupe_key,
+            sends_email=True,
+            use_cached_counts=use_cached_counts,
+        )
+
+        assert (size.affected, size.total) == expected

@@ -707,6 +707,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                                 throw error
                             }
                             if (!(await confirmBreakingColumnChange(breakingChange))) {
+                                lemonToast.info('View was not saved')
                                 throw new BreakingColumnChangeDeclinedError()
                             }
                             newView = await save({ ...view, acknowledge_breaking_changes: true })

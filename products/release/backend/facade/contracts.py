@@ -11,7 +11,14 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 MAX_LINKED = 100
+MAX_METRICS = 5
+
+
+class FlagNotFoundError(Exception):
+    pass
 
 
 class ReleaseNotFoundError(Exception):
@@ -19,6 +26,10 @@ class ReleaseNotFoundError(Exception):
 
 
 class InvalidMergeError(Exception):
+    pass
+
+
+class TooManyMetricsError(Exception):
     pass
 
 
@@ -130,6 +141,18 @@ class ReleaseSummary:
     updated_at: datetime
 
 
+class ReleaseGoalDirection(LabeledStrEnum):
+    AT_LEAST = "at_least", "At least the target"
+    AT_MOST = "at_most", "At most the target"
+
+
+@dataclass(frozen=True)
+class MetricGoalDTO:
+    insight_id: int
+    direction: ReleaseGoalDirection
+    value: float
+
+
 @dataclass(frozen=True)
 class ReleaseDTO:
     id: UUID
@@ -144,6 +167,8 @@ class ReleaseDTO:
     surveys: list[LinkedSurveyDTO]
     insight_ids: list[int]
     insights: list[LinkedInsightDTO]
+    metric_insight_ids: list[int]
+    metric_goals: list[MetricGoalDTO]
     created_at: datetime
 
 
@@ -165,6 +190,34 @@ class CatalogReleaseDTO:
 
 
 @dataclass(frozen=True)
+class FlagLabel:
+    id: int
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ReleaseRefDTO:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class ReleaseSuggestionDTO:
+    id: UUID
+    name: str
+    matched_terms: list[str]
+
+
+@dataclass(frozen=True)
+class FlagReleasesDTO:
+    feature_flag_id: int
+    auto_release: bool
+    current: list[ReleaseRefDTO]
+    suggestions: list[ReleaseSuggestionDTO]
+
+
+@dataclass(frozen=True)
 class CreateReleaseInput:
     team_id: int
     name: str
@@ -174,6 +227,8 @@ class CreateReleaseInput:
     broadcast_ids: tuple[UUID, ...] = ()
     survey_ids: tuple[UUID, ...] = ()
     insight_ids: tuple[int, ...] = ()
+    metric_insight_ids: tuple[int, ...] = ()
+    metric_goals: tuple[MetricGoalDTO, ...] = ()
 
 
 @dataclass(frozen=True)

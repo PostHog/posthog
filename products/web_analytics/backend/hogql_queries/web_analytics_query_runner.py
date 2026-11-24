@@ -48,11 +48,16 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
-from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import (
+    AnalyticsQueryResponseProtocol,
+    AnalyticsQueryRunner,
+    CacheKeyIgnoredField,
+)
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
+from posthog.models.instance_setting import get_instance_setting
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -72,9 +77,13 @@ from products.web_analytics.backend.hogql_queries.metrics import (
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
+    compute_shape_key,
+    is_background_warming_request,
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
 )
+from products.web_analytics.backend.warming.predictive import warming_arm
+from products.web_analytics.backend.warming.read_history import record_shape_read
 
 logger = structlog.get_logger(__name__)
 
@@ -127,6 +136,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    cache_key_ignored_fields = (CacheKeyIgnoredField(name="useWebAnalyticsPrecompute", when_value_in=(True,)),)
     bypass_warehouse_access_control: bool = False
     # The oldest `computed_at` across every lazy precompute ensure that this runner served from.
     # A response that combines several windows (current and compare periods) is only as fresh as its stalest window.
@@ -780,6 +790,26 @@ WHERE and(
             return self.team.test_account_filters
         else:
             return []
+
+    @cached_property
+    def shape_key(self) -> str:
+        return compute_shape_key(self.query, self.team.timezone, self._test_account_filters)
+
+    def _runner_event_properties(self) -> dict[str, Any]:
+        return {"shape_key": self.shape_key, "warming_arm": warming_arm(self.team.pk)}
+
+    def _record_runner_read(self) -> None:
+        try:
+            if (
+                is_background_warming_request()
+                or get_query_tag_value("feature") == Feature.DIGEST
+                or get_query_tag_value("kind") == "temporal"
+                or not get_instance_setting("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED")
+            ):
+                return
+            record_shape_read(team_id=self.team.pk, shape_key=self.shape_key, at=datetime.now(UTC))
+        except Exception:
+            logger.exception("web_analytics_shape_read_record_failed", team_id=self.team.pk)
 
     @cached_property
     def _reads_only_posthog_tables(self) -> bool:

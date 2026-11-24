@@ -5582,6 +5582,20 @@ class TestHogFlowAPI(APIBaseTest):
         assert "limit" in body
         assert body["limit"] > 0
 
+    @parameterized.expand([("preview_reuses_recent_count", False, 4), ("refresh_counts_again", True, 5)])
+    def test_hog_flow_user_blast_radius_refresh_skips_recent_count(self, _name, refresh, expected_affected):
+        url = f"/api/projects/{self.team.id}/hog_flows/user_blast_radius"
+        filters = {"properties": [{"key": "subscribed", "value": "true", "type": "person", "operator": "exact"}]}
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
+            side_effect=[BlastRadiusResult(affected=4, total=10), BlastRadiusResult(affected=5, total=10)],
+        ):
+            self.client.post(url, {"filters": filters}, format="json")
+            response = self.client.post(url, {"filters": filters, "refresh": refresh}, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["affected"] == expected_affected
+
     def test_hog_flow_user_blast_radius_routes_by_audience_kind(self):
         with (
             patch("products.workflows.backend.services.blast_radius.get_person_audience_count_v2") as mock_v2,

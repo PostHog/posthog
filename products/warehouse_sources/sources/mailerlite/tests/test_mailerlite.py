@@ -99,6 +99,23 @@ class TestPagination:
         assert result.requests == []
 
 
+class TestLookupLists:
+    @pytest.mark.parametrize(
+        ("endpoint", "path"),
+        [
+            ("timezones", "/api/timezones"),
+            ("campaign_languages", "/api/campaigns/languages"),
+        ],
+    )
+    def test_fetches_the_whole_list_without_a_limit(self, endpoint: str, path: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": [{"id": "1"}, {"id": "2"}]})])
+
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}, {"id": "2"}]
+        assert result.paths == [path]
+        assert dict(result.requests[0].query) == {}
+
+
 class TestFanout:
     @pytest.mark.parametrize(
         ("endpoint", "parent_path", "child_path", "parent_key", "expected_parent_query", "expected_child_query"),
@@ -135,6 +152,25 @@ class TestFanout:
                 {"limit": ["50"]},
                 {"limit": ["100"]},
             ),
+            (
+                "ecommerce_customers",
+                "/ecommerce/shops",
+                "/ecommerce/shops/c1/customers",
+                "shop_id",
+                {"limit": ["50"]},
+                {"limit": ["100"]},
+            ),
+            *[
+                (
+                    f"forms_{form_type}_subscribers",
+                    f"/forms/{form_type}",
+                    "/forms/c1/subscribers",
+                    "form_id",
+                    {"limit": ["100"]},
+                    {"limit": ["100"]},
+                )
+                for form_type in ("popup", "embedded", "promotion")
+            ],
         ],
     )
     def test_walks_every_child_page_and_tags_rows_with_the_parent(

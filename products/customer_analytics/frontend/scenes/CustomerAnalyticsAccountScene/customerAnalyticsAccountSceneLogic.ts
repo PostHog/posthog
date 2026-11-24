@@ -36,6 +36,7 @@ import {
     cleanDomains,
     cleanEmails,
 } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
+import { accountNotebooksLogic } from 'products/customer_analytics/frontend/components/Accounts/accountNotebooksLogic'
 import { getAccountsBackUrl } from 'products/customer_analytics/frontend/components/Accounts/accountsViewSessionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
@@ -46,7 +47,9 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type { AccountAgentWrite } from './accountAgentContext'
 import { ACCOUNT_ID_FIELDS, updateAccountNativeProperties, AccountNativePropertyPatch } from './accountNativeProperties'
+import { accountPropertyDataLogic } from './accountPropertyDataLogic'
 import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import { EXTERNAL_ACCOUNT_ROUTE_PATTERN, parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
@@ -186,6 +189,12 @@ export interface customerAnalyticsAccountSceneLogicActions {
     openEventStreamModal: () => {
         value: true
     }
+    refreshAfterAgentWrite: (write: AccountAgentWrite) => {
+        write: AccountAgentWrite
+    }
+    reloadAccountAfterAgentWrite: () => {
+        value: true
+    }
     resetAccountForm: (values?: AccountEditFormValues) => {
         values?: AccountEditFormValues
     }
@@ -308,6 +317,8 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         closeAccountEditor: true,
         openEventStreamModal: true,
         closeEventStreamModal: true,
+        refreshAfterAgentWrite: (write: AccountAgentWrite) => ({ write }),
+        reloadAccountAfterAgentWrite: true,
     }),
     forms(({ actions, props, values }) => ({
         accountForm: {
@@ -587,6 +598,52 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         },
         setActiveTab: ({ tab }) => {
             posthog.capture(AccountsEvents.TabViewed, { tab })
+        },
+        refreshAfterAgentWrite: ({ write }) => {
+            const projectId = props.projectId
+            const accountId = values.account?.id
+            if (!projectId || !accountId || write.accountId !== accountId) {
+                return
+            }
+            posthog.capture(AccountsEvents.AgentWriteRefreshed, { kind: write.kind })
+            if (write.kind === 'account') {
+                actions.reloadAccountAfterAgentWrite()
+            } else if (write.kind === 'custom_property') {
+                accountPropertyDataLogic.findMounted({ projectId, accountId })?.actions.loadPropertyData()
+            } else if (write.kind === 'relationships') {
+                accountPropertyUpdatesLogic.actions.relationshipsUpdated(projectId, accountId)
+            } else {
+                for (const notebooksLogic of accountNotebooksLogic.findAllMounted()) {
+                    if (notebooksLogic.props.accountId === accountId) {
+                        notebooksLogic.actions.loadNotebooks()
+                    }
+                }
+            }
+        },
+        reloadAccountAfterAgentWrite: async (_, breakpoint) => {
+            const projectId = props.projectId
+            const accountId = values.account?.id
+            if (!projectId || !accountId) {
+                return
+            }
+            const revision = cache.accountRevision ?? 0
+            let account: AccountApi
+            try {
+                account = await accountsRetrieve(String(projectId), accountId)
+            } catch (error) {
+                breakpoint()
+                // A loaded account hides the scene's load error state, so a toast is the only signal.
+                lemonToast.error("Couldn't refresh this account. Reload the page to see the latest changes.")
+                posthog.captureException(error instanceof Error ? error : new Error('Could not refresh account'), {
+                    scope: 'customerAnalyticsAccountSceneLogic.reloadAccountAfterAgentWrite',
+                })
+                return
+            }
+            breakpoint()
+            // A save made on this page during the fetch is newer than the fetched account.
+            if (revision === (cache.accountRevision ?? 0)) {
+                accountPropertyUpdatesLogic.actions.accountUpdated(projectId, account)
+            }
         },
         updateTags: async ({ tags }, breakpoint) => {
             const accountId = values.account?.id
