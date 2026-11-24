@@ -18,7 +18,7 @@ import type { ReleaseMode } from './session'
 
 // Must equal PROTOCOL in hog/worker/src/main.rs. hog and the worker are two files, so an upgrade
 // that replaced only one of them is caught here instead of in a request the other can't read.
-export const WORKER_PROTOCOL = 1
+export const WORKER_PROTOCOL = 2
 
 // A first run of a signed binary can wait on the system's notarization check.
 const WORKER_CHECK_TIMEOUT_MS = 30_000
@@ -71,7 +71,9 @@ const Detected = z.object({
     macho: z.array(z.number()),
 })
 const Pairs = z.object({
-    pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
+    pairs: z.array(
+        z.union([PairState, z.object({ skipped: z.string() }), z.object({ outside: z.string() }), z.null()])
+    ),
 })
 const InjectAction = z.enum(['injected', 'release_updated', 'unchanged'])
 const Outcomes = z.object({
@@ -297,9 +299,9 @@ export class Worker {
         }
     }
 
-    async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
+    async readPairs(paths: string[], publicPathPrefix: string | undefined, roots: string[]): Promise<PairAnswer[]> {
         return (
-            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs, {
+            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null, roots }, Pairs, {
                 pairs: [],
             })
         ).pairs

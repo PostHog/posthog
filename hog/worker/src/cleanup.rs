@@ -107,13 +107,8 @@ pub fn css_target(candidate: &CssCandidate, roots: &[PathBuf]) -> Result<Option<
         ));
     };
 
-    let Some(map) = load_map(&found.map_path) else {
-        return Ok(None);
-    };
-    if !pair::is_sourcemap(&map) {
-        return Ok(None);
-    }
-
+    // Checked before the map is opened, so a reference to a file elsewhere, or to a device like
+    // /dev/zero that never ends, is never read.
     let canonical_map =
         dunce::canonicalize(&found.map_path).unwrap_or_else(|_| found.map_path.clone());
     if !roots.iter().any(|root| is_inside(root, &canonical_map)) {
@@ -121,6 +116,13 @@ pub fn css_target(candidate: &CssCandidate, roots: &[PathBuf]) -> Result<Option<
             "Skipping CSS sourcemap cleanup for {} because it resolves outside the selected paths.",
             found.map_path.display()
         ));
+    }
+
+    let Some(map) = load_map(&found.map_path) else {
+        return Ok(None);
+    };
+    if !pair::is_sourcemap(&map) {
+        return Ok(None);
     }
 
     let Ok(map_hash) = map_hash(&map) else {

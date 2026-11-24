@@ -1,9 +1,8 @@
-import { realpathSync, statSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { relative, resolve } from 'node:path'
 
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
-import { isInside } from '@/core/paths'
 
 import { isHermesBundlePath, isIgnored, type Artifact } from './discover'
 import type { Release } from './release'
@@ -32,15 +31,6 @@ export interface OwnedPair {
     artifact: Artifact
 }
 
-function selectedFolders(selection: Selection): string[] {
-    const folders = selection.roots.map((root) => {
-        const real = realpathSync(resolve(selection.cwd, root.path))
-        return statSync(real).isFile() ? dirname(real) : real
-    })
-
-    return [...new Set(folders)]
-}
-
 export async function readPairs(
     ctx: Context,
     selection: Selection,
@@ -49,12 +39,14 @@ export async function readPairs(
 ): Promise<OwnedPair[]> {
     const worker = commandWorker(ctx)
     const bundles = selection.artifacts.filter(isBundle)
+    // A bundle can name any file as its map, and hog rewrites, uploads and may delete that map, so the
+    // worker leaves alone a map outside the selected paths.
     const answers = await worker.readPairs(
         bundles.map((artifact) => artifact.path),
-        options.publicPathPrefix
+        options.publicPathPrefix,
+        selection.roots.map((root) => resolve(selection.cwd, root.path))
     )
 
-    const folders = selectedFolders(selection)
     const seen = new Set<string>()
     const pairs: OwnedPair[] = []
     const unused: number[] = []
@@ -67,11 +59,8 @@ export async function readPairs(
             skipped.push({ path: artifact.path, reason: answer.skipped })
             continue
         }
-
-        // A bundle can name any file as its map, and hog rewrites, uploads and may delete that map.
-        if (!folders.some((folder) => isInside(folder, answer.mapRealPath))) {
+        if ('outside' in answer) {
             skipped.push({ path: artifact.display, reason: 'its sourcemap is outside the selected paths' })
-            unused.push(answer.id)
             continue
         }
 
