@@ -4589,6 +4589,7 @@ describe('Workflows E2E (email queue)', () => {
         })
 
         it('releases primary database capacity when a marketing preference lookup stalls past the API budget', async () => {
+            await ensureKafkaTopics([hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC])
             const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
             const to = `reader-${new UUIDT().toString()}@example.com`
             await optOut(to, newsletterId)
@@ -4601,7 +4602,7 @@ describe('Workflows E2E (email queue)', () => {
                 POSTGRES_CONNECTION_POOL_SIZE: 1,
             })
             const boundedConfig = { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id) }
-            const boundedDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), postgres: onePoolPostgres }
+            const boundedDeps = { ...deps, postgres: onePoolPostgres }
             const boundedApi = new CdpApi(
                 boundedConfig,
                 boundedDeps,
@@ -4623,7 +4624,10 @@ describe('Workflows E2E (email queue)', () => {
                     { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
                     boundedApp
                 )
-                expect(warmup.status).toEqual(422)
+                expect({ status: warmup.status, body: warmup.body }).toEqual({
+                    status: 422,
+                    body: { error: 'recipient_opted_out' },
+                })
 
                 jest.useFakeTimers({
                     doNotFake: [
@@ -4648,7 +4652,7 @@ describe('Workflows E2E (email queue)', () => {
                     await stalledRead
                     await jest.advanceTimersByTimeAsync(ASYNC_REFUSAL_BUDGET_MS)
                     const res = await pending
-                    expect(res.status).toEqual(202)
+                    expect({ status: res.status, body: res.body }).toMatchObject({ status: 202 })
                 }
 
                 expect(
@@ -4679,8 +4683,10 @@ describe('Workflows E2E (email queue)', () => {
                     { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
                     boundedApp
                 )
-                expect(afterRecovery.status).toEqual(422)
-                expect(afterRecovery.body).toEqual({ error: 'recipient_opted_out' })
+                expect({ status: afterRecovery.status, body: afterRecovery.body }).toEqual({
+                    status: 422,
+                    body: { error: 'recipient_opted_out' },
+                })
             } finally {
                 jest.useRealTimers()
                 dbProxy.releaseAll()

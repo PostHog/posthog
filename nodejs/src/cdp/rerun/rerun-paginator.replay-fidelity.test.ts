@@ -344,8 +344,12 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             },
         ]
 
+        const enqueued: CyclotronJobInvocationHogFlow[] = []
         const hogFlowQueue = {
-            queueInvocations: jest.fn().mockResolvedValue(undefined),
+            queueInvocations: (invocations: CyclotronJobInvocationHogFlow[]) => {
+                enqueued.push(...invocations)
+                return Promise.resolve()
+            },
         } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
         const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue, undefined, hogFlowOverrides)
         await paginator.processPage(
@@ -354,9 +358,6 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             { jobId: 'rerun-4', createdAt: DateTime.now() }
         )
 
-        const enqueued = hogFlowQueue.queueInvocations.mock.calls.flatMap(
-            ([invocations]) => invocations
-        ) as CyclotronJobInvocationHogFlow[]
         expect(enqueued).toHaveLength(1)
         expect(enqueued[0].state?.messageCategory).toEqual(expectedCategory)
     })
