@@ -740,6 +740,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], instance.session_recording_masking_config
+                )
+            )
+
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:
             validated_data["modifiers"] = query_modifiers.merge_modifiers(

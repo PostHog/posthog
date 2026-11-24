@@ -363,6 +363,14 @@ class TestRemoteConfig(_RemoteConfigBase):
         session_recording = config["sessionRecording"]
         assert session_recording["sampleRate"] == expected
 
+    def test_session_recording_masking_includes_mobile_keys(self) -> None:
+        masking = {"maskAllInputs": True, "mobile": {"maskAllText": True}}
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_masking_config = masking
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["masking"] == masking
+
     @parameterized.expand(
         [
             ("without_variant", {"id": 7, "key": "k"}, "k"),

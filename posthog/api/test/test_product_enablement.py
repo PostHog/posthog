@@ -44,6 +44,30 @@ class TestProductEnablementAPI(APIBaseTest):
             {"maskAllInputs": False, "maskTextSelector": "*"},
         )
 
+    @parameterized.expand(
+        [
+            (
+                "mobile_only",
+                {"mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ),
+            ("empty", {}, {"maskAllInputs": True}),
+            (
+                "web_key_present",
+                {"maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                {"maskTextSelector": "*", "mobile": {"maskAllText": True}},
+            ),
+        ]
+    )
+    def test_masking_floor_applies_only_without_web_keys(self, _name, stored, expected):
+        self.team.session_recording_masking_config = stored
+        self.team.save()
+
+        self._enable(["session_replay"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.session_recording_masking_config, expected)
+
     def test_enables_error_tracking(self):
         response = self._enable(["error_tracking"])
         self.assertEqual(response.json(), {"results": {"error_tracking": "enabled"}})

@@ -21,6 +21,7 @@ from rest_framework import serializers, status, test
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
 from posthog.api.team.live_events import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team.session_recording_settings import merge_session_recording_masking_config
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -1077,6 +1078,62 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             second_get_response = self.client.get("/api/environments/@current/")
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
+
+        def test_can_set_session_recording_masking_config_mobile_keys(self) -> None:
+            config = {"maskAllInputs": True, "mobile": {"maskAllText": True}}
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": config}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == config
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": {"mobile": {}}}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == {"maskAllInputs": True}
+
+        @parameterized.expand(
+            [
+                (
+                    "web_write_keeps_mobile",
+                    {"maskAllInputs": False, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                    {"maskAllInputs": True},
+                    {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                ),
+                (
+                    "mobile_write_keeps_web_keys",
+                    {"maskAllInputs": True, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                    {"mobile": {"maskAllImages": True}},
+                    {"maskAllInputs": True, "maskTextSelector": "*", "mobile": {"maskAllImages": True}},
+                ),
+                (
+                    "none_clears_mobile",
+                    {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                    None,
+                    None,
+                ),
+            ]
+        )
+        def test_session_recording_masking_config_patch_merges_with_stored(
+            self,
+            _name: str,
+            stored: dict[str, Any],
+            patch_value: dict[str, Any] | None,
+            expected: dict[str, Any] | None,
+        ) -> None:
+            self.team.session_recording_masking_config = stored
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_masking_config": patch_value}, format="json"
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            assert self.team.session_recording_masking_config == expected
 
         def test_can_set_and_unset_survey_settings(self):
             survey_appearance = {
@@ -4652,6 +4709,78 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         self, _name: str, value: Any, expected_detail: str
     ) -> None:
         self._assert_field_error("session_recording_network_payload_capture_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unknown top-level key",
+                {"key": "something"},
+                "Must provide a dictionary with only known keys: maskAllInputs, maskTextSelector, blockSelector, mobile.",
+            ],
+            ["mobile none", {"mobile": None}, "mobile must be a dictionary."],
+            ["mobile list", {"mobile": []}, "mobile must be a dictionary."],
+            ["mobile string", {"mobile": "yes"}, "mobile must be a dictionary."],
+            [
+                "mobile unknown key",
+                {"mobile": {"key": True}},
+                "mobile must only contain known keys: maskAllText, maskAllImages.",
+            ],
+            ["mask all text string", {"mobile": {"maskAllText": "true"}}, "mobile.maskAllText must be a boolean."],
+            ["mask all text int", {"mobile": {"maskAllText": 1}}, "mobile.maskAllText must be a boolean."],
+            ["mask all images none", {"mobile": {"maskAllImages": None}}, "mobile.maskAllImages must be a boolean."],
+        ]
+    )
+    def test_invalid_session_recording_masking_config(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_recording_masking_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["none clears everything", None, {"maskAllInputs": True, "mobile": {"maskAllText": True}}, None],
+            [
+                "web write replaces web keys and keeps mobile",
+                {"maskAllInputs": True},
+                {"maskAllInputs": False, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ],
+            [
+                "mobile write replaces mobile and keeps web keys",
+                {"mobile": {"maskAllImages": True}},
+                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllImages": True}},
+            ],
+            [
+                "web and mobile write replaces both",
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"maskTextSelector": "*", "mobile": {"maskAllImages": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ],
+            [
+                "empty write clears web keys and keeps mobile",
+                {},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"mobile": {"maskAllText": True}},
+            ],
+            [
+                "empty mobile is dropped",
+                {"mobile": {}},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True},
+            ],
+            ["non-dict existing with web write", {"maskAllInputs": True}, "legacy", {"maskAllInputs": True}],
+            [
+                "non-dict existing with mobile write",
+                {"mobile": {"maskAllText": True}},
+                ["legacy"],
+                {"mobile": {"maskAllText": True}},
+            ],
+        ]
+    )
+    def test_merge_session_recording_masking_config(
+        self, _name: str, requested: dict | None, existing: object, expected: dict | None
+    ) -> None:
+        assert merge_session_recording_masking_config(requested, existing) == expected
 
     @parameterized.expand(
         [

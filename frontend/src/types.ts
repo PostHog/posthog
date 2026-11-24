@@ -804,6 +804,7 @@ export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
     blockSelector?: string
+    mobile?: { maskAllText?: boolean; maskAllImages?: boolean }
 }
 
 export enum ActivationTaskStatus {

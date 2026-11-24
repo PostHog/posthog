@@ -210,6 +210,62 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
+    it.each<{ name: string; before: unknown; after: unknown; expected: string[] }>([
+        {
+            name: 'mobile masking turned on',
+            before: { maskAllInputs: true, mobile: { maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            expected: ['enabled masking all text in mobile session replay'],
+        },
+        {
+            name: 'mobile masking turned off',
+            before: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true } },
+            expected: ['disabled masking all images in mobile session replay'],
+        },
+        {
+            name: 'mobile masking set when there was no config',
+            before: null,
+            after: { mobile: { maskAllText: true, maskAllImages: true } },
+            expected: [
+                'enabled masking all text in mobile session replay',
+                'enabled masking all images in mobile session replay',
+            ],
+        },
+        {
+            name: 'web masking changed alongside unchanged mobile masking',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true } },
+            expected: ['enabled masking all inputs in session replay'],
+        },
+    ])('describes a masking config change: $name', ({ before, after, expected }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.TEAM,
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                changes: [
+                    {
+                        type: ActivityScope.TEAM,
+                        action: 'changed',
+                        field: 'session_recording_masking_config',
+                        before,
+                        after,
+                    },
+                ],
+            },
+        })
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        const action = text(teamActivityDescriber(logItem, true).summary?.action)
+
+        for (const phrase of expected) {
+            expect(action).toContain(phrase)
+        }
+    })
+
     it.each<{ activity: string; isSystem?: boolean; jobType?: string; action: string; description: string }>([
         {
             activity: 'stopped_ingesting',

@@ -328,6 +328,24 @@ const TEAM_PROPERTIES_MAPPING: Record<
             )
         }
 
+        const mobileFlag = (value: unknown, key: 'maskAllText' | 'maskAllImages'): boolean =>
+            isObject(value) && isObject(value.mobile) && !!value.mobile[key]
+
+        for (const [key, label] of [
+            ['maskAllText', 'text'],
+            ['maskAllImages', 'images'],
+        ] as const) {
+            const before = mobileFlag(change.before, key)
+            const after = mobileFlag(change.after, key)
+            if (before !== after) {
+                descriptions.push(
+                    <>
+                        {after ? 'enabled' : 'disabled'} masking all {label} in mobile session replay
+                    </>
+                )
+            }
+        }
+
         return descriptions.length
             ? {
                   description: descriptions,

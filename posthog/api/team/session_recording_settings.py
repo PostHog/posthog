@@ -275,6 +275,10 @@ def validate_session_recording_network_payload_capture_config(value) -> dict | N
     return value
 
 
+MASKING_CONFIG_WEB_KEYS = ("maskAllInputs", "maskTextSelector", "blockSelector")
+MASKING_CONFIG_MOBILE_KEYS = ("maskAllText", "maskAllImages")
+
+
 def validate_session_recording_masking_config(value) -> dict | None:
     if value is None:
         return None
@@ -282,7 +286,7 @@ def validate_session_recording_masking_config(value) -> dict | None:
     if not isinstance(value, dict):
         raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-    allowed_keys = {"maskAllInputs", "maskTextSelector", "blockSelector"}
+    allowed_keys = (*MASKING_CONFIG_WEB_KEYS, "mobile")
 
     if not all(key in allowed_keys for key in value.keys()):
         raise exceptions.ValidationError(f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}.")
@@ -299,7 +303,35 @@ def validate_session_recording_masking_config(value) -> dict | None:
         if not isinstance(value["blockSelector"], str):
             raise exceptions.ValidationError("blockSelector must be a string.")
 
+    if "mobile" in value:
+        mobile = value["mobile"]
+        if not isinstance(mobile, dict):
+            raise exceptions.ValidationError("mobile must be a dictionary.")
+        if not all(key in MASKING_CONFIG_MOBILE_KEYS for key in mobile):
+            raise exceptions.ValidationError(
+                f"mobile must only contain known keys: {', '.join(MASKING_CONFIG_MOBILE_KEYS)}."
+            )
+        for key in MASKING_CONFIG_MOBILE_KEYS:
+            if key in mobile and not isinstance(mobile[key], bool):
+                raise exceptions.ValidationError(f"mobile.{key} must be a boolean.")
+
     return value
+
+
+def merge_session_recording_masking_config(requested: dict | None, existing: object) -> dict | None:
+    if requested is None:
+        return None
+    # Django admin can store a scalar or list here. Treat it as empty rather than raising.
+    stored = existing if isinstance(existing, dict) else {}
+
+    mobile_only = "mobile" in requested and not any(key in requested for key in MASKING_CONFIG_WEB_KEYS)
+    web_source = stored if mobile_only else requested
+    merged = {key: value for key, value in web_source.items() if key != "mobile"}
+
+    mobile = requested.get("mobile", stored.get("mobile"))
+    if mobile:
+        merged["mobile"] = mobile
+    return merged
 
 
 def validate_session_replay_config(value) -> dict | None:
