@@ -1,6 +1,6 @@
 import os
 import uuid
-import importlib
+import importlib.util
 from datetime import datetime, timedelta
 from typing import TypedDict
 
@@ -615,9 +615,31 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             == []
         )
 
-    @parameterized.expand([("marketing", [], TRANSACTIONAL_ACTIONS), ("transactional", TRANSACTIONAL_ACTIONS, [])])
+    @parameterized.expand(
+        [
+            (
+                "marketing",
+                [],
+                TRANSACTIONAL_ACTIONS,
+                "this project's workflows sent",
+                "we can pause this workflow's email automatically",
+            ),
+            (
+                "transactional",
+                TRANSACTIONAL_ACTIONS,
+                [],
+                "this project's transactional workflows sent",
+                "we don't pause it automatically",
+            ),
+        ]
+    )
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(
-        self, _name: str, actions: list[dict[str, object]], clean_sender_actions: list[dict[str, object]]
+        self,
+        _name: str,
+        actions: list[dict[str, object]],
+        clean_sender_actions: list[dict[str, object]],
+        pool_label: str,
+        pause_note: str,
     ):
         set_instance_setting("EMAIL_HOST", "localhost")
         set_instance_setting("EMAIL_ENABLED", True)
@@ -647,11 +669,12 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                     "needs attention" in str(message.subject),
                     message.to,
                     next(flow.name for flow in flows if f"/workflows/{flow.id}/" in html),
-                    "reached 8% of the 300 emails this project" in html,
+                    f"reached 8% of the 300 emails {pool_label}" in html,
+                    pause_note in html,
                 )
             )
         assert sorted(delivered) == sorted(
-            (True, [self.user.email], flow.name, True) for flow in (self.flow, spreading)
+            (True, [self.user.email], flow.name, True, True) for flow in (self.flow, spreading)
         )
         assert (
             list(
@@ -674,8 +697,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             with patch.dict(os.environ, env):
                 for key in {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", "WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE"} - env.keys():
                     os.environ.pop(key, None)
-                loaded = vars(importlib.reload(ses_settings))
-                started = {key: value for key, value in loaded.items() if key.startswith("WORKFLOW_EMAIL_")}
+                importlib.reload(ses_settings)
+                spec = importlib.util.find_spec("posthog.settings")
+                assert spec is not None and spec.loader is not None
+                django_settings = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(django_settings)
+                started = {
+                    key: value for key, value in vars(django_settings).items() if key.startswith("WORKFLOW_EMAIL_")
+                }
         finally:
             importlib.reload(ses_settings)
 
