@@ -133,13 +133,14 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
 export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax = 50
 
 export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault = false
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyKeepWritingFlagCallsToEventsDefault = false
 export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault = false
 
 export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @__PURE__ */ zod.object({
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
         .describe(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
         ),
     team_ids: zod
         .array(zod.number())
@@ -153,6 +154,12 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
         .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault)
         .describe(
             'Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2.'
+        ),
+    keep_writing_flag_calls_to_events: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyKeepWritingFlagCallsToEventsDefault)
+        .describe(
+            'Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it.'
         ),
     dry_run: zod
         .boolean()

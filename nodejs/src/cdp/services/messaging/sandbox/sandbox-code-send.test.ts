@@ -412,6 +412,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
     it('answers with the sandbox sender kind when its team hands sends to the intake consumer', async () => {
         hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+        hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
         try {
             const res = await sendFromCode(request(sandboxSend()))
 
@@ -435,6 +436,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
         }
     })
 
@@ -459,10 +461,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
         beforeEach(() => {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
         })
 
         afterEach(() => {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+            hub.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
         })
 
         it('refuses only the recipients outside the organization, and queues the members as sandbox sends', async () => {

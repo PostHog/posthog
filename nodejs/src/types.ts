@@ -288,7 +288,6 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    secret_api_token: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
@@ -296,6 +295,8 @@ export interface Team {
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
     flag_evaluations_mode: FlagEvaluationsMode
+    /** Ingestion reads this only when flag_evaluations_mode is FlagEvaluationsOnly. When true, ingestion keeps writing flag calls to events. */
+    keep_writing_flag_calls_to_events: boolean
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null

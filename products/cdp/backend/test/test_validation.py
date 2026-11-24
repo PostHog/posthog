@@ -1769,6 +1769,21 @@ class TestTaskInputTypeValidation(SimpleTestCase):
                 validate_inputs(schema, inputs)
 
 
+class TestIntegrationFieldInputValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("numeric_id", 512345678, "512345678"),
+            ("string_id", "512345678", "512345678"),
+        ]
+    )
+    def test_integration_field_value_is_stored_as_a_string(self, _name, value, expected):
+        schema = [{"key": "accountId", "type": "integration_field", "integration_key": "linkedinAdsIntegration"}]
+
+        validated = validate_inputs(schema, {"accountId": {"value": value}})
+
+        assert validated["accountId"]["value"] == expected
+
+
 class TestChoiceInputTemplating(SimpleTestCase):
     CHOICE_SCHEMA = [
         {

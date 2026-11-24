@@ -1,4 +1,4 @@
-from posthog.rate_limit import _UserBucketRateThrottle
+from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle, _UserBucketRateThrottle
 
 
 # Each new notebook can start a paid kernel sandbox, so these rates stop a scripted create loop.
@@ -20,3 +20,13 @@ class NotebookKernelStartBurstThrottle(_UserBucketRateThrottle):
 class NotebookKernelStartSustainedThrottle(_UserBucketRateThrottle):
     scope = "notebook_kernel_start_sustained"
     rate = "20/hour"
+
+
+class NotebookAppQueryBurstThrottle(_UserBucketRateThrottle):
+    scope = "notebook_app_query_burst"
+    rate = APIQueriesBurstThrottle.rate
+
+
+class NotebookAppQuerySustainedThrottle(_UserBucketRateThrottle):
+    scope = "notebook_app_query_sustained"
+    rate = APIQueriesSustainedThrottle.rate
