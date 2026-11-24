@@ -1,8 +1,8 @@
 from typing import Any, cast
 
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import mixins, serializers, viewsets
 
-from posthog.api.pagination import BoundedPageNumberPagination
+from posthog.api.pagination import FacadePageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, get_edge, list_edges
@@ -61,7 +61,7 @@ class EdgeSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class EdgePagination(BoundedPageNumberPagination):
+class EdgePagination(FacadePageNumberPagination):
     page_size = 5000
 
 
@@ -103,13 +103,13 @@ class EdgeViewSet(
         delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
     def list(self, request, *args, **kwargs):
-        listed = list_edges(self.team, self.user_access_control)
-        page = self.paginate_queryset(listed)
-        edges = page if page is not None else listed
-        serializer = self.get_serializer(edges, many=True)
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return response.Response(serializer.data)
+        paginator = self.paginator
+        assert isinstance(paginator, FacadePageNumberPagination)
+        page = paginator.read_facade_page(
+            request, lambda page_request: list_edges(self.team, self.user_access_control, page=page_request)
+        )
+        serializer = self.get_serializer(page.results, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     def read_object(self) -> Edge | None:
         return get_edge(self.team, self.user_access_control, edge_id=self.kwargs["pk"])

@@ -5,6 +5,8 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
 
 from posthog.models.utils import strict_fetch
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.data_modeling.backend.facade.enums import DataModelingJobEngine, NodeType
 from products.data_modeling.backend.logic.node_visibility import exclude_hidden_edges, exclude_hidden_nodes
@@ -46,12 +48,16 @@ def _visible_edges(team: "Team", user_access_control: "UserAccessControl") -> Qu
 
 
 def list_nodes(
-    team: "Team", user_access_control: "UserAccessControl", *, search_terms: Sequence[str] = ()
-) -> list[Node]:
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    *,
+    page: PageRequest,
+    search_terms: Sequence[str] = (),
+) -> Page[Node]:
     nodes = _with_latest_serving_job(_visible_nodes(team, user_access_control).select_related("saved_query", "dag"))
     for term in search_terms:
         nodes = nodes.filter(name__icontains=term)
-    return list(strict_fetch(nodes.order_by("name")))
+    return select_page(strict_fetch(nodes.order_by("name")), page)
 
 
 def get_node(
@@ -111,11 +117,19 @@ def list_edges(
     team: "Team",
     user_access_control: "UserAccessControl",
     *,
-    node_ids: Collection[UUID] | None = None,
+    page: PageRequest,
+) -> Page[Edge]:
+    return select_page(strict_fetch(_visible_edges(team, user_access_control).order_by("-created_at")), page)
+
+
+def list_lineage_edges(
+    team: "Team", user_access_control: "UserAccessControl", *, node_ids: Collection[UUID]
 ) -> list[Edge]:
-    edges = _visible_edges(team, user_access_control)
-    if node_ids is not None:
-        edges = edges.filter(source_id__in=node_ids, target_id__in=node_ids).select_related("source", "target", "dag")
+    edges = (
+        _visible_edges(team, user_access_control)
+        .filter(source_id__in=node_ids, target_id__in=node_ids)
+        .select_related("source", "target", "dag")
+    )
     return list(strict_fetch(edges.order_by("-created_at")))
 
 

@@ -10,7 +10,7 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
-from posthog.api.pagination import BoundedPageNumberPagination
+from posthog.api.pagination import FacadePageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
@@ -40,7 +40,7 @@ from products.data_modeling.backend.facade.api import (
     get_node,
     get_posthog_table_node,
     is_declared_pin,
-    list_edges,
+    list_lineage_edges,
     list_lineage_nodes,
     list_nodes,
     load_node_descriptions,
@@ -562,7 +562,7 @@ def _log_cadence_change(
     )
 
 
-class NodePagination(BoundedPageNumberPagination):
+class NodePagination(FacadePageNumberPagination):
     page_size = 1000
 
 
@@ -799,9 +799,15 @@ class NodeViewSet(
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
         search_terms = filters.SearchFilter().get_search_terms(request)
-        listed = list_nodes(self.team, self.user_access_control, search_terms=search_terms)
-        page = self.paginate_queryset(listed)
-        nodes = page if page is not None else listed
+        paginator = self.paginator
+        assert isinstance(paginator, FacadePageNumberPagination)
+        page = paginator.read_facade_page(
+            request,
+            lambda page_request: list_nodes(
+                self.team, self.user_access_control, page=page_request, search_terms=search_terms
+            ),
+        )
+        nodes = page.results
 
         node_ids = [str(n.id) for n in nodes]
         counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
@@ -809,9 +815,7 @@ class NodeViewSet(
         serializer = self.get_serializer(
             nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}
         )
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return response.Response(serializer.data)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         request=NodeRunSerializer,
@@ -932,7 +936,7 @@ class NodeViewSet(
             self.user_access_control,
             node_ids=lineage.node_ids,
         )
-        edges = list_edges(
+        edges = list_lineage_edges(
             self.team,
             self.user_access_control,
             node_ids=lineage.node_ids,

@@ -90,13 +90,21 @@ class TestNodeViewSet(APIBaseTest):
         )
 
     def test_list_nodes(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
 
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
+
+        node_query = next(
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{Node._meta.db_table}"' in query["sql"] and query["sql"].endswith("LIMIT 1000")
+        )
+        self.assertIn(f'"{Node._meta.db_table}"."id" ASC', node_query)
 
     @parameterized.expand(["saved_query", "warehouse_table", "posthog_table", "metric"])
     def test_retrieve_node_by_backing_resource(self, lookup):
@@ -1805,7 +1813,8 @@ class TestEdgeViewSet(APIBaseTest):
         )
 
     def test_list_edges(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
@@ -1813,6 +1822,13 @@ class TestEdgeViewSet(APIBaseTest):
         edge = response.json()["results"][0]
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
+
+        edge_query = next(
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{Edge._meta.db_table}"' in query["sql"] and query["sql"].endswith("LIMIT 5000")
+        )
+        self.assertIn(f'"{Edge._meta.db_table}"."id" DESC', edge_query)
 
     def test_list_edges_query_count_does_not_grow_with_edges(self):
         url = f"/api/environments/{self.team.id}/data_modeling_edges/"

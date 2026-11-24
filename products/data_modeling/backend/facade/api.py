@@ -170,6 +170,7 @@ _LAZY = {
     "get_node": "logic.node_reads",
     "get_posthog_table_node": "logic.node_reads",
     "list_edges": "logic.node_reads",
+    "list_lineage_edges": "logic.node_reads",
     "list_lineage_nodes": "logic.node_reads",
     "list_nodes": "logic.node_reads",
     "managed_views_hidden": "logic.node_visibility",

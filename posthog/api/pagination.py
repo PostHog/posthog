@@ -9,6 +9,7 @@ from django.core.exceptions import (
     ImproperlyConfigured,
     ValidationError as DjangoValidationError,
 )
+from django.core.paginator import InvalidPage
 
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, ValidationError
@@ -136,6 +137,44 @@ class BoundedPageNumberPagination(PageNumberPagination):
             if parameter["name"] == self.page_size_query_param:
                 parameter["schema"]["maximum"] = self.max_page_size
         return parameters
+
+
+class FacadePageNumberPagination(BoundedPageNumberPagination):
+    """Preserve numbered-page API contracts while a facade applies LIMIT and OFFSET in SQL."""
+
+    def read_facade_page[T](self, request: Request, fetch: Callable[[PageRequest], Page[T]]) -> Page[T]:
+        self.request = request
+        page_size = self.get_page_size(request)
+        if not page_size:
+            raise ImproperlyConfigured(f"{type(self).__name__} needs a page_size to page a facade list.")
+
+        requested_page = request.query_params.get(self.page_query_param) or 1
+        if requested_page in self.last_page_strings:
+            fetched = fetch(PageRequest(limit=page_size))
+            paginator = self.django_paginator_class(range(fetched.count), page_size)
+            page_number = paginator.num_pages
+            if page_number > 1:
+                fetched = fetch(PageRequest(limit=page_size, offset=(page_number - 1) * page_size))
+        else:
+            try:
+                page_number = int(requested_page)
+            except (TypeError, ValueError):
+                raise NotFound(self.invalid_page_message.format(page_number=requested_page, message="")) from None
+            if page_number < 1:
+                raise NotFound(self.invalid_page_message.format(page_number=requested_page, message=""))
+            fetched = fetch(PageRequest(limit=page_size, offset=(page_number - 1) * page_size))
+            paginator = self.django_paginator_class(range(fetched.count), page_size)
+
+        try:
+            self.page = paginator.page(page_number)
+        except InvalidPage as error:
+            message = self.invalid_page_message.format(page_number=page_number, message=str(error))
+            raise NotFound(message) from error
+        self.page.object_list = fetched.results
+
+        if paginator.num_pages > 1 and self.template is not None:
+            self.display_page_controls = True
+        return fetched
 
 
 class PrecountedLimitOffsetPagination(BoundedLimitOffsetPagination):
