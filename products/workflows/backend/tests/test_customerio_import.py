@@ -1247,13 +1247,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
         hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
+        accented = "https://userimg-assets.customeriomail.com/images/client-env-1/été.png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
         smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
-        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
+        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo, accented}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served or url == stalled else 404)
@@ -1272,13 +1273,13 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
                 f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}"><img src="{accented}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
 
         preview = self._import(campaigns=campaigns, dry_run=True)
-        assert any("6 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert any("7 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
         planted = UploadedMedia.objects.create(
@@ -1296,14 +1297,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         copies = list(
             UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).order_by("created_at")
         )
-        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
+        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 5
         urls = [media.get_absolute_url() for media in copies]
         assert html == (
             '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
             f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"><img src="{urls[4]}"></div>'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
@@ -1318,7 +1319,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert hero_webp not in design and urls[1] in design
 
         self._import(campaigns=campaigns)
-        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 4
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 5
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
 
         UploadedMedia.objects.filter(pk=copies[0].pk).update(archived_at=timezone.now())
@@ -1328,7 +1329,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             UploadedMedia.objects.filter(
                 team=self.team, purpose="email", created_by=self.user, archived_at__isnull=True
             ).count()
-            == 4
+            == 5
         )
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 

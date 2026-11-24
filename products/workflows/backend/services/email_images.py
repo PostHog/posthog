@@ -30,12 +30,13 @@ _DOWNLOAD_THREADS = 4
 
 def is_hosted(url: str, source: EmailImageSource) -> bool:
     """Whether `url` is an https address on one of the tool's image hosts, and nothing a parser could read otherwise."""
-    if not url.isascii() or not url.isprintable() or "\\" in url or " " in url:
-        return False
     try:
         parts = urlsplit(url)
         host, port = (parts.hostname or "").lower(), parts.port
     except ValueError:
+        return False
+    # Only the path may hold anything else, such as an accented file name, which the request encodes.
+    if not url.isprintable() or not parts.netloc.isascii() or "\\" in parts.netloc:
         return False
     return (
         parts.scheme == "https"
