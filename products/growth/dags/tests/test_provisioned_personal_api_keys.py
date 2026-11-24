@@ -46,9 +46,14 @@ class TestTagProvisionedPersonalAPIKeys(TestCase):
         self.member = User.objects.create_and_join(self.organization, "member@example.com", "password")
         self.outsider = User.objects.create(email="outsider@example.com")
 
-        self.stripe_app = self._app("Stripe", issues_personal_api_key=True)
+        self.stripe_app = self._app("Stripe", issues_personal_api_key=False)
         self.other_partner = self._app("Other partner", issues_personal_api_key=True)
         self.non_minting_partner = self._app("Non-minting partner", issues_personal_api_key=False)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+            application=self.stripe_app,
+        )
         TeamProvisioningConfig.objects.create(team=self.team, application=self.stripe_app)
 
         self.ambiguous_organization = Organization.objects.create(name="Shared")

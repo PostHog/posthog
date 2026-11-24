@@ -14,7 +14,6 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthApplication
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.partners.stripe.api.provisioning.constants import STRIPE_CONTRACTED_SCOPES
 
 HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
@@ -52,9 +51,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "algorithm": "RS256",
             },
         )
-        self.stripe_app.scopes = list(STRIPE_CONTRACTED_SCOPES)
-        self.stripe_app.save(update_fields=["scopes"])
-        self.stripe_app.update_provisioning(can_issue_deep_links=True, issues_personal_api_key=True)
+        self.stripe_app.update_provisioning(can_issue_deep_links=True)
 
     def _create_other_partner_app(self, **overrides):
         defaults = {

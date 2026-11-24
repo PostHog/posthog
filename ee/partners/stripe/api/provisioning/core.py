@@ -34,7 +34,6 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes.ceilings import narrow_scopes_to_ceiling
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -721,14 +720,10 @@ def maybe_create_provisioned_pat(
 ) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
 
-    Gated by ``app.provisioning.issues_personal_api_key``, which only the legacy Stripe
-    app has. Returns ``None`` when the gate is off, and the caller omits
-    ``personal_api_key`` from the response.
-
-    The key carries the granted OAuth token's scopes (``granted_scope``), or the default
-    Stripe scope set when the token carried none, narrowed to the app's current ceiling.
-    An app with an unseeded ceiling mints nothing, because an empty-scope key fails every
-    scope check and a wildcard would bypass the ceiling.
+    The key carries the granted OAuth token's scopes (``granted_scope``) as-is;
+    this namespace does not enforce a scope ceiling, so what the token was
+    granted is exactly what the PAT gets. Falls back to the default Stripe scope
+    set when the token carried none.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -748,19 +743,14 @@ def maybe_create_provisioned_pat(
     team, in the same transaction as the mint. It deletes them even when no new key is
     minted, so a rotation always ends the earlier keys.
     """
-    if not app:
-        return None
+    pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
 
     with transaction.atomic():
         if access_token is not None and not _lock_access_token_for_team(access_token, team.id):
             return None
 
-        if replace_existing:
+        if replace_existing and app is not None:
             delete_provisioned_pats(app, team_id=team.id, user=user)
-
-        pat_scopes = _provisioned_pat_scopes(team, app, granted_scope)
-        if not pat_scopes:
-            return None
 
         return _mint_provisioned_pat(user, team, app, pat_scopes, label_prefix)
 
@@ -770,29 +760,8 @@ def _lock_access_token_for_team(access_token: OAuthAccessToken, team_id: int) ->
     return locked.values_list("pk", flat=True).first() is not None
 
 
-def _provisioned_pat_scopes(team: Team, app: OAuthApplication, granted_scope: str | None) -> list[str] | None:
-    if not app.provisioning.issues_personal_api_key:
-        return None
-    if not app.ceiling_scopes:
-        capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
-        return None
-
-    granted = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
-    if "*" in granted:
-        # A legacy wildcard token covers everything, so the ceiling is the cap.
-        pat_scopes = app.ceiling_scopes
-    else:
-        pat_scopes = narrow_scopes_to_ceiling([s for s in granted if ":" in s], app.ceiling_scopes) or []
-
-    if not pat_scopes:
-        capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
-        return None
-
-    return pat_scopes
-
-
 def _mint_provisioned_pat(
-    user: User, team: Team, app: OAuthApplication, pat_scopes: list[str], label_prefix: str | None
+    user: User, team: Team, app: OAuthApplication | None, pat_scopes: list[str], label_prefix: str | None
 ) -> str | None:
     try:
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name

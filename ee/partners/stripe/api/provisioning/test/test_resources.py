@@ -24,6 +24,7 @@ from ee.partners.stripe.api.provisioning.authentication import StripeBearerAuthe
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
+GRANTED_SCOPES = ["insight:read", "project:read"]
 
 
 class TestResources(StripeProvisioningTestBase):
@@ -49,35 +50,23 @@ class TestResources(StripeProvisioningTestBase):
 
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
 
-    @parameterized.expand(
-        [
-            ("gate_off", {"issues_personal_api_key": False}, ["query:read"], None),
-            ("unseeded_ceiling", {}, [], None),
-            ("grant_outside_ceiling", {}, ["insight:read"], None),
-            ("grant_inside_ceiling", {}, ["query:read"], ["query:read"]),
-        ]
-    )
-    def test_create_mints_pat_only_inside_gate_and_ceiling(
-        self, _name: str, provisioning: dict, ceiling: list[str], expected_scopes: list[str] | None
-    ) -> None:
-        token = self._get_bearer_token()
-        self.stripe_app.scopes = ceiling
+    def test_create_mints_granted_scopes_for_an_app_without_ceiling_or_key_flag(self) -> None:
+        self.stripe_app.scopes = []
         self.stripe_app.save(update_fields=["scopes"])
-        if provisioning:
-            self.stripe_app.update_provisioning(**provisioning)
+        self.stripe_app.update_provisioning(issues_personal_api_key=False)
+        self._seed_auth_code("code_wide", scopes=GRANTED_SCOPES)
+        token = self._post_signed(
+            f"{BASE_PATH}/oauth/token",
+            data={"grant_type": "authorization_code", "code": "code_wide"},
+            content_type="application/x-www-form-urlencoded",
+        ).json()["access_token"]
 
         res = self._post_signed_with_bearer(RESOURCES_URL, data={"service_id": "analytics"}, token=token)
 
         assert res.status_code == 200
-        config = res.json()["complete"]["access_configuration"]
-        pat = PersonalAPIKey.objects.filter(user=self.user).first()
-        if expected_scopes is None:
-            assert "personal_api_key" not in config
-            assert pat is None
-        else:
-            assert config["personal_api_key"].startswith("phx_")
-            assert pat is not None
-            assert pat.scopes == expected_scopes
+        assert res.json()["complete"]["access_configuration"]["personal_api_key"].startswith("phx_")
+        pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.stripe_app)
+        assert sorted(pat.scopes) == sorted(GRANTED_SCOPES)
 
     def test_create_with_project_id_is_idempotent(self):
         token = self._get_bearer_token()

@@ -30,7 +30,12 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 KEY_BATCH_SIZE = 1000
 PROVISIONED_LABEL_SEPARATOR = " - "
 LABEL_MAX_LENGTH = PersonalAPIKey._meta.get_field("label").max_length or 0
-ISSUES_PERSONAL_API_KEY_FILTER = Q(_provisioning_config__issues_personal_api_key=True)
+# The Stripe Projects app mints keys with `issues_personal_api_key` off, because its namespace
+# has no key gate. Only that namespace records `STRIPE_PROJECTS` organizations, so those rows
+# identify its app from the database alone, with no client id read from settings.
+KEY_ISSUING_APP_FILTER = Q(_provisioning_config__issues_personal_api_key=True) | Q(
+    provisioned_organizations__partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS
+)
 
 
 def label_matches_provisioned_pattern(label: str, team_name: str) -> bool:
@@ -121,7 +126,7 @@ def tag_provisioned_personal_api_keys(
 ) -> None:
     """Set `provisioned_by` on existing keys that a partner application minted during provisioning."""
     app_names: Mapping[UUID, str] = dict(
-        OAuthApplication.objects.filter(ISSUES_PERSONAL_API_KEY_FILTER).values_list("id", "name")
+        OAuthApplication.objects.filter(KEY_ISSUING_APP_FILTER).distinct().values_list("id", "name")
     )
     context.log.info(f"Partner applications that mint personal API keys: {app_names}")
 
