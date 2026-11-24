@@ -25,7 +25,8 @@ API_KEY_SCOPE_ID = "default"
 def _report_policy(_key: str) -> RatePolicy:
     # A value under 1 would make the limiter refuse every report instead of pacing them
     per_minute = max(1, int(settings.WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET))
-    return RatePolicy(limits=((per_minute, 60.0),), in_memory_divider=4, reserve={})
+    # Without Redis each process admits one report a minute, because no process knows how many others run
+    return RatePolicy(limits=((per_minute, 60.0),), in_memory_divider=per_minute, reserve={})
 
 
 register_policy(WORKOS_RADAR_DOMAIN, _report_policy)

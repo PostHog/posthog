@@ -14,6 +14,8 @@ logger = structlog.get_logger(__name__)
 
 _RETRY_BASE_SECONDS = 60
 _RETRY_MAX_SECONDS = 900
+# Our own budget sheds a report before WorkOS sees it, so a busy hour must not use up its delivery retries
+_BUDGET_MAX_RETRIES = 24
 
 
 def retry_countdown(retries: int, retry_after: Optional[int]) -> int:
@@ -26,7 +28,11 @@ def retry_countdown(retries: int, retry_after: Optional[int]) -> int:
 def report_radar_attempt_success(self: Task, attempt_id: str, challenge_completed: bool = False) -> None:
     try:
         send_attempt_success(attempt_id, challenge_completed)
-    except (RadarReportFailed, WorkosRadarEgressBudgetExhausted, requests.ConnectionError, requests.Timeout) as error:
+    except WorkosRadarEgressBudgetExhausted as error:
+        raise self.retry(
+            exc=error, countdown=retry_countdown(self.request.retries, None), max_retries=_BUDGET_MAX_RETRIES
+        )
+    except (RadarReportFailed, requests.ConnectionError, requests.Timeout) as error:
         retry_after = error.retry_after if isinstance(error, RadarReportFailed) else None
         raise self.retry(exc=error, countdown=retry_countdown(self.request.retries, retry_after))
 

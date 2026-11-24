@@ -15,7 +15,7 @@ Only the success reports draw from a budget:
 - `WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET` (default 300) caps the success reports.
   The checks can use the remaining 700 requests per minute.
 - A value under 1 counts as 1, so a bad setting slows the reports but never stops them.
-- When Redis is down, each process gets a quarter of the budget (`in_memory_divider=4`).
+- When Redis is down, each process admits one report a minute (`in_memory_divider` equals the budget), because no process knows how many others run. The shed reports retry, up to 24 times.
 
 The checks have no budget on purpose.
 A shed check lets the attempt through, so a gated check would let a flood of logins turn Radar off for every signup.

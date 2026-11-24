@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
+import redis
 import requests
 from parameterized import parameterized
 
@@ -126,17 +127,18 @@ class TestAttemptSuccessRetry(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("rate_limited", MagicMock(status_code=429, headers={})),
-            ("budget_exhausted", WorkosRadarEgressBudgetExhausted("shed")),
-            ("connection_error", requests.ConnectionError("reset")),
+            ("rate_limited", MagicMock(status_code=429, headers={}), 0),
+            ("budget_exhausted", WorkosRadarEgressBudgetExhausted("shed"), 0),
+            ("connection_error", requests.ConnectionError("reset"), 0),
+            ("budget_exhausted_past_the_delivery_retry_limit", WorkosRadarEgressBudgetExhausted("shed"), 7),
         ]
     )
     @patch("posthog.workos_radar.workos_radar_report")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
-    def test_a_report_that_could_not_go_now_goes_on_a_retry(self, _name, first_answer, mock_put):
+    def test_a_report_that_could_not_go_now_goes_on_a_retry(self, _name, first_answer, retries_so_far, mock_put):
         mock_put.side_effect = [first_answer, MagicMock(status_code=200, ok=True)]
 
-        report_radar_attempt_success.apply(args=("radar_att_01ABC",), throw=False).get()
+        report_radar_attempt_success.apply(args=("radar_att_01ABC",), retries=retries_so_far, throw=False).get()
 
         assert [c[0][0] for c in mock_put.call_args_list] == [f"{WORKOS_RADAR_API_URL}/radar_att_01ABC"] * 2
 
@@ -188,6 +190,24 @@ class TestRadarBudget(SimpleTestCase):
             patch("requests.request", return_value=_allow_response()) as sent,
         ):
             send_attempt_success("radar_att_01ABC")
+
+        assert [c[0][0] for c in sent.call_args_list] == ["PUT"]
+
+    @override_settings(WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET=300)
+    def test_without_redis_each_process_admits_one_report_a_minute(self):
+        with (
+            patch(
+                "posthog.egress.workos_radar.limiter.workos_radar_key", return_value=f"workos_radar:api_key:{uuid4()}"
+            ),
+            patch(
+                "posthog.egress.limiter.backends.LimitsBackend._redis_limiter",
+                side_effect=redis.exceptions.ConnectionError("redis down"),
+            ),
+            patch("requests.request", return_value=_allow_response()) as sent,
+        ):
+            send_attempt_success("radar_att_01ABC")
+            with pytest.raises(WorkosRadarEgressBudgetExhausted):
+                send_attempt_success("radar_att_01ABC")
 
         assert [c[0][0] for c in sent.call_args_list] == ["PUT"]
 
