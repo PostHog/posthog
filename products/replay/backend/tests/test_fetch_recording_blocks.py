@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
@@ -25,6 +26,7 @@ class FakeRecordingApi(BaseHTTPRequestHandler):
     listing: dict = {}
     list_status = 200
     busy_replies = 0
+    on_list: Callable[[], None] = staticmethod(lambda: None)
     seen_tokens: list[str] = []
 
     def do_GET(self) -> None:
@@ -37,6 +39,7 @@ class FakeRecordingApi(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
         elif self.path == prefix:
+            FakeRecordingApi.on_list()
             self._reply(self.list_status, json.dumps(self.listing).encode())
         elif self.path == f"{prefix}/ref-0":
             self._reply(200, snappy.compress(BLOCK_LINES))
@@ -80,6 +83,7 @@ class TestFetchRecordingBlocksCommand(BaseTest):
         }
         FakeRecordingApi.list_status = 200
         FakeRecordingApi.busy_replies = 0
+        FakeRecordingApi.on_list = staticmethod(lambda: None)
         FakeRecordingApi.seen_tokens = []
         server = ThreadingHTTPServer(("127.0.0.1", 0), FakeRecordingApi)
         server.team_id = self.team.pk  # type: ignore[attr-defined]
@@ -125,6 +129,21 @@ class TestFetchRecordingBlocksCommand(BaseTest):
             "staff_at_example.com",
             "ticket 1",
         )
+
+    def test_keeps_writing_into_its_own_directory_when_the_path_is_replaced(self) -> None:
+        moved = self.out.with_name("moved")
+
+        def replace_out() -> None:
+            self.out.rename(moved)
+            self.out.mkdir()
+
+        FakeRecordingApi.on_list = staticmethod(replace_out)
+
+        self._fetch()
+
+        assert list(self.out.iterdir()) == []
+        assert (moved / "0000.jsonl").read_bytes() == BLOCK_LINES
+        assert (moved / "0000.jsonl").stat().st_mode & 0o777 == 0o600
 
     @parameterized.expand(
         [
