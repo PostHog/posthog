@@ -1440,6 +1440,29 @@ class TestQuotaLimiting(BaseTest):
         self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")
         self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})
 
+    @parameterized.expand([("deactivated", False, True), ("never_deactivated", None, False)])
+    def test_deactivated_organization_is_limited_for_feature_flags_only(
+        self, _name: str, is_active: bool | None, expected_limited: bool
+    ) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+
+        def limited(resource: QuotaResource) -> bool:
+            return is_team_limited(self.team.api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+        self.organization.is_active = is_active
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
+        self._run_quota_limiting()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+        assert limited(QuotaResource.EVENTS) is False
+
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is False
+
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
             self.organization.usage = {

@@ -66,6 +66,8 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
+# Each quota run renews the limit, so the window only has to outlast a gap between runs.
+DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 7
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
@@ -546,6 +548,10 @@ def org_quota_limited_until(
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
+    # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
+        limited_until = get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)
+        return {"quota_limited_until": int(limited_until.timestamp()), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
 
@@ -967,8 +973,6 @@ def update_org_billing_quotas(organization: Organization):
     when the user loads the billing page and when usage reports are run.
     """
     today_end = get_current_day().end
-    if not organization.usage:
-        return None
 
     teams_by_token: dict[str, int] = {
         api_token: team_id for team_id, api_token in organization.teams.values_list("id", "api_token") if api_token
@@ -1709,7 +1713,15 @@ def update_all_orgs_billing_quotas(
 
     teams_iterator = iter_billable_teams(
         team_fields=("id", "api_token"),
-        organization_fields=("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id"),
+        organization_fields=(
+            "id",
+            "usage",
+            "created_at",
+            "never_drop_data",
+            "customer_trust_scores",
+            "customer_id",
+            "is_active",
+        ),
         buffer_teams=True,
     )
     total_orgs = (
@@ -1833,7 +1845,7 @@ def update_all_orgs_billing_quotas(
             try:
                 if org_id in failed_org_ids:
                     continue
-                if org.usage and org.usage.get("period"):
+                if (org.usage and org.usage.get("period")) or org.is_active is False:
                     if org_id in refresh_candidates:
                         fresh = fresh_orgs.get(org_id)
                         if fresh is None:

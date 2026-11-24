@@ -754,26 +754,14 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
 
     organization_id = instance.pk
 
-    def _invalidate_cache():
-        from posthog.models.team import Team
+    def _update_billing_quotas():
+        from ee.billing.quota_limiting import update_org_billing_quotas
 
-        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
+        # Also invalidates the gateway quota cache and enqueues its projection. The quota run reaches
+        # the same limits later, but flag requests should stop or resume at once.
+        update_org_billing_quotas(Organization.objects.get(pk=organization_id))
 
-        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
-        invalidate_llm_gateway_quota_cache(team_ids)
-
-    def _project_gateway_quota():
-        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
-
-        try:
-            project_org_llm_gateway_quota_task.delay(str(organization_id))
-        except Exception:
-            # The reconcile re-derives a deactivated org's blobs; never fail the org save.
-            logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
-
-    transaction.on_commit(_invalidate_cache)
-    if settings.AI_GATEWAY_REDIS_URL:
-        transaction.on_commit(_project_gateway_quota)
+    transaction.on_commit(_update_billing_quotas)
 
 
 @receiver(post_save, sender=Organization)
