@@ -112,7 +112,7 @@ export function TodayNavSwitchDialog(): JSX.Element {
                     <DialogFooter>
                         {!tourCompleted && (
                             <Button variant="outline" onClick={skipTour} data-attr="today-nav-switch-dialog-skip-tour">
-                                Skip tour
+                                Skip
                             </Button>
                         )}
                         {tourCompleted ? (
