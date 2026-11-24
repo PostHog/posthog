@@ -1045,17 +1045,37 @@ describe('judge', () => {
         })
     })
 
-    it('reports the unfinished jobs as unknown when its last poll fails after an earlier poll counted some', async () => {
+    it.each<[string, () => void, number, number | null]>([
+        [
+            'as unknown when its last job count fails after an earlier poll counted some',
+            () => {
+                probeAnswers = 1
+            },
+            50,
+            null,
+        ],
+        [
+            'it counted when the truth read after that count fails',
+            () => {
+                duringProbe = () => {
+                    truthFails = 'The operation was aborted due to timeout'
+                    return Promise.resolve()
+                }
+            },
+            20,
+            5,
+        ],
+    ])('reports the unfinished jobs %s', async (_story, failing, withinMs, reported) => {
         unfinishedJobs = 5
-        probeAnswers = 1
+        failing()
         judge.record(offered())
         await deliver(UNIT)
 
-        const convergence = await judge.converge(50, NEVER_ABORTED)
+        const convergence = await judge.converge(withinMs, NEVER_ABORTED)
 
         expect(convergence).toEqual({
             converged: false,
-            unfinishedJobs: null,
+            unfinishedJobs: reported,
             unrecorded: [],
             tookMs: expect.any(Number),
             unread: 'The operation was aborted due to timeout',
