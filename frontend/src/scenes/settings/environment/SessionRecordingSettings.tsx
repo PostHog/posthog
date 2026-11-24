@@ -442,14 +442,8 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     const mobileMasking = currentTeam?.session_recording_masking_config?.mobile
 
-    const handleMobileMaskingChange = (changedKey: MobileMaskingKey, checked: boolean): void => {
-        const mobile: Partial<Record<MobileMaskingKey, true>> = {}
-        for (const { key } of MOBILE_MASKING_SWITCHES) {
-            if (key === changedKey ? checked : mobileMasking?.[key] === true) {
-                mobile[key] = true
-            }
-        }
-        updateCurrentTeam({ session_recording_masking_config: { mobile } })
+    const handleMobileMaskingChange = (key: MobileMaskingKey, checked: boolean): void => {
+        updateCurrentTeam({ session_recording_masking_config: { mobile: { [key]: checked } } })
     }
 
     if (todayRailNav) {

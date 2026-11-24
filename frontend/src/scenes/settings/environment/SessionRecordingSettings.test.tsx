@@ -80,24 +80,24 @@ describe('<ReplayMaskingSettings />', () => {
         ['today rail navigation', true],
     ])('with %s', (_name, todayRailNav) => {
         it.each<[string, SessionRecordingMaskingConfig | null, string, SessionRecordingMaskingConfig['mobile']]>([
-            ['turns on a switch when no mobile key is stored', null, TEXT_SWITCH, { maskAllText: true }],
+            ['sends true for a switch that is turned on', null, TEXT_SWITCH, { maskAllText: true }],
             [
-                'keeps the web keys out of the request and the other switch on',
+                'keeps the web keys and the other switch out of the request',
                 { maskAllInputs: true, maskTextSelector: '*', mobile: { maskAllText: true } },
                 IMAGES_SWITCH,
-                { maskAllText: true, maskAllImages: true },
+                { maskAllImages: true },
             ],
             [
-                'removes the key of a switch that is turned off',
+                'sends false for a switch that is turned off',
                 { mobile: { maskAllText: true, maskAllImages: true } },
                 IMAGES_SWITCH,
-                { maskAllText: true },
+                { maskAllImages: false },
             ],
             [
-                'sends an empty mobile object when the last switch is turned off',
-                { mobile: { maskAllText: true } },
+                'shows a stored false as off and turns it on',
+                { mobile: { maskAllText: false, maskAllImages: true } },
                 TEXT_SWITCH,
-                {},
+                { maskAllText: true },
             ],
         ])('%s', async (_case, storedConfig, dataAttr, expectedMobile) => {
             const container = renderWithConfig(storedConfig, todayRailNav)
