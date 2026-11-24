@@ -97,8 +97,8 @@ def _fetch_report() -> list[Any]:
     return [row["service"] for table in cast(Iterable[Any], source.items()) for row in table.to_pylist()]
 
 
-def _list_reports() -> list[Any]:
-    return [report.id for report in doit_list_reports(CONFIG)]
+def _resolve_report_id() -> str:
+    return resolve_report_id(CONFIG, "cost_by_product", None)
 
 
 class TestConcurrencyQuotaWait:
@@ -108,9 +108,9 @@ class TestConcurrencyQuotaWait:
         "call,ok_response,expected",
         [
             (_fetch_report, REPORT_OK, ["compute"]),
-            (_list_reports, LIST_OK, ["r1"]),
+            (_resolve_report_id, LIST_OK, "r1"),
         ],
-        ids=["report_fetch", "list_reports"],
+        ids=["report_fetch", "report_lookup_in_a_sync"],
     )
     def test_waits_out_the_quota_and_then_syncs(self, call, ok_response, expected) -> None:
         waits: list[float] = []
@@ -150,6 +150,18 @@ class TestConcurrencyQuotaWait:
 
         assert len(waits) == expected_waits
         assert error_message_matches(str(error.value), DoItSource().get_retryable_errors()) == (response is QUOTA_429)
+
+    def test_schema_listing_does_not_wait_on_the_quota(self) -> None:
+        # `get_schemas` runs in synchronous API views, where a wait holds a web worker for minutes.
+        waits: list[float] = []
+        with (
+            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or False),
+            scripted_network([QUOTA_429] * 10 + [LIST_OK]),
+        ):
+            with pytest.raises(Exception, match="failed with status: 429"):
+                DoItSource().get_schemas(CONFIG, team_id=1)
+
+        assert waits == []
 
 
 class TestRequestTimeouts:

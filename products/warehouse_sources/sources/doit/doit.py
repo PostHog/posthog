@@ -116,12 +116,13 @@ def _get_waiting_for_concurrency_quota(
     api_key: str,
     timeout: tuple[int, int],
     logger: FilteringBoundLogger,
+    max_waits: int = DOIT_CONCURRENCY_QUOTA_MAX_WAITS,
 ) -> requests.Response:
     wait_seconds = DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS
     waits_done = 0
     while True:
         response = session.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
-        if not _is_concurrency_quota_error(response) or waits_done == DOIT_CONCURRENCY_QUOTA_MAX_WAITS:
+        if not _is_concurrency_quota_error(response) or waits_done >= max_waits:
             return response
 
         delay = random.uniform(wait_seconds / 2, wait_seconds)
@@ -147,7 +148,15 @@ class DoItReport:
     report_name: str
 
 
-def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundLogger] = None) -> list[DoItReport]:
+def doit_list_reports(
+    config: DoItSourceConfig,
+    logger: Optional[FilteringBoundLogger] = None,
+    wait_for_concurrency_quota: bool = False,
+) -> list[DoItReport]:
+    # Synchronous API views list the reports for source setup and schema listing. A quota wait there
+    # holds a web worker for minutes, so only an import run asks for it.
+    max_quota_waits = DOIT_CONCURRENCY_QUOTA_MAX_WAITS if wait_for_concurrency_quota else 0
+
     if logger is None:
         logger = structlog.get_logger(__name__)
 
@@ -161,7 +170,12 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
             url = f"{DOIT_REPORTS_URL}?{urlencode({'pageToken': page_token})}"
 
         res = _get_waiting_for_concurrency_quota(
-            session, url, api_key=config.api_key, timeout=LIST_REPORTS_TIMEOUT_SECONDS, logger=logger
+            session,
+            url,
+            api_key=config.api_key,
+            timeout=LIST_REPORTS_TIMEOUT_SECONDS,
+            logger=logger,
+            max_waits=max_quota_waits,
         )
 
         # `DOIT_RETRY` sets `raise_on_status=False`, so a 5xx that outlives the retries lands here as
@@ -214,7 +228,11 @@ def resolve_report_id(
     if schema_metadata and schema_metadata.get(REPORT_ID_METADATA_KEY):
         return str(schema_metadata[REPORT_ID_METADATA_KEY])
 
-    matches = [report.id for report in doit_list_reports(config, logger=logger) if report.name == schema_name]
+    matches = [
+        report.id
+        for report in doit_list_reports(config, logger=logger, wait_for_concurrency_quota=True)
+        if report.name == schema_name
+    ]
     if not matches:
         raise Exception("Report no longer exists")
     return matches[0]
