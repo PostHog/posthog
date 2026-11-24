@@ -2286,20 +2286,17 @@ describe('EmailService', () => {
                 teamConfigDb,
                 attachmentSendDeadlineMs,
                 ownershipCheckTimeoutMs,
-                sesEndpoint,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
                 ownershipCheckTimeoutMs?: number
-                sesEndpoint?: string
             } = {}): EmailService =>
                 createService(
                     {
                         ...(teamDailyCap
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
-                        ...(sesEndpoint ? { sesEndpoint } : {}),
                         attachmentSendDeadlineMs,
                         ownershipCheckTimeoutMs,
                     },
@@ -3339,7 +3336,8 @@ describe('EmailService', () => {
                     client.pipe(upstream).pipe(client)
                 })
                 const proxyPort = await listeningOnLoopback(countingProxy)
-                const emailService = sender({ sesEndpoint: `http://127.0.0.1:${proxyPort}` })
+                hub.SES_ENDPOINT = `http://127.0.0.1:${proxyPort}`
+                const emailService = sender()
                 const files = invocation.queueParameters
                 const connectionsAfterEachSend: number[] = []
                 const sendAndCountConnections = async (withFiles: boolean): Promise<void> => {
