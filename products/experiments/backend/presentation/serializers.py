@@ -853,7 +853,7 @@ class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
         # parent serializer context); None when used standalone, falling back to a per-call query.
         team = instance.experiment.team
         actions_by_id = self.context.get("actions_by_id")
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team_id=team.id, actions_by_id=actions_by_id)
         return data
 
 
