@@ -134,8 +134,10 @@ START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
 # A finalizer that holds the claim longer than this died before it saved a result, so another may take over.
 CLAIM_TIMEOUT = dt.timedelta(minutes=5)
-# The dialog polls every few seconds and each read downloads the whole run log, so several polls share one read.
+# The dialog polls every few seconds, so several polls share one read of the run log.
 ACTIVITY_CACHE_SECONDS = 10
+# The newest tool call and its updates sit at the end of the log, so the read stops at a fixed tail.
+ACTIVITY_LOG_TAIL_BYTES = 256 * 1024
 MAX_GRAFANA_JSON_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
@@ -1056,10 +1058,18 @@ _PROGRESS_BY_OUTCOME = {
 
 def _agent_activity(run: TaskRunDTO, team_id: int) -> DashboardImportAgentActivity | None:
     key = f"metrics_dashboard_import_activity:{run.id}"
-    cached: tuple[AgentAction | None] | None = cache.get(key)
+    # The activity is optional, so a cache outage costs an uncached read and never fails the status request.
+    try:
+        cached: tuple[AgentAction | None] | None = cache.get(key)
+    except Exception:
+        logger.warning("metrics_dashboard_import_activity_cache_failed", run_id=str(run.id), exc_info=True)
+        cached = None
     if cached is None:
         cached = (_read_agent_action(run, team_id),)
-        cache.set(key, cached, ACTIVITY_CACHE_SECONDS)
+        try:
+            cache.set(key, cached, ACTIVITY_CACHE_SECONDS)
+        except Exception:
+            logger.warning("metrics_dashboard_import_activity_cache_failed", run_id=str(run.id), exc_info=True)
     action = cached[0]
     if action is None:
         return None
@@ -1075,11 +1085,8 @@ def _agent_activity(run: TaskRunDTO, team_id: int) -> DashboardImportAgentActivi
 
 def _read_agent_action(run: TaskRunDTO, team_id: int) -> AgentAction | None:
     try:
-        logs = tasks_facade.get_task_run_logs(run.id, run.task_id, team_id)
-        if not logs:
-            return None
-        content = tasks_facade.read_task_run_log_content(logs)
-        return latest_agent_action(content)
+        content = tasks_facade.read_task_run_log_tail(run.id, run.task_id, team_id, max_bytes=ACTIVITY_LOG_TAIL_BYTES)
+        return latest_agent_action(content) if content else None
     except Exception:
         logger.warning("metrics_dashboard_import_activity_read_failed", run_id=str(run.id), exc_info=True)
         return None
