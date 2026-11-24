@@ -30,7 +30,11 @@ import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitc
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { type SessionRecordingMaskingLevel, type SessionRecordingRetentionPeriod } from '~/types'
+import {
+    type SessionRecordingMaskingConfig,
+    type SessionRecordingMaskingLevel,
+    type SessionRecordingRetentionPeriod,
+} from '~/types'
 
 import { QuillOptionSelect } from './QuillOptionSelect'
 
@@ -39,6 +43,24 @@ const MASKING_LEVEL_OPTIONS: { value: SessionRecordingMaskingLevel; label: strin
     { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
     { value: 'free-love', label: 'Free love (mask only passwords)' },
 ]
+
+type MobileMaskingKey = keyof NonNullable<SessionRecordingMaskingConfig['mobile']>
+
+const MOBILE_MASKING_SWITCHES: { key: MobileMaskingKey; label: string; dataAttr: string }[] = [
+    {
+        key: 'maskAllText',
+        label: 'Always mask all text in mobile apps',
+        dataAttr: 'replay-mobile-mask-all-text-switch',
+    },
+    {
+        key: 'maskAllImages',
+        label: 'Always mask all images in mobile apps',
+        dataAttr: 'replay-mobile-mask-all-images-switch',
+    },
+]
+
+const MOBILE_MASKING_HELP =
+    "The mobile SDKs mask all text and all images by default. A switch that is on forces that masking, even when your app turns it off in code. A switch that is off leaves the decision to your app's code. These switches can add masking, and they never remove it. Requires a recent version of the mobile SDK."
 
 export function Since(props: {
     web?: false | { version?: string }
@@ -418,29 +440,80 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     const maskingLevel = getMaskingLevelFromConfig(maskingConfig)
 
+    const mobileMasking = currentTeam?.session_recording_masking_config?.mobile
+
+    const handleMobileMaskingChange = (changedKey: MobileMaskingKey, checked: boolean): void => {
+        const mobile: Partial<Record<MobileMaskingKey, true>> = {}
+        for (const { key } of MOBILE_MASKING_SWITCHES) {
+            if (key === changedKey ? checked : mobileMasking?.[key] === true) {
+                mobile[key] = true
+            }
+        }
+        updateCurrentTeam({ session_recording_masking_config: { mobile } })
+    }
+
     if (todayRailNav) {
         return (
-            <QuillOptionSelect
-                value={maskingLevel}
-                options={MASKING_LEVEL_OPTIONS}
-                onChange={handleMaskingChange}
-                disabled={currentTeamLoading}
-                disabledReason={restrictedReason}
-                ariaLabel="Masking level"
-                className="w-fit max-w-full"
-            />
+            <div className="flex flex-col gap-4">
+                <QuillOptionSelect
+                    value={maskingLevel}
+                    options={MASKING_LEVEL_OPTIONS}
+                    onChange={handleMaskingChange}
+                    disabled={currentTeamLoading}
+                    disabledReason={restrictedReason}
+                    ariaLabel="Masking level"
+                    className="w-fit max-w-full"
+                />
+                <div className="flex flex-col gap-2">
+                    <Text size="xs" weight="semibold" render={<h4 className="m-0" />}>
+                        Mobile apps
+                    </Text>
+                    {MOBILE_MASKING_SWITCHES.map(({ key, label, dataAttr }) => (
+                        <QuillSettingSwitch
+                            key={key}
+                            dataAttr={dataAttr}
+                            label={label}
+                            checked={mobileMasking?.[key] === true}
+                            onCheckedChange={(checked) => handleMobileMaskingChange(key, checked)}
+                            disabled={currentTeamLoading}
+                            disabledReason={restrictedReason}
+                        />
+                    ))}
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        {MOBILE_MASKING_HELP}
+                    </Text>
+                </div>
+            </div>
         )
     }
 
     return (
-        <div>
-            <LemonSelect
-                value={maskingLevel}
-                onChange={(val) => val && handleMaskingChange(val)}
-                options={MASKING_LEVEL_OPTIONS}
-                loading={currentTeamLoading}
-                disabledReason={restrictedReason}
-            />
+        <div className="flex flex-col gap-4">
+            <div>
+                <LemonSelect
+                    value={maskingLevel}
+                    onChange={(val) => val && handleMaskingChange(val)}
+                    options={MASKING_LEVEL_OPTIONS}
+                    loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
+                />
+            </div>
+            <div className="flex flex-col gap-2 items-start">
+                <LemonLabel>Mobile apps</LemonLabel>
+                {MOBILE_MASKING_SWITCHES.map(({ key, label, dataAttr }) => (
+                    <LemonSwitch
+                        key={key}
+                        data-attr={dataAttr}
+                        label={label}
+                        bordered
+                        checked={mobileMasking?.[key] === true}
+                        onChange={(checked) => handleMobileMaskingChange(key, checked)}
+                        disabledReason={restrictedReason}
+                        loading={currentTeamLoading}
+                    />
+                ))}
+                <p className="text-secondary text-xs m-0">{MOBILE_MASKING_HELP}</p>
+            </div>
         </div>
     )
 }
