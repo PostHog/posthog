@@ -42,7 +42,7 @@ export function PlatformAlertStateIndicator({
         }
         return (
             <LemonTag type="muted" data-attr="platform-alert-state-disabled">
-                Disabled
+                {STATUS_LABELS.disabled}
             </LemonTag>
         )
     }
