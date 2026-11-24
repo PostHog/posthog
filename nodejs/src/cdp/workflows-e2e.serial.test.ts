@@ -4601,7 +4601,11 @@ describe('Workflows E2E (email queue)', () => {
                 DATABASE_READONLY_URL: dbProxy.url,
                 POSTGRES_CONNECTION_POOL_SIZE: 1,
             })
-            const boundedConfig = { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id) }
+            const boundedConfig = {
+                ...hub,
+                CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id),
+                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+            }
             const boundedDeps = { ...deps, postgres: onePoolPostgres }
             const boundedApi = new CdpApi(
                 boundedConfig,
