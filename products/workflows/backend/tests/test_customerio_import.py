@@ -403,6 +403,29 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
+    def test_email_keeps_copies_and_names_what_it_drops(self) -> None:
+        source = _onboarding_campaign()
+        template = {
+            **source.templates["11"],
+            "cc": "team@example.com",
+            "bcc": "{{customer.manager}}",
+            "headers": [{"name": "X-Campaign", "value": "welcome"}],
+            "body_amp": "<html amp4email></html>",
+            "layout": "Newsletter layout",
+            "languages": ["es", "fr"],
+        }
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=source.actions, templates={"11": template}), _OPTIONS
+        )
+
+        steps = {action["id"]: action for action in translated.workflow["actions"]}
+        email = steps["cio_1"]["config"]["inputs"]["email"]["value"]
+        assert (email["cc"], email["bcc"]) == ("team@example.com", "{{person.properties.manager}}")
+        assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
+        notes = " ".join(note.message for note in translated.notes if note.step_id == "cio_1")
+        for expected in ("`X-Campaign`", "AMP", "layout Newsletter layout", "es, fr"):
+            assert expected in notes
+
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
             "id": "5",
@@ -757,6 +780,22 @@ class TestCustomerioLiquid(SimpleTestCase):
     )
     def test_rewrites_globals(self, _name: str, source: str, expected: str) -> None:
         assert liquid.rewrite(source, {}).text == expected
+
+    def test_removes_tags_that_would_stop_the_email(self) -> None:
+        rewritten = liquid.rewrite(
+            '<a href="{% view_in_browser_url %}">View</a> {{ customer.name | titlecase }} {% unsubscribe %} '
+            '<a href="{%- cio_link track:true url:https://example.com/a%20b -%}">Go</a>{% countdown "50% off" %}'
+            '{% cio_link url:"https://example.com/{{ customer.id }}" %}{% cio_link url: customer.link %}',
+            {},
+        )
+
+        assert rewritten.text == (
+            '<a href="">View</a> {{ person.properties.name | titlecase }} '
+            '<a href="{{ unsubscribe_url }}">unsubscribe</a> <a href="https://example.com/a%20b">Go</a>'
+            "https://example.com/{{ event.distinct_id }}"
+        )
+        assert rewritten.removed_tags == ("cio_link", "countdown", "view_in_browser_url")
+        assert rewritten.ignored_filters == ("titlecase",)
 
     def test_reports_globals_and_snippets_it_cannot_resolve(self) -> None:
         rewritten = liquid.rewrite('{{ journey.code }}{% snippet "legal" %}', {})
@@ -1171,7 +1210,15 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": "<p>Fetched {{customer.first_name}}</p>{{ snippets.signature }}",
                 "from_id": 4,
             },
-            {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
+            {"id": 5, "type": "email", "subject": "Consejos", "body": "<p>Consejos</p>", "language": "es"},
+            {
+                "id": 5,
+                "type": "email",
+                "subject": "Tips",
+                "body": "<p>Tips</p>",
+                "language": "",
+                "bcc": "a@example.com",
+            },
         ]
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
@@ -1212,7 +1259,10 @@ class TestWorkflowImportAPI(APIBaseTest):
         )
         assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
         assert welcome["message_category_type"] == "marketing"
-        assert flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]["subject"] == "Tips"
+        tips = flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]
+        assert (tips["subject"], tips["bcc"]) == ("Tips", "a@example.com")
+        assert any(note["step_id"] == "cio_5" and "in es." in note["message"] for note in result["notes"])
+        assert any("plain text" in note["message"] for note in result["notes"])
         # Template 13 has no App API action with its step's id, so it still asks for content.
         assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
         assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
@@ -1269,7 +1319,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             "11": {
                 **source.templates["11"],
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-                f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
+                f'<img src="{hero_webp}"><img src="{sized}"><style>.a{{background:url({logo})}}.b{{background:url(&quot;{logo}&quot;)}}</style>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
                 f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
             },
@@ -1300,7 +1350,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert html == (
             '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-            f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
+            f'<img src="{urls[1]}"><img src="{urls[2]}"><style>.a{{background:url({urls[3]})}}.b{{background:url(&quot;{urls[3]}&quot;)}}</style>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
             f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
         )

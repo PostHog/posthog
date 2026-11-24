@@ -454,6 +454,20 @@ class _Builder:
                 f"The {field} uses Customer.io's `{name}` Liquid variables, which PostHog does not have.",
                 action,
             )
+        for name in rewritten.removed_tags:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"The {field} uses Customer.io's `{name}` tag, which PostHog does not have. The tag was removed, so "
+                "check the text or link around it.",
+                action,
+            )
+        if rewritten.ignored_filters:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"The {field} uses Customer.io Liquid filters that do nothing in PostHog: "
+                f"{', '.join(f'`{name}`' for name in rewritten.ignored_filters)}. Replace them.",
+                action,
+            )
         return rewritten.text
 
     def _email(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
@@ -471,6 +485,10 @@ class _Builder:
         }
         if template.get("body_plain"):
             email["text"] = self._liquid(self._with_subject(template["body_plain"], subject), action, "plain-text body")
+        for key in ("cc", "bcc"):
+            if isinstance(template.get(key), str) and template[key]:
+                email[key] = self._liquid(template[key], action, key)
+        self._dropped_email_parts(template, action)
         if not template:
             # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
             email["subject"] = email["subject"] or action["name"]
@@ -497,6 +515,34 @@ class _Builder:
             config["tracking_enabled"] = False
         return {"type": "function_email", "config": config}
 
+    def _dropped_email_parts(self, template: dict[str, Any], action: dict[str, Any]) -> None:
+        raw_headers = template.get("headers")
+        headers = (
+            [str(item["name"]) for item in raw_headers if _header_name(item)] if isinstance(raw_headers, list) else []
+        )
+        if headers:
+            self.note(
+                NoteLevel.UNSUPPORTED,
+                f"The custom email headers {', '.join(f'`{name}`' for name in headers)} were left out.",
+                action,
+            )
+        if template.get("body_amp"):
+            self.note(NoteLevel.UNSUPPORTED, "The AMP version of the email was left out.", action)
+        if template.get("fake_bcc") and template.get("bcc"):
+            self.note(
+                NoteLevel.APPROXIMATED,
+                "Customer.io sends the BCC addresses a separate copy. PostHog sends them a real BCC.",
+                action,
+            )
+        languages = template.get("languages")
+        if isinstance(languages, list) and languages:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io also sends this email in {', '.join(str(item) for item in languages)}. Only the default language "
+                "was imported. Add the others with a branch on the person's language property.",
+                action,
+            )
+
     def _with_subject(self, body: str, subject: str) -> str:
         """The body with Customer.io's `{{ message.subject }}` replaced by the subject, while the copies fit the room."""
         count = len(_MESSAGE_SUBJECT.findall(body)) if subject else 0
@@ -514,11 +560,11 @@ class _Builder:
         if layout and _LAYOUT_CONTENT.search(layout):
             # A comment in the layout shows up as text in the plain-text version of the email.
             return _LAYOUT_CONTENT.sub(lambda _: body, _strip_comments(layout), count=1)
-        if layout_id:
+        if layout_id or layout:
             self.note(
                 NoteLevel.NEEDS_INPUT,
-                f"Customer.io wraps this email in layout {layout_id}, which was not part of the import. Import "
-                "again with the layout, or add its header and footer to the HTML.",
+                f"Customer.io wraps this email in layout {layout_id or _layout_name(layout)}, which could not be "
+                "applied. Import again with the layout, or add its header and footer to the HTML.",
                 action,
             )
         if body and "<html" not in body.lower() and "font-family" not in body.lower():
@@ -1069,6 +1115,15 @@ def _plain_name(name: Any) -> str:
     text = _LIQUID_TAG.sub("", str(name or "")[:2000])
     text = re.sub(r"\s+([!?.,:;])", r"\1", re.sub(r"\s+", " ", text)).strip()
     return text[:400]
+
+
+def _layout_name(layout: str | None) -> str:
+    # The App API names the layout or returns its HTML.
+    return layout[:100] if layout and "<" not in layout else "from Customer.io"
+
+
+def _header_name(header: Any) -> bool:
+    return isinstance(header, dict) and bool(header.get("name"))
 
 
 def _html_subject(subject: str) -> str:
