@@ -389,7 +389,11 @@ def _category_key(prefix: str, *parts: str) -> str:
 
 def _audiences(client: MailchimpClient) -> list[dict[str, Any]]:
     return sorted(
-        (audience for audience in client.all("/lists", "lists", {"fields": _LIST_FIELDS}) if audience.get("id")),
+        (
+            audience
+            for audience in client.all("/lists", "lists", {"fields": _LIST_FIELDS}, whole=True)
+            if audience.get("id")
+        ),
         key=lambda audience: str(audience["id"]),
     )
 
@@ -491,7 +495,8 @@ def _read_targets(
             moved_on = end > offset
             offset = max(offset, end)
             more = moved_on and offset < page.total
-            ended_early = not moved_on and offset < page.total
+            # A page that ends past its own total, or brings nothing before it, can't be trusted to be the last one.
+            ended_early = end > page.total or (not moved_on and offset < page.total)
             last_read = set(previous_page)
             items = [item for key, item in zip(keys, page.items) if key not in read and key not in last_read]
             read.update(keys[: max(MAX_REMEMBERED_CONTACTS - len(read), 0)])
@@ -521,7 +526,7 @@ def _moved_past_overlap(
     before this page."""
     if not keys:
         # A list's normal end is read without an empty page, so this one shrank to before the page.
-        return 0 < page.total <= request_offset
+        return request_offset > 0
     return overlap > 0 and set(keys[:overlap]).isdisjoint(previous_page)
 
 
@@ -685,7 +690,7 @@ def _groups(client: MailchimpClient, audience: Mapping[str, Any]) -> tuple[list[
     list_id = str(audience["id"])
     groups: list[_Group] = []
     hidden = 0
-    for interest_category in client.all(f"/lists/{quoted(list_id)}/interest-categories", "categories"):
+    for interest_category in client.all(f"/lists/{quoted(list_id)}/interest-categories", "categories", whole=True):
         category_id = str(interest_category.get("id") or "")
         if not category_id:
             continue
@@ -695,7 +700,7 @@ def _groups(client: MailchimpClient, audience: Mapping[str, Any]) -> tuple[list[
             continue
         title = _clean(interest_category.get("title"))
         path = f"/lists/{quoted(list_id)}/interest-categories/{quoted(category_id)}/interests"
-        for interest in client.all(path, "interests"):
+        for interest in client.all(path, "interests", whole=True):
             interest_id = str(interest.get("id") or "")
             if not interest_id:
                 continue

@@ -100,7 +100,10 @@ class MailchimpClient:
             raise MailchimpAPIError("Mailchimp sent an unexpected response.")
         return MailchimpPage(items=[item for item in items if isinstance(item, dict)], total=total)
 
-    def all(self, path: str, items_key: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def all(
+        self, path: str, items_key: str, params: dict[str, Any] | None = None, *, whole: bool = False
+    ) -> list[dict[str, Any]]:
+        """With `whole`, a list that ends before Mailchimp's count of it raises."""
         rows: list[dict[str, Any]] = []
         while True:
             page = self.page(path, items_key, len(rows), params)
@@ -108,8 +111,9 @@ class MailchimpClient:
             if len(rows) >= page.total:
                 return rows
             if not page.items:
-                # Fewer rows than Mailchimp counted must not pass as the whole list.
-                raise MailchimpAPIError("Mailchimp sent an unexpected response.")
+                if whole:
+                    raise MailchimpAPIError("Mailchimp sent an unexpected response.")
+                return rows
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {"User-Agent": USER_AGENT, "Authorization": f"Bearer {self._api_key}"}

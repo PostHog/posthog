@@ -559,6 +559,28 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         assert not Cohort.objects.filter(team_id=self.team.id).exists()
 
+    @parameterized.expand(
+        [("empty", []), ("a_lower_total", [{"email_address": "x@example.com", "status": "subscribed"}])]
+    )
+    def test_a_later_page_that_denies_the_rest_of_the_list_is_not_the_end(
+        self, _name: str, items: list[dict[str, str]]
+    ) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 1)
+        handle = self.mailchimp.handle
+
+        def denied(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            if "merge_fields" in query.get("fields", "") and int(query.get("offset", 0)) > 0:
+                return 200, {"members": items, "total_items": len(items) and 1}, {}
+            return handle(path, query, authorization)
+
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        with patch.object(self.mailchimp, "handle", denied), self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert not Cohort.objects.filter(team_id=self.team.id).exists()
+
     def test_a_contact_who_joined_after_the_run_started_waits_for_the_next_import(self) -> None:
         self.mailchimp.data["lists"][1]["members"].append(
             {
