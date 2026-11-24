@@ -135,12 +135,14 @@ def _download(url: str, deadline: float) -> bytes | None:
             # thread past the deadline. A buffered read waits until it has the whole chunk.
             read = getattr(getattr(response.raw, "_fp", None), "read1", None) or response.raw.read
             content = b""
-            while chunk := read(16 * 1024):
+            while True:
+                chunk = read(16 * 1024)
                 content += chunk
                 if len(content) > _MAX_BYTES or time.monotonic() > deadline:
                     logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
                     return None
-            return content
+                if not chunk:
+                    return content
     # The raw read raises socket and HTTP errors itself, outside what requests wraps.
     except (requests.RequestException, OSError, HTTPException, Urllib3HTTPError) as error:
         logger.info("workflows.import.image_download_failed", error=type(error).__name__)
