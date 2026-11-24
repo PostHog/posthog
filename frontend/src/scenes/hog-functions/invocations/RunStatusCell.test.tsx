@@ -46,12 +46,12 @@ describe('RunStatusCell', () => {
     ] as const)(
         'shows only $tag and warning $warning for a $status run with level $level and outcome $outcome',
         ({ status, level, outcome, tag, warning }) => {
-            const { container, queryAllByLabelText } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
+            const { container, queryAllByRole } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
 
             expect(container.textContent).toBe(tag)
-            expect(
-                queryAllByLabelText(/^Logged an? (error|warning)$/).map((icon) => icon.getAttribute('aria-label'))
-            ).toEqual(warning ? [warning] : [])
+            expect(queryAllByRole('img').map((icon) => icon.getAttribute('aria-label'))).toEqual(
+                warning ? [warning] : []
+            )
         }
     )
 
