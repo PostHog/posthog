@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
     INTERNAL_CH_ERROR_USER_MESSAGES,
+    S3_ACCESS_DENIED_MESSAGE,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -102,9 +103,9 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
-    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    "Access Denied: while reading key:": S3_ACCESS_DENIED_MESSAGE,
     # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
-    "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    "Failed to get object info: No response body.. HTTP response code: 403": S3_ACCESS_DENIED_MESSAGE,
     # Same HEAD-request shape as the 403 above, but for a key that isn't there at all.
     "Failed to get object info: No response body.. HTTP response code: 404": "The provided file doesn't exist in the bucket. Check the files URL pattern, then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced

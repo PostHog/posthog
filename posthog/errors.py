@@ -141,12 +141,27 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "yourself). Contact support if that doesn't fix it."
 )
 
+S3_ACCESS_DENIED_MESSAGE = (
+    "Access was denied when reading a file from the bucket. "
+    "Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again."
+)
+# A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+_S3_ACCESS_DENIED_NEEDLES = ("Access Denied", "HTTP response code: 403")
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     return CHQueryErrorS3FileChangedDuringRead(
         CHQueryErrorS3FileChangedDuringRead.public_message,
         code=err.code,
         code_name=CHQueryErrorS3FileChangedDuringRead.public_code,
+    )
+
+
+def _wrap_s3_access_denied_error(err: ServerException) -> "CHQueryErrorS3AccessDenied":
+    return CHQueryErrorS3AccessDenied(
+        CHQueryErrorS3AccessDenied.public_message,
+        code=err.code,
+        code_name=CHQueryErrorS3AccessDenied.public_code,
     )
 
 
@@ -330,6 +345,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "S3_ERROR":
         if "The requested range is not satisfiable" in raw_message:
             return _wrap_storage_file_changed_error(err)
+        if any(needle in raw_message for needle in _S3_ACCESS_DENIED_NEEDLES):
+            return _wrap_s3_access_denied_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({raw_message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in raw_message and "(in file/uri" in raw_message:
         return _wrap_storage_file_changed_error(err)
@@ -389,6 +406,8 @@ def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCod
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
     e = _server_exception_from_http_client_error(e) or e
+    if isinstance(e, CHQueryErrorS3AccessDenied):
+        return QueryErrorCategory.USER_ERROR
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
@@ -437,6 +456,16 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
         "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
         "upload new files and delete old ones instead."
     )
+
+
+class CHQueryErrorS3AccessDenied(ExposedCHQueryError):
+    """The bucket behind a self-managed warehouse table refused to let ClickHouse read a file."""
+
+    public_code = "s3_access_denied"
+    public_message = S3_ACCESS_DENIED_MESSAGE
+
+
+_EXPOSED_S3_ERRORS = (CHQueryErrorS3FileChangedDuringRead, CHQueryErrorS3AccessDenied)
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
@@ -1549,8 +1578,9 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Translate a stored status code. Statuses from other query engines share this field."""
     if not code_name:
         return None
-    if code_name.lower() == CHQueryErrorS3FileChangedDuringRead.public_code:
-        return CHQueryErrorS3FileChangedDuringRead.public_message
+    for exposed_s3_error in _EXPOSED_S3_ERRORS:
+        if code_name.lower() == exposed_s3_error.public_code:
+            return exposed_s3_error.public_message
     meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
     if meta is None:
         if not re.fullmatch(r"clickhouse_[0-9]{1,10}", code_name):
@@ -1583,7 +1613,7 @@ def error_code_from_type(error: BaseException) -> str:
 
     A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
     """
-    if isinstance(error, CHQueryErrorS3FileChangedDuringRead):
+    if isinstance(error, _EXPOSED_S3_ERRORS):
         return error.public_code
     if isinstance(error, ClickHouseDriverError):
         meta = look_up_clickhouse_error_code_meta(error)
