@@ -1,9 +1,11 @@
 from datetime import timedelta
 
 import time_machine
+from unittest.mock import patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -706,14 +708,42 @@ class TestOAuthModels(TestCase):
 
         for field, value in changes.items():
             setattr(app, field, value)
-        with self.captureOnCommitCallbacks(execute=True):
-            app.save(update_fields=update_fields)
+        app.save(update_fields=update_fields)
 
         refresh_token.refresh_from_db()
         app.refresh_from_db()
         self.assertEqual(OAuthAccessToken.objects.filter(pk=access_token.pk).exists(), not expects_revoke)
         self.assertEqual(refresh_token.revoked is not None, expects_revoke)
         self.assertEqual(app.sessions_revoked_at is not None, expects_revoke)
+
+    def test_a_stale_full_save_revokes_a_partner_switched_on_since_it_loaded(self) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=False)
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
+        OAuthApplication.objects.filter(pk=app.pk).update(is_provisioning_partner=True)
+
+        app.name = "Renamed Partner"
+        app.save()
+
+        app.refresh_from_db()
+        refresh_token.refresh_from_db()
+        self.assertFalse(app.is_provisioning_partner)
+        self.assertIsNotNone(refresh_token.revoked)
+
+    def test_a_failed_revoke_keeps_the_partner_switched_on(self) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=True)
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
+
+        app.is_provisioning_partner = False
+        with (
+            patch("posthog.models.oauth.revoke_application_sessions", side_effect=DatabaseError("statement timeout")),
+            self.assertRaises(DatabaseError),
+        ):
+            app.save(update_fields=["is_provisioning_partner"])
+
+        app.refresh_from_db()
+        refresh_token.refresh_from_db()
+        self.assertTrue(app.is_provisioning_partner)
+        self.assertIsNone(refresh_token.revoked)
 
 
 class TestCarriesProvisioningConfig(SimpleTestCase):

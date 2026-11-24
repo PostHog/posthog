@@ -150,8 +150,7 @@ class TestOAuthApplicationConsole(BaseTest):
         app = self._app(config=ProvisioningConfig(active=True))
         refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
 
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self._post(app, "provisioning/capabilities", {"reason": "No longer a partner"})
+        response = self._post(app, "provisioning/capabilities", {"reason": "No longer a partner"})
 
         assert response.status_code == 302, response.content
         app.refresh_from_db()
