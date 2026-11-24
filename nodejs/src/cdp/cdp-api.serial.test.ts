@@ -5305,7 +5305,7 @@ describe('CDP API', () => {
             it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
                 const { suppressed, unreachable } = await refusableRecipients()
                 const recipients = [
-                    recipient('ada@example.com', { variables: { name: 'Ada' } }),
+                    recipient('ada@example.com', { variables: { name: 'Ada Lovelace' } }),
                     recipient('not-an-address'),
                     recipient('cy@example.com', { distinct_id: null }),
                     recipient('bo@example.com'),
@@ -5313,7 +5313,7 @@ describe('CDP API', () => {
                     unreachable,
                 ]
 
-                const res = await sendBatch(TEMPLATE, { variables: { name: 'there' }, recipients })
+                const res = await sendBatch(TEMPLATE, { variables: { name: 'you there' }, recipients })
 
                 expect(res.status).toEqual(200)
                 expect(res.body.results).toEqual([
@@ -5342,8 +5342,8 @@ describe('CDP API', () => {
                 )
                 expect(intakeRecords()).toHaveLength(2)
                 expect(variablesOf(intakeRecords())).toEqual({
-                    [runIdOf(recipients[0])]: { name: 'Ada' },
-                    [runIdOf(recipients[3])]: { name: 'there' },
+                    [runIdOf(recipients[0])]: { name: 'Ada Lovelace' },
+                    [runIdOf(recipients[3])]: { name: 'you there' },
                 })
                 expect(await storedRuns()).toEqual([])
                 const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
