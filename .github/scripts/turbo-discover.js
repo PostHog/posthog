@@ -577,22 +577,34 @@ function readImportMap(file) {
     }
 }
 
+// The .py files of a package directory and of the packages nested in it, as repo-relative paths.
+// Test directories hold no task modules.
+function pythonFilesUnder(repoRoot, dir) {
+    const found = []
+    for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${entry.name}`
+        if (entry.isDirectory() && !['tests', 'test', '__pycache__'].includes(entry.name)) {
+            found.push(...pythonFilesUnder(repoRoot, rel))
+        } else if (entry.isFile() && entry.name.endsWith('.py')) {
+            found.push(rel)
+        }
+    }
+    return found
+}
+
 // Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
-// import names it: a `backend/tasks.py` file, or the modules of a `backend/tasks/` package. A
-// task's registered name comes from its module, and a core test snapshots every name.
+// import names it: a `backend/tasks.py` file, or the modules of a `backend/tasks/` package and
+// of its nested packages. A task's registered name comes from its module, and a core test
+// snapshots every name.
 function celeryTaskModules(product, repoRoot) {
-    const backend = path.join(PRODUCTS_DIR, product, 'backend')
+    const backend = `${PRODUCTS_DIR}${product}/backend`
     const found = []
     if (fs.existsSync(path.join(repoRoot, backend, 'tasks.py'))) {
         found.push(`${backend}/tasks.py`)
     }
     const dir = path.join(repoRoot, backend, 'tasks')
     if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
-        for (const name of fs.readdirSync(dir)) {
-            if (name.endsWith('.py')) {
-                found.push(`${backend}/tasks/${name}`)
-            }
-        }
+        found.push(...pythonFilesUnder(repoRoot, `${backend}/tasks`))
     }
     return found
 }
