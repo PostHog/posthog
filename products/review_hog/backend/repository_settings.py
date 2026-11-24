@@ -336,9 +336,7 @@ class ProjectRepositories:
         if old_review_pushes and not new_review_pushes:
             raise AdminOnlyChangeError("Only project admins can turn off push reviews.")
         if old_deep_review_gated_prs and not new_deep_review_gated_prs:
-            raise AdminOnlyChangeError(
-                "Only project admins can turn off Deep reviews of risky pull requests."
-            )
+            raise AdminOnlyChangeError("Only project admins can turn off Deep reviews of risky pull requests.")
 
     @staticmethod
     def _check_settings_need_project(
