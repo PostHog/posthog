@@ -44,7 +44,7 @@ export function FeatureFlagRequestAllowlist(): JSX.Element {
             <LemonField.Pure
                 label="Allowed domains"
                 htmlFor="feature-flag-allowed-hosts"
-                help="Only pages on these domains get flags. This list doesn't check server-side SDKs, mobile SDKs, or scripts that send no domain. A domain also allows its subdomains. Add up to 100 domains."
+                help="Only pages on these domains get flags. Server-side and mobile SDKs aren't checked. Pages that hide their domain, such as local files and sandboxed frames, get no flags. A domain also allows its subdomains. Add up to 100 domains."
             >
                 <LemonInputSelect
                     mode="multiple"

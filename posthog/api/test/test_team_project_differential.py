@@ -222,6 +222,12 @@ FIELD_VALUES: dict[str, Any] = {
 
 
 class TestWriteParity(DifferentialParityBase):
+    def setUp(self):
+        super().setUp()
+        flag_patch = patch("posthog.api.team.team_config.feature_enabled_or_false", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+
     def _make_twin(self) -> tuple[Project, Team]:
         project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         return project, team

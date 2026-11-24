@@ -3039,7 +3039,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax)
                     .optional()
                     .describe(
-                        'Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts.'
+                        "Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request gets no flags unless its Origin domain, or its Referer domain when Origin is missing or names no domain, is in it. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts, and a domain that hosts other people's sites, such as vercel.app, is rejected."
                     ),
                 allowed_ips: zod
                     .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax))
@@ -6022,7 +6022,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax)
                     .optional()
                     .describe(
-                        'Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts.'
+                        "Domains allowed to make feature flag requests (\/flags and \/decide), up to 100. When the list is not empty, a request gets no flags unless its Origin domain, or its Referer domain when Origin is missing or names no domain, is in it. A request with neither header, such as one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts, and a domain that hosts other people's sites, such as vercel.app, is rejected."
                     ),
                 allowed_ips: zod
                     .array(

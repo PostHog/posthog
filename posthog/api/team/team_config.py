@@ -9,6 +9,8 @@ from rest_framework import serializers
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.property import validate_group_type_index
+from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 
 from products.access_control.backend.facade.api import organization_role_names
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
@@ -27,6 +29,7 @@ from products.feature_flags.backend.facade.request_lists import (
     MIN_LISTED_IPV4_PREFIX,
     MIN_LISTED_IPV6_PREFIX,
     RequestListEntryError,
+    normalize_allowed_hosts,
     normalize_listed_hosts,
     normalize_listed_ips,
 )
@@ -474,6 +477,9 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         return attrs
 
 
+REQUEST_ALLOWLIST_FEATURE_FLAG = "feature-flag-request-allowlist"
+
+
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     require_tags = serializers.BooleanField(
         required=False,
@@ -515,11 +521,13 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         required=False,
         help_text=(
             f"Domains allowed to make feature flag requests (/flags and /decide), up to {MAX_LISTED_HOSTS}. "
-            "When the list is not empty, a request whose Origin or Referer domain is not in it gets no flags. "
-            "A request with neither header, such as one from a server-side or mobile SDK, is not checked "
-            "against this list. A request whose Origin and Referer name no domain, such as Origin: null with no "
-            "Referer, gets no flags. A domain also covers its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is "
-            "also set, a request must pass both lists. Entries are normalized the same way as blocked_hosts."
+            "When the list is not empty, a request gets no flags unless its Origin domain, or its Referer "
+            "domain when Origin is missing or names no domain, is in it. A request with neither header, such as "
+            "one from a server-side or mobile SDK, is not checked against this list. A request whose Origin and "
+            "Referer name no domain, such as Origin: null with no Referer, gets no flags. A domain also covers "
+            "its subdomains, and a blocked domain wins over an allowed one. When allowed_ips is also set, a "
+            "request must pass both lists. Entries are normalized the same way as blocked_hosts, and a domain "
+            "that hosts other people's sites, such as vercel.app, is rejected."
         ),
     )
     allowed_ips = serializers.ListField(
@@ -531,8 +539,8 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
             f"up to {MAX_LISTED_IPS}. When the list is not empty, a request from any other address gets no "
             "flags, including requests from server-side SDKs and from browsers. Only the client address that "
             "PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that "
-            "address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the "
-            "same rules as blocked_ips."
+            "address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, "
+            "a request must pass both lists. Entries follow the same rules as blocked_ips."
         ),
     )
 
@@ -554,10 +562,39 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         return self._normalize(normalize_listed_ips, value)
 
     def validate_allowed_hosts(self, value: list[str]) -> list[str]:
-        return self._normalize(normalize_listed_hosts, value)
+        return self._normalize(normalize_allowed_hosts, value)
 
     def validate_allowed_ips(self, value: list[str]) -> list[str]:
         return self._normalize(normalize_listed_ips, value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        added = [field for field in ("allowed_hosts", "allowed_ips") if attrs.get(field)]
+        # The team serializers run this serializer again without a request to write the same data.
+        # An empty list always saves, so a project can clear its lists after the flag is turned off.
+        if added and self.parent and not self._allowlist_enabled():
+            raise serializers.ValidationError(
+                dict.fromkeys(
+                    added,
+                    "Allowed domains and IP addresses aren't available for this project yet. Leave this list empty.",
+                )
+            )
+        return attrs
+
+    def _allowlist_enabled(self) -> bool:
+        user = self.context["request"].user
+        if not isinstance(user, User):
+            return False
+        organization_id = getattr(self.root.instance, "organization_id", None)
+        organization = {"organization": str(organization_id)} if organization_id else None
+        return feature_enabled_or_false(
+            REQUEST_ALLOWLIST_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups=organization,
+            person_properties={"email": user.email},
+            group_properties={"organization": {"id": str(organization_id)}} if organization_id else None,
+            send_feature_flag_events=False,
+        )
 
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):

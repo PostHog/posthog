@@ -9,9 +9,14 @@ the length limits at module level, and the serializer translates RequestListEntr
 
 import ipaddress
 from collections.abc import Iterable
+from functools import lru_cache
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import idna
+
+if TYPE_CHECKING:
+    from tldextract import TLDExtract
 
 # Caps each list so the flags service scans a short list on every /flags request.
 MAX_LISTED_HOSTS = 100
@@ -78,6 +83,29 @@ def normalize_listed_hosts(entries: Iterable[str]) -> list[str]:
         if len(hosts) > MAX_LISTED_HOSTS:
             raise RequestListEntryError(f"You can add up to {MAX_LISTED_HOSTS} domains.")
     return list(hosts)
+
+
+@lru_cache(maxsize=1)
+def _public_suffixes() -> "TLDExtract":
+    import tldextract  # noqa: PLC0415 — the model module imports this one, so a top-level import loads it in every process
+
+    # No URLs, so it reads the list bundled with the package instead of fetching one.
+    return tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+
+def normalize_allowed_hosts(entries: Iterable[str]) -> list[str]:
+    """`normalize_listed_hosts` without domains that host other people's sites, such as vercel.app.
+
+    Blocking every site under such a domain is a valid choice. Allowing them all lets anyone in.
+    """
+    hosts = normalize_listed_hosts(entries)
+    for host in hosts:
+        if _public_suffixes()(host).suffix == host:
+            raise RequestListEntryError(
+                f"'{host}' would allow every site on {host}, including other people's. "
+                f"Enter your own domain, like example.{host}."
+            )
+    return hosts
 
 
 def normalize_listed_ips(entries: Iterable[str]) -> list[str]:

@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -14,6 +15,7 @@ from products.feature_flags.backend.facade.request_lists import (
     MAX_LISTED_IP_LENGTH,
     MAX_LISTED_IPS,
     RequestListEntryError,
+    normalize_allowed_hosts,
     normalize_listed_hosts,
     normalize_listed_ips,
 )
@@ -66,6 +68,25 @@ class TestNormalizeListedHosts(SimpleTestCase):
             normalize_listed_hosts(entries)
 
 
+class TestNormalizeAllowedHosts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("registered_domain", "example.com"),
+            ("site_on_a_shared_domain", "my-site.vercel.app"),
+            ("ip_literal", "203.0.113.7"),
+            ("localhost", "localhost"),
+        ]
+    )
+    def test_accepts(self, _name: str, host: str) -> None:
+        assert normalize_allowed_hosts([host]) == [host]
+
+    @parameterized.expand([("shared_hosting", "Vercel.app"), ("registry", "co.uk")])
+    def test_rejects_a_domain_that_other_people_use(self, _name: str, host: str) -> None:
+        assert normalize_listed_hosts([host]) == [host.lower()]
+        with self.assertRaisesRegex(RequestListEntryError, f"like example.{host.lower()}"):
+            normalize_allowed_hosts([host])
+
+
 class TestNormalizeListedIps(SimpleTestCase):
     @parameterized.expand(
         [
@@ -113,6 +134,9 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.url = f"/api/environments/{self.team.id}/"
+        flag_patch = patch("posthog.api.team.team_config.feature_enabled_or_false", return_value=True)
+        self.allowlist_flag = flag_patch.start()
+        self.addCleanup(flag_patch.stop)
 
     def test_defaults_to_tags_not_required(self) -> None:
         response = self.client.get(self.url)
@@ -192,6 +216,7 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
     @parameterized.expand(
         [
             ("ip_too_broad", {"blocked_ips": ["0.0.0.0/0"]}, "/8 or narrower"),
+            ("allowed_host_shared", {"allowed_hosts": ["vercel.app"]}, "like example.vercel.app"),
             ("host_malformed_url", {"blocked_hosts": ["https://[example.com"]}, "is not a valid domain"),
             (
                 "hosts_over_unique_cap",
@@ -207,6 +232,33 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         assert message in str(response.json())
         for field in policy:
             assert not TeamFeatureFlagPolicyConfig.objects.filter(team=self.team).exclude(**{field: []}).exists()
+
+    @parameterized.expand(
+        [
+            ("environment_hosts", "environments", {"allowed_hosts": ["example.com"]}),
+            ("environment_ips", "environments", {"allowed_ips": ["203.0.113.7"]}),
+            ("project_ips", "projects", {"allowed_ips": ["203.0.113.7"]}),
+        ]
+    )
+    def test_allowed_lists_need_the_feature_flag(self, _name: str, scope: str, policy: dict) -> None:
+        url = f"/api/{scope}/{self.team.id}/"
+        self.allowlist_flag.return_value = False
+
+        response = self.client.patch(url, {"feature_flag_policy_config": policy}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "aren't available for this project yet" in str(response.json())
+        self.allowlist_flag.return_value = True
+        response = self.client.patch(url, {"feature_flag_policy_config": policy}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.allowlist_flag.return_value = False
+        cleared = {"blocked_hosts": ["example.org"], **dict.fromkeys(policy, [])}
+        response = self.client.patch(url, {"feature_flag_policy_config": cleared}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = TeamFeatureFlagPolicyConfig.objects.get(team=self.team)
+        assert (config.blocked_hosts, config.allowed_hosts, config.allowed_ips) == (["example.org"], [], [])
 
     def test_member_cannot_change_policy(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
