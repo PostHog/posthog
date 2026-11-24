@@ -410,10 +410,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def provisioning_signing(self) -> ProvisioningSigning:
-        provisioning = self.provisioning
-        if not self.is_provisioning_partner or not (
-            provisioning.can_create_accounts or provisioning.pays_for_customers
-        ):
+        """Every provisioning partner signs its requests with a private key, except a first-party app. Those are
+        PostHog's own, such as the setup agent, whose CLI runs on people's machines and so can't keep a key secret.
+        Only staff set `is_first_party`, so a partner can't exempt itself."""
+        if not self.is_provisioning_partner or self.is_first_party:
             return ProvisioningSigning.NOT_REQUIRED
         return ProvisioningSigning.REQUIRED
 

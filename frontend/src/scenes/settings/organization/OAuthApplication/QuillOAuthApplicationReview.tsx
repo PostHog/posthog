@@ -1,12 +1,14 @@
 import { useActions } from 'kea'
 
-import { Button, Heading, Text } from '@posthog/quill'
+import { Button, Heading, Item, ItemActions, ItemContent, ItemDescription, ItemTitle, Text } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.schemas'
 
 import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from '../oauthAppProvisioningStatus'
 import { QuillProvisioningStatusBadge } from '../QuillProvisioningStatusBadge'
-import { PROVISIONING_REVIEW_EXPLAINER } from './oauthApplicationLabels'
+import { PROVISIONING_REVIEW_EXPLAINER, SIGNING_KEY_REQUIRED } from './oauthApplicationLabels'
 import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
 import { QuillOAuthAppReviewProgress } from './QuillOAuthAppReviewProgress'
@@ -28,6 +30,22 @@ export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApp
             <Text size="sm" variant="muted" render={<p className="m-0" />}>
                 {PROVISIONING_REVIEW_EXPLAINER}
             </Text>
+            {app.registration.needs_signing_key && (
+                <Item tone="warning" size="sm" className="flex-wrap">
+                    <ItemContent>
+                        <ItemTitle>{SIGNING_KEY_REQUIRED.title}</ItemTitle>
+                        <ItemDescription>{SIGNING_KEY_REQUIRED.description}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button
+                            variant="outline"
+                            render={<LinkPrimitive to={SIGNING_KEY_REQUIRED.docsUrl} target="_blank" />}
+                        >
+                            How to sign requests
+                        </Button>
+                    </ItemActions>
+                </Item>
+            )}
             <Text size="sm" render={<p className="m-0" />}>
                 {PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}
             </Text>

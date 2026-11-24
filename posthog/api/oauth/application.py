@@ -198,6 +198,10 @@ class RegisteredPartnerDetailsSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default.",
     )
+    needs_signing_key = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether PostHog refuses the app's provisioning requests because it has no private key to sign them with.",
+    )
     can_create_accounts = serializers.BooleanField(
         read_only=True, help_text="Whether the app can create PostHog accounts once provisioning is on."
     )

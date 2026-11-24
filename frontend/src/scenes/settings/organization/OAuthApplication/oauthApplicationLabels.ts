@@ -24,3 +24,10 @@ export const VERIFICATION_EXPLAINERS = {
 
 export const PROVISIONING_REVIEW_EXPLAINER =
     "The provisioning review decides whether this application can create PostHog accounts and resources. It doesn't change whether the application is verified."
+
+export const SIGNING_KEY_REQUIRED = {
+    title: 'Sign requests to provision',
+    description:
+        'PostHog refuses provisioning requests from this application until it signs them with a private key. Set token_endpoint_auth_method to private_key_jwt and publish a jwks_uri in your metadata document, then register again.',
+    docsUrl: 'https://posthog.com/docs/integrate/provisioning#turn-on-key-signing',
+}

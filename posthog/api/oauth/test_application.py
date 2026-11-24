@@ -267,6 +267,7 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             },
         )
         self.assertEqual(json.loads(registration["metadata_document"]), document)
+        self.assertTrue(registration["needs_signing_key"])
         self.assertNotIn("registration", listed)
 
     @parameterized.expand(

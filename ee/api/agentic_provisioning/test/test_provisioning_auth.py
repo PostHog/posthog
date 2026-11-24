@@ -49,7 +49,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
         )
-        # A client secret is enough only for a partner that neither creates accounts nor pays.
+        # A client secret is enough only for a first-party app, which doesn't have to sign.
         self.secret_partner = OAuthApplication.objects.create(
             client_id="test-client-secret-partner",
             name="Client Secret Partner",
@@ -58,6 +58,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
+            is_first_party=True,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
         )
@@ -116,6 +117,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://partner.example.com/callback",
                 algorithm="RS256",
+                is_first_party=True,
                 is_provisioning_partner=True,
                 _provisioning_config=provisioning_config(can_create_accounts=False),
             )
@@ -271,6 +273,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
             algorithm="RS256",
+            is_first_party=True,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
         )
@@ -353,14 +356,14 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("cannot_provision_resources", {"can_provision_resources": False}, False, 403),
-            ("dropped_its_private_key", {}, True, 401),
-            # The Wizard's production shape: a client secret, and no account creation.
-            ("dropped_its_private_key_but_cannot_create_accounts", {"can_create_accounts": False}, True, 200),
+            ("cannot_provision_resources", {"can_provision_resources": False}, False, False, 403),
+            ("dropped_its_private_key", {}, True, False, 401),
+            ("dropped_its_private_key_without_creating_accounts", {"can_create_accounts": False}, True, False, 401),
+            ("first_party_app_dropped_its_private_key", {}, True, True, 200),
         ]
     )
     def test_bearer_after_partner_changes(
-        self, _name: str, change: dict[str, bool], drop_key: bool, expected_status: int
+        self, _name: str, change: dict[str, bool], drop_key: bool, first_party: bool, expected_status: int
     ) -> None:
         token = self._get_bearer_token()
 
@@ -368,7 +371,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             self.partner.update_provisioning(**change)
         if drop_key:
             self.partner.jwks_uri = None
-            self.partner.save(update_fields=["jwks_uri"])
+            self.partner.is_first_party = first_party
+            self.partner.save(update_fields=["jwks_uri", "is_first_party"])
 
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == expected_status
@@ -387,6 +391,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             algorithm="RS256",
             client_id=cimd_url,
             is_cimd_client=True,
+            is_first_party=True,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=False, can_provision_resources=True
@@ -494,7 +499,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
 
 class TestUnsignedProvisioning(ProvisioningTestBase):
-    def _public_partner(self, *, capabilities: dict[str, bool] | None = None) -> OAuthApplication:
+    def _public_partner(
+        self, *, capabilities: dict[str, bool] | None = None, first_party: bool = False
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             client_id="unsigned-public-partner",
             name="Unsigned partner",
@@ -502,6 +509,7 @@ class TestUnsignedProvisioning(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
+            is_first_party=first_party,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(**(capabilities or {})),
         )
@@ -529,17 +537,23 @@ class TestUnsignedProvisioning(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("creates_accounts", {}, 401, "refused"),
-            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, 401, "refused"),
+            ("creates_accounts", {}, False, 401, "refused"),
+            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, False, 401, "refused"),
+            ("only_provisions_resources", {"can_create_accounts": False}, False, 401, "refused"),
             # Not asked to sign, so it gets past authentication to the capability check.
-            ("neither", {"can_create_accounts": False}, 403, "unsigned_exempt"),
+            ("first_party_app", {"can_create_accounts": False}, True, 403, "unsigned_exempt"),
         ]
     )
     def test_partner_that_must_sign_is_refused_unsigned(
-        self, name: str, capabilities: dict[str, bool], expected_status: int, expected_signing: str
+        self,
+        name: str,
+        capabilities: dict[str, bool],
+        first_party: bool,
+        expected_status: int,
+        expected_signing: str,
     ) -> None:
         email = f"new-partner-{name}@example.com"
-        partner = self._public_partner(capabilities=capabilities)
+        partner = self._public_partner(capabilities=capabilities, first_party=first_party)
         res, signing = self._account_request(partner, email)
 
         assert signing == expected_signing
