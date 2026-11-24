@@ -4,7 +4,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import type { ProbeFailure } from '../environment/stack'
 
 // The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
-// out against healthy services. Only two failed probes in a row that the busy loop does not both excuse count as gone.
+// out against healthy services. Two failed probes in a row count as gone, unless the busy loop excuses both.
 export type DependencyLoss = {
     name: string
     at: number

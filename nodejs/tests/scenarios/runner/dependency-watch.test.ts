@@ -62,15 +62,18 @@ describe('dependency watch', () => {
         )
     })
 
-    it('names a dependency gone when the busy runner reads its answer after the timeout', async () => {
-        const answersLate = (): Promise<unknown> => {
-            busyFor(RUNNER_BLOCKS_MS + 400)
-            return Promise.reject(new Error('the database system is starting up'))
+    it('names a refused dependency gone even when the busy runner hears the refusal after the timeout', async () => {
+        const { postgres } = edgeAndPostgres(UNREACHABLE_POSTGRES)
+        const heardLate = (): Promise<unknown> => {
+            busyFor(1500)
+            const refused = postgres()
+            busyFor(1000)
+            return refused
         }
 
-        const { reason } = await watched({ postgres: answersLate })
+        const { reason } = await watched({ postgres: heardLate })
 
-        expect(reason).toBe('dependencies went away: postgres in the 320x step (the database system is starting up)')
+        expect(reason).toMatch(/^dependencies went away: postgres in the 320x step \(.*ECONNREFUSED.*\)$/)
     }, 30_000)
 
     it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
@@ -78,7 +81,7 @@ describe('dependency watch', () => {
         const silentThenRefused = (): Promise<unknown> => {
             if (++calls === 1) {
                 busyFor(1500)
-                return new Promise(() => undefined)
+                return Promise.reject(new Error('timeout expired'))
             }
             return Promise.reject(new Error('connect ECONNREFUSED'))
         }

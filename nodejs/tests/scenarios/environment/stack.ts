@@ -416,31 +416,22 @@ export function dependencyProbes(
     }
 }
 
-// The deadline starts before the probe, so an answer the busy loop reads before it fires counts however late it came.
+const TIMEOUT = /timeout|timed ?out/i
+
+const timedOut = (error: unknown): boolean =>
+    error instanceof Error
+        ? TIMEOUT.test(`${error.name} ${error.message} ${error.cause instanceof Error ? error.cause.message : ''}`)
+        : TIMEOUT.test(String(error))
+
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
         Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
-            let deadline: NodeJS.Timeout | undefined
-            const unheard = new Promise<ProbeFailure>((resolve) => {
-                deadline = setTimeout(
-                    () => resolve({ name, reason: `no answer within ${PROBE_TIMEOUT_MS} ms`, timedOut: true }),
-                    PROBE_TIMEOUT_MS
-                )
-            })
-            const answered = Promise.resolve()
-                .then(probe)
-                .then(
-                    () => null,
-                    (error: unknown) => ({
-                        name,
-                        reason: error instanceof Error ? error.message : String(error),
-                        timedOut: false,
-                    })
-                )
             try {
-                return await Promise.race([answered, unheard])
-            } finally {
-                clearTimeout(deadline)
+                await probe()
+                return null
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error)
+                return { name, reason, timedOut: timedOut(error) }
             }
         })
     )
