@@ -19,12 +19,12 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
+import type { MenuAction } from '../dashboard/menuAction'
 import { showsBackground } from '../presentation/tileAppearance'
 import { isPartShown } from '../presentation/tileParts'
 import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
 import { WidgetView } from '../widgets/WidgetView'
-import type { TileAction } from './tileAction'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { TileMenuButton } from './TileMenuButton'
 
@@ -53,7 +53,7 @@ export function WidgetCard({
     /** The widget types the page can show. The card renders the one that `widget.type` names. */
     widgets: WidgetDefinition[]
     /** What a person can do to the tile, shown on right-click. Left out, the card has no menu. */
-    actions?: TileAction[]
+    actions?: MenuAction[]
     /** Marks where the card is dragged by. */
     editable?: boolean
 }): JSX.Element {

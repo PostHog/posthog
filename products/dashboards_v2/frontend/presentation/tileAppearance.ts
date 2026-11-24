@@ -1,5 +1,5 @@
 import type { ContentWidget } from '../dashboard/dashboardTypes'
-import type { TileAction } from '../tiles/tileAction'
+import type { MenuAction } from '../dashboard/menuAction'
 import type { WidgetAppearanceOptions } from '../widgets/widgetSpec'
 import type { PresentationEdit } from './presentationEdits'
 
@@ -13,7 +13,7 @@ export function tileAppearanceAction(
     options: WidgetAppearanceOptions,
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
-): TileAction | null {
+): MenuAction | null {
     if (!options.background) {
         return null
     }

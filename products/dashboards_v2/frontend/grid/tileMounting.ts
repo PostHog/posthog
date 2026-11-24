@@ -164,5 +164,5 @@ export function useTileMounted(ref: RefObject<Element>): boolean {
         }
         return scheduler.observe(element, setMounted)
     }, [scheduler, ref])
-    return mounted
+    return scheduler === null || mounted
 }
