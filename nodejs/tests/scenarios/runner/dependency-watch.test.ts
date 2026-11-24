@@ -141,26 +141,80 @@ describe('dependency watch', () => {
     const NO_PORT = 'connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)'
     const REFUSED = 'connect ECONNREFUSED 127.0.0.1:4566'
 
+    const HELD = { 'ESTAB 127.0.0.1:9': 3 }
+    const noPort = (sockets?: Record<string, number>): ProbeFailure => ({
+        name: 'provider-edge',
+        reason: NO_PORT,
+        unanswered: false,
+        hostLimit: 'local ports',
+        ...(sockets ? { sockets } : {}),
+    })
+    const refused: ProbeFailure = { name: 'provider-edge', reason: REFUSED, unanswered: false }
+    const timedOut: ProbeFailure = {
+        name: 'provider-edge',
+        reason: 'connect to 127.0.0.1:4566 timed out',
+        unanswered: true,
+    }
+    const exited = new Error('the probe process exited with SIGKILL')
+    const hostLimitReason = `the run host ran out of local ports to check provider-edge in the 320x step (${NO_PORT}), a harness limit: the run cannot tell whether it stayed up`
+
     it.each([
         {
             title: 'the host limit, not the timeout of its busy confirming check',
-            first: { name: 'provider-edge', reason: NO_PORT, unanswered: false, hostLimit: 'local ports' },
-            again: { name: 'provider-edge', reason: 'connect to 127.0.0.1:4566 timed out', unanswered: true },
-            reason: `the run host ran out of local ports to check provider-edge in the 320x step (${NO_PORT}), a harness limit: the run cannot tell whether it stayed up`,
+            attempts: [[noPort(HELD)], [timedOut]],
+            expected: { reason: hostLimitReason, sockets: HELD },
         },
         {
             title: 'the refusal of a dependency that went away, not the host limit of its confirming check',
-            first: { name: 'provider-edge', reason: REFUSED, unanswered: false },
-            again: { name: 'provider-edge', reason: NO_PORT, unanswered: false, hostLimit: 'local ports' },
-            reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+            attempts: [[refused], [noPort()]],
+            expected: {
+                reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+                sockets: undefined,
+            },
         },
-    ])('quotes $title', async ({ first, again, reason }) => {
-        const attempts: ProbeFailure[][] = [[first], [again]]
+        {
+            title: 'the sockets of the first check when the confirming check hit the limit without them',
+            attempts: [[noPort(HELD)], [noPort()]],
+            expected: { reason: hostLimitReason, sockets: HELD },
+        },
+        {
+            title: 'the refusal, never a recovery, when the probe process failed on the confirming check',
+            attempts: [[refused], exited, []],
+            expected: {
+                reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+                sockets: undefined,
+            },
+        },
+    ])('quotes $title', async ({ attempts, expected }) => {
+        const scripted: (ProbeFailure[] | Error)[] = [...attempts]
+        const next = (): Promise<ProbeFailure[]> => {
+            const attempt = scripted.shift() ?? []
+            return attempt instanceof Error ? Promise.reject(attempt) : Promise.resolve(attempt)
+        }
 
-        const watchedReason = (await watching(() => Promise.resolve(attempts.shift() ?? []), 200)).reason
+        const { losses, reason } = await watching(next, 200)
 
-        expect(watchedReason).toEqual(reason)
+        expect({ reason, sockets: losses.find(({ name }) => name === 'provider-edge')?.sockets }).toEqual(expected)
     })
+
+    it('keeps a probe process whose answer waited while the runner was blocked past the deadline', async () => {
+        const probes = startProbeProcess(
+            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+            5_000
+        )
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+            const answering = probes.pid
+
+            const checking = probes.check()
+            busyFor(6_000)
+
+            await expect(checking).resolves.toEqual([])
+            expect(probes.pid).toEqual(answering)
+        } finally {
+            probes.close()
+        }
+    }, 30_000)
 
     it('answers from a fresh probe process after the last one stopped answering', async () => {
         const probes = startProbeProcess(
