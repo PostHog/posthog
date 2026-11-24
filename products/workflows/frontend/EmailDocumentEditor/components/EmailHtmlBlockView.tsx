@@ -62,6 +62,9 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         if (!iframe || !root) {
             return
         }
+        const holder = iframe.parentElement
+        // Keeps the canvas's scroll position and scrollbar while the frame is small.
+        holder?.style.setProperty('min-height', `${iframe.offsetHeight}px`)
         // A document never reports less than the frame's own size, so it's measured in a small frame first. Otherwise the
         // frame couldn't shrink again, and an email as tall as its window would grow with every measurement.
         iframe.style.height = `${MIN_HEIGHT}px`
@@ -73,8 +76,13 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
             iframe.style.minWidth = `${Math.max(MIN_DESKTOP_WIDTH, root.scrollWidth)}px`
             iframe.style.width = ''
         }
-        const measured = Math.max(20, Math.ceil(root.getBoundingClientRect().height))
+        let measured = Math.max(20, Math.ceil(root.getBoundingClientRect().height))
+        // Html and body with a height of 100% are only as tall as the frame, with the email overflowing them.
+        if (sentAsWritten && root.scrollHeight > MIN_HEIGHT) {
+            measured = Math.max(measured, root.scrollHeight)
+        }
         iframe.style.height = `${measured}px`
+        holder?.style.removeProperty('min-height')
         setHeight(measured)
     }
     const measureRef = useRef(measure)
