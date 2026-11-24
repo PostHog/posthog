@@ -494,7 +494,7 @@ export function preLaunchHealth(details: ExperimentHealthDetails): ExperimentPre
         summary: summaryText(details),
         findings: details.findings,
         details:
-            'These are the configuration checks of the draft, read just before the launch. A finding does not stop the launch. Tell the user each finding and its fix.',
+            'These are the configuration checks of the draft, read just before the launch. A finding does not stop the launch. Tell the user each finding and its fix. A fix that says what to do before the launch is now a step to take on the running experiment.',
     }
 }
 

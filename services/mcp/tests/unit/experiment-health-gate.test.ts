@@ -256,6 +256,29 @@ describe('experiment health gate', () => {
             outcome: 'read',
         },
         {
+            name: 'leaves out a finding that the launch resolves, with its check',
+            flag: true,
+            healthRead: (): Promise<unknown> =>
+                Promise.resolve({
+                    success: true,
+                    data: {
+                        ...configHealth,
+                        findings: [
+                            ...configHealth.findings,
+                            {
+                                ...configHealth.findings[0],
+                                check: 'flag_state',
+                                code: 'flag_live_before_launch',
+                                severity: 'info',
+                            },
+                        ],
+                        checks: [...configHealth.checks, { ...configHealth.checks[0], key: 'flag_state' }],
+                    },
+                }),
+            health: { summary: 'Findings: 1 warning. Checks: 1 finding.', codes: ['no_metric'] },
+            outcome: 'read',
+        },
+        {
             name: 'adds no findings when the flag is off',
             flag: false,
             healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),

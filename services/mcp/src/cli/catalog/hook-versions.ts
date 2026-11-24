@@ -7,7 +7,7 @@ export const HOOK_SOURCE_HASHES: Record<string, readonly string[]> = {
     'engineeringAnalytics/redactFailureLogsHooks': ['a8555081ec4e'],
     'experiments/createExperimentHooks': ['8d6b7735b62e'],
     'experiments/getExperimentHooks': ['79c8b4a2e561'],
-    'experiments/launchExperimentHooks': ['6f9a7958f68e'],
+    'experiments/launchExperimentHooks': ['6a303376d0b3'],
     'experiments/listExperimentsHooks': ['039dcb062b79'],
     'experiments/updateExperimentHooks': ['dc26f14d64e9'],
     'featureFlags/conditionIdHooks': ['8715ed7c6985'],

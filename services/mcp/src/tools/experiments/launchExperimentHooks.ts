@@ -2,6 +2,7 @@
  * Puts the draft's configuration findings in the `experiment-launch` result, because an agent that launches through the
  * MCP doesn't see the health panel of the experiment page. No outcome of the read stops the launch.
  */
+import type { Schemas } from '@/api/generated'
 import { collectHealth, preLaunchHealth } from '@/schema/experiments'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
@@ -11,8 +12,25 @@ import { type ConfigHealthRead, configHealthNotRun, readConfigHealth, trackHealt
 // beforeRequest hands its read to afterResponse in the params. The launch request sends only the id.
 type LaunchParams = { id: number; draftHealth?: ConfigHealthRead }
 
-// The launch waits for this read.
+// The launch waits for this read, so a slow read must not hold it.
 const DRAFT_HEALTH_TIMEOUT_MS = 10_000
+
+// A flag that serves variants before the launch is the state that a running experiment needs, so after the launch
+// this finding and its advice to launch or to disable the flag no longer apply.
+const RESOLVED_BY_LAUNCH: ReadonlySet<string> = new Set(['flag_live_before_launch'])
+
+// The check that reported a resolved finding goes too, or the summary counts a finding that the result doesn't list.
+function afterLaunch(health: Schemas.ExperimentHealth | null): Pick<Schemas.ExperimentHealth, 'findings' | 'checks'> {
+    if (!health) {
+        return { findings: [], checks: [] }
+    }
+    const resolved = health.findings.filter((finding) => RESOLVED_BY_LAUNCH.has(finding.code))
+    const resolvedChecks = new Set<string>(resolved.map((finding) => finding.check))
+    return {
+        findings: health.findings.filter((finding) => !RESOLVED_BY_LAUNCH.has(finding.code)),
+        checks: health.checks.filter((check) => !resolvedChecks.has(check.key)),
+    }
+}
 
 // Some checks run only on a draft, such as the one for a flag without calls, so the read comes before the launch.
 async function beforeRequest<T extends LaunchParams>(context: Context, params: T): Promise<T> {
@@ -25,7 +43,7 @@ function afterResponse(context: Context, params: LaunchParams, result: unknown):
     if (!read) {
         return result
     }
-    const details = collectHealth([read.health ?? {}], configHealthNotRun(read.outcome))
+    const details = collectHealth([afterLaunch(read.health)], configHealthNotRun(read.outcome))
     trackHealthReturned(context, {
         toolName: 'experiment-launch',
         experimentId: params.id,
