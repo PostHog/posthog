@@ -18,7 +18,7 @@ import pyarrow as pa
 import deltalake
 from temporalio.exceptions import ApplicationError
 
-from products.data_modeling.backend.temporal.activities.materialize_view import (
+from products.data_modeling.backend.temporal.activities.arrow_batch_transforms import (
     UTF8_REPAIR_MAX_BYTES,
     InvalidUtf8KeyError,
     UnstorableDecimalError,

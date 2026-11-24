@@ -97,7 +97,7 @@ arm self-skips if it is missing).
 | `POSTHOG_CODE_E2E_GATEWAY_URL` | `http://localhost:8080` | ai-gateway base (codex appends `/v1`). |
 | `POSTHOG_CODE_E2E_CLAUDE_MODEL` | `claude-haiku-4-5` | Override if the gateway serves a different cheap Claude id. |
 | `POSTHOG_CODE_E2E_CODEX_MODEL` | `gpt-5-mini` | Cheapest codex id the local gateway serves; override if needed. |
-| `POSTHOG_CODE_E2E_CLAUDE_STRONG_MODEL` | `claude-sonnet-4-5` | Stronger Claude id for tests the cheap model can't handle (structured output). |
+| `POSTHOG_CODE_E2E_CLAUDE_STRONG_MODEL` | `claude-sonnet-5-5` | Stronger Claude id for tests the cheap model can't handle (structured output). |
 | `POSTHOG_CODE_E2E_CODEX_STRONG_MODEL` | `gpt-5.5` | Stronger codex id for the same tests. |
 | `POSTHOG_REPO` | sibling `../posthog` | Where `run-e2e.sh` reads the local dev key from. |
 | `E2E_DEBUG` | — | `1` for verbose adapter logging. |

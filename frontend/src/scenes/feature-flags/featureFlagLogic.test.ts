@@ -4986,6 +4986,8 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
         { key: 'null', error: 'reserved', desc: 'null on a new flag' },
         { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+        { key: 'true', error: 'reserved', desc: 'true on a new flag' },
+        { key: 'false', savedKeys: ['control', 'test'], error: 'reserved', desc: 'false the saved flag lacks' },
     ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
         expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })

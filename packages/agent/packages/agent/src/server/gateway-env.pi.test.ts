@@ -117,4 +117,20 @@ describe("buildPiProviderRoute", () => {
     expect(route.apiKey).toBe("oauth-token");
     expect(route.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code");
   });
+
+  it("routes by the server's product over the origin", () => {
+    process.env.AI_GATEWAY_URL = "https://ai-gateway.us.posthog.com/v1";
+    process.env.AI_GATEWAY_PRODUCTS = "signals";
+    process.env.AI_GATEWAY_TOKEN = "phe_run";
+    const route = buildPiProviderRoute(
+      config,
+      { gatewayProduct: "signals", originProduct: "workflow", properties },
+      logger(),
+    );
+
+    expect(route.isAiGateway).toBe(true);
+    expect(JSON.parse(route.headers["X-PostHog-Properties"]).ai_product).toBe(
+      "signals",
+    );
+  });
 });

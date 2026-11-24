@@ -84,4 +84,22 @@ describe("buildGatewayEnv", () => {
       expected ? "phe_run" : "oauth-token",
     );
   });
+
+  it.each([
+    {
+      source: "the server's product over the origin",
+      input: { gatewayProduct: "signals", originProduct: "workflow" },
+      expected: "https://gateway.us.posthog.com/signals",
+    },
+    {
+      source: "the origin without a server product",
+      input: { originProduct: "workflow" },
+      expected: "https://gateway.us.posthog.com/workflows",
+    },
+  ] as const)("routes by $source", ({ input, expected }) => {
+    process.env.LLM_GATEWAY_URL = "https://gateway.us.posthog.com";
+    const gatewayEnv = buildGatewayEnv(config, input, logger());
+
+    expect(gatewayEnv.anthropicBaseUrl).toBe(expected);
+  });
 });

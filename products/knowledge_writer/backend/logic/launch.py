@@ -174,11 +174,12 @@ def routed_page_keys_of(routing: PageRouting, docs_url_path: str) -> frozenset[s
 
 
 QUOTE_INSTRUCTION = (
-    f"The source change's diff is attached as `{docs_pages.SOURCE_DIFF_ATTACHMENT_NAME}`. "
+    "The source change's diff, followed by the full text of each file it modified, is attached as "
+    f"`{docs_pages.SOURCE_DIFF_ATTACHMENT_NAME}`. "
     f"Before you run the check script, write `{docs_pages.WRITER_QUOTES_PATH}`: a JSON object that maps each line "
-    "you added to a docs page to a short span copied verbatim from that diff which backs the line. "
+    "you added to a docs page to a short span copied verbatim from that attachment which backs the line. "
     "The check warns about each added line without a matching quote. "
-    "Rewrite or remove a line the diff does not back."
+    "Rewrite or remove a line the attachment does not back."
 )
 
 
