@@ -135,16 +135,18 @@ def _webhook_source(source_type: str | None) -> "WebhookSource | None":
 
 
 def webhook_issues(team_id: int, schemas: Iterable[WebhookIssueSchemaState]) -> dict[uuid.UUID, WebhookIssue | None]:
-    """Why each webhook-sync table gets no webhook rows, or None when nothing stops them.
+    """Why each table gets no webhook rows, or None when nothing stops them; every given table has an entry.
 
     The webhook answers a delivery it cannot use with a 200 and drops it, so without this the table
     looks healthy while its rows never arrive. Two queries, whatever the number of schemas.
     """
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource  # noqa: PLC0415
 
+    schemas = list(schemas)
+    issues: dict[uuid.UUID, WebhookIssue | None] = {schema.id: None for schema in schemas}
     needing = [schema for schema in schemas if schema_needs_webhook(schema)]
     if not needing:
-        return {}
+        return issues
     source_ids = {schema.source_id for schema in needing}
     functions = {
         str((function.inputs or {}).get("source_id", {}).get("value")): function
@@ -156,7 +158,6 @@ def webhook_issues(team_id: int, schemas: Iterable[WebhookIssueSchemaState]) -> 
         ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).values_list("id", "source_type")
     )
     inputs_by_source: dict[uuid.UUID, dict[str, Any]] = {}
-    issues: dict[uuid.UUID, WebhookIssue | None] = {}
     for schema in needing:
         function = functions.get(str(schema.source_id))
         if function is None:
@@ -164,7 +165,6 @@ def webhook_issues(team_id: int, schemas: Iterable[WebhookIssueSchemaState]) -> 
             continue
         source = _webhook_source(source_types.get(schema.source_id))
         if source is None:
-            issues[schema.id] = None
             continue
         if schema.source_id not in inputs_by_source:
             inputs_by_source[schema.source_id] = _function_inputs(function)
@@ -172,8 +172,7 @@ def webhook_issues(team_id: int, schemas: Iterable[WebhookIssueSchemaState]) -> 
         routes = (inputs.get("schema_mapping") or {}).get("value") or {}
         if source.missing_webhook_inputs(inputs):
             issues[schema.id] = WebhookIssue.MISSING_INPUTS
-        elif source.webhook_mapping_key(schema.name) not in routes:
+        # The template routes on the stored id, so a route left by a deleted table of the same name drops events too.
+        elif routes.get(source.webhook_mapping_key(schema.name)) != str(schema.id):
             issues[schema.id] = WebhookIssue.NOT_ROUTED
-        else:
-            issues[schema.id] = None
     return issues

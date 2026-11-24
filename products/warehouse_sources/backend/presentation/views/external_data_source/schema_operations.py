@@ -879,9 +879,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         # Shared by every schema's serializer, so a source's provider events are reconciled once per request.
         serializer_context[WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY] = {}
         updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
-        serializer_context[WEBHOOK_ISSUES_CONTEXT_KEY] = {
-            schema.id: None for schema in updated_schemas
-        } | webhook_issues(self.team_id, updated_schemas)
+        serializer_context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(self.team_id, updated_schemas)
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
             status=status.HTTP_200_OK,

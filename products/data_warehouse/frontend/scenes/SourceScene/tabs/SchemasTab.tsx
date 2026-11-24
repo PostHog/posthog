@@ -702,8 +702,7 @@ function ManagedSchemaTable({
                         if (isFileUpload) {
                             return syncMethod
                         }
-                        const webhookIssue =
-                            schema.webhook_issue ?? (schema.webhook_not_registered ? 'not_registered' : null)
+                        const webhookIssue = schema.webhook_issue
                         const webhookTag = webhookIssue ? (
                             <Tooltip title={WEBHOOK_ISSUE_TOOLTIPS[webhookIssue]}>
                                 <Link

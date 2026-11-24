@@ -2959,6 +2959,14 @@ class TestExternalDataSchema(APIBaseTest):
             )
             for name in (("Charge", "Invoice") if bulk else ("Charge",))
         ]
+        # Already syncs by webhook; some providers replace their subscription with the names they get.
+        ExternalDataSchema.objects.create(
+            name="Subscription",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
         function = None
         if has_webhook:
             function = HogFunction.objects.create(
@@ -3012,9 +3020,9 @@ class TestExternalDataSchema(APIBaseTest):
         }
         # The webhook's other inputs stay as set, or its template drops every delivery.
         assert inputs["http_auth_user"] == {"value": "posthog"}
-        # One provider reconciliation per source, covering every table the request enabled.
+        # One provider reconciliation per source, with every enabled webhook table of the source.
         assert sync_events.call_count == 1
-        assert sync_events.call_args.args[3] == [schema.name for schema in schemas]
+        assert sync_events.call_args.args[3] == sorted([*(schema.name for schema in schemas), "Subscription"])
 
     def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
         source = ExternalDataSource.objects.create(
@@ -6099,10 +6107,22 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                     {"key": "schema_mapping", "type": "json"},
                     {"key": "signing_secret", "type": "string", "secret": True},
                     {"key": "signing_secrets_complete", "type": "boolean"},
+                    {"key": "bypass_signature_check", "type": "boolean"},
                 ],
-                inputs={"source_id": {"value": str(source.pk)}, **(function_inputs or {})},
+                inputs={"source_id": {"value": str(source.pk)}, **self._resolve_routes(function_inputs, schemas)},
             )
         return source, schemas
+
+    @staticmethod
+    def _resolve_routes(function_inputs: dict | None, schemas: list[ExternalDataSchema]) -> dict:
+        # Fixtures name the route target "self" to mean the first table's own id.
+        inputs = dict(function_inputs or {})
+        if "schema_mapping" in inputs:
+            routes = inputs["schema_mapping"]["value"]
+            inputs["schema_mapping"] = {
+                "value": {key: str(schemas[0].id) if value == "self" else value for key, value in routes.items()}
+            }
+        return inputs
 
     @parameterized.expand([("no_webhook", False, True), ("enabled_webhook", True, False)])
     def test_retrieve_webhook_not_registered(self, _name: str, with_webhook: bool, expected: bool) -> None:
@@ -6116,7 +6136,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         [
             ("no_webhook", False, {}, "not_registered"),
             # The webhook answers 200 and drops every delivery while the signing secret is unset.
-            ("no_signing_secret", True, {"schema_mapping": {"value": {"customer": "x"}}}, "missing_inputs"),
+            ("no_signing_secret", True, {"schema_mapping": {"value": {"customer": "self"}}}, "missing_inputs"),
+            # With the signature check bypassed, a missing secret drops nothing.
+            (
+                "bypassed_signature_check",
+                True,
+                {"bypass_signature_check": {"value": True}, "schema_mapping": {"value": {"customer": "self"}}},
+                None,
+            ),
             # A table enabled after the webhook was set up has no route, so its events are dropped.
             (
                 "table_not_routed",
@@ -6124,10 +6151,17 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {}}},
                 "not_routed",
             ),
+            # A route left by a deleted table of the same name points at a dead schema.
+            (
+                "routed_to_another_table",
+                True,
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "old-id"}}},
+                "not_routed",
+            ),
             (
                 "routed",
                 True,
-                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "x"}}},
+                {"signing_secret": {"value": "whsec_1"}, "schema_mapping": {"value": {"customer": "self"}}},
                 None,
             ),
             # A function saves an unset input as None; Webflow's input check must not crash on it.
@@ -6156,8 +6190,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         view = ExternalDataSchemaViewset()
         view.team_id = self.team.pk
 
-        # One lookup for registration, then one for the functions and one for the source types behind the issues.
-        with self.assertNumQueries(3):
+        # One lookup for the enabled functions and one for the source types, whatever the number of sources.
+        with self.assertNumQueries(2):
             rows = view.get_serializer(
                 [*with_webhook, *without_webhook], many=True, context={"include_columns": False}
             ).data

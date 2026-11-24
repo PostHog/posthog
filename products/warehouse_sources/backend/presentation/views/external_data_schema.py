@@ -44,12 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
-from products.warehouse_sources.backend.facade.api import (
-    route_table_on_enabled_webhook,
-    schema_needs_webhook,
-    sources_missing_webhook,
-    webhook_issues,
-)
+from products.warehouse_sources.backend.facade.api import route_table_on_enabled_webhook, webhook_issues
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import (
     HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE,
@@ -199,7 +194,6 @@ def source_syncs_on_demand(source_type: str) -> bool:
 
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
-WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
 WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
 WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
 
@@ -228,18 +222,28 @@ def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dic
     return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
 
 
-def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
-    """Whether the schema syncs by webhook but its source has no enabled webhook.
+def _enabled_webhook_table_names(schema: ExternalDataSchema) -> list[str]:
+    """Every enabled webhook-sync table of the schema's source.
 
-    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
-    the first schema of each source looks the source up and keeps the answer for the rest.
+    A provider's event sync takes the full set it should subscribe to; some replace the subscription
+    with it, so passing only the table just enabled would drop the events of the others.
     """
-    if not schema_needs_webhook(schema):
-        return False
-    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
-    if schema.source_id not in missing_by_source:
-        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
-    return missing_by_source[schema.source_id]
+    return list(
+        ExternalDataSchema.objects.filter(
+            team_id=schema.team_id,
+            source_id=schema.source_id,
+            deleted=False,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+        .order_by("name")
+        .values_list("name", flat=True)
+    )
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook. Kept for API compatibility."""
+    return webhook_issue(schema, context) == WebhookIssue.NOT_REGISTERED
 
 
 def webhook_issue(schema: ExternalDataSchema, context: dict[str, Any]) -> WebhookIssue | None:
@@ -247,7 +251,7 @@ def webhook_issue(schema: ExternalDataSchema, context: dict[str, Any]) -> Webhoo
     issues: dict[uuid.UUID, WebhookIssue | None] = context.setdefault(WEBHOOK_ISSUES_CONTEXT_KEY, {})
     if schema.id not in issues:
         issues.update(webhook_issues(schema.team_id, [schema]))
-    return issues.get(schema.id)
+    return issues[schema.id]
 
 
 def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
@@ -2787,7 +2791,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             pending.setdefault(schema.source_id, []).append(schema.name)
 
         def reconcile() -> None:
-            names = [schema.name] if pending is None else pending.pop(schema.source_id, None)
+            if pending is not None and pending.pop(schema.source_id, None) is None:
+                return
+            names = _enabled_webhook_table_names(schema)
             if not names:
                 return
             # Non-fatal: the route is already saved, and data flows once the provider sends the events.
@@ -2874,7 +2880,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             config,
                             hog_fn_result,
                             schema.team_id,
-                            [schema.name],
+                            _enabled_webhook_table_names(schema),
                             api_version=effective_api_version,
                         )
                         if not reconcile_result.success:
@@ -3266,10 +3272,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
             else:
                 context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-                context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
-                context[WEBHOOK_ISSUES_CONTEXT_KEY] = {schema.id: None for schema in args[0]} | webhook_issues(
-                    self.team_id, args[0]
-                )
+                context[WEBHOOK_ISSUES_CONTEXT_KEY] = webhook_issues(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
