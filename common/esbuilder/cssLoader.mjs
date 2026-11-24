@@ -13,7 +13,7 @@
  * failed attempt starts the next URL in the ladder: a stale CDN can refuse the hashed file but
  * serve the hashless copy, and a fresh query defeats a poisoned cache entry or a hung connection.
  * Each failure also sends an `$exception` beacon by hand, because posthog-js is not loaded this
- * early, the same way RootErrorBoundary reports boot failures.
+ * early, the same way frontend/src/reportBootFailure.ts reports boot failures.
  *
  * `window.ESBUILD_CSS_READY` resolves `true` once a stylesheet applies, and `false` once every
  * attempt has failed. The app entry waits on it before its first render (frontend/src/index.tsx).
@@ -52,7 +52,7 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                 console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
                 try {
                     var apiKey = window.JS_POSTHOG_API_KEY;
-                    if (!apiKey) { return; }
+                    if (!apiKey || window.IMPERSONATED_SESSION) { return; }
                     var host = window.JS_POSTHOG_HOST || window.location.origin;
                     var distinctId;
                     try {
@@ -84,7 +84,11 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     });
                     // A string body goes out as text/plain: CORS-safelisted and accepted by capture.
                     var url = host + '/e/';
-                    if (!(typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload))) {
+                    var sent = false;
+                    try {
+                        sent = typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload);
+                    } catch (e) {}
+                    if (!sent) {
                         fetch(url, { method: 'POST', body: payload, keepalive: true }).catch(function () {});
                     }
                 } catch (e) {

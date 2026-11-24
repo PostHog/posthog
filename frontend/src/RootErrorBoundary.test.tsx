@@ -19,6 +19,7 @@ function ThrowChunkError(): JSX.Element {
 describe('RootErrorBoundary', () => {
     let consoleErrorSpy: jest.SpyInstance
     let sendBeacon: jest.Mock
+    const originalFetch = window.fetch
 
     beforeEach(() => {
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -34,8 +35,11 @@ describe('RootErrorBoundary', () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore()
+        Object.defineProperty(window, 'fetch', { value: originalFetch, configurable: true, writable: true })
         delete window.JS_POSTHOG_API_KEY
         delete window.JS_POSTHOG_HOST
+        delete window.IMPERSONATED_SESSION
+        window.history.replaceState({}, '', '/')
         cleanup()
     })
 
@@ -51,6 +55,8 @@ describe('RootErrorBoundary', () => {
     })
 
     it('reports render crashes to the capture API and shows crash copy', () => {
+        window.history.replaceState({}, '', '/reset/user-uuid/reset-t0k3n?metric_prefill=private-sql')
+
         render(
             <RootErrorBoundary>
                 <ThrowRenderError />
@@ -67,6 +73,29 @@ describe('RootErrorBoundary', () => {
         expect(event.distinct_id).toEqual(expect.any(String))
         expect(event.properties.$exception_list[0].value).toBe('boot render kaboom')
         expect(event.properties.chunk_load_error).toBe(false)
+        // The path can carry a reset token, so the report keeps the origin only.
+        expect(event.properties.$current_url).toBe('http://localhost')
+        expect(body).not.toContain('reset-t0k3n')
+        expect(body).not.toContain('private-sql')
+    })
+
+    it('reports through fetch when sendBeacon throws', () => {
+        sendBeacon.mockImplementation(() => {
+            throw new Error('Transport unavailable')
+        })
+        const fetchMock = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(window, 'fetch', { value: fetchMock, configurable: true, writable: true })
+
+        render(
+            <RootErrorBoundary>
+                <ThrowRenderError />
+            </RootErrorBoundary>
+        )
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const [url, init] = fetchMock.mock.calls[0]
+        expect(url).toBe('https://us.example.com/e/')
+        expect(JSON.parse(init.body).properties.$exception_list[0].value).toBe('boot render kaboom')
     })
 
     it('shows crash copy when a component throws null', () => {
@@ -91,8 +120,11 @@ describe('RootErrorBoundary', () => {
         expect(JSON.parse(sendBeacon.mock.calls[0][1]).properties.chunk_load_error).toBe(true)
     })
 
-    it('does not report when capture is opted out', () => {
-        delete window.JS_POSTHOG_API_KEY
+    it.each([
+        ['capture is opted out', () => delete window.JS_POSTHOG_API_KEY],
+        ['the session is impersonated', () => (window.IMPERSONATED_SESSION = true)],
+    ])('does not report when %s', (_case, optOut) => {
+        optOut()
 
         render(
             <RootErrorBoundary>

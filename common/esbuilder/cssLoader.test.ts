@@ -27,19 +27,24 @@ function makeLink(): FakeLink {
 function runLoader({
     cssFileFallback = CSS_FALLBACK,
     apiKey = 'phc_test' as string | null,
+    impersonated = false,
+    beaconThrows = false,
     script = cssLoaderScript(CSS_FILE, cssFileFallback),
 } = {}): {
     ready: Promise<boolean>
     links: FakeLink[]
     beacons: Record<string, any>[]
+    fetched: Record<string, any>[]
     win: Record<string, any>
 } {
     const links: FakeLink[] = []
     const beacons: Record<string, any>[] = []
+    const fetched: Record<string, any>[] = []
     const win: Record<string, any> = {
         JS_URL: 'https://cdn.example.com',
         JS_POSTHOG_API_KEY: apiKey,
         JS_POSTHOG_HOST: 'https://capture.example.com',
+        IMPERSONATED_SESSION: impersonated,
         // A share path, because this loader also runs on exporter.html.
         location: { origin: 'https://app.example.com', href: 'https://app.example.com/shared/sh4r3-t0k3n' },
         localStorage: { getItem: () => null },
@@ -53,6 +58,9 @@ function runLoader({
     }
     const nav = {
         sendBeacon: (_url: string, body: string) => {
+            if (beaconThrows) {
+                throw new Error('Transport unavailable')
+            }
             beacons.push(JSON.parse(body))
             return true
         },
@@ -63,9 +71,12 @@ function runLoader({
         doc,
         nav,
         { error: () => {} },
-        () => Promise.resolve()
+        (_url: string, init: { body: string }) => {
+            fetched.push(JSON.parse(init.body))
+            return Promise.resolve()
+        }
     )
-    return { ready: win.ESBUILD_CSS_READY, links, beacons, win }
+    return { ready: win.ESBUILD_CSS_READY, links, beacons, fetched, win }
 }
 
 /** A stylesheet that really applied has a `sheet`; a response that is not CSS fires `load` without one. */
@@ -140,12 +151,24 @@ describe('css loader script', () => {
         await expect(ready).resolves.toBe(true)
     })
 
-    it('recovers without a beacon when capture is opted out', () => {
-        const { links, beacons } = runLoader({ apiKey: null })
+    it.each([
+        ['capture is opted out', { apiKey: null }],
+        ['the session is impersonated', { impersonated: true }],
+    ])('recovers without a report when %s', (_case, options) => {
+        const { links, beacons, fetched } = runLoader(options)
         links[0].dispatch('error')
 
         expect(links).toHaveLength(2)
         expect(beacons).toHaveLength(0)
+        expect(fetched).toHaveLength(0)
+    })
+
+    it('reports through fetch when sendBeacon throws', () => {
+        const { links, fetched } = runLoader({ beaconThrows: true })
+        links[0].dispatch('error')
+
+        expect(fetched).toHaveLength(1)
+        expect(fetched[0].properties.$exception_list[0].type).toBe('StylesheetLoadError')
     })
 
     it('still has a retry to fall back on in a dev build with no hashless copy', () => {
