@@ -103,8 +103,13 @@ export const gridTabSchema = z.strictObject({
 export const linkTabSchema = z.strictObject({
     id: z.string().min(1),
     title: z.string(),
-    /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or a full URL. */
-    href: z.string().min(1),
+    /** A path in PostHog, such as `/dashboard-v2?tab=errors`, or an http(s) URL. Anything else could run script. */
+    href: z
+        .string()
+        .refine(
+            (href) => /^\/(?![/\\])/.test(href) || /^https?:\/\//i.test(href),
+            'A link tab goes to a PostHog path or an http(s) URL'
+        ),
 })
 
 export const dashboardTabSchema = z.union([gridTabSchema, linkTabSchema])

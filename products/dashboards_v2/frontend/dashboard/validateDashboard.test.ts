@@ -17,6 +17,18 @@ const note = { type: 'markdown', config: { text: 'hi' } }
 
 describe('validateDashboard', () => {
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([
+        ...['javascript:alert(1)', '//example.com/phish'].map((href) => ({
+            name: `a link tab to ${href}`,
+            document: {
+                version: 2,
+                title: 'Test',
+                tabs: [
+                    { id: 'tab', title: 'Tab', tiles: [] },
+                    { id: 'link', title: 'Link', href },
+                ],
+            },
+            expected: [{ path: expect.stringMatching(/^tabs\[1\]/), message: expect.any(String) }],
+        })),
         {
             name: 'an unknown widget type',
             document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 6, h: 4 }, widget: { type: 'lnie' } }]),
