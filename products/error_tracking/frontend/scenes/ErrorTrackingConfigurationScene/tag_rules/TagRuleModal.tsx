@@ -83,7 +83,12 @@ export function TagRuleModal(): JSX.Element {
                     <div className="flex flex-col items-start">
                         <LemonLabel className="mb-2">Preview</LemonLabel>
                         <Tooltip title={rule.description || undefined}>
-                            <IssueTag tabIndex={0} label={previewLabel} color={rule.color} />
+                            <IssueTag
+                                className="max-w-full"
+                                tabIndex={rule.description ? 0 : undefined}
+                                label={previewLabel}
+                                color={rule.color}
+                            />
                         </Tooltip>
                     </div>
                     <TagRuleMatchBanner />

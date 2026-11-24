@@ -4,10 +4,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 
@@ -20,6 +21,10 @@ from products.error_tracking.backend.logic.issue_tags.rules import (
 )
 from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
+from products.error_tracking.backend.presentation.views.issue_tag_rules import (
+    ErrorTrackingIssueTagRuleCreateRequestSerializer,
+    ErrorTrackingIssueTagRuleUpdateRequestSerializer,
+)
 from products.event_definitions.backend.models import PropertyDefinition
 
 from common.hogvm.python.utils import MAX_REGEX_PATTERN_LENGTH
@@ -39,6 +44,22 @@ UNTYPED_PRO_PLAN = {"type": "AND", "values": [{"type": "AND", "values": [{"key":
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
 ENTERPRISE_OR_PRO_PLAN = _event_filter("plan", ["enterprise", "pro"])
 DISABLED = {"message": "Rule timed out"}
+
+
+class TestIssueTagRuleRequestSerializers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("create", ErrorTrackingIssueTagRuleCreateRequestSerializer),
+            ("update", ErrorTrackingIssueTagRuleUpdateRequestSerializer),
+        ]
+    )
+    def test_a_color_outside_the_set_is_rejected(
+        self, _name: str, serializer_class: type[serializers.Serializer]
+    ) -> None:
+        serializer = serializer_class(data={"color": "grey"})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["color"][0].code == "invalid_choice"
 
 
 @patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)

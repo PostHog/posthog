@@ -576,7 +576,7 @@ def _to_issue_tag_rule(rule) -> contracts.ErrorTrackingIssueTagRule:
         key=rule.key,
         label=rule.label,
         description=rule.description,
-        color=rule.color,
+        color=contracts.IssueTagColor(rule.color) if rule.color else None,
         filters=rule.filters,
         version=rule.version,
         order_key=rule.order_key,
