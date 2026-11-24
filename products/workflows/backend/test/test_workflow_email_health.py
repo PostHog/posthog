@@ -559,43 +559,65 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         )
 
     def test_a_project_breach_from_transactional_workflows_warns_each_without_a_pause(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         transactional_actions = [
             {"id": "step_0", "type": "function_email", "config": {"message_category_type": "transactional"}}
         ]
         sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=transactional_actions)
+        newsletter = HogFlow.objects.create(name="Newsletter", team=self.team)
         self.flow.actions = transactional_actions
         self.flow.save()
         self._seed(sent=150, hard_bounces=30)
         self._seed(source_id=str(sibling.id), sent=150, hard_bounces=30)
+        self._seed(source_id=str(newsletter.id), sent=700)
         labels = {"signal": "bounce", "window": "1h", "mode": "transactional", "scope": "project"}
         counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
 
-        with capture_logs() as logs:
-            applied, paused_email = self._sweep()
+        with (
+            capture_logs() as logs,
+            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            applied = sweep_workflow_email_health(now=self.now)
 
-        assert (applied, paused_email.call_count) == ([], 0)
+        assert applied == []
         assert REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) == counted_before + 2
         assert sorted(
             (log["hog_flow_id"], log["project_emails_sent"], log["project_rate"])
             for log in logs
             if log["event"] == "would_pause_workflow_email_sending" and log["mode"] == "transactional"
         ) == sorted([(str(self.flow.id), 300, 0.2), (str(sibling.id), 300, 0.2)])
-        assert sorted(
-            (call.kwargs["hog_flow_id"], call.kwargs["transactional"], call.kwargs["reason"])
-            for call in self.warning_email.call_args_list
-        ) == sorted(
-            (
-                str(flow.id),
-                True,
-                "Emails to addresses that do not exist reached 20% of the 300 emails this project's workflows "
-                "sent in the last hour. This workflow sent 150 of those emails, and 30 of the emails to "
-                "addresses that do not exist came from it.",
+        delivered = []
+        for message in mail.outbox:
+            [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            html = html_bytes.decode()
+            delivered.append(
+                (
+                    "needs attention" in str(message.subject),
+                    message.to,
+                    next(flow.name for flow in (self.flow, sibling, newsletter) if f"/workflows/{flow.id}/" in html),
+                    "Emails to addresses that do not exist reached 20% of the 300 emails this project's "
+                    "transactional workflows sent in the last hour. This workflow sent 150 of those emails, and 30 "
+                    "of the emails to addresses that do not exist came from it." in html,
+                    "we don't pause it automatically" in html,
+                )
             )
-            for flow in (self.flow, sibling)
+        assert sorted(delivered) == sorted(
+            (True, [self.user.email], name, True, True) for name in (self.flow.name, sibling.name)
         )
-        for flow in (self.flow, sibling):
-            flow.refresh_from_db()
-            assert flow.email_sending_paused_at is None
+        assert (
+            list(
+                HogFlow.objects.filter(team=self.team, email_sending_paused_at__isnull=False).values_list(
+                    "name", flat=True
+                )
+            )
+            == []
+        )
 
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)

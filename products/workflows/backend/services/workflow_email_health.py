@@ -192,9 +192,10 @@ class PauseDecision:
     def warning_reason(self) -> str:
         if self.project is None:
             return self._own_reason
+        workflows = "transactional workflows" if self.transactional else "workflows"
         return (
             f"{self._signal_text} reached {_format_rate(self.project.rate)} of the {self.project.sent:,} emails "
-            f"this project's workflows sent in {self.threshold.window_description}. This workflow sent "
+            f"this project's {workflows} sent in {self.threshold.window_description}. This workflow sent "
             f"{self.sent:,} of those emails, and {self.events:,} of the {self._events_text} came from it."
         )
 
