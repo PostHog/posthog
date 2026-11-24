@@ -463,6 +463,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             team=self.context.team,
             interval=self.context.query.interval,
             now=self.context.now,
+            earliest_timestamp_fallback=self.context.earliest_timestamp_fallback,
         )
 
     # The fill query returns all the start_interval dates in the response

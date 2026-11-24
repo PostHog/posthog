@@ -183,13 +183,16 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         )
         return table_one.name, table_two.name
 
+    @parameterized.expand([("fixed_start", "2025-11-01"), ("all_time_rows_before_first_event", "all")])
     @snapshot_clickhouse_queries
-    def test_funnels_data_warehouse(self):
+    def test_funnels_data_warehouse(self, _name, date_from):
         table_name = self.setup_data_warehouse()
+        _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2025-11-06T12:00:00Z")
+        flush_persons_and_events()
 
         funnels_query = FunnelsQuery(
             kind="FunnelsQuery",
-            dateRange=DateRange(date_from="2025-11-01"),
+            dateRange=DateRange(date_from=date_from),
             series=[
                 FunnelsDataWarehouseNode(
                     id=table_name,
@@ -215,6 +218,31 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         results = response.results
         assert results[0]["count"] == 5
         assert results[1]["count"] == 1
+
+    def test_funnels_data_warehouse_all_time_empty_table_starts_at_first_event(self):
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "funnels_data_empty.csv",
+            table_name="test_table_empty",
+            table_columns={"uuid": "String", "user_id": "String", "created": "DateTime64(3, 'UTC')"},
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+        _create_event(team=self.team, event="$pageview", distinct_id="person1", timestamp="2025-11-06T12:00:00Z")
+        flush_persons_and_events()
+        node = FunnelsDataWarehouseNode(
+            id=table.name,
+            table_name=table.name,
+            id_field="uuid",
+            aggregation_target_field="user_id",
+            timestamp_field="created",
+        )
+
+        with time_machine.travel("2025-11-07", tick=False):
+            query = FunnelsQuery(dateRange=DateRange(date_from="all"), series=[node, node])
+            response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+
+        assert response.resolved_date_range is not None
+        assert response.resolved_date_range.date_from.date() == datetime(2025, 11, 6).date()
 
     def _days_of_week_trends_query(self, table_name: str, days_of_week: list[int] | None) -> FunnelsQuery:
         node = FunnelsDataWarehouseNode(

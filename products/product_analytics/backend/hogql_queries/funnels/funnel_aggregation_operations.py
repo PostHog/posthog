@@ -64,6 +64,7 @@ class FirstTimeForUserAggregationQuery:
             team=team,
             interval=query.interval,
             now=now,
+            earliest_timestamp_fallback=self._context.earliest_timestamp_fallback,
         )
         return date_range
 
