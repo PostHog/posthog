@@ -54,6 +54,7 @@ class ReportSpend:
     generation: SpendAmount
     implementation: SpendAmount
     shared_scout_runs: SpendAmount
+    scout_authored: bool
 
 
 class SpendReporting:
@@ -199,13 +200,15 @@ class SpendReporting:
         if report.pending_triggering_signal_id:
             signal_ids.add(report.pending_triggering_signal_id)
         receipts = SignalSpend.objects.for_team(self.team_id).filter(kind__isnull=False)
-        shared_runs = (
+        shared_run_ids = list(
             SignalScoutRun.objects.for_team(self.team_id)
             .filter(emitted_report_ids__contains=[str(report.id)])
             .exclude(metadata__has_key="scout_trial")
+            .values_list("id", flat=True)
         )
         return ReportSpend(
             generation=self._amount(receipts.filter(signal_id__in=signal_ids)),
             implementation=self._amount(receipts.filter(report_id=report.id)),
-            shared_scout_runs=self._amount(receipts.filter(scout_run_id__in=shared_runs.values("id"))),
+            shared_scout_runs=self._amount(receipts.filter(scout_run_id__in=shared_run_ids)),
+            scout_authored=bool(shared_run_ids),
         )
