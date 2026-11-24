@@ -28,6 +28,11 @@ class PabblyEndpointConfig:
     # (invoice links, gateway webhook URLs) the scrubbers can't recognise. Requests stay metered and
     # logged either way.
     capture_http_samples: bool = False
+    # Fan-out: the child path returns one object per parent (not a paged list) and that object has
+    # no id of its own, so the table keys on the parent id alone. The request is sent once, without
+    # page/limit, and any error envelope means "no row for this parent" (the parent listing has
+    # already proven the credentials).
+    one_row_per_parent: bool = False
 
 
 # Pabbly Subscription Billing REST endpoints (https://apidocs.pabbly.com/pabbly/subscription-billing).
@@ -66,6 +71,17 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         path="/commissions",
         # Commissions belong to Pabbly's optional Affiliate module; an account that never enabled
         # it gets a 400 on the very first page, the same "no data" shape as addons/licenses/etc.
+        ignore_no_data_errors=True,
+    ),
+    "affiliate_clicks": PabblyEndpointConfig(
+        name="affiliate_clicks",
+        path="/commissions/clicks",
+        # Part of the optional Affiliate module, like commissions.
+        ignore_no_data_errors=True,
+    ),
+    "affiliate_links": PabblyEndpointConfig(
+        name="affiliate_links",
+        path="/affiliate/links",
         ignore_no_data_errors=True,
     ),
     "addons": PabblyEndpointConfig(
@@ -129,6 +145,18 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="customers",
         parent_field="customer_id",
         ignore_no_data_errors=True,
+    ),
+    "scheduled_changes": PabblyEndpointConfig(
+        name="scheduled_changes",
+        path="/scheduledchanges/{parent_id}",
+        # A subscription has at most one pending plan change.
+        primary_keys=["subscription_id"],
+        # scheduled_date can move when the change is rescheduled, and there is no createdAt.
+        partition_key=None,
+        parent="subscriptions",
+        parent_field="subscription_id",
+        ignore_no_data_errors=True,
+        one_row_per_parent=True,
     ),
 }
 
