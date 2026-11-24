@@ -26,12 +26,12 @@ import {
     customPropertySourcesRunsList,
     customPropertySourcesSync,
 } from 'products/customer_analytics/frontend/generated/api'
-import type {
-    CustomPropertyDefinitionApi,
-    CustomPropertyDisplayTypeEnumApi,
-    CustomPropertyOptionApi,
-    CustomPropertyReferenceApi,
-    CustomPropertySyncRunApi,
+import {
+    type CustomPropertyDefinitionApi,
+    type CustomPropertyDisplayTypeEnumApi,
+    type CustomPropertyOptionApi,
+    type CustomPropertyReferenceApi,
+    type CustomPropertySyncRunApi,
     WarehousePersonPropertyMissingRowBehaviorEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 

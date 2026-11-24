@@ -290,6 +290,17 @@ class TestRunOrchestration:
         assert snapshot == {key: value for key, value in prior.items() if key not in expected_removed_ids}
 
     @pytest.mark.asyncio
+    async def test_a_person_whose_distinct_ids_were_cut_short_is_kept(self) -> None:
+        owned = {f"id-{index}": 1 for index in range(3)}
+        with (
+            _person_directory(owned),
+            patch(f"{_MODULE}._REMOVAL_DISTINCT_ID_LIMIT", 3),
+        ):
+            removable = pps._removable_ids(1, ["id-0"], present_ids={"unrelated"})
+
+        assert removable == set()
+
+    @pytest.mark.asyncio
     async def test_a_person_with_another_distinct_id_still_in_the_table_keeps_their_properties(self) -> None:
         source = PersonPropertySyncSource(
             source_id="source-1",
@@ -933,11 +944,12 @@ def _person_directory(person_id_by_distinct_id: dict[str, int]):
             if distinct_id in person_id_by_distinct_id
         }
 
-    def _distinct_ids(_team_id, person_ids):
-        return {
+    def _distinct_ids(_team_id, person_ids, limit_per_person=None):
+        owned = {
             person_id: [d for d, owner in person_id_by_distinct_id.items() if owner == person_id]
             for person_id in person_ids
         }
+        return {person_id: ids[:limit_per_person] for person_id, ids in owned.items()}
 
     with (
         patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", side_effect=_persons),

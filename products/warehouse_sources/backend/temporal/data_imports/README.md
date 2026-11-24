@@ -117,7 +117,7 @@ import os
 import s3fs
 import time
 
-schema_ids = ['...'] # Schema ID of the tables you want to resync
+schema_ids = ["..."]  # Schema ID of the tables you want to resync
 
 s3 = s3fs.S3FileSystem()
 
@@ -135,7 +135,19 @@ for index, schema_id in enumerate(schema_ids):
         pass
     print("Starting temporal worker...")
     try:
-        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":true}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')
+        os.system(
+            'python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": '
+            + str(team_id)
+            + ',\\"external_data_source_id\\":\\"'
+            + str(source_id)
+            + '\\",\\"external_data_schema_id\\":\\"'
+            + str(schema_id)
+            + '\\",\\"billable\\":false,\\"reset_pipeline\\":true}" --workflow-id '
+            + str(schema_id)
+            + "-resync-"
+            + str(time.time())
+            + " --task-queue data-warehouse-task-queue"
+        )
     except Exception as e:
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
@@ -149,7 +161,7 @@ import os
 import s3fs
 import time
 
-schema_ids = ['...'] # Schema ID of the tables you want to resync
+schema_ids = ["..."]  # Schema ID of the tables you want to resync
 
 s3 = s3fs.S3FileSystem()
 
@@ -161,7 +173,19 @@ for index, schema_id in enumerate(schema_ids):
     schema_name = NamingConvention.normalize_identifier(schema.name)
     print("Starting temporal worker...")
     try:
-        os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')
+        os.system(
+            'python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": '
+            + str(team_id)
+            + ',\\"external_data_source_id\\":\\"'
+            + str(source_id)
+            + '\\",\\"external_data_schema_id\\":\\"'
+            + str(schema_id)
+            + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id '
+            + str(schema_id)
+            + "-resync-"
+            + str(time.time())
+            + " --task-queue data-warehouse-task-queue"
+        )
     except Exception as e:
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
@@ -197,16 +221,11 @@ import s3fs
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
-bucket_url = os.environ['BUCKET_URL']
+bucket_url = os.environ["BUCKET_URL"]
 s3 = s3fs.S3FileSystem()
 
 # Find schemas that are soft-deleted but whose S3 folder may still exist
-orphaned_schemas = (
-    ExternalDataSchema.objects
-    .filter(deleted=True)
-    .select_related('source')
-    .iterator()
-)
+orphaned_schemas = ExternalDataSchema.objects.filter(deleted=True).select_related("source").iterator()
 
 deleted = 0
 skipped = 0
@@ -236,15 +255,10 @@ import s3fs
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
-bucket_url = os.environ['BUCKET_URL']
+bucket_url = os.environ["BUCKET_URL"]
 s3 = s3fs.S3FileSystem()
 
-orphaned_schemas = (
-    ExternalDataSchema.objects
-    .filter(deleted=True)
-    .select_related('source')
-    .iterator()
-)
+orphaned_schemas = ExternalDataSchema.objects.filter(deleted=True).select_related("source").iterator()
 
 total_size = 0
 count = 0
@@ -253,8 +267,10 @@ for schema in orphaned_schemas:
     s3_folder = f"{bucket_url}/{schema.folder_path()}"
     try:
         if s3.exists(s3_folder):
-            size = sum(f['size'] for f in s3.ls(s3_folder, detail=True))
-            print(f"[WOULD DELETE] {s3_folder} (schema={schema.id}, team={schema.team_id}, size={size / 1024 / 1024:.1f} MB)")
+            size = sum(f["size"] for f in s3.ls(s3_folder, detail=True))
+            print(
+                f"[WOULD DELETE] {s3_folder} (schema={schema.id}, team={schema.team_id}, size={size / 1024 / 1024:.1f} MB)"
+            )
             total_size += size
             count += 1
     except Exception as e:

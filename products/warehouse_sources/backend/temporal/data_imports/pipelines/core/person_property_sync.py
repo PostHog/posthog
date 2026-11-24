@@ -103,6 +103,8 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
 # changed set — an organization group carries tens of KB of properties, so a six-figure changed set
 # would otherwise materialize gigabytes and get the worker OOM-killed.
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
+# Most distinct_ids fetched per person when deciding a removal, so merge-heavy persons stay bounded.
+_REMOVAL_DISTINCT_ID_LIMIT = 1000
 
 # Rows per streamed parquet/Delta batch. Batches are processed then discarded. The incremental sync also
 # keeps a per-source {distinct_id: bundle} accumulator (bounded by distinct-person cardinality); the
@@ -612,16 +614,20 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
 
 
 def _removable_ids(team_id: int, candidate_ids: list[str], present_ids: set[str]) -> set[str]:
-    """The candidates that resolve to a person who owns no distinct_id in ``present_ids``."""
+    """The candidates that resolve to a person who owns no distinct_id in ``present_ids``. A person with
+    more distinct_ids than ``_REMOVAL_DISTINCT_ID_LIMIT`` is kept, since its list is cut short."""
     if not candidate_ids:
         return set()
     persons = get_persons_mapped_by_distinct_id(team_id, candidate_ids)
-    distinct_ids_by_person = get_distinct_ids_for_persons(team_id, sorted({person.id for person in persons.values()}))
-    return {
-        distinct_id
-        for distinct_id, person in persons.items()
-        if not present_ids.intersection(distinct_ids_by_person.get(person.id, ()))
-    }
+    distinct_ids_by_person = get_distinct_ids_for_persons(
+        team_id, sorted({person.id for person in persons.values()}), limit_per_person=_REMOVAL_DISTINCT_ID_LIMIT
+    )
+    removable = set()
+    for distinct_id, person in persons.items():
+        owned = distinct_ids_by_person.get(person.id, ())
+        if len(owned) < _REMOVAL_DISTINCT_ID_LIMIT and present_ids.isdisjoint(owned):
+            removable.add(distinct_id)
+    return removable
 
 
 def _group_type_name(project_id: int, group_type_index: int) -> str | None:
