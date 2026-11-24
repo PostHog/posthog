@@ -1,7 +1,7 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { withTimezone } from '../../shared/testTimezone'
-import { ConversationTurn } from '../types'
+import { ConversationTurn, ThreadMessage } from '../types'
 import { ThreadTurn } from './ThreadTurn'
 
 const turn: ConversationTurn = {
@@ -151,14 +151,152 @@ describe('ThreadTurn', () => {
         })
     })
 
-    test('conversation only hides internal messages and the toggle', () => {
-        const props = { turn, isActive: false, onSelectMessage: () => {} }
-        const { getByText, queryByText, rerender } = render(<ThreadTurn {...props} />)
-        expect(getByText('Show 1 internal message')).toBeTruthy()
+    describe('read apart from the turn', () => {
+        test.each([
+            [
+                'a missing user message',
+                {
+                    ...turn,
+                    input: { kind: 'messages', messages: [] },
+                    missingReasons: { input: 'too_large', output: null },
+                },
+                "The user's message is too large to show here.",
+            ],
+            [
+                'a cut answer',
+                { ...turn, missingReasons: { input: null, output: 'timed_out' } },
+                'Part of the answer took too long to load.',
+            ],
+        ] satisfies [string, ConversationTurn, string][])(
+            'says why for %s and opens the trace on request',
+            (_name, missingTurn, notice) => {
+                const onSelectMessage = jest.fn()
+                const { getByText } = render(
+                    <ThreadTurn turn={missingTurn} isActive={false} onSelectMessage={onSelectMessage} />
+                )
+
+                expect(getByText(notice)).toBeTruthy()
+                fireEvent.click(getByText('Open trace'))
+                expect(onSelectMessage).toHaveBeenCalledWith('trace-1', 'trace-1')
+            }
+        )
+
+        const unread = (sidesStatus: ConversationTurn['sidesStatus']): ConversationTurn => ({
+            ...turn,
+            input: { kind: 'messages', messages: [] },
+            output: { kind: 'messages', messages: [] },
+            sidesStatus,
+        })
+
+        test('shows placeholders while its messages load', () => {
+            const { container, queryByText } = render(
+                <ThreadTurn turn={unread('loading')} isActive={false} onSelectMessage={() => {}} />
+            )
+
+            expect(container.querySelectorAll('.LemonSkeleton').length).toBeGreaterThan(0)
+            expect(queryByText(/messages/)).toBeNull()
+        })
+
+        test.each([
+            ['failed', 'error', "Couldn't load this turn's messages.", 'Retry', 1, []],
+            [
+                'read with nothing in it',
+                'ready',
+                'This turn has no messages to show.',
+                'Open trace',
+                0,
+                [['trace-1', 'trace-1']],
+            ],
+        ] as const)(
+            'says its messages %s and offers the next step',
+            (_name, sidesStatus, notice, button, retries, opened) => {
+                const onSelectMessage = jest.fn()
+                const onRetrySides = jest.fn()
+                const { container, getByText } = render(
+                    <ThreadTurn
+                        turn={unread(sidesStatus)}
+                        isActive={false}
+                        onSelectMessage={onSelectMessage}
+                        onRetrySides={onRetrySides}
+                    />
+                )
+
+                expect(getByText(notice)).toBeTruthy()
+                expect(container.querySelector('.LemonSkeleton')).toBeNull()
+                fireEvent.click(getByText(button))
+                expect([onRetrySides.mock.calls.length, onSelectMessage.mock.calls]).toEqual([retries, opened])
+            }
+        )
+    })
+
+    test('the toggle names the roles of the internal messages, and conversation only hides both', () => {
+        const hidden = (id: string, role: 'assistant' | 'tool'): ThreadMessage => ({
+            id,
+            role,
+            parts: [{ kind: 'text', text: id }],
+            isInternal: true,
+            sourceNodeId: 'gen-1',
+        })
+        const output = {
+            kind: 'messages' as const,
+            messages: [hidden('seat-lookup', 'tool'), hidden('plan', 'assistant')],
+        }
+        const props = { turn: { ...turn, output }, isActive: false, onSelectMessage: () => {} }
+        const toggle = (container: HTMLElement): string | null | undefined =>
+            container.querySelector('[data-attr="trace-view-toggle-hidden-messages"]')?.textContent?.replace(/\s/g, ' ')
+        const { container, getByText, queryByText, rerender } = render(<ThreadTurn {...props} />)
+        expect(toggle(container)).toEqual('Show 3 internal messages· reasoning and tool calls, tool results')
 
         rerender(<ThreadTurn {...props} conversationOnly />)
-        expect(queryByText('Show 1 internal message')).toBeNull()
+        expect(toggle(container)).toBeUndefined()
         expect(queryByText('Checking the seat history.')).toBeNull()
         expect(getByText('Add two seats.')).toBeTruthy()
+    })
+
+    const totals = {
+        costUsd: null,
+        inputTokens: 2_100,
+        outputTokens: 474,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        latencyMs: 1_840,
+    }
+
+    test.each<[string, ConversationTurn['trace'], string]>([
+        ['its name, latency and tokens', { name: 'rag-query', totals }, 'rag-query · 1.84s · 2,574 tok'],
+        [
+            'only the parts it has',
+            { name: null, totals: { ...totals, inputTokens: null, outputTokens: null } },
+            '1.84s',
+        ],
+    ])('the chip under the answer shows %s, and opens the trace in either mode', (_name, trace, text) => {
+        const onSelectMessage = jest.fn()
+        const { container } = render(
+            <ThreadTurn turn={{ ...turn, trace }} isActive={false} onSelectMessage={onSelectMessage} conversationOnly />
+        )
+        const chip = container.querySelector<HTMLElement>('[data-attr="trace-view-thread-open-turn-trace"]')
+
+        expect(chip?.textContent).toContain(text)
+        expect(chip?.querySelector('.ph-no-capture')?.textContent ?? null).toEqual(trace?.name ?? null)
+        fireEvent.click(chip ?? container)
+        expect(onSelectMessage).toHaveBeenCalledWith('trace-1', 'trace-1')
+    })
+
+    test('a turn scrolls into view once when it becomes active', () => {
+        const scrolled: Element[] = []
+        jest.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+            scrolled.push(this)
+        })
+        const props = { onSelectMessage: () => {} }
+        const { getByText, rerender } = render(<ThreadTurn {...props} turn={turn} isActive={false} />)
+        expect(scrolled).toEqual([])
+
+        rerender(<ThreadTurn {...props} turn={turn} isActive />)
+        expect(scrolled).toEqual([getByText('Add two seats.').closest('.ring-1')])
+
+        rerender(<ThreadTurn {...props} turn={turn} isActive conversationOnly />)
+        rerender(<ThreadTurn {...props} turn={turn} isActive={false} />)
+        expect(scrolled).toHaveLength(1)
+        jest.restoreAllMocks()
     })
 })
