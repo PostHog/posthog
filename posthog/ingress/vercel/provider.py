@@ -67,7 +67,7 @@ def read_delivery_id(payload: Mapping[str, Any]) -> str:
     return value
 
 
-def created_at_is_fresh(created_at: Any, *, now_seconds: float) -> bool:
+def _created_at_is_fresh(created_at: Any, *, now_seconds: float) -> bool:
     """Whether a `createdAt` in milliseconds falls inside the window that dedup covers.
 
     A missing or malformed value is not fresh. Vercel sends the field on every event, and a body
@@ -128,7 +128,7 @@ class VercelProvider(WebhookProvider):
 
         delivery_id = read_delivery_id(payload)
         now = timezone.now()
-        if not created_at_is_fresh(payload.get(VERCEL_CREATED_AT_FIELD), now_seconds=now.timestamp()):
+        if not _created_at_is_fresh(payload.get(VERCEL_CREATED_AT_FIELD), now_seconds=now.timestamp()):
             raise InvalidPayload(f"Vercel delivery `{VERCEL_CREATED_AT_FIELD}` is missing or outside the window")
 
         in_receiving_region = request.get_host() == self.receiving_region_domain()
