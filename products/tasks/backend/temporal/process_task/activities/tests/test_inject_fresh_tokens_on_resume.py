@@ -53,8 +53,10 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        assert sandbox.execute.call_count == 3
-        remote_command = sandbox.execute.call_args_list[0].args[0]
+        assert sandbox.execute.call_count == 4
+        # Every resume scrubs the restored workspace before this run's token reaches a remote.
+        assert sandbox.execute.call_args_list[0].args[0].startswith("/usr/bin/python3 -I -c ")
+        remote_command = sandbox.execute.call_args_list[1].args[0]
         assert "git remote set-url origin" in remote_command
         assert "x-access-token:ghs_new" in remote_command
         assert task_context.repository in remote_command
@@ -63,7 +65,7 @@ class TestInjectFreshTokensOnResumeActivity:
             (GITHUB_ENV_FILE, b"GITHUB_TOKEN=ghs_new\x00GH_TOKEN=ghs_new\x00"),
             (OAUTH_ENV_FILE, b"POSTHOG_PERSONAL_API_KEY=oauth_new\x00"),
         ]
-        assert [call.args[0] for call in sandbox.execute.call_args_list[1:]] == [
+        assert [call.args[0] for call in sandbox.execute.call_args_list[2:]] == [
             f"chmod 600 {GITHUB_ENV_FILE}",
             f"chmod 600 {OAUTH_ENV_FILE}",
         ]
@@ -152,8 +154,8 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        assert sandbox.execute.call_count == 3
-        remote_command = sandbox.execute.call_args_list[0].args[0]
+        assert sandbox.execute.call_count == 4
+        remote_command = sandbox.execute.call_args_list[1].args[0]
         assert "https://github.com/" in remote_command
         assert "x-access-token" not in remote_command
         assert [call.args for call in sandbox.write_file.call_args_list] == [
@@ -163,6 +165,7 @@ class TestInjectFreshTokensOnResumeActivity:
 
     def test_logs_warning_when_remote_url_update_fails(self, activity_environment, task_context, test_task, sandbox):
         sandbox.execute.side_effect = [
+            ExecutionResult(stdout="", stderr="", exit_code=0),
             ExecutionResult(stdout="", stderr="fatal: not a git repository", exit_code=128),
             ExecutionResult(stdout="", stderr="", exit_code=0),
             ExecutionResult(stdout="", stderr="", exit_code=0),
@@ -192,8 +195,38 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
-        assert sandbox.execute.call_count == 3
+        assert sandbox.execute.call_count == 4
         assert sandbox.write_file.call_count == 2
+
+    def test_failed_workspace_scrub_fails_closed(self, activity_environment, task_context, test_task, sandbox):
+        sandbox.execute.return_value = ExecutionResult(stdout="", stderr="bad config line", exit_code=3)
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+                return_value="ghs_new",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
+                return_value="oauth_new",
+            ),
+            pytest.raises(RuntimeError, match="Failed to clear GitHub credentials"),
+        ):
+            async_to_sync(activity_environment.run)(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(
+                    context=task_context,
+                    sandbox_id="sandbox-abc",
+                    repository=task_context.repository,
+                ),
+            )
+
+        assert sandbox.execute.call_count == 1
+        sandbox.write_file.assert_not_called()
 
     def test_prepare_sandbox_injects_user_github_token_without_repository(
         self, activity_environment, team, user, settings, sandbox_ai_gateway

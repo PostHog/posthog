@@ -113,11 +113,21 @@ class TestClearGithubEnvFromGitlabSandbox:
             ["git", "-C", str(gitlab), "remote", "add", "origin", "https://oauth2:fake@gitlab.com/new/repo.git"],
             check=True,
         )
-        nested = github / "node_modules" / "dep"
-        nested.mkdir(parents=True)
-        subprocess.run(["git", "init", "-q", str(nested)], check=True)
+        dependency = github / "node_modules" / "dep"
+        # Clones outside the repositories root, nested in a checkout, or on another GitHub host
+        # carry a usable token too.
+        ad_hoc = [
+            (tmp_path / "scratch", "https://x-access-token:fake@www.github.com/scratch/repo.git"),
+            (github / "vendor" / "nested", "https://user:fake@api.github.com./nested/repo.git"),
+            (dependency, "https://x-access-token:dependency@github.com/dep.git"),
+        ]
+        for path, url in ad_hoc:
+            path.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(path)], check=True)
+            subprocess.run(["git", "-C", str(path), "remote", "add", "origin", url], check=True)
+        scratch = ad_hoc[0][0]
         subprocess.run(
-            ["git", "-C", str(nested), "remote", "add", "origin", "https://x-access-token:nested@github.com/dep.git"],
+            ["git", "-C", str(scratch), "config", "http.https://github.com/.extraheader", "AUTHORIZATION: basic fake"],
             check=True,
         )
         sandbox = MagicMock()
@@ -131,7 +141,8 @@ class TestClearGithubEnvFromGitlabSandbox:
 
         sandbox.execute.side_effect = execute
         with patch(
-            "products.tasks.backend.temporal.process_task.sandbox_credentials.SANDBOX_REPOSITORIES_ROOT", str(tmp_path)
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_WORKING_DIR",
+            str(tmp_path),
         ):
             assert clear_github_env_from_gitlab_sandbox(sandbox) is True
         assert (
@@ -143,11 +154,36 @@ class TestClearGithubEnvFromGitlabSandbox:
             == "https://oauth2:fake@gitlab.com/new/repo.git"
         )
         assert sandbox.write_file.call_args.args[1] == b""
-        # The walk stops at each checkout root, so it never reads a working tree's build output.
-        assert (
-            subprocess.check_output(["git", "-C", str(nested), "remote", "get-url", "origin"], text=True).strip()
-            == "https://x-access-token:nested@github.com/dep.git"
+        assert [
+            subprocess.check_output(["git", "-C", str(path), "remote", "get-url", "origin"], text=True).strip()
+            for path, _ in ad_hoc
+        ] == [
+            "https://www.github.com/scratch/repo.git",
+            "https://api.github.com./nested/repo.git",
+            # Dependency caches are skipped to keep the walk inside its timeout.
+            "https://x-access-token:dependency@github.com/dep.git",
+        ]
+        extraheader = subprocess.run(
+            ["git", "-C", str(scratch), "config", "--get", "http.https://github.com/.extraheader"], capture_output=True
         )
+        assert extraheader.returncode == 1
+
+    def test_missing_workspace_is_nothing_to_scrub(self, tmp_path):
+        sandbox = MagicMock()
+        sandbox.write_file.return_value = _ok()
+
+        def execute(command, **kwargs):
+            if command.startswith("chmod "):
+                return _ok()
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
+
+        sandbox.execute.side_effect = execute
+        with patch(
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.DEFAULT_SANDBOX_WORKING_DIR",
+            str(tmp_path / "missing"),
+        ):
+            assert clear_github_env_from_gitlab_sandbox(sandbox) is True
 
     def test_failed_remote_cleanup_fails_closed(self):
         sandbox = MagicMock()
