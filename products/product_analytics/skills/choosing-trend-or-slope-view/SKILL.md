@@ -52,7 +52,7 @@ Default trends behavior. Create or run a `TrendsQuery` and leave
 
 ### Start vs end → slope
 
-Run the trend with `posthog:query-trends`. The result card Max renders has a
+Run the trend with `posthog:query-trends`. The result card PostHog AI renders has a
 **Line / Bar / Slope** view toggle — switch it to **Slope** to show each series as
 a single line from its first to its last point, with the per-series change in the
 legend. Tell the user they can flip to the Slope view on the result.
@@ -63,7 +63,7 @@ are the points you want compared (the slope uses the first and last interval).
 
 ## Important limits
 
-- **Two surfaces, one computation.** Both the inline slope (Max's `query-trends`
+- **Two surfaces, one computation.** Both the inline slope (PostHog AI's `query-trends`
   result card) and the saved-insight slope (`ChartDisplayType.SlopeGraph`) show the
   same thing: the first interval's value vs the last interval's value, at the chosen
   group-by interval. The grouping defines the slope - group by month to compare the
