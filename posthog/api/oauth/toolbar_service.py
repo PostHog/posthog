@@ -73,7 +73,8 @@ def _is_toolbar_application(application: OAuthApplication) -> bool:
     return all(getattr(application, field) == value for field, value in _toolbar_application_fields().items())
 
 
-def _sync_scope_ceiling(application: OAuthApplication) -> None:
+def _sync_scope_ceiling(application: OAuthApplication) -> bool:
+    """Returns whether the sync revoked every session of the app."""
     scope_ceiling = _get_scope_ceiling()
     if application.scopes != scope_ceiling or application.optional_scopes:
         application.scopes = scope_ceiling
@@ -88,9 +89,12 @@ def _sync_scope_ceiling(application: OAuthApplication) -> None:
     # the toolbar sign in again under the ceiling. The check runs on every launch, not
     # only when the ceiling changes, because an authorize request that read the app
     # before the ceiling was saved can still store a `*` grant after it.
-    if _has_wildcard_tokens_or_grants(application):
-        revoke_application_sessions(application)
-        logger.info("toolbar_oauth_wildcard_sessions_revoked", organization_id=application.organization_id)
+    if not _has_wildcard_tokens_or_grants(application):
+        return False
+
+    revoke_application_sessions(application)
+    logger.info("toolbar_oauth_wildcard_sessions_revoked", organization_id=application.organization_id)
+    return True
 
 
 def _has_wildcard_tokens_or_grants(application: OAuthApplication) -> bool:
@@ -269,21 +273,21 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
         return app
 
 
-def sync_toolbar_scope_ceiling_on_refresh(application: OAuthApplication) -> None:
-    """Apply the toolbar scope ceiling to the app that a toolbar refresh token belongs to.
+def sync_toolbar_scope_ceiling_on_refresh(application: OAuthApplication) -> bool:
+    """Apply the toolbar scope ceiling to the app of a refresh token, if it is the toolbar app.
 
-    A launch syncs the ceiling, but a toolbar that keeps a stored token only refreshes. Without
-    this sync, an app created before the ceiling existed keeps no ceiling, and its `*` tokens keep
-    refreshing as `*` until somebody in the organization launches the toolbar again.
+    A launch syncs the ceiling, but a toolbar that keeps a stored token only refreshes, and a
+    refresh token also works at `/oauth/token/` without the toolbar. Without this sync, an app
+    created before the ceiling existed keeps no ceiling, and its `*` tokens keep refreshing as `*`.
 
-    The refresh endpoint accepts a refresh token of any app, so an app that is not the toolbar app
-    keeps its own scopes.
+    Returns whether the sync revoked every session of the app, which includes the refresh token
+    being presented.
     """
     if not _is_toolbar_application(application):
-        return
+        return False
 
     with transaction.atomic():
-        _sync_scope_ceiling(application)
+        return _sync_scope_ceiling(application)
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:

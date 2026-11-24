@@ -609,6 +609,21 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             {"grant_type": "refresh_token", "client_id": application.client_id, "refresh_token": refresh_token.token}
         )
 
+    def _refresh_through_toolbar(self, application: OAuthApplication, refresh_token: OAuthRefreshToken):
+        def post_to_test_client(url: str, data: dict[str, str], timeout: int) -> requests.Response:
+            django_response = self._post_token(data)
+            response = requests.Response()
+            response.status_code = django_response.status_code
+            response._content = django_response.content
+            return response
+
+        with patch("posthog.api.oauth.toolbar_service.requests.post", side_effect=post_to_test_client):
+            return self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                data=json.dumps({"refresh_token": refresh_token.token, "client_id": application.client_id}),
+                content_type="application/json",
+            )
+
     @parameterized.expand(
         [
             ("new_app", None, []),
@@ -695,50 +710,52 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wildcard_token_is_revoked", "*", True, TOOLBAR_RESOURCE_SCOPES, 400, None),
             (
-                "over_scoped_token_is_narrowed",
-                "openid user:read user:write",
-                True,
-                TOOLBAR_RESOURCE_SCOPES,
-                200,
-                {"openid", "user:read"},
-            ),
-            (
-                "look_alike_app_keeps_its_scopes",
-                "openid user:read user:write",
-                False,
-                [],
-                200,
-                {"openid", "user:read", "user:write"},
-            ),
+                f"{case}_{entry}",
+                token_scope,
+                is_first_party,
+                expected_app_scopes,
+                expected_status,
+                expected_scopes,
+                entry,
+            )
+            for case, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes in [
+                ("wildcard_token_is_revoked", "*", True, TOOLBAR_RESOURCE_SCOPES, 400, None),
+                (
+                    "over_scoped_token_is_narrowed",
+                    "openid user:read user:write",
+                    True,
+                    TOOLBAR_RESOURCE_SCOPES,
+                    200,
+                    {"openid", "user:read"},
+                ),
+                (
+                    "look_alike_app_keeps_its_scopes",
+                    "openid user:read user:write",
+                    False,
+                    [],
+                    200,
+                    {"openid", "user:read", "user:write"},
+                ),
+            ]
+            for entry in ("toolbar_endpoint", "token_endpoint")
         ]
     )
-    def test_toolbar_refresh_applies_the_ceiling_without_a_launch(
-        self, _name, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes
+    def test_refresh_applies_the_toolbar_ceiling_without_a_launch(
+        self, _name, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes, entry
     ):
         app = self._create_app_without_ceiling([], [], is_first_party=is_first_party)
         refresh_token = self._create_token_pair(app, token_scope)
 
-        def post_to_test_client(url: str, data: dict[str, str], timeout: int) -> requests.Response:
-            django_response = self._post_token(data)
-            response = requests.Response()
-            response.status_code = django_response.status_code
-            response._content = django_response.content
-            return response
-
-        with patch("posthog.api.oauth.toolbar_service.requests.post", side_effect=post_to_test_client):
-            response = self.client.post(
-                "/api/user/toolbar_oauth_refresh/",
-                data=json.dumps({"refresh_token": refresh_token.token, "client_id": app.client_id}),
-                content_type="application/json",
-            )
+        if entry == "toolbar_endpoint":
+            response = self._refresh_through_toolbar(app, refresh_token)
+        else:
+            response = self._refresh(app, refresh_token)
 
         app.refresh_from_db()
         assert app.scopes == expected_app_scopes
         assert response.status_code == expected_status, response.content
         if expected_scopes is None:
-            assert response.json()["code"] == "invalid_grant"
             assert not OAuthAccessToken.objects.filter(application=app, scope="*").exists()
         else:
             refreshed = OAuthAccessToken.objects.get(token=response.json()["access_token"])

@@ -60,7 +60,6 @@ from posthog.api.oauth.toolbar_service import (
     new_state_nonce,
     normalize_and_validate_app_url,
     refresh_tokens,
-    sync_toolbar_scope_ceiling_on_refresh,
     validate_and_consume_toolbar_oauth_state,
 )
 from posthog.api.organization import OrganizationSerializer
@@ -2083,8 +2082,6 @@ class ToolbarOAuthRefreshView(APIView):
                     {"code": "forbidden", "detail": "You don't have access to the toolbar for this project."},
                     status=403,
                 )
-
-            sync_toolbar_scope_ceiling_on_refresh(token_record.application)
 
         try:
             token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
