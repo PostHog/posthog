@@ -772,11 +772,13 @@ class TestAbuseRules(SimpleTestCase):
                 None,
             ),
             ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
+            ("slack_file_upload", post_to("https://slack.com/api/files.getUploadURLExternal"), None),
+            ("telegram_set_webhook", post_to("https://api.telegram.org/bot0:x/setWebhook"), None),
             ("dot_segment_out_of_the_api_path", post_to("https://slack.com/api/../oauth/v2/authorize"), None),
             ("dot_segment_in_a_teams_path", post_to("https://example.webhook.office.com/x/./y"), None),
             (
                 "encoded_slash_before_two_dots",
-                post_to("https://slack.com/api/files/a%2F.."),
+                post_to("https://hooks.slack.com/services/T0/B0/a%2F.."),
                 SetAsideReason.CHAT_MESSAGES_ONLY,
             ),
             ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
@@ -809,6 +811,8 @@ class TestAbuseRules(SimpleTestCase):
             ("internal_name_in_the_query", post_to("https://api.example.com/go?to=metadata.google.internal"), False),
             ("internal_tld_host", post_to("https://billing.corp/x"), False),
             ("loopback_dns_name", post_to("http://localtest.me/x"), False),
+            ("cluster_short_name", post_to("http://redis.posthog:6379/x"), False),
+            ("localhost_tld", post_to("http://app.localhost:3000/x"), False),
             ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
             ("address_in_the_host_name", post_to("https://10-0-0-1.example.com/x"), False),
             ("public_address_host", post_to("https://203.0.113.7/x"), False),
@@ -817,6 +821,14 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "closure_called_beside_a_post",
                 content(hog="inputs.sender(1)\n" + post_to("https://api.example.com/x").hog),
+                False,
+            ),
+            (
+                "call_to_a_name_the_for_in_loop_shadows",
+                content(
+                    hog="fun __H_expr_H__(url) { return null }\n"
+                    "for (let x in event.properties.sender) {\n  __H_expr_H__(inputs.url)\n}"
+                ),
                 False,
             ),
         ]

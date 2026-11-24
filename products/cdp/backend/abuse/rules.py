@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from urllib.parse import SplitResult, unquote, urlsplit
 
+import tldextract
+
 from posthog.hogql import ast
 from posthog.hogql.parser import CacheOrigin, parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
@@ -146,13 +148,14 @@ _JS_DECIMAL = re.compile(r"[+-]?(?:\d++(?:\.\d*+)?|\.\d++)(?:e[+-]?\d++)?", re.I
 _JS_PREFIXED_INTEGER = re.compile(r"0x[0-9a-f]++|0o[0-7]++|0b[01]++", re.IGNORECASE)
 _JS_INFINITY = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
 
-# The APIs that post a message to a chat channel, as a host and the path prefix the message endpoints share.
+# The endpoints that post a message to a chat channel, as a host and the whole path. Other endpoints on these hosts,
+# such as file uploads, OAuth or Telegram's `setWebhook`, do more than post text.
 _CHAT_MESSAGE_APIS = (
-    ("slack.com", "/api/"),
-    ("hooks.slack.com", "/"),
-    ("discord.com", "/api/webhooks/"),
-    ("api.telegram.org", "/"),
-    ("chat.googleapis.com", "/"),
+    ("slack.com", re.compile(r"/api/chat\.postMessage")),
+    ("hooks.slack.com", re.compile(r"/services/[^/]+/[^/]+/[^/]+")),
+    ("discord.com", re.compile(r"/api/webhooks/[^/]+/[^/]+")),
+    ("api.telegram.org", re.compile(r"/bot[^/]+/sendMessage")),
+    ("chat.googleapis.com", re.compile(r"/v1/spaces/[^/]+/messages")),
 )
 _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
@@ -175,6 +178,9 @@ _EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])
 # A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
 _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
 # A URL part that could name a host on its own, such as a redirect target in the query string.
+# The bundled public suffix list, so no lookup goes out. A cluster short name such as `redis.posthog` or a `.localhost`
+# name has no public suffix.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 _URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
 _BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
 
@@ -271,7 +277,7 @@ def _is_chat_message_api(url: str) -> bool:
     host = canonicalize_host(parts.hostname or "")
     if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
         return True
-    return any(host == api_host and parts.path.startswith(path) for api_host, path in _CHAT_MESSAGE_APIS)
+    return any(host == api_host and path.fullmatch(parts.path) for api_host, path in _CHAT_MESSAGE_APIS)
 
 
 def _is_literal_public_url(url: str) -> bool:
@@ -281,7 +287,9 @@ def _is_literal_public_url(url: str) -> bool:
     if parts is None or parts.scheme not in ("http", "https"):
         return False
     host = canonicalize_host(parts.hostname or "")
-    if _PUBLIC_DNS_NAME.fullmatch(host) is None or _is_internal(host) or _resolves_to_its_address(host):
+    if _PUBLIC_DNS_NAME.fullmatch(host) is None or not _DOMAIN_PARTS(host).suffix:
+        return False
+    if _is_internal(host) or _resolves_to_its_address(host):
         return False
     return not any(_names_an_address(layer) for layer in _decoded_layers(url))
 
@@ -565,6 +573,11 @@ class _HogCodeVisitor(TraversingVisitor):
 
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
+        # The compiler declares locals this walk does not track, such as `__H_expr_H__` for the value a `for in` loop
+        # reads, so a call to a name it reserves can run whatever that value holds.
+        if node.name.startswith("__"):
+            self._sends()
+            return
         if (callee := self._local(node.name)) is not None:
             self.calls_out = True
             self._graph.calls.append(callee)
