@@ -729,6 +729,7 @@
          "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."role_default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
          "customer_analytics_teamcustomeranalyticsconfig"."properties"
@@ -2247,6 +2248,7 @@
          "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."role_default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
          "customer_analytics_teamcustomeranalyticsconfig"."properties"
@@ -2929,6 +2931,7 @@
          "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."role_default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
          "customer_analytics_teamcustomeranalyticsconfig"."properties"
@@ -4566,6 +4569,7 @@
          "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."role_default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
          "customer_analytics_teamcustomeranalyticsconfig"."properties"
@@ -6031,6 +6035,7 @@
          "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
          "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
          "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."role_default_pinned_properties",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
          "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
          "customer_analytics_teamcustomeranalyticsconfig"."properties"

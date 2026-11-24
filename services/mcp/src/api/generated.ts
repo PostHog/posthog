@@ -19197,6 +19197,56 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `project` - Project
+     * * `role` - Role
+     */
+    export type DefaultPinnedAccountPropertiesSourceKindEnum = typeof DefaultPinnedAccountPropertiesSourceKindEnum[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnum];
+
+
+    export const DefaultPinnedAccountPropertiesSourceKindEnum = {
+      Project: 'project',
+      Role: 'role',
+    } as const;
+
+    export interface PinnedAccountPropertiesRole {
+      /** Organization role UUID. */
+      readonly id: string;
+      /** Organization role name. */
+      readonly name: string;
+    }
+
+    export interface DefaultPinnedAccountPropertiesSource {
+      /** Whether this default option is the project default or a role default.
+       *
+       * * `project` - Project
+       * * `role` - Role */
+      readonly kind: DefaultPinnedAccountPropertiesSourceKindEnum;
+      /** Role this default belongs to when kind is role, or null for the project default. */
+      readonly role: PinnedAccountPropertiesRole | null;
+    }
+
+    export interface PinnedAccountProperty {
+      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
+      kind: AccountPropertyPinKindEnum;
+      /**
+         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
+      id: string;
+    }
+
+    export interface AvailableDefaultPinnedAccountProperties {
+      /** Which default this entry represents. */
+      readonly source: DefaultPinnedAccountPropertiesSource;
+      /** Ordered account properties saved for this default. */
+      readonly pinned_properties: readonly PinnedAccountProperty[];
+    }
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -57183,6 +57233,19 @@ export namespace Schemas {
          * @nullable
          */
       latest_at: string | null;
+    }
+
+    export interface FollowedDefaultPinnedProperties {
+      /** Follow the project default or the default of one of the requesting user's roles.
+       *
+       * * `project` - Project
+       * * `role` - Role */
+      kind: DefaultPinnedAccountPropertiesSourceKindEnum;
+      /**
+         * Role whose default to follow. Required when kind is role.
+         * @nullable
+         */
+      role_id?: string | null;
     }
 
     /**
@@ -96344,6 +96407,13 @@ export namespace Schemas {
       id: string;
     }
 
+    export interface TeamCustomerAnalyticsRoleDefaultPinnedProperties {
+      /** Organization role whose members inherit these properties. */
+      role_id: string;
+      /** Ordered account properties shown to members of this role. */
+      pinned_properties: TeamCustomerAnalyticsPinnedAccountProperty[];
+    }
+
     export interface TeamCustomerAnalyticsConfig {
       /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
@@ -96362,6 +96432,8 @@ export namespace Schemas {
       account_group_type_index?: number | null;
       /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
       default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountProperty[];
+      /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+      role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedProperties[];
     }
 
     export interface TeamWorkflowsConfig {
@@ -100499,20 +100571,6 @@ export namespace Schemas {
       readonly personal_api_keys_limit?: number;
     }
 
-    export interface PinnedAccountProperty {
-      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
-       *
-       * * `custom_property` - Custom property
-       * * `relationship` - Relationship
-       * * `account_field` - Account field */
-      kind: AccountPropertyPinKindEnum;
-      /**
-         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
-         * @maxLength 64
-         */
-      id: string;
-    }
-
     /**
      * * `weekdays` - Weekdays
      * * `every_day` - Every day
@@ -100540,6 +100598,8 @@ export namespace Schemas {
     export interface PatchedUserCustomerAnalyticsConfigUpdate {
       /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
       pinned_properties?: PinnedAccountProperty[];
+      /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+      followed_default?: FollowedDefaultPinnedProperties;
       /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
       task_digest?: TaskDigestPreferencesUpdate;
       /** Complete personal account tab configuration. Omit to keep it unchanged. */
@@ -101543,6 +101603,31 @@ export namespace Schemas {
       server_human_id: string | null;
       server_name: string | null;
       synced_at: string;
+    }
+
+    /**
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project
+     */
+    export type PinnedAccountPropertiesSourceKindEnum = typeof PinnedAccountPropertiesSourceKindEnum[keyof typeof PinnedAccountPropertiesSourceKindEnum];
+
+
+    export const PinnedAccountPropertiesSourceKindEnum = {
+      Personal: 'personal',
+      Role: 'role',
+      Project: 'project',
+    } as const;
+
+    export interface PinnedAccountPropertiesSource {
+      /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+       *
+       * * `personal` - Personal
+       * * `role` - Role
+       * * `project` - Project */
+      readonly kind: PinnedAccountPropertiesSourceKindEnum;
+      /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+      readonly roles: readonly PinnedAccountPropertiesRole[];
     }
 
     export interface PinnedSceneTabs {
@@ -129105,6 +129190,10 @@ export namespace Schemas {
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
+      /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+      readonly pinned_properties_source: PinnedAccountPropertiesSource;
+      /** Project and role defaults the requesting user can reset their pinned properties to. */
+      readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountProperties[];
       /** Task digest email preferences. Disabled until the user turns the digest on. */
       readonly task_digest: TaskDigestPreferences;
       /** Personal order, visibility, and default for account tabs. */
