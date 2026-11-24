@@ -49,10 +49,13 @@ impl BatchBudget {
         self.deadline
     }
 
-    pub fn end_stage(&mut self, stage: &'static str) {
+    /// Checks the budget after a stage and hands back the stage's result, so a stage that fails
+    /// is checked too.
+    pub fn end_stage<T>(&mut self, stage: &'static str, result: T) -> T {
         if self.deadline.is_some() && !self.exceeded && self.ran_out_at(Instant::now()) {
             metrics::counter!(MAIN_LANE_BUDGET_EXCEEDED, "stage" => stage).increment(1);
         }
+        result
     }
 
     /// True only at the first stage boundary after the deadline.
