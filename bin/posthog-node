@@ -51,6 +51,12 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+if [[ -n $DEBUG && -z $PLUGIN_SERVER_MODE ]]; then
+  # The local all-in-one server consumes intake beside the API, so it answers from Kafka and seals with the dev key.
+  export CDP_INTAKE_KAFKA_ASYNC_TEAMS=${CDP_INTAKE_KAFKA_ASYNC_TEAMS-*}
+  export CDP_SEAL_TRANSACTIONAL_EMAIL_STATE=${CDP_SEAL_TRANSACTIONAL_EMAIL_STATE-true}
+fi
+
 if [[ -n $DEBUG ]]; then
   if [[ -n $NO_WATCH ]]; then
     cmd="pnpm start:devNoWatch"
