@@ -20,6 +20,11 @@ class ManagedWarehouseLandingState(models.TextChoices):
     PAUSED = "paused", "paused"
 
 
+class ManagedWarehouseLandingHistoryDays(models.IntegerChoices):
+    WEEK = 7, "7"
+    MONTH = 30, "30"
+
+
 LANDING_STATE_CHOICES = ManagedWarehouseLandingState.choices
 READINESS_STATE_CHOICES = list(ManagedWarehouseReadinessState.values)
 WORKFLOW_TYPE_CHOICES = ["copy", "register"]
@@ -198,8 +203,8 @@ class ManagedWarehouseDataStatusResponseSerializer(serializers.Serializer):
 
 class ManagedWarehouseLandingHistoryQuerySerializer(serializers.Serializer):
     days = serializers.ChoiceField(
-        choices=[7, 30],
-        default=7,
+        choices=ManagedWarehouseLandingHistoryDays.choices,
+        default=ManagedWarehouseLandingHistoryDays.WEEK,
         help_text="Number of calendar days to return, ending today in the project timezone.",
     )
 
