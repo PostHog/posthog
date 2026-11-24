@@ -10,6 +10,7 @@ use crate::app_context::AppContext;
 use crate::server::start_server;
 
 pub mod app_context;
+pub mod batch_budget;
 pub mod config;
 pub mod fingerprinting;
 pub mod issue_changes;

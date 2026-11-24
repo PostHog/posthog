@@ -6,6 +6,7 @@ use crate::{
     app_context::AppContext,
     error::EventError,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
+    modes::processing::batch_budget::BatchBudget,
     stages::{
         adaptive_ingestion::AdaptiveIngestionStage,
         alerting::AlertingStage,
@@ -55,25 +56,36 @@ impl Stage for ExceptionEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
+        let mut budget = BatchBudget::start(self.app_context.main_lane_budget);
+        let budget_deadline = budget.deadline();
         batch
             // Resolve stack traces and the event-level release
             .apply_stage(ResolutionStage::from(&self.app_context))
-            .await?
+            .await
+            .inspect(|_| budget.end_stage("resolution"))?
             // Group events by fingerprint
             .apply_stage(GroupingStage::from(&self.app_context))
-            .await?
+            .await
+            .inspect(|_| budget.end_stage("grouping"))?
             // Link events to issues and suppress
-            .apply_stage(LinkingStage::from(&self.app_context))
-            .await?
+            .apply_stage(LinkingStage {
+                budget_deadline,
+                ..LinkingStage::from(&self.app_context)
+            })
+            .await
+            .inspect(|_| budget.end_stage("linking"))?
             // Drop rate-limited events as soon as issue_id is known — before
             // alerting/enrichment, so spike detection never counts them.
             .apply_stage(RateLimitingStage::from(&self.app_context))
-            .await?
+            .await
+            .inspect(|_| budget.end_stage("rate_limiting"))?
             .apply_stage(AdaptiveIngestionStage::from(&self.app_context))
-            .await?
+            .await
+            .inspect(|_| budget.end_stage("adaptive_ingestion"))?
             // Send internal events for alerting
             .apply_stage(AlertingStage::from(&self.app_context))
             .await
+            .inspect(|_| budget.end_stage("alerting"))
     }
 }
 
