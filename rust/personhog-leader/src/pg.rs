@@ -5,8 +5,8 @@ use metrics::{counter, histogram};
 use personhog_common::properties::rewrite_out_of_range_numbers;
 use personhog_common::query_tag;
 use sqlx::pool::PoolConnection;
-use sqlx::postgres::PgPool;
-use sqlx::{Postgres, Row};
+use sqlx::postgres::{PgPool, PgRow};
+use sqlx::{Connection, Postgres, Row};
 use tokio::time::error::Elapsed;
 
 use crate::cache::{CachedPerson, PersonCacheKey};
@@ -57,15 +57,39 @@ pub async fn acquire_timed(
     conn
 }
 
+/// A pooled connection stays on the pgbouncer pod it first reached. When that pod goes away,
+/// the next query on the connection reads EOF. With `FALLBACK_PG_PING_IDLE_AFTER_MS` set, the
+/// pool pings only connections that sat idle, so a busy connection reaches its query without
+/// that check. Excludes `TimedOut`, which `release_or_discard` returns, because a retry after a
+/// deadline would hold the caller's per-key lock for a second deadline.
+pub fn is_severed(e: &sqlx::Error) -> bool {
+    matches!(
+        e,
+        sqlx::Error::Io(io) if matches!(
+            io.kind(),
+            io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::BrokenPipe
+                | io::ErrorKind::NotConnected
+        )
+    )
+}
+
 /// A connection whose query timed out may sit on a socket that never answers. sqlx pings a
 /// connection it takes back, and that ping would wait on the same socket while it holds the
-/// pool slot, so a timed-out connection leaves the pool instead.
+/// pool slot, so a timed-out connection leaves the pool instead. A severed connection leaves
+/// too, because it cannot carry another query.
 pub fn release_or_discard<T>(
     conn: PoolConnection<Postgres>,
     outcome: Result<Result<T, sqlx::Error>, Elapsed>,
     caller: &'static str,
 ) -> Result<T, sqlx::Error> {
     match outcome {
+        Ok(Err(e)) if is_severed(&e) => {
+            drop(conn.detach());
+            Err(e)
+        }
         Ok(result) => result,
         Err(_) => {
             counter!("personhog_leader_fallback_query_timeouts_total", "caller" => caller)
@@ -154,7 +178,6 @@ pub async fn load_person_from_pg(
     key: &PersonCacheKey,
 ) -> Result<Option<CachedPerson>, LoadError> {
     let start = Instant::now();
-    let mut conn = acquire_timed(pool, "load_person").await?;
 
     let team_id_i32 = i32::try_from(key.team_id)
         .map_err(|_| sqlx::Error::Protocol(format!("team_id {} exceeds i32 range", key.team_id)))
@@ -176,10 +199,16 @@ pub async fn load_person_from_pg(
              WHERE team_id = $1 AND id = $2 AND is_deleted = false",
         )
     );
-    let query = sqlx::query(&sql).bind(team_id_i32).bind(key.person_id);
-    let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
-    // The row is owned; parsing its properties must not hold the pool slot.
-    let row = release_or_discard(conn, outcome, "load_person")?;
+    let row = match fetch_person_row(pool, &sql, team_id_i32, key.person_id, false).await {
+        Err(e) if is_severed(&e) => {
+            counter!("personhog_leader_fallback_reconnects_total", "caller" => "load_person")
+                .increment(1);
+            // Other connections through the same pgbouncer pod are dead as well, so the retry
+            // pings whichever connection it takes.
+            fetch_person_row(pool, &sql, team_id_i32, key.person_id, true).await?
+        }
+        result => result?,
+    };
 
     histogram!("personhog_leader_pg_fallback_duration_ms")
         .record(start.elapsed().as_secs_f64() * 1000.0);
@@ -237,6 +266,30 @@ pub async fn load_person_from_pg(
         is_deleted: false,
         last_seen_at: last_seen_at.map(|t| t.timestamp_millis()),
     }))
+}
+
+/// The row is owned, so the caller parses its properties after the pool slot is free.
+async fn fetch_person_row(
+    pool: &PgPool,
+    sql: &str,
+    team_id: i32,
+    person_id: i64,
+    ping_first: bool,
+) -> Result<Option<PgRow>, sqlx::Error> {
+    let mut conn = acquire_timed(pool, "load_person").await?;
+    if ping_first {
+        let alive = matches!(
+            tokio::time::timeout(QUERY_DEADLINE, conn.ping()).await,
+            Ok(Ok(()))
+        );
+        if !alive {
+            drop(conn.detach());
+            conn = acquire_timed(pool, "load_person").await?;
+        }
+    }
+    let query = sqlx::query(sql).bind(team_id).bind(person_id);
+    let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
+    release_or_discard(conn, outcome, "load_person")
 }
 
 #[cfg(test)]
