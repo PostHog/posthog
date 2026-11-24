@@ -15027,11 +15027,22 @@
               },
               "last_synced_at": {
                   "chain": null,
-                  "description": "When this table last finished syncing.",
+                  "description": "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, so judge staleness with last_checked_at.",
                   "fields": null,
                   "hogql_value": "last_synced_at",
                   "id": null,
                   "name": "last_synced_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "description": "When a sync last checked the source successfully, including runs that found no new rows. Use this, not last_synced_at, to judge whether an enabled table is stale.",
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
@@ -31974,11 +31985,22 @@
               },
               "last_synced_at": {
                   "chain": null,
-                  "description": "When this table last finished syncing.",
+                  "description": "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, so judge staleness with last_checked_at.",
                   "fields": null,
                   "hogql_value": "last_synced_at",
                   "id": null,
                   "name": "last_synced_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "description": "When a sync last checked the source successfully, including runs that found no new rows. Use this, not last_synced_at, to judge whether an enabled table is stale.",
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
