@@ -5,7 +5,7 @@ import math
 import hashlib
 from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from django.conf import settings
@@ -378,10 +378,11 @@ def _rounded_infrastructure_health(metrics: IspSendingMetrics) -> EmailInfrastru
     The exact send volume stays private, so it is cut to a lower bound. Each rate rounds towards
     the worse reading, so rounding never flatters the infrastructure.
     """
-    if metrics.bounce_rate is None or metrics.complaint_rate is None:
+    if metrics.delivery_rate is None or metrics.bounce_rate is None or metrics.complaint_rate is None:
         return None
     return EmailInfrastructureHealth(
         emails_sent_at_least=_floor_to_one_significant_figure(metrics.emails_sent),
+        delivery_rate=_round_rate(metrics.delivery_rate, "0.001", ROUND_FLOOR),
         bounce_rate=_round_rate(metrics.bounce_rate, "0.0001", ROUND_CEILING),
         complaint_rate=_round_rate(metrics.complaint_rate, "0.0001", ROUND_CEILING),
     )

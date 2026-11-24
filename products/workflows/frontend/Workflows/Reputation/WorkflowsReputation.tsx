@@ -549,7 +549,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     const { requestSendingTierIncrease } = useActions(workflowsReputationLogic)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
-        <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
+        <div className="@container border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
             <h3 className="mb-0">Sending allowance</h3>
             <p className="text-secondary mt-2 mb-0">
                 Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance
@@ -567,7 +567,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                     </>
                 )}
             </p>
-            <div className={allowance.recent_rates ? 'grid gap-6 mt-3 lg:grid-cols-2' : 'mt-3'}>
+            <div className={allowance.recent_rates ? 'grid gap-6 mt-3 @2xl:grid-cols-2' : 'mt-3'}>
                 <div className="space-y-4">
                     <div className="flex flex-wrap gap-8">
                         <div className="min-w-48">
@@ -603,7 +603,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                     <NextAllowance allowance={allowance} />
                 </div>
                 {allowance.recent_rates && (
-                    <div className="lg:border-l lg:pl-6">
+                    <div className="@2xl:border-l @2xl:pl-6">
                         <RecentRates rates={allowance.recent_rates} tier={allowance.tier} />
                     </div>
                 )}
@@ -628,7 +628,7 @@ export function WorkflowsReputation(): JSX.Element {
     const { setSearch } = useActions(workflowsReputationLogic)
 
     return (
-        <div className="space-y-4" data-attr="workflows-reputation">
+        <div className="@container space-y-4" data-attr="workflows-reputation">
             {awsReputation?.sending_status === 'DISABLED' && (
                 <LemonBanner type="error" data-attr="workflows-reputation-disabled-banner">
                     {awsReputation.findings.length > 0
@@ -642,13 +642,13 @@ export function WorkflowsReputation(): JSX.Element {
             </LemonBanner>
             {/* Rates cover a rolling 30 days that ends now. */}
             <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch empty:hidden">
+            <div className="flex flex-col gap-4 @4xl:flex-row @4xl:items-stretch empty:hidden">
                 {sendingAllowance?.enforced && (
                     <div className="flex-1 min-w-0">
                         <SendingAllowanceCard allowance={sendingAllowance} />
                     </div>
                 )}
-                <EmailInfrastructureCard className="lg:w-80 lg:shrink-0 lg:ml-auto" />
+                <EmailInfrastructureCard className="@4xl:w-80 @4xl:shrink-0 @4xl:ml-auto" />
             </div>
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard

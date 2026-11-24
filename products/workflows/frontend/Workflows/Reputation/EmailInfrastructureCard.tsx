@@ -25,7 +25,7 @@ export function EmailInfrastructureCard({ className }: { className?: string }): 
         },
         {
             label: 'Emails sent',
-            tooltip: 'Rounded down, so the real number is higher.',
+            tooltip: 'Rounded down to a lower bound, so the real number can be higher.',
             value: `${humanFriendlyLargeNumber(health.emails_sent_at_least)}+`,
         },
     ]
@@ -34,7 +34,7 @@ export function EmailInfrastructureCard({ className }: { className?: string }): 
             className={clsx('border border-dashed rounded p-4 bg-surface-secondary text-sm', className)}
             data-attr="workflows-reputation-infrastructure"
         >
-            <div className="font-semibold">PostHog email infrastructure</div>
+            <h3 className="text-sm font-semibold mb-0">PostHog email infrastructure</h3>
             <p className="text-secondary text-xs mt-1 mb-0">
                 All email sent by every project in this region in the last 30 days, not only this project's.
             </p>

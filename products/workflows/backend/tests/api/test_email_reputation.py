@@ -139,6 +139,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
         assert first == {
             "emails_sent_at_least": 4_000_000,
+            "delivery_rate": 0.994,
             "bounce_rate": 0.0031,
             "complaint_rate": 0.0003,
         }
@@ -148,7 +149,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
         with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
             ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
-            ses.failing_metrics.add("PERMANENT_BOUNCE")
+            ses.failing_metrics.add("DELIVERY")
             during_the_failure = self._get_reputation_from_ses()["infrastructure"]
 
             ses.failing_metrics.clear()

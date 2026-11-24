@@ -197,6 +197,7 @@ export const WithInfrastructureHealth: StoryFn = () => {
             ...baseResponse,
             infrastructure: {
                 emails_sent_at_least: 4_000_000,
+                delivery_rate: 0.991,
                 bounce_rate: 0.0028,
                 complaint_rate: 0.0003,
             },
