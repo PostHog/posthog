@@ -183,6 +183,7 @@ describe('sendDeadlineMsFor', () => {
         ['empty files, under a small-send deadline of 20 s', 0, 20_000, 20_000],
         ['files half the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES / 2, 32_500, 20_000],
         ['files at the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES, 45_000, 20_000],
+        ['files half the size limit, under a small-send deadline of 10 s', LARGEST_SEND_FILE_BYTES / 2, 18_235, 10_000],
         ['empty files, under a small-send deadline past the largest', 0, 45_000, 50_000],
     ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs, smallestMs) => {
         expect(sendDeadlineMsFor(fileBytes, smallestMs)).toBe(deadlineMs)
@@ -2714,9 +2715,8 @@ describe('EmailService', () => {
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             const halfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
-            // The fake clock also moves with real time while the send waits on I/O. Each send that must arrive has
-            // more time left after its download than the 10 real seconds untilOnTheFakeClock waits, so a slow
-            // runner fails the wait before the deadline can turn the delivery into a retry.
+            // The send clock moves only when the test moves it, by the row's step at the held download. Timers and
+            // I/O run for real, so time a slow runner spends on them cannot carry a send past its deadline.
             it.each([
                 [
                     'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
@@ -2764,55 +2764,39 @@ describe('EmailService', () => {
                     send([await file()])
                     const emailService = sender({ attachmentSendDeadlineMs })
                     bucket.answer = 'hold'
-                    jest.useFakeTimers({
-                        doNotFake: [
-                            'nextTick',
-                            'setImmediate',
-                            'clearImmediate',
-                            'queueMicrotask',
-                            'hrtime',
-                            'performance',
-                        ],
-                    })
+                    pinDate(Date.now())
+                    const pending: { endsAt: number; controller: AbortController }[] = []
                     const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
                         const controller = new AbortController()
-                        setTimeout(
-                            () =>
-                                controller.abort(
-                                    new DOMException('The operation was aborted due to timeout', 'TimeoutError')
-                                ),
-                            ms
-                        )
+                        pending.push({ endsAt: Date.now() + ms, controller })
                         return controller.signal
                     })
-                    // The send waits on real I/O and on short batching timers, so the fake clock follows real time
-                    // until the condition holds; only the held download jumps it.
-                    const untilOnTheFakeClock = async (done: () => boolean): Promise<void> => {
+                    const advanceSendClock = (ms: number): void => {
+                        jest.setSystemTime(Date.now() + ms)
+                        for (const { endsAt, controller } of pending) {
+                            if (endsAt <= Date.now() && !controller.signal.aborted) {
+                                controller.abort(
+                                    new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+                                )
+                            }
+                        }
+                    }
+                    const until = async (done: () => boolean): Promise<void> => {
                         const givesUpAt = performance.now() + 10_000
-                        let clockAt = performance.now()
-                        let slowed = false
                         while (!done()) {
                             if (performance.now() > givesUpAt) {
                                 throw new Error('the send did not get there in 10 real seconds')
                             }
-                            await new Promise((resolve) => setImmediate(resolve))
-                            if (!slowed && timeouts.mock.calls.length > 0) {
-                                slowed = true
-                                const busyUntil = performance.now() + 6_000
-                                while (performance.now() < busyUntil) {}
-                            }
-                            const passedMs = Math.floor(performance.now() - clockAt)
-                            clockAt += passedMs
-                            await jest.advanceTimersByTimeAsync(passedMs)
+                            await new Promise((resolve) => setTimeout(resolve, 10))
                         }
                     }
                     try {
                         let outcome: ReturnType<typeof outcomeOf> | undefined
                         void emailService.executeSendEmail(invocation).then((result) => (outcome = outcomeOf(result)))
-                        await untilOnTheFakeClock(() => bucket.heldRequests > 0)
-                        await jest.advanceTimersByTimeAsync(answeredAfterMs)
+                        await until(() => bucket.heldRequests > 0)
+                        advanceSendClock(answeredAfterMs)
                         bucket.release()
-                        await untilOnTheFakeClock(() => outcome !== undefined)
+                        await until(() => outcome !== undefined)
 
                         expect(outcome).toEqual(expected)
                         expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
