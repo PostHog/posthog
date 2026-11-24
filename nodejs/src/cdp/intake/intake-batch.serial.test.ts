@@ -205,6 +205,7 @@ describe('insertIntakeBatch', () => {
         ])
     })
 
+    const KAFKA_WAIT_MS = 30_000
     const sealedSendThroughKafka = async (
         contentState: Record<string, unknown>
     ): Promise<{ id: string; delivered: Message[] }> => {
@@ -251,9 +252,10 @@ describe('insertIntakeBatch', () => {
                 },
             } as CyclotronJobInvocation
 
+            // The production ack deadline is short; a slow local broker that acks late is not what this test checks.
             const outcome = await new IntakeProducer(
                 topic as IngestionOutputs<IntakeOutput>,
-                undefined,
+                KAFKA_WAIT_MS,
                 sealing.seal
             ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
             expect(outcome).toBe('acked')
@@ -269,9 +271,13 @@ describe('insertIntakeBatch', () => {
             })
             // Bounded here, so a message Kafka never delivers fails with its own error and the cleanup still runs.
             const nothingDelivered = new Promise<never>((_, reject) => {
-                giveUp = setTimeout(() => reject(new Error('Kafka delivered nothing in 30 s')), 30_000)
+                giveUp = setTimeout(() => reject(new Error('Kafka delivered nothing in 30 s')), KAFKA_WAIT_MS)
             })
-            const batch = await Promise.race([delivered, nothingDelivered])
+            // The consumer runs its poll loop detached, so a loop that fails or ends first fails the wait here.
+            const loopEnded = consumer['consumerLoop']!.then(() => {
+                throw new Error('The Kafka consumer stopped before it delivered anything')
+            })
+            const batch = await Promise.race([delivered, nothingDelivered, loopEnded])
             roundTripFailed = false
             return { id: run.id, delivered: batch }
         } finally {
