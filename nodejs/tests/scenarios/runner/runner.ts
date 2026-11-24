@@ -60,7 +60,7 @@ import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
+import { Admission, Status, admissionsOf, judgedInvariantsOf, statusOf, unobservedReasonOf } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
@@ -337,6 +337,22 @@ const admittedWindowOf = (
         ? { startedAt: first.startedAt, endedAt: first.endedAt }
         : firstStepOf(window, stepsOf(drive))
 
+function cdpApiUrlsOf(environment: Environment): string[] {
+    const urls = environment
+        .roles()
+        .filter(({ name }) => name === 'cdp-api')
+        .map(({ url }) => url)
+    if (urls.length === 0) {
+        throw new Error('no cdp-api replica is running to take the intake offers')
+    }
+    return urls
+}
+
+function roundRobin(urls: readonly string[]): () => string {
+    let next = 0
+    return () => urls[next++ % urls.length]
+}
+
 function localTarget(
     environment: Environment,
     env: NodeJS.ProcessEnv,
@@ -360,13 +376,10 @@ function localTarget(
                 profile.replicas
             )
             const writeLogTails = keepLogTails(stateDir, specs)
-            const cdpApi = {
-                url: environment.role('cdp-api').url,
-                jwt: new ScopedServiceJwt(
-                    PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
-                    secrets.transactionalEmailJwtSecret
-                ),
-            }
+            const jwt = new ScopedServiceJwt(
+                PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+                secrets.transactionalEmailJwtSecret
+            )
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
@@ -387,6 +400,7 @@ function localTarget(
                     if (!producer) {
                         throw new Error('the load producer is not connected')
                     }
+                    const cdpApi = { nextUrl: roundRobin(cdpApiUrlsOf(environment)), jwt }
                     const sesFeedback = await watchSesFeedback({
                         edgeUrl,
                         lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
@@ -635,7 +649,7 @@ export function createRunner(
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
-                const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                const converged = await judge.converge(durationMs(card.convergeWithin), signal)
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
@@ -644,7 +658,10 @@ export function createRunner(
                 await live.stop()
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
+                const checked = await judge.check(card.invariants, card.gates, { janitorResets })
+                const { unread } = judge.evidence()
+                const convergence: Convergence = unread === undefined ? converged : { ...converged, unread }
+                const invariants = judgedInvariantsOf(checked, convergence)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,

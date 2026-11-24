@@ -34,6 +34,10 @@ type GenericHogInvocationWithMasker = CyclotronJobInvocation & {
 
 type MaskPipelineResult = Awaited<ReturnType<RedisV2['usePipeline']>>
 
+function incrementLanded(result: MaskPipelineResult, index: number): boolean {
+    return result?.[index * 2]?.[0] === null
+}
+
 function allowedExecutionsForResult(result: MaskPipelineResult, index: number, masker: MaskContext): number | null {
     const newValue: number | null = result ? result[index * 2][1] : null
     if (newValue === null) {
@@ -204,25 +208,25 @@ export class HogMaskerService {
 
         const release = async (persisted: CyclotronJobInvocation[] = []): Promise<void> => {
             const kept = new Set(persisted.map((item) => (item as GenericHogInvocationWithMasker).masker))
-            const released = maskContexts.filter((masker) => !kept.has(masker))
-            if (released.length === 0) {
-                return
-            }
-            const buildReleasePipeline = (pipeline: RedisClientPipeline): void => {
-                released.forEach(({ hogFunctionId, hash, increment }) => {
-                    pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, -increment)
+            const releaseFrom = (store: RedisV2, name: string, landed: (index: number) => boolean) => {
+                const released = maskContexts.filter((masker, index) => !kept.has(masker) && landed(index))
+                if (released.length === 0) {
+                    return null
+                }
+                return store.usePipeline({ name, failOpen: true }, (pipeline) => {
+                    released.forEach(({ hogFunctionId, hash, increment }) => {
+                        pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, -increment)
+                    })
                 })
             }
             await Promise.all([
-                incrementedRedis
-                    ? this.redis.usePipeline({ name: 'masker-release', failOpen: true }, buildReleasePipeline)
-                    : null,
-                incrementedMirror
-                    ? this.redisMirror.usePipeline(
-                          { name: 'masker-release-mirror', failOpen: true },
-                          buildReleasePipeline
-                      )
-                    : null,
+                releaseFrom(this.redis, 'masker-release', () => incrementedRedis !== null),
+                // The mirror pool never sends a timed-out increment later, so releasing it would leave the mirror
+                // counter below zero with no TTL. Redis keeps releasing every claim, because a dropped connection can
+                // report an increment that Redis applied as failed, and a missed release masks the replay.
+                releaseFrom(this.redisMirror, 'masker-release-mirror', (index) =>
+                    incrementLanded(incrementedMirror, index)
+                ),
             ])
         }
 

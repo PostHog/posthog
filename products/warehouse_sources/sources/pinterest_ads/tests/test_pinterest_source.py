@@ -110,6 +110,7 @@ class TestPinterestAdsSource:
                 source_logger=inputs.logger,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
+                reporting_timezone="PINTEREST_TIME_ZONE",
             )
 
     @mock.patch("products.warehouse_sources.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration")

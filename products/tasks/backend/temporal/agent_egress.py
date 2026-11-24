@@ -5,7 +5,7 @@ from typing import Literal
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, is_cancelled_exception
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,6 +24,9 @@ from products.tasks.backend.temporal.process_task.activities.agent_egress import
 class AgentEgressProbeWorkflow(PostHogWorkflow):
     inputs_cls = AgentEgressProbeInput
 
+    def __init__(self) -> None:
+        self._counts: Counter[int] = Counter()
+
     async def _renew(self, input: AgentEgressExecutionInput) -> None:
         while True:
             await workflow.sleep(10)
@@ -37,9 +40,8 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
 
     async def _probe(self, input: AgentEgressExecutionInput, duration_seconds: int) -> dict[int, int]:
         deadline = workflow.now() + timedelta(seconds=duration_seconds)
-        counts: Counter[int] = Counter()
         while workflow.now() < deadline:
-            counts.update(
+            self._counts.update(
                 await workflow.execute_activity(
                     probe_agent_egress,
                     input,
@@ -49,7 +51,7 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
                 )
             )
             await workflow.sleep(max(0, min(10, (deadline - workflow.now()).total_seconds())))
-        return dict(counts)
+        return dict(self._counts)
 
     @workflow.run
     async def run(self, input: AgentEgressProbeInput) -> dict[int, int]:
@@ -84,6 +86,17 @@ class AgentEgressProbeWorkflow(PostHogWorkflow):
             reason = "completed"
             return result
         except BaseException as error:
+            if (
+                isinstance(error, ActivityError)
+                and isinstance(error.cause, ApplicationError)
+                and error.cause.type == "AgentEgressRunEnded"
+                and len(error.cause.details) == 1
+                and error.cause.details[0] in ("completed", "cancelled", "failed")
+            ):
+                reason = error.cause.details[0]
+                if reason == "cancelled":
+                    raise asyncio.CancelledError from error
+                return dict(self._counts)
             if is_cancelled_exception(error):
                 reason = "cancelled"
             raise

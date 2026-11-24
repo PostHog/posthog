@@ -118,7 +118,7 @@ def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext)
         f"No-op when the allowlist is empty."
     ),
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(2 * 60 * 60),
     },
 )
@@ -130,7 +130,7 @@ def marketing_sessions_precompute_job() -> None:
     cron_schedule="35 * * * *",
     job=marketing_sessions_precompute_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 @skip_on_kill_switch
 def marketing_sessions_precompute_schedule(

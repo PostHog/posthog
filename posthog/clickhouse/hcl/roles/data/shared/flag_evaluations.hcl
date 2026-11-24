@@ -104,6 +104,9 @@ database "posthog" {
     column "person_properties_map_custom" {
       type = "Map(String, String)"
     }
+    column "properties_group_feature_flags" {
+      type = "Map(LowCardinality(String), LowCardinality(String))"
+    }
   }
 
   table "flag_evaluations" {
