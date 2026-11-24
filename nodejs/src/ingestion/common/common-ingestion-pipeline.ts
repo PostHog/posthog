@@ -174,7 +174,6 @@ interface Chain<TStart, C, ROut extends string, TCurrent> {
     through<U>(transform: BlockTransform<TCurrent, U, C, ROut>): Chain<TStart, C, ROut, U>
 }
 
-/** A transform over the open block's per-element builder, whatever the block's start type is. */
 type BlockTransform<TCurrent, U, C, ROut extends string> = <TBlock>(
     block: PipelineBuilder<TBlock, TCurrent, C, ROut>
 ) => PipelineBuilder<TBlock, U, C, ROut>
@@ -435,10 +434,7 @@ export class CommonTeamStage<
         )
     }
 
-    /**
-     * The step that produces the event. A timeout barrier runs before it and the ingestion lag
-     * observer after it, in the same sequential block (see `createEmitSubpipeline`).
-     */
+    /** Emit phase: a timeout barrier, the step that produces the event, then the ingestion lag observer. */
     emit<U extends RecordIngestionLagInput, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
         options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }

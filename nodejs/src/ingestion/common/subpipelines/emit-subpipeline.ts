@@ -3,10 +3,6 @@ import { PipelineBuilder } from '~/ingestion/framework/builders/pipeline-builder
 import { RetryOptions } from '~/ingestion/framework/retry'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
-/**
- * The tail every event pipeline ends with. The barrier makes the emit the point of no return:
- * a batch budget cannot cut an event that already produced, which would redeliver it and produce it again.
- */
 export function createEmitSubpipeline<
     TInput,
     TCurrent,
@@ -19,5 +15,6 @@ export function createEmitSubpipeline<
     emitStep: ProcessingStep<TCurrent, TEmitted, REmit>,
     options?: { retry?: RetryOptions }
 ): PipelineBuilder<TInput, TEmitted, C, R | REmit> {
+    // A batch budget must not cut an event after it produced: the redelivery would produce it again.
     return builder.timeoutBarrier().pipe(emitStep, options).pipe(createRecordIngestionLagStep())
 }
