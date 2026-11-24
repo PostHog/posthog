@@ -21,7 +21,7 @@ from posthog.hogql.parser import parse_select
 from posthog.dataclasses import frozen
 
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
-from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.models import NotebookNodeRun, NotebookRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_variables import (
@@ -321,6 +321,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
     runs = (
         NotebookNodeRun.objects.for_team(team_id)
         .filter(notebook=notebook, node_id__in=runnable_ids)
+        .exclude(notebook_run__trigger=NotebookRun.Trigger.WAREHOUSE)
         .order_by("node_id", "-created_at")
     )
     latest_by_node = {run.node_id: run for run in runs.distinct("node_id")}

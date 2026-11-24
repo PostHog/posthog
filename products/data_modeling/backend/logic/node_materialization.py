@@ -46,6 +46,7 @@ from products.data_modeling.backend.models import (
     DataModelingJobStatus,
     Node,
     NodeType,
+    NotebookModel,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
@@ -343,6 +344,24 @@ def run_related_node_materializations(
         .exclude(saved_query__deleted=True)
         .values_list("saved_query_id", flat=True)
     )
+    notebook_jobs = DataModelingJob.objects.filter(
+        team_id=team_id,
+        id__in=NotebookModel.objects.for_team(team_id).filter(node_id__in=node_ids).values("latest_run_id"),
+    )
+    if notebook_jobs.filter(status=DataModelingJobStatus.RUNNING).exists():
+        raise MaterializationAlreadyRunningError("A notebook model in this run is already running.")
+    if not from_browser_session:
+        last_start = (
+            notebook_jobs.filter(created_at__gt=requested_at - MANUAL_RUN_MIN_INTERVAL)
+            .order_by("-created_at")
+            .values_list("created_at", flat=True)
+            .first()
+        )
+        if last_start is not None:
+            raise MaterializationRanRecentlyError(
+                "A notebook model in this run ran recently.",
+                retry_after_seconds=_seconds_until_limit_ends(last_start, requested_at),
+            )
     if from_browser_session:
         if _any_view_is_running(team_id, built_saved_query_ids):
             raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)

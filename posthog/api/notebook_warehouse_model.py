@@ -13,6 +13,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.models import User
+from posthog.rate_limit import RunNotebookModelRateThrottle
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.data_modeling.backend.facade.api import (
@@ -161,6 +162,7 @@ class NotebookWarehouseModelViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             self.team_id, notebook.id, request.user if isinstance(request.user, User) else None
         )
         model = owned_notebook_model(self.team_id, notebook.id, node_id, user)
+        RunNotebookModelRateThrottle().check(request, self)
         request_id = uuid4()
         try:
             run_related_node_materializations(

@@ -15,7 +15,7 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
@@ -89,7 +89,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         # select_related: the frame snapshot below scopes to the run's user and the slot release
         # reads the notebook's short id, so fetch both up front rather than lazy-loading each on
         # attribute access.
-        run = NotebookNodeRun.objects.for_team(team_id).select_related("user", "notebook").get(id=run_id)
+        run = (
+            NotebookNodeRun.objects.for_team(team_id).select_related("user", "notebook", "notebook_run").get(id=run_id)
+        )
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
 
@@ -140,7 +142,11 @@ def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: in
     local state, and a failed read knows nothing. Only an actual empty list means "the kernel
     has nothing", so absent must never be coerced to empty here.
     """
-    if frames is None or not run.kernel_runtime_id:
+    if (
+        frames is None
+        or not run.kernel_runtime_id
+        or (run.notebook_run is not None and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE)
+    ):
         return
     # Scoped to the dispatch-time kernel rather than "the notebook's current kernel": if the
     # kernel was replaced mid-run, this snapshot describes the dead one and must not overwrite

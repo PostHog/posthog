@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -5,6 +6,7 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -20,7 +22,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.api import require_notebook_node_edit_access, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -34,23 +37,56 @@ from products.data_modeling.backend.logic.node_frequency import build_frequency_
 from products.data_modeling.backend.temporal.activities.notebook_model import (
     ModelFailure,
     ModelRun,
+    RetiredNotebookUpload,
     fail_notebook_model,
     prepare_notebook_model,
     publish_frame,
     publish_notebook_model,
+    remove_retired_notebook_upload,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for
 from products.notebooks.backend.sandbox.kernel import server
 from products.notebooks.backend.sandbox.kernel.bootstrap import KernelSession
-from products.notebooks.backend.sandbox.kernel.result_store import parquet_result
+from products.notebooks.backend.sandbox.kernel.result_store import (
+    ModelOutputTooLarge,
+    parquet_result,
+    retire_model_session,
+)
 from products.notebooks.backend.sql_v2 import kernel_server_secret
 from products.notebooks.backend.sql_v2_dispatch import _build_plan, resolve_refs
 from products.notebooks.backend.test.test_notebook_run import markdown_content
 from products.notebooks.backend.warehouse_model import prepare_model_run
 from products.warehouse_sources.backend.facade.contracts import UploadedFileRef
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+def test_retiring_a_kernel_releases_inputs_and_keeps_recent_results(tmp_path: Path) -> None:
+    recent = tmp_path / str(uuid4())
+    for name in ("frames", "duck", "runs", "results"):
+        (recent / name).mkdir(parents=True)
+        (recent / name / "data").write_bytes(b"sample")
+    expired = tmp_path / str(uuid4())
+    expired.mkdir()
+    os.utime(expired, (0, 0))
+    retire_model_session(str(recent))
+    assert list(recent.iterdir()) == [recent / "results"]
+    assert (recent / "results" / "data").read_bytes() == b"sample"
+    assert not expired.exists()
+
+
+@pytest.mark.parametrize(("row_limit", "byte_limit"), [(3, 100_000), (100, 256)])
+def test_oversized_output_is_rejected_before_upload(tmp_path: Path, row_limit: int, byte_limit: int) -> None:
+    frame_id = str(uuid4())
+    batch = pa.record_batch([list(range(20))], names=["quantity"])
+    with pa.OSFile(str(tmp_path / f"{frame_id}.arrow"), "wb") as file, pa.ipc.new_file(file, batch.schema) as writer:
+        writer.write_batch(batch)
+    with (
+        pytest.raises(ModelOutputTooLarge),
+        parquet_result(frame_id, str(tmp_path), max_rows=row_limit, max_bytes=byte_limit),
+    ):
+        pytest.fail("An oversized publication returned an upload stream.")
 
 
 def test_bulk_output_preserves_batches_types_and_empty_tables(tmp_path: Path) -> None:
@@ -60,7 +96,7 @@ def test_bulk_output_preserves_batches_types_and_empty_tables(tmp_path: Path) ->
         with pa.OSFile(str(tmp_path / f"{result_id}.arrow"), "wb") as source, pa.ipc.new_file(source, schema) as writer:
             for offset in range(0, size, 1000):
                 writer.write_batch(pa.record_batch([range(offset, offset + 1000)], schema=schema))
-        with parquet_result(result_id, str(tmp_path)) as exported:
+        with parquet_result(result_id, str(tmp_path), max_rows=14_000, max_bytes=1_000_000) as exported:
             exported.seek(0)
             result = pq.read_table(exported)
         assert result.schema == schema
@@ -107,7 +143,7 @@ class TestNotebookWarehouseModel(APIBaseTest):
             plan = prepare_model_run(
                 self.team.pk, self.notebook.id, "rows", binding.definition_hash, self.user.pk, run_id
             )
-            assert plan[0] == "rows"
+            assert plan is not None and plan[0] == "rows"
             assert NotebookRun.objects.get(pk=run_id).cell_plan[-1]["code"] == "scores"
             self.notebook.content = markdown_content('<SQLV2 nodeId="rows" code="select 2" returnVariable="scores" />')
             self.notebook.save()
@@ -147,6 +183,9 @@ class TestNotebookWarehouseModel(APIBaseTest):
             env.run(prepare_notebook_model, second)
         self.notebook.content = markdown_content('<SQLV2 nodeId="rows" code="select 9" returnVariable="scores" />')
         self.notebook.save()
+        changed = self.client.post(self.url, self.body, format="json")
+        assert changed.status_code == 400
+        assert self.client.get(f"{self.url}{node.id}/").json()["latest_run_id"] == str(first.run_id)
         env.run(fail_notebook_model, ModelFailure(run=first, error="Stopped"))
         with self.assertRaises(ValidationError):
             env.run(prepare_notebook_model, second)
@@ -204,6 +243,76 @@ class TestNotebookWarehouseModel(APIBaseTest):
     def _query(self, query: str):
         return execute_hogql_query(query, team=self.team, user=self.user, workload=Workload.OFFLINE)
 
+    def test_only_the_model_owner_can_edit_its_dependencies(self) -> None:
+        dag = DAG.get_or_create_default(self.team)
+        parent = Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
+        self.body["upstream_node_ids"] = [str(parent.pk)]
+        node = Node.objects.get(pk=self.declare())
+        access = UserAccessControl(user=self.user, team=self.team)
+        with team_scope(self.team.pk):
+            require_notebook_node_edit_access(self.team.pk, access, [node.pk])
+            model = node.notebookmodel
+            model.owner_id = self.user.pk + 1
+            model.save(update_fields=["owner_id"])
+            with self.assertRaises(PermissionDenied):
+                require_notebook_node_edit_access(self.team.pk, access, [parent.pk, node.pk])
+            with self.assertRaises(PermissionDenied):
+                require_notebook_node_edit_access(self.team.pk, access, [parent.pk], deleting_nodes=True)
+
+    def test_model_waits_when_another_run_owns_the_notebook(self) -> None:
+        node = Node.objects.get(pk=self.declare())
+        with team_scope(self.team.pk):
+            interactive = NotebookRun.objects.create(team=self.team, notebook=self.notebook, user=self.user)
+            run = ModelRun(
+                team_id=self.team.pk,
+                node_id=str(node.pk),
+                dag_id=str(node.dag_id),
+                run_id=uuid4(),
+                triggered_by_id=None,
+            )
+            env = ActivityEnvironment()
+            assert env.run(prepare_notebook_model, run) is None
+            interactive.status = NotebookRun.Status.DONE
+            interactive.save(update_fields=["status"])
+            assert env.run(prepare_notebook_model, run)
+            assert NotebookRun.objects.get(pk=run.run_id).trigger == NotebookRun.Trigger.WAREHOUSE
+
+    def test_manual_notebook_runs_observe_running_and_recent_jobs(self) -> None:
+        from products.data_modeling.backend.logic.node_materialization import (
+            MaterializationAlreadyRunningError,
+            MaterializationRanRecentlyError,
+            run_related_node_materializations,
+        )
+
+        node = Node.objects.get(pk=self.declare())
+        with team_scope(self.team.pk):
+            binding = node.notebookmodel
+            job = DataModelingJob.objects.create(team=self.team)
+            binding.latest_run_id = job.pk
+            binding.save(update_fields=["latest_run_id"])
+            with self.assertRaises(MaterializationAlreadyRunningError):
+                run_related_node_materializations(
+                    self.team.pk, node.pk, direction="upstream", user=self.user, from_browser_session=True
+                )
+            job.status = DataModelingJob.Status.COMPLETED
+            job.save(update_fields=["status"])
+            with self.assertRaises(MaterializationRanRecentlyError):
+                run_related_node_materializations(
+                    self.team.pk, node.pk, direction="upstream", user=self.user, from_browser_session=False
+                )
+
+    def test_model_rechecks_an_enforced_account_rule(self) -> None:
+        node = Node.objects.get(pk=self.declare())
+        run = ModelRun(
+            team_id=self.team.pk, node_id=str(node.pk), dag_id=str(node.dag_id), run_id=uuid4(), triggered_by_id=None
+        )
+        with (
+            patch("products.notebooks.backend.warehouse_model.access_refused", return_value=True),
+            self.assertRaises(PermissionDenied),
+        ):
+            ActivityEnvironment().run(prepare_notebook_model, run)
+        assert not NotebookRun.objects.for_team(self.team.pk).filter(id=run.run_id).exists()
+
     def test_model_rechecks_the_authors_project_membership_before_running(self) -> None:
         node = Node.objects.get(pk=self.declare())
         self.organization.memberships.filter(user=self.user).delete()
@@ -244,6 +353,7 @@ class TestNotebookWarehouseModel(APIBaseTest):
                 thread = Thread(target=kernel.serve_forever, daemon=True)
                 thread.start()
                 try:
+                    previous_table = None
                     for _ in range(2):
                         run = ModelRun(
                             team_id=self.team.pk,
@@ -252,7 +362,8 @@ class TestNotebookWarehouseModel(APIBaseTest):
                             run_id=uuid4(),
                             triggered_by_id=self.user.pk,
                         )
-                        env.run(prepare_notebook_model, run)
+                        prepared = env.run(prepare_notebook_model, run)
+                        assert prepared is not None
                         execution = NotebookRun.objects.get(pk=run.run_id)
                         assert "report" not in [cell["node_id"] for cell in execution.cell_plan]
                         with (
@@ -272,7 +383,17 @@ class TestNotebookWarehouseModel(APIBaseTest):
                         assert (count, unique, total, versions) == (14000, 14000, 14000 * 13999, 1)
                         assert stamp > previous_stamp
                         previous_stamp = stamp
-                        table_ids.add(DataWarehouseTable.objects.get(team=self.team, name="account_scores").pk)
+                        if previous_table is not None:
+                            assert previous_table.get_count() == 14000
+                            assert prepared.previous_generation is not None
+                            retired = RetiredNotebookUpload(
+                                team_id=self.team.pk, generation=prepared.previous_generation
+                            )
+                            env.run(remove_retired_notebook_upload, retired)
+                            retired_key = previous_table.url_pattern.split(f"/{bucket}/", maxsplit=1)[1]
+                            assert not storage.exists(f"{bucket}/{retired_key}")
+                        previous_table = DataWarehouseTable.objects.get(team=self.team, name="account_scores")
+                        table_ids.add(previous_table.pk)
                     assert len(table_ids) == 1
                     consumer = DataWarehouseSavedQuery.objects.create(
                         team=self.team,

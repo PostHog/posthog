@@ -397,13 +397,14 @@ _model_executor: tuple[str, KernelExecutor] | None = None
 
 
 def model_executor(session: str) -> KernelExecutor:
-    from .result_store import model_directory
+    from .result_store import model_directory, retire_model_session
 
     global _model_executor
     with _executor_lock:
         if _model_executor is None or _model_executor[0] != session:
             if _model_executor is not None:
                 _model_executor[1].close()
+                retire_model_session(model_directory(_model_executor[0]))
             _model_executor = (session, KernelExecutor(model_directory(session)))
         return _model_executor[1]
 

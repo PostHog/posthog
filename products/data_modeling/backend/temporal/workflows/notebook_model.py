@@ -11,14 +11,28 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.data_modeling.backend.temporal.activities.notebook_model import (
     ModelFailure,
     ModelRun,
+    RetiredNotebookUpload,
     fail_notebook_model,
     prepare_notebook_model,
     publish_notebook_model,
+    remove_retired_notebook_upload,
 )
 from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+
+
+@workflow.defn(name="data-modeling-retire-notebook-upload")
+class RetireNotebookUploadWorkflow(PostHogWorkflow):
+    inputs_cls = RetiredNotebookUpload
+
+    @workflow.run
+    async def run(self, retired: RetiredNotebookUpload) -> None:
+        await workflow.sleep(timedelta(days=1))
+        await workflow.execute_activity(
+            remove_retired_notebook_upload, retired, start_to_close_timeout=timedelta(minutes=2)
+        )
 
 
 @workflow.defn(name="data-modeling-materialize-notebook")
@@ -39,12 +53,18 @@ class MaterializeNotebookWorkflow(PostHogWorkflow):
         )
         retry = RetryPolicy(maximum_attempts=3)
         try:
-            node_ids = await workflow.execute_activity(
-                prepare_notebook_model, run, start_to_close_timeout=timedelta(minutes=2), retry_policy=retry
-            )
+            while True:
+                prepared = await workflow.execute_activity(
+                    prepare_notebook_model, run, start_to_close_timeout=timedelta(minutes=2), retry_policy=retry
+                )
+                if prepared is not None:
+                    break
+                if workflow.now() - started >= timedelta(hours=7):
+                    raise ValueError("The notebook stayed busy for seven hours.")
+                await workflow.sleep(timedelta(seconds=30))
             await workflow.execute_child_workflow(
                 "notebook-run",
-                {"team_id": run.team_id, "notebook_run_id": str(run.run_id), "node_ids": node_ids},
+                {"team_id": run.team_id, "notebook_run_id": str(run.run_id), "node_ids": prepared.node_ids},
                 id=f"notebook-run-{run.run_id}",
                 task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             )
@@ -59,6 +79,13 @@ class MaterializeNotebookWorkflow(PostHogWorkflow):
                 retry_policy=retry,
             )
             raise
+        if prepared.previous_generation is not None:
+            await workflow.start_child_workflow(
+                RetireNotebookUploadWorkflow.run,
+                RetiredNotebookUpload(team_id=run.team_id, generation=prepared.previous_generation),
+                id=f"retire-notebook-upload-{run.team_id}-{run.run_id}",
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            )
         return MaterializeViewWorkflowResult(
             job_id=str(run.run_id),
             node_id=inputs.node_id,

@@ -728,6 +728,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=serving_engine,
                     skipped_nodes=skipped_jobs,
+                    run_started_at=start_time.isoformat(),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),

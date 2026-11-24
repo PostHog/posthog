@@ -15,6 +15,7 @@ _LAZY = {
     "UnsupportedFrequencyTargetError": "facade.contracts",
     "humanize_cadence": "logic.freshness",
     "declare_notebook_model": "logic.notebook_model",
+    "require_notebook_node_edit_access": "logic.notebook_model",
     "owned_notebook_model": "logic.notebook_model",
     "notebook_dag_workflow_id": "logic.notebook_model",
     "notebook_dag_status": "logic.notebook_model",

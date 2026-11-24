@@ -69,6 +69,7 @@ class KernelServerHandler(BaseHTTPRequestHandler):
 
     def _handle_parquet(self, payload: dict[str, Any]) -> None:
         from .result_store import (  # noqa: PLC0415 - pyarrow is only needed for frame reads
+            ModelOutputTooLarge,
             model_directory,
             parquet_result,
         )
@@ -76,8 +77,18 @@ class KernelServerHandler(BaseHTTPRequestHandler):
         with ExitStack() as stack:
             try:
                 directory = os.path.join(model_directory(payload.get("model_session", "")), "results")
-                result = stack.enter_context(parquet_result(payload.get("result_id", ""), directory))
-            except (ValueError, OSError) as exc:
+                result = stack.enter_context(
+                    parquet_result(
+                        payload.get("result_id", ""),
+                        directory,
+                        max_rows=payload["max_rows"],
+                        max_bytes=payload["max_bytes"],
+                    )
+                )
+            except ModelOutputTooLarge as exc:
+                self._respond(413, {"error": str(exc)})
+                return
+            except (KeyError, TypeError, ValueError, OSError) as exc:
                 self._respond(400, {"error": str(exc)})
                 return
             length = result.tell()

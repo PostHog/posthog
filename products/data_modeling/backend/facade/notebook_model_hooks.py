@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 @frozen
 class NotebookModelExecutor:
-    prepare: Callable[[int, UUID, str, str, int, UUID], list[str]]
-    open_output: Callable[[int, UUID, UUID], AbstractContextManager[tuple[BinaryIO, int]]]
+    prepare: Callable[[int, UUID, str, str, int, UUID], list[str] | None]
+    open_output: Callable[[int, UUID, UUID, int], AbstractContextManager[tuple[BinaryIO, int]]]
     authorize: Callable[[int, UUID, User], User]
     stop: Callable[[int, UUID], None]
 

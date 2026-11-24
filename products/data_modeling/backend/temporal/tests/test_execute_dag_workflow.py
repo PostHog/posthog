@@ -45,7 +45,12 @@ from products.data_modeling.backend.temporal.activities import (
     preempt_dag_run_activity,
 )
 from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
-from products.data_modeling.backend.temporal.activities.notebook_model import ModelFailure, ModelRun
+from products.data_modeling.backend.temporal.activities.notebook_model import (
+    ModelFailure,
+    ModelRun,
+    PreparedNotebookModel,
+    RetiredNotebookUpload,
+)
 from products.data_modeling.backend.temporal.tests.recorded_metrics import (
     REQUEST_TO_FINISH_METRIC,
     RecordedMetric,
@@ -67,7 +72,10 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
-from products.data_modeling.backend.temporal.workflows.notebook_model import MaterializeNotebookWorkflow
+from products.data_modeling.backend.temporal.workflows.notebook_model import (
+    MaterializeNotebookWorkflow,
+    RetireNotebookUploadWorkflow,
+)
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -644,10 +652,22 @@ class TestExecuteDAGWorkflowWithMocks:
                 notebook_nodes=[model],
             )
 
+        prepared: list[str] = []
+        previous = uuid.uuid4()
+        retired: list[uuid.UUID] = []
+
+        @temporal_activity.defn(name="remove_retired_notebook_upload")
+        async def remove(upload: RetiredNotebookUpload) -> None:
+            retired.append(upload.generation)
+
         @temporal_activity.defn(name="prepare_notebook_model")
-        async def prepare(run: ModelRun) -> list[str]:
+        async def prepare(run: ModelRun) -> PreparedNotebookModel | None:
             assert run.node_id == model
-            return ["transform"]
+            if not prepared:
+                prepared.append(str(run.run_id))
+                return None
+            assert prepared == [str(run.run_id)]
+            return PreparedNotebookModel(node_ids=["transform"], previous_generation=previous)
 
         @temporal_activity.defn(name="publish_notebook_model")
         async def publish(run: ModelRun) -> int:
@@ -671,12 +691,14 @@ class TestExecuteDAGWorkflowWithMocks:
                     ExecuteDAGWorkflow,
                     MockMaterializeViewWorkflow,
                     MaterializeNotebookWorkflow,
+                    RetireNotebookUploadWorkflow,
                     MockNotebookRunWorkflow,
                 ],
                 activities=[
                     prepare,
                     publish,
                     fail,
+                    remove,
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
                     structure,
@@ -690,8 +712,12 @@ class TestExecuteDAGWorkflowWithMocks:
                     ExecuteDAGInputs(team_id=1, dag_id="models"),
                     id=str(uuid.uuid4()),
                     task_queue="warehouse-test",
-                    execution_timeout=dt.timedelta(seconds=30),
+                    execution_timeout=dt.timedelta(minutes=2),
                 )
+                assert not retired
+                if not publish_fails:
+                    await env.client.get_workflow_handle(f"retire-notebook-upload-1-{prepared[0]}").result()
+                    assert retired == [previous]
         assert _mock_workflow_calls == [upstream, "transform", "publish", "failed" if publish_fails else consumer]
         assert result.skipped_nodes == int(publish_fails)
         assert result.failed_nodes == int(publish_fails)
@@ -754,6 +780,7 @@ class TestExecuteDAGWorkflowWithMocks:
         # The children stamp this same value on their own workflow ids, which is how the activity
         # tells this run's failures from an earlier run under the same parent.
         assert dt.datetime.fromisoformat(notified.run_started_at)
+        assert _recorded_skipped_nodes[0].run_started_at == notified.run_started_at
 
     async def test_records_every_failed_parent_on_one_skip_row(self):
         dag_id = "test-dag"

@@ -27,13 +27,18 @@ from products.data_modeling.backend.temporal.workflows import (
     MaterializeViewWorkflow,
 )
 
-from .activities.notebook_model import fail_notebook_model, prepare_notebook_model, publish_notebook_model
-from .workflows.notebook_model import MaterializeNotebookWorkflow
+from .activities.notebook_model import (
+    fail_notebook_model,
+    prepare_notebook_model,
+    publish_notebook_model,
+    remove_retired_notebook_upload,
+)
+from .workflows.notebook_model import MaterializeNotebookWorkflow, RetireNotebookUploadWorkflow
 
 if TYPE_CHECKING:
     from posthog.temporal.common.registration import ActivityDefinition
 
-WORKFLOWS = [MaterializeViewWorkflow, ExecuteDAGWorkflow, MaterializeNotebookWorkflow]
+WORKFLOWS = [MaterializeViewWorkflow, ExecuteDAGWorkflow, MaterializeNotebookWorkflow, RetireNotebookUploadWorkflow]
 
 # Semantic enrichment is LLM work that must not contend with materialization slots, so it runs on the
 # metadata queue rather than the materialization queues. Kept as separate lists (NOT folded into
@@ -43,6 +48,7 @@ SEMANTIC_ENRICHMENT_ACTIVITIES: list[ActivityDefinition] = [enrich_view_semantic
 ACTIVITIES: list[ActivityDefinition] = [
     prepare_notebook_model,
     publish_notebook_model,
+    remove_retired_notebook_upload,
     fail_notebook_model,
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,

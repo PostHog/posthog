@@ -11,6 +11,8 @@ from django.db import IntegrityError, transaction
 import requests
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from posthog.hogql.constants import MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT
+
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -19,11 +21,18 @@ from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookN
 from products.notebooks.backend.notebook_run import PlannedCell, interrupt_notebook_run, plan_notebook_cells
 from products.notebooks.backend.sql_v2 import _sandbox_auth_headers, kernel_server_secret, mint_command_token
 from products.notebooks.backend.sql_v2_state import _DATAFRAME_NAME
+from products.security.backend.facade.api import access_refused
+from products.security.backend.facade.contracts import SubjectInput
+from products.security.backend.facade.enums import Surface
 
 
 def check_model_author(notebook: Notebook, user: User | None) -> User:
     if user is None or not user.is_active or notebook.deleted:
         raise PermissionDenied("An active project member and notebook are required to publish.")
+    if access_refused(
+        SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="notebook_warehouse_model"
+    ):
+        raise PermissionDenied("This account cannot publish notebook models.")
     access = UserAccessControl(user=user, team=notebook.team)
     if not (
         access.organization_membership
@@ -88,7 +97,7 @@ def authorize_model_publication(team_id: int, notebook_id: UUID, user: User | No
 
 def prepare_model_run(
     team_id: int, notebook_id: UUID, output_cell: str, digest: str, user_id: int, run_id: UUID
-) -> list[str]:
+) -> list[str] | None:
     notebook = Notebook.objects.select_related("team").get(team_id=team_id, id=notebook_id, deleted=False)
     user = User.objects.get(id=user_id, is_active=True)
     check_model_author(notebook, user)
@@ -106,8 +115,10 @@ def prepare_model_run(
                 trigger=NotebookRun.Trigger.WAREHOUSE,
                 defaults={"cell_plan": plan, "variables": notebook.variables or []},
             )
-    except IntegrityError:
-        raise ValueError("This notebook already has an active run. Retry when it finishes.") from None
+    except IntegrityError as exc:
+        if getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None) == "unique_running_notebook_run":
+            return None
+        raise
     return [step["node_id"] for step in run.cell_plan]
 
 
@@ -123,7 +134,7 @@ def stop_model_run(team_id: int, run_id: UUID) -> None:
 
 
 @contextmanager
-def open_model_output(team_id: int, notebook_id: UUID, run_id: UUID) -> Iterator[tuple[BinaryIO, int]]:
+def open_model_output(team_id: int, notebook_id: UUID, run_id: UUID, max_bytes: int) -> Iterator[tuple[BinaryIO, int]]:
     run = (
         NotebookRun.objects.for_team(team_id)
         .select_related("notebook__team", "user")
@@ -153,15 +164,26 @@ def open_model_output(team_id: int, notebook_id: UUID, run_id: UUID) -> Iterator
     )
     if runtime is None or not runtime.server_url:
         raise ValueError("The output frame expired. Run the model again.")
+    rows = int(cell.envelope["row_count"])
+    if rows > MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT:
+        raise ValueError("The notebook output exceeds the warehouse model row limit.")
     token = mint_command_token(kernel_server_secret(str(runtime.id)), str(cell.id))
     with requests.post(
         f"{runtime.server_url.rstrip('/')}/result-parquet",
-        json={"run_id": str(cell.id), "result_id": str(cell.result_id), "model_session": str(run.id)},
+        json={
+            "run_id": str(cell.id),
+            "result_id": str(cell.result_id),
+            "model_session": str(run.id),
+            "max_rows": MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT,
+            "max_bytes": max_bytes,
+        },
         headers=_sandbox_auth_headers(runtime.server_connect_token, token),
         stream=True,
         timeout=(10, 300),
         allow_redirects=False,
     ) as response:
+        if response.status_code == 413:
+            raise ValueError("The notebook output exceeds the warehouse model size limit.")
         if response.status_code != 200:
             raise ValueError(f"Could not read the full dataframe from notebook run {run.id}.")
-        yield response.raw, int(cell.envelope["row_count"])
+        yield response.raw, rows

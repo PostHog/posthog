@@ -135,6 +135,8 @@ tools:
             Declare the upstream modeling node IDs. The table is available after the first successful run. Redeclare
             after changing code or variables. The table can expose the returned rows to project members with access to
             it.
+        feature_flag: notebook-warehouse-models
+        feature_flag_behavior: enable
     notebooks-destroy:
         operation: notebooks_destroy
         enabled: true
@@ -368,6 +370,8 @@ tools:
             idempotent: false
         title: Run a notebook warehouse model
         description: Start a warehouse DAG run for the notebook model and its upstream dependencies.
+        feature_flag: notebook-warehouse-models
+        feature_flag_behavior: enable
     notebooks-sql-v2-run-create:
         operation: notebooks_sql_v2_run_create
         enabled: false
@@ -377,6 +381,8 @@ tools:
         enabled: true
         title: Get notebook warehouse model status
         description: Inspect the latest job and the last notebook run successfully published to the warehouse.
+        feature_flag: notebook-warehouse-models
+        feature_flag_behavior: enable
     notebooks-widget-attach:
         operation: notebooks_widget_attach
         enabled: true

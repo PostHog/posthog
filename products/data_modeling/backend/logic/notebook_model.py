@@ -3,6 +3,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from temporalio.client import WorkflowExecutionStatus
@@ -16,10 +17,19 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import NotebookModelBinding
+from products.data_modeling.backend.facade.notebook_model_hooks import notebook_model_executor
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import lock_dag
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
-from products.data_modeling.backend.models import DAG, CycleDetectionError, Edge, Node, NodeType, NotebookModel
+from products.data_modeling.backend.models import (
+    DAG,
+    CycleDetectionError,
+    DataModelingJob,
+    Edge,
+    Node,
+    NodeType,
+    NotebookModel,
+)
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -62,6 +72,19 @@ def require_table_access(model: NotebookModel, access: UserAccessControl) -> Non
         table = DataWarehouseTable.objects.filter(team_id=model.team_id, pk=model.table_id, deleted=False).first()
         if table is None or not access.check_access_level_for_object(table, "editor"):
             raise PermissionDenied("You need edit access to the output table.")
+
+
+def require_notebook_node_edit_access(
+    team_id: int, access: UserAccessControl, node_ids: list[UUID], *, deleting_nodes: bool = False
+) -> None:
+    affected = Q(node_id__in=node_ids)
+    if deleting_nodes:
+        affected |= Q(node__incoming_edges__source_id__in=node_ids) | Q(node__outgoing_edges__target_id__in=node_ids)
+    for model in NotebookModel.objects.for_team(team_id).filter(affected).distinct():
+        if model.owner_id != access.user.pk:
+            raise PermissionDenied("Only the notebook model owner can change its node or dependencies.")
+        notebook_model_executor().authorize(team_id, model.notebook_id, access.user)
+        require_table_access(model, access)
 
 
 def _binding(model: NotebookModel) -> NotebookModelBinding:
@@ -136,7 +159,13 @@ def declare_notebook_model(
         incoming = Edge.objects.filter(team=team, dag=dag, target=node)
         existing = set(incoming.values_list("source_id", flat=True))
         if existing != parents or model.definition_hash != definition_hash or model.output_cell != output_cell:
-            model.latest_run_id = None
+            if (
+                model.latest_run_id is not None
+                and DataModelingJob.objects.filter(
+                    team_id=team.pk, pk=model.latest_run_id, status=DataModelingJob.Status.RUNNING
+                ).exists()
+            ):
+                raise ValidationError("Wait for the current run to finish before changing the model definition.")
         model.definition_hash = definition_hash
         model.output_cell = output_cell
         model.save()

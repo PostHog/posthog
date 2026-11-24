@@ -440,7 +440,17 @@
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "data-modeling-materialize-notebook",
+    "product": "data_modeling",
+    "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "data-modeling-materialize-view",
+    "product": "data_modeling",
+    "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "data-modeling-retire-notebook-upload",
     "product": "data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },

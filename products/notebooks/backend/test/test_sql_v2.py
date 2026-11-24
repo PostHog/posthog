@@ -361,6 +361,21 @@ class TestSQLV2Callback(APIBaseTest):
         self.assertEqual(ran_on.frames, frames)
         self.assertIsNone(replaced_by.frames)
 
+    def test_model_callback_keeps_the_interactive_catalog(self):
+        runtime = self._create_runtime(KernelRuntime.Status.RUNNING)
+        with team_scope(self.team.pk):
+            model_run = NotebookRun.objects.create(
+                team=self.team, notebook=self.notebook, trigger=NotebookRun.Trigger.WAREHOUSE
+            )
+            self.node_run.kernel_runtime_id = runtime.pk
+            self.node_run.notebook_run = model_run
+            self.node_run.save(update_fields=["kernel_runtime_id", "notebook_run"])
+        token = mint_callback_token(str(self.node_run.pk), self.team.pk)
+        response = self._post(token, envelope={**self.envelope, "frames": []})
+        assert response.status_code == 200
+        runtime.refresh_from_db()
+        assert runtime.frames is None
+
     def test_a_late_callback_cannot_overwrite_a_newer_snapshot(self):
         # The kernel runs cells one at a time, but their callbacks land on separate web workers
         # and can arrive out of order. Without a guard the slow older one wins, leaving frames
@@ -778,6 +793,18 @@ class TestSQLV2Run(APIBaseTest):
             self._record_done_run("node-df1", "select 1 as old_col")
         with time_machine.travel("2026-07-04T00:01:00Z", tick=False):
             self._record_done_run("node-df1", "select 2 as new_col")
+        with team_scope(self.team.pk):
+            model_run = NotebookRun.objects.create(
+                team=self.team, notebook=self.notebook, trigger=NotebookRun.Trigger.WAREHOUSE
+            )
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                notebook_run=model_run,
+                node_id="node-df1",
+                node_type=NotebookNodeRun.NodeType.DUCKDB,
+                status=NotebookNodeRun.Status.DONE,
+            )
         response = self.client.post(
             self.run_url,
             data={"node_id": "c", "code": "select * from df1", "refs": {"df1": {"node_id": "node-df1"}}},

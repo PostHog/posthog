@@ -18,6 +18,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.rate_limit import RunNotebookModelRateThrottle
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -44,6 +45,7 @@ from products.data_modeling.backend.facade.api import (
     node_lineage,
     node_lineage_counts,
     parse_warehouse_table_id,
+    require_notebook_node_edit_access,
     run_related_node_materializations,
     saved_query_pin_preview,
     saved_query_target_bounds,
@@ -709,6 +711,7 @@ class NodeViewSet(
         self._require_warehouse_access(level="editor", message=EDIT_DENIED)
         node = cast(Node, serializer.instance)
         self._require_view_edit_access(node.saved_query)
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [node.pk])
         if "description" in serializer.validated_data:
             table_id = _description_target(node).warehouse_table_id
             if table_id is not None and not allowed_table_ids(
@@ -774,6 +777,7 @@ class NodeViewSet(
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         self._require_view_edit_access(instance.saved_query)
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [instance.pk], deleting_nodes=True)
         if instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
         if _feeds_a_managed_view(instance):
@@ -888,6 +892,8 @@ class NodeViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if hasattr(node, "notebookmodel"):
+            RunNotebookModelRateThrottle().check(req, self)
         try:
             run = run_related_node_materializations(
                 node.team_id,
@@ -1049,6 +1055,7 @@ class NodeViewSet(
         node = self.get_object()
         self._require_view_edit_access(node.saved_query)
 
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [node.pk])
         resumed = unsuspend_nodes([node], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
