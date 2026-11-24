@@ -187,9 +187,9 @@ def validate_warehouse_native_connection_access(team: Team, user: User | None, c
         raise DjangoPermissionDenied("Sign in to read the results of a warehouse-native experiment.")
     try:
         validate_warehouse_native_connection(connection_id, team=team, user=user)
-    except ValidationError as error:
-        # A connection the user cannot see and a deleted connection both come back as an invalid connection.
-        # Either way the totals are not theirs to read.
+    except (ValidationError, PermissionDenied) as error:
+        # A connection the user cannot see and a deleted connection both come back as an invalid connection, and
+        # a table the user cannot read as a permission error. Either way the totals are not theirs to read.
         detail = error.detail[0] if isinstance(error.detail, list) else error.detail
         raise DjangoPermissionDenied(str(detail)) from error
 

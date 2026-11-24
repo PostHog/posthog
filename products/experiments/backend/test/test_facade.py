@@ -67,7 +67,11 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 PAGEVIEW_EXPOSURE = {
     "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "$pageview", "properties": []}
@@ -666,11 +670,40 @@ class TestGetStoredPrimaryResult(BaseTest):
             OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
                 level=OrganizationMembership.Level.MEMBER
             )
-            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+            denied_connection = AccessControl.objects.create(
+                team=self.team, resource="external_data_source", access_level="none"
+            )
             assert (
                 api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment_id, user_id=self.user.pk)
                 is None
             )
+
+            # A member who may see the connection but not one of its tables is refused the same way.
+            denied_connection.delete()
+            table = DataWarehouseTable.objects.create(
+                name="payments",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                team=self.team,
+                credential=DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team),
+                external_data_source=connection,
+                url_pattern="s3://bucket/payments/*",
+                columns={"id": "String"},
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_table",
+                resource_id=str(table.pk),
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+            )
+            # The flag `hogql-warehouse-access-control` turns on the per-table check of raw queries.
+            with patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True):
+                assert (
+                    api.get_stored_primary_result(
+                        team_id=self.team.pk, experiment_id=experiment_id, user_id=self.user.pk
+                    )
+                    is None
+                )
 
     def test_returns_nothing_for_absolute_differences(self) -> None:
         stats_config = {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}}
