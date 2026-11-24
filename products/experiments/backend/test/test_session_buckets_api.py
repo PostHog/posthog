@@ -24,13 +24,14 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
+from products.experiments.backend.facade.contracts import MAX_BUCKET_SCAN_DAYS
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
+from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SOURCES
 from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

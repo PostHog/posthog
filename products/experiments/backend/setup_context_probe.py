@@ -21,8 +21,7 @@ from django.db.models import Max
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
-from products.experiments.backend.setup_context import (
+from products.experiments.backend.facade.contracts import (
     ExperimentSetupContext,
     PreviousExperiments,
     SdkLibCategory,
@@ -31,9 +30,9 @@ from products.experiments.backend.setup_context import (
     SetupContextSectionStatus,
     SharedMetrics,
     TargetSurface,
-    build_setup_context,
-    clear_cached_sections,
 )
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
+from products.experiments.backend.setup_context import build_setup_context, clear_cached_sections
 
 logger = logging.getLogger(__name__)
 

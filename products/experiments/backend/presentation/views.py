@@ -77,12 +77,29 @@ from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health, get_running_time_target
 from products.experiments.backend.facade.contracts import (
+    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
+    EXPERIMENT_SETUP_CONTEXT_FLAG,
     ExperimentHealthReaderAccess,
+    ExperimentSessionBucket,
     LegacyMigrationError,
+    ListAccess,
     RunningTimeMode,
+    SessionBucketUnavailable,
+    SessionEventDeltasUnavailable,
+    SetupContextInputs,
 )
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.sessions import (
+    all_card_session_ids,
+    finalize_session_bucket,
+    finalize_watch_cards,
+    get_experiment_session_bucket,
+    get_experiment_session_event_deltas,
+    get_session_experiment_context,
+    get_session_experiment_contexts,
+)
+from products.experiments.backend.facade.setup_context import build_setup_context
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -91,7 +108,6 @@ from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
-    ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
@@ -158,25 +174,6 @@ from products.experiments.backend.running_time_calculator import (
     calculate_sample_size,
     calculate_variance,
     calculate_variance_from_stats,
-)
-from products.experiments.backend.session_buckets import (
-    ExperimentSessionBucket,
-    SessionBucketUnavailable,
-    finalize_session_bucket,
-    get_experiment_session_bucket,
-)
-from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
-from products.experiments.backend.session_event_deltas import (
-    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
-    SessionEventDeltasUnavailable,
-    all_card_session_ids,
-    finalize_watch_cards,
-    get_experiment_session_event_deltas,
-)
-from products.experiments.backend.setup_context import (
-    EXPERIMENT_SETUP_CONTEXT_FLAG,
-    SetupContextInputs,
-    build_setup_context,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
@@ -581,9 +578,9 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "in_session_exposure"):
-            # The facade reads the experiment again with the joins its checks need, so the object lookup
-            # here only checks access.
+        if self.action in ("health", "in_session_exposure", "session_buckets", "session_event_deltas"):
+            # The facade reads the experiment again with the joins it needs, so the object lookup here
+            # only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
@@ -1871,12 +1868,8 @@ class EnterpriseExperimentsViewSet(
         data = request.validated_data
         # detail=False actions skip the automatic list-action ACL filtering, so filter here: the
         # response names experiments and shared metrics, which must respect object-level access.
-        experiments = self.user_access_control.filter_queryset_by_access_level(
-            Experiment.objects.filter(team_id=self.team.pk)
-        )
-        saved_metrics = self.user_access_control.filter_queryset_by_access_level(
-            ExperimentSavedMetric.objects.filter(team_id=self.team.pk), resource="experiment_saved_metric"
-        )
+        experiment_access = self._list_access("experiment")
+        saved_metric_access = self._list_access("experiment_saved_metric")
         context = build_setup_context(
             team=self.team,
             inputs=SetupContextInputs(
@@ -1888,10 +1881,21 @@ class EnterpriseExperimentsViewSet(
                 previous_experiments_limit=data["previous_experiments_limit"],
                 shared_metrics_limit=data["shared_metrics_limit"],
             ),
-            experiments=experiments,
-            saved_metrics=saved_metrics,
+            experiment_access=experiment_access,
+            saved_metric_access=saved_metric_access,
         )
         return Response(ExperimentSetupContextResponseSerializer(context).data)
+
+    def _list_access(self, resource: Literal["experiment", "experiment_saved_metric"]) -> ListAccess | None:
+        access = self.user_access_control.list_access_filter(resource)
+        if access is None:
+            return None
+        return ListAccess(
+            viewer_id=cast(User, self.request.user).id,
+            only_allowed=access.only_allowed,
+            allowed_ids=access.allowed_ids,
+            blocked_ids=access.blocked_ids,
+        )
 
     def _setup_context_enabled(self) -> bool:
         # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff
@@ -1946,13 +1950,11 @@ class EnterpriseExperimentsViewSet(
 
         # detail=False actions skip the automatic list-action ACL filtering, so filter here —
         # private experiments must not leak into another user's session context.
-        experiments = self.user_access_control.filter_queryset_by_access_level(
-            Experiment.objects.filter(team_id=self.team.pk)
-        )
+        experiment_access = self._list_access("experiment")
         # user threads through to the HogQL queries: exposure criteria can filter on arbitrary
         # properties, which must respect the viewer's property-level access control.
         items = get_session_experiment_context(
-            team=self.team, session_id=session_id, experiments=experiments, user=cast(User, request.user)
+            team=self.team, user=cast(User, request.user), session_id=session_id, experiment_access=experiment_access
         )
         if items is None:
             raise NotFound("Recording not found")
@@ -1998,11 +2000,9 @@ class EnterpriseExperimentsViewSet(
 
         # detail=False actions skip the automatic list-action ACL filtering, so filter here —
         # private experiments must not leak into another user's session context.
-        experiments = self.user_access_control.filter_queryset_by_access_level(
-            Experiment.objects.filter(team_id=self.team.pk)
-        )
+        experiment_access = self._list_access("experiment")
         contexts = get_session_experiment_contexts(
-            team=self.team, session_ids=session_ids, experiments=experiments, user=cast(User, request.user)
+            team=self.team, user=cast(User, request.user), session_ids=session_ids, experiment_access=experiment_access
         )
         serializer = ExperimentSessionContextsResponseSerializer(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
@@ -2067,7 +2067,7 @@ class EnterpriseExperimentsViewSet(
                 # can filter on arbitrary properties, which must respect the viewer's
                 # property-level access control.
                 user=cast(User, request.user),
-                experiment=experiment,
+                experiment_id=experiment.id,
                 bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
@@ -2075,6 +2075,8 @@ class EnterpriseExperimentsViewSet(
             )
         except SessionBucketUnavailable as error:
             raise ValidationError(str(error))
+        if scan is None:
+            raise NotFound()
 
         # Applied to the computed set rather than inside the scan: the bucket is cached per
         # viewer, so filtering on read honors a revocation that lands while an entry is warm. The
@@ -2131,10 +2133,12 @@ class EnterpriseExperimentsViewSet(
                 # arbitrary properties, which must respect the viewer's property-level access
                 # control.
                 user=cast(User, request.user),
-                experiment=experiment,
+                experiment_id=experiment.id,
             )
         except SessionEventDeltasUnavailable as error:
             raise ValidationError(str(error))
+        if result is None:
+            raise NotFound()
 
         # Applied to the computed shelf rather than inside the scan, as the session buckets do it:
         # the shelf is cached across viewers sharing a restriction profile, so filtering on read is

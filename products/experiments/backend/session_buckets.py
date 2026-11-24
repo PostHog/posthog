@@ -58,7 +58,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.enums import LabeledStrEnum
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.data_retention import retention_period_in_days
@@ -68,6 +67,16 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
+)
+from products.experiments.backend.facade.contracts import (
+    MAX_BUCKET_SCAN_DAYS,
+    MAX_SESSION_BUCKET_LIMIT,
+    BucketMetric,
+    ExcludedBucketMetric,
+    ExperimentSessionBucket,
+    SessionBucketResult,
+    SessionBucketScan,
+    SessionBucketUnavailable,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
@@ -93,15 +102,6 @@ from products.experiments.backend.session_exposure import (
 
 logger = logging.getLogger(__name__)
 
-# Ceiling on returned session ids. The recordings list is fetched over GET, so the ids ride in a
-# query string: ~45 encoded characters each puts 100 ids at ~4.5 KB, with headroom under the 8 KB
-# request-line limits proxies commonly enforce. Doubling it would not.
-MAX_SESSION_BUCKET_LIMIT = 100
-# The scan reads every session in the window, not a known id list, so the window is what bounds
-# it. It ends at the latest in-session exposure rather than at now, because an experiment whose
-# exposures stopped has nothing left in its recent days. The response carries the window it read,
-# because a clamped scan has to state what it left out.
-MAX_BUCKET_SCAN_DAYS = 30
 # How far back the anchor looks for the latest exposure, before the project's replay retention
 # bounds it further. The scan prunes on the exposure event name, but that event is among the
 # highest-volume a team has and a run has no length cap, so an unbounded lookup on a long-stopped
@@ -150,70 +150,6 @@ FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON = (
     "Drop-off reads this funnel's last step. It is measured in the data warehouse, "
     "which has no session events to match recordings on."
 )
-
-
-# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
-class ExperimentSessionBucket(LabeledStrEnum):
-    """Which question the returned session set answers."""
-
-    FIRED_ANY = "fired_any", "fired_any"
-    NO_METRIC_ACTIVITY = "no_metric_activity", "no_metric_activity"
-    FUNNEL_DROPOFF = "funnel_dropoff", "funnel_dropoff"
-
-
-class SessionBucketUnavailable(Exception):
-    """The requested bucket can't be computed for this experiment — a caller error, not a
-    failure. Raised instead of returning an empty session list, so an unmatchable metric never
-    reads as "no sessions matched"."""
-
-
-@dataclass(frozen=True)
-class BucketMetric:
-    metric_uuid: str
-    metric_name: str
-
-
-@dataclass(frozen=True)
-class ExcludedBucketMetric:
-    metric_uuid: str
-    metric_name: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class SessionBucketScan:
-    """What the scan found, and what gets cached: every recorded match, most recent first, not yet
-    cut to `limit`.
-
-    The cut waits for the viewer's per-recording access filter, which runs on read so a revocation
-    lands even on a warm entry. Cutting first would let a denied recording spend a returned slot,
-    and would let `truncated` carry the one bit that a recording the viewer can't see matched.
-    """
-
-    candidate_session_ids: list[str]
-    # The scan filled its over-fetch batch, so more matches may exist beyond the ones it saw.
-    scan_hit_cap: bool
-    limit: int
-    considered_metrics: list[BucketMetric]
-    excluded_metrics: list[ExcludedBucketMetric]
-    date_from: datetime
-    date_to: datetime
-    filter_test_accounts: bool
-    used_exposure_fallback: bool
-
-
-@dataclass(frozen=True)
-class SessionBucketResult:
-    """One viewer's answer: the sessions they may see, cut to the limit."""
-
-    session_ids: list[str]
-    truncated: bool
-    considered_metrics: list[BucketMetric]
-    excluded_metrics: list[ExcludedBucketMetric]
-    date_from: datetime
-    date_to: datetime
-    filter_test_accounts: bool
-    used_exposure_fallback: bool
 
 
 def finalize_session_bucket(scan: SessionBucketScan, accessible_session_ids: list[str]) -> SessionBucketResult:
