@@ -182,9 +182,12 @@ pub(super) async fn attach_batch(
 
     // `p.team_id = ANY($1)` lets the planner prune the person partitions to
     // the teams of the batch, because the join keys are known only at run
-    // time. The ORDER BY sets the insert order, so that concurrent
-    // statements lock mapping rows in the same order whatever join the
-    // planner picks. "C" is byte order, the order in which
+    // time. The planner overestimates the rows of the `unnest` join and
+    // turns the mark check into a hash anti join, so the `ANY` bounds on
+    // the mark check keep its hash to the persons of the batch instead of
+    // every active mark. The ORDER BY sets the insert order, so that
+    // concurrent statements lock mapping rows in the same order whatever
+    // join the planner picks. "C" is byte order, the order in which
     // `attach_distinct_ids` sorts its ids.
     let insert = format!(
         r#"
@@ -198,6 +201,7 @@ pub(super) async fn attach_batch(
             SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
               AND m.mark_active
+              AND m.team_id = ANY($1::int[]) AND m.person_id = ANY($2::bigint[])
         )
         ORDER BY u.team_id, u.distinct_id COLLATE "C"
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
