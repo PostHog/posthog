@@ -1354,6 +1354,10 @@ class ExperimentService:
 
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
+        # Warehouse rows have no conversion window the statement can wait out, and a team default of "on" would
+        # make every warehouse-native metric refuse to run. The save stores the setting off, as for test accounts.
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            only_count_matured_users = False
 
         # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
         if (
@@ -3822,6 +3826,10 @@ class ExperimentService:
                 **update_data,
                 "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
             }
+        if warehouse_native_exposure_config(
+            update_data.get("exposure_criteria", experiment.exposure_criteria)
+        ) is not None and update_data.get("only_count_matured_users", experiment.only_count_matured_users):
+            update_data = {**update_data, "only_count_matured_users": False}
         if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
             # The rule spans the exposure and every metric, so the fields left out of the update are read
             # from the experiment. An update that touches none of them skips the check, so a connection

@@ -590,7 +590,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self.experiment.only_count_matured_users:
             raise ExposedHogQLError(
                 "Warehouse-native metrics cannot exclude participants whose conversion window has not elapsed yet. "
-                "Turn that setting off in the experiment settings."
+                "Open the experiment settings and save them again to turn the setting off."
             )
         connection_id = self._validate_warehouse_native_sources(self.user)
         criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
