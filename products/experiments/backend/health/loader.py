@@ -1,6 +1,10 @@
 from dataclasses import replace
 from typing import Any
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+
+from rest_framework.exceptions import PermissionDenied
+
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
@@ -25,6 +29,10 @@ from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECK
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
+from products.experiments.backend.warehouse_native_sources import (
+    validate_warehouse_native_connection_access,
+    warehouse_native_exposure_config,
+)
 from products.feature_flags.backend.facade.filters import condition_aggregation, condition_rollout_percentage
 
 
@@ -130,20 +138,35 @@ def _health_context(
         can_read_flag_calls=flag_calls_readable(reader_access),
     )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
-    latest_calculation = load_latest_calculation(experiment)
+    can_read_results = _can_read_results(experiment, user)
+    latest_calculation = load_latest_calculation(experiment) if can_read_results else None
     return replace(
         context,
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
-        primary_metric=load_primary_metric(experiment),
+        primary_metric=load_primary_metric(experiment) if can_read_results else None,
         primary_metric_windows=load_primary_metric_windows(
             experiment, can_read_flag_history=reader_access.can_read_flag_history
         ),
         metric_compiles=load_metric_compiles(experiment, user=user),
         latest_calculation=latest_calculation,
+        can_read_results=can_read_results,
         exposure_filters_without_column=load_filters_without_column(experiment)
         if latest_calculation is not None
         and not latest_calculation.completed_count
         and any(failure.exposures_path == ExposuresPath.DIRECT_SCAN for failure in latest_calculation.failures)
         else None,
     )
+
+
+def _can_read_results(experiment: Experiment, user: User | None) -> bool:
+    """Whether `user` may read the experiment's stored results, by the check that the results endpoints run."""
+    exposure = warehouse_native_exposure_config(experiment.exposure_criteria)
+    if exposure is None:
+        return True
+    try:
+        validate_warehouse_native_connection_access(experiment.team, user, str(exposure.get("connection_id") or ""))
+    # The table access check raises DRF's PermissionDenied, which the access check passes on.
+    except (DjangoPermissionDenied, PermissionDenied):
+        return False
+    return True

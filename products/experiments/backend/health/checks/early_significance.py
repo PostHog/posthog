@@ -19,6 +19,7 @@ from products.experiments.backend.health.context import HealthContext, PrimaryMe
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
+    NO_WAREHOUSE_RESULTS_ACCESS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
@@ -104,6 +105,8 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(NOT_AFTER_END)
     if ctx.primary_metric_count == 0:
         return not_applicable(NEEDS_PRIMARY_METRIC)
+    if not ctx.can_read_results:
+        return not_checked(NO_WAREHOUSE_RESULTS_ACCESS)
     metric = ctx.primary_metric
     if metric is None:
         return not_checked("Couldn't read the results of the primary metric")

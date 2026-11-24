@@ -42,6 +42,7 @@ RUNNING_CONTEXT = HealthContext(
     past_daily_calculation=False,
     daily_calculation_ends_at=None,
     metric_events=(),
+    warehouse_native_exposures=False,
     exposure_events=ExposureEvents(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
     ),
@@ -58,6 +59,7 @@ RUNNING_CONTEXT = HealthContext(
     excluded_variant_keys=frozenset(),
     metric_compiles=None,
     latest_calculation=None,
+    can_read_results=True,
     exposure_filters_without_column=None,
 )
 

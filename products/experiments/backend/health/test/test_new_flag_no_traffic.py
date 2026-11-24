@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -36,6 +37,14 @@ FLAG_PROPERTY_DENIED = ExperimentHealthReaderAccess(
     denied_event_properties=frozenset({"$feature_flag"}),
     restricted_properties=frozenset(),
 )
+WAREHOUSE_NATIVE_EXPOSURE = {
+    "exposure_config": {
+        "kind": "ExperimentWarehouseNativeExposureConfig",
+        "connection_id": "00000000-0000-0000-0000-000000000000",
+        "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+    }
+}
 Status = ExperimentHealthCheckStatus
 
 
@@ -100,6 +109,17 @@ class TestNewFlagNoTraffic(BaseTest):
                 Status.NOT_CHECKED,
                 FLAG_PROPERTY_DENIED,
             ),
+            (
+                "never_called_while_the_warehouse_holds_the_exposures",
+                None,
+                False,
+                True,
+                FlagEvaluationsMode.EVENTS,
+                "events",
+                Status.NOT_APPLICABLE,
+                FULL_ACCESS,
+                WAREHOUSE_NATIVE_EXPOSURE,
+            ),
         ]
     )
     def test_reads_the_flags_recorded_calls_on_a_draft(
@@ -112,6 +132,7 @@ class TestNewFlagNoTraffic(BaseTest):
         sync_source: str,
         expected: ExperimentHealthCheckStatus,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
+        exposure_criteria: dict[str, Any] | None = None,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
@@ -134,7 +155,9 @@ class TestNewFlagNoTraffic(BaseTest):
                 },
             },
         )
-        experiment = Experiment.objects.create(team=self.team, name="draft", feature_flag=flag)
+        experiment = Experiment.objects.create(
+            team=self.team, name="draft", feature_flag=flag, exposure_criteria=exposure_criteria
+        )
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=sync_source):
             health = get_experiment_health(

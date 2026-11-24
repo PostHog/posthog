@@ -81,6 +81,8 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
         return not_checked("Couldn't check because the metric queries couldn't be built")
     if compiles.metric_count == 0:
         return no_calculated_metric(ctx)
+    if compiles.warehouse_native_count == compiles.metric_count:
+        return not_applicable("Doesn't run on metrics from a warehouse-native query")
     if compiles.exposure_query_fails:
         return not_checked("Couldn't check because the exposure criteria can't be built into a query")
     if not compiles.failures:

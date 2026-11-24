@@ -61,6 +61,7 @@ from products.experiments.backend.models.experiment import (
     live_experiments_for_flag,
 )
 from products.experiments.backend.running_time_target import RunningTimeTarget
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     ConditionsChange,
@@ -423,6 +424,8 @@ class MetricCompiles:
     # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
     # is empty.
     exposure_query_fails: bool
+    # The metrics whose statement runs in the customer's warehouse. They have no HogQL to compile.
+    warehouse_native_count: int = 0
 
 
 @frozen
@@ -678,7 +681,10 @@ class HealthContext:
     # None without a start date.
     daily_calculation_ends_at: datetime | None
     metric_events: tuple[MetricEvents, ...]
-    # None when the stored exposure criteria don't parse.
+    # Whether a warehouse-native query on the customer's warehouse returns the exposures. No event of this project
+    # describes them then, and an experiment with such an exposure reads only warehouse-native metrics.
+    warehouse_native_exposures: bool
+    # None when the stored exposure criteria don't parse, or when `warehouse_native_exposures` is True.
     exposure_events: ExposureEvents | None
     # Whether the project has received each event that `metric_events` and `exposure_events` name. A name that
     # ingestion never writes an event definition for is absent, because its absence proves nothing. So is every name
@@ -712,6 +718,10 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
+    # False when the reader may not read the stored results, which `primary_metric` and `latest_calculation` come
+    # from. A warehouse-native experiment stores totals read from the customer's warehouse, so they need the access to
+    # the warehouse connection that the results endpoints ask for. Both fields are None then.
+    can_read_results: bool
     # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
     # calculation completed and a failed query read the events.
     exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
@@ -1336,6 +1346,7 @@ def load_health_context(
         past_daily_calculation=is_past_daily_calculation(experiment.start_date, timezone.now()),
         daily_calculation_ends_at=daily_calculation_end(experiment.start_date),
         metric_events=metric_events,
+        warehouse_native_exposures=warehouse_native_exposure_config(experiment.exposure_criteria) is not None,
         exposure_events=exposure_events,
         events_received=events_received,
         exposure_properties_received=properties_received,
@@ -1350,5 +1361,6 @@ def load_health_context(
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
+        can_read_results=True,
         exposure_filters_without_column=None,
     )
