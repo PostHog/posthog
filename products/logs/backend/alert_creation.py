@@ -6,7 +6,7 @@ from typing import Any
 
 from posthog.models.team.team import Team
 
-from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock
+from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock, owned_copy_keys
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_utils import next_allowed_check_at
@@ -40,10 +40,18 @@ def check_alert_slot(team_id: int) -> None:
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
     # Each alert counts once: from its copy when the platform holds its settings, so it still counts once
-    # its logs row is deleted, else from its logs row. A copy the logs row owns is not counted.
-    alerts = LogsAlertConfiguration.objects.filter(team_id=team_id).exclude(
-        owner=PlatformAlertOwner.PLATFORM
-    ).count() + count_configurations(team_id=team_id, source_kind=SourceKind.LOGS, held_only=True)
+    # its logs row is deleted, else from its logs row. A copy the logs row owns is not counted, and a row
+    # that says logs owns it while its copy says the platform does counts from the copy.
+    row_ids = set(
+        LogsAlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+    )
+    if row_ids:
+        row_ids -= {
+            key.legacy_configuration_id for key in owned_copy_keys(team_id=team_id, source_kind=SourceKind.LOGS)
+        }
+    alerts = len(row_ids) + count_configurations(team_id=team_id, source_kind=SourceKind.LOGS, held_only=True)
     if alerts >= MAX_ALERTS_PER_TEAM:
         raise AlertLimitReached()
 

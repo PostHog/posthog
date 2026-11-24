@@ -1447,7 +1447,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             (f"{cap}_{kind}_{name}", cap, kind, editing_it, counted)
             for cap in ("alerts", "ai_detector", "real_time")
             # A copy's row still says daily with no detector, which the caps must not follow.
-            for kind in ("native", "copy", "copy_whose_row_is_gone")
+            for kind in ("native", "copy", "copy_whose_row_is_gone", "copy_whose_row_says_insight_owns_it")
             for name, editing_it, counted in [("counted", False, True), ("left_out_of_its_own_edit", True, False)]
             # An edit is not checked against the alerts limit.
             if not (cap == "alerts" and editing_it)
@@ -1466,6 +1466,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self._forget_the_insight_row()
         elif kind == "copy_whose_row_is_gone":
             AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        elif kind == "copy_whose_row_says_insight_owns_it":
+            AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE)
         with team_scope(self.team.id):
             if cap == "ai_detector":
                 stored_config = self._copy().source_config
@@ -1478,7 +1480,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         excluded = str(self.copy_id if native else self.alert.id) if editing_it else None
 
         if cap == "alerts":
-            is_counted = AlertConfiguration.check_alert_limit(self.team.id, self.organization) is not None
+            is_counted = AlertConfiguration.team_alert_count(self.team.id) == 1
         elif cap == "ai_detector":
             is_counted = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded) == 1
         else:
