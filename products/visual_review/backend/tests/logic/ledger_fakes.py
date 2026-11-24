@@ -158,15 +158,26 @@ class FakeGit:
             state="open", merged=False, merge_commit_sha=None, base_ref=DEFAULT_BRANCH, head_sha=head_sha
         )
 
-    def merge(self, number: int, sha: str) -> str:
+    def merge(self, number: int, sha: str, *, squash: bool = False, shown_as_merged: bool = True) -> str:
         head_sha = self.pull_requests[number].head_sha
         assert head_sha is not None
-        self.commit(sha, self.head, head_sha, subject=f"feat: change (#{number})")
+        # A squash commit does not contain the pull request's commits, so a branch stacked on them still
+        # lists them as its own after the merge.
+        parents = (self.head,) if squash else (self.head, head_sha)
+        self.commit(sha, *parents, subject=f"feat: change (#{number})")
         self.head = sha
-        self.pull_requests[number] = github_api.PullRequestState(
-            state="closed", merged=True, merge_commit_sha=sha, base_ref=DEFAULT_BRANCH, head_sha=head_sha
-        )
+        if shown_as_merged:
+            self.show_as_merged(number, sha)
         return sha
+
+    def show_as_merged(self, number: int, sha: str) -> None:
+        self.pull_requests[number] = github_api.PullRequestState(
+            state="closed",
+            merged=True,
+            merge_commit_sha=sha,
+            base_ref=DEFAULT_BRANCH,
+            head_sha=self.pull_requests[number].head_sha,
+        )
 
     def ancestors(self, sha: str) -> set[str]:
         seen: set[str] = set()

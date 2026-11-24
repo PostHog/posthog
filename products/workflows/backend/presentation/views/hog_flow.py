@@ -7224,7 +7224,7 @@ class HogFlowViewSet(
             hog_flow_id=instance.id,
             evidence=evidence,
             changes=content,
-            live=snapshot_flow_content(instance).get("conversion"),
+            live=snapshot_flow_content(instance),
             base_version=params["base_version"],
             now=django_timezone.now(),
         )
@@ -7417,7 +7417,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
-                live_conversion=snapshot_flow_content(hog_flow).get("conversion"),
+                live=snapshot_flow_content(hog_flow),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
