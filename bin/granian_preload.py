@@ -25,9 +25,13 @@ no stream socket that the import opened. Otherwise it starts again without the p
 why. The preload then saves no memory, but no worker can hang or share a connection.
 QUIET_LIBRARY_THREADS stops some libraries that the app imports from starting threads, and
 DEFERRED_LIBRARIES delays the others until a worker uses them.
-Granian starts its own threads in the parent after the first worker, to wait for each
-worker. Those threads hold no locks while they wait, and granian forked its workers with
-them on Linux by default before Python 3.14.
+The launcher checks the threads once, before granian starts, so it does not see granian's own
+threads. With metrics on, which bin/docker-server sets by default, granian starts one IPC
+receiver thread per worker before it forks the first worker. Granian also starts threads that
+wait for each worker, and it forks replacement workers (lifetime, crash, reload and RSS
+respawns) while all of these threads run. The launcher accepts this risk for granian's own
+threads: they wait in tokio or in waitpid, the forked worker uses none of their locks, and
+granian forked its workers with them on Linux by default before Python 3.14.
 
 bin/docker-server runs this instead of `granian` when POSTHOG_GRANIAN_PRELOAD=true.
 Every GRANIAN_* setting still applies. With POSTHOG_GRANIAN_SHARED_SOCKET=true the workers
