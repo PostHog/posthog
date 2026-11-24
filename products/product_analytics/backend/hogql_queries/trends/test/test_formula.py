@@ -853,6 +853,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 "Rome",
                 [2, 2, 2],
             ),
+            (
+                "events_a_month_before_the_range_rank_for_monthly_active",
+                "monthly_active",
+                [("2019-12-10", "Rome", "")],
+                "Rome",
+                [2, 2, 2],
+            ),
         ]
     )
     def test_breakdown_limit_ranks_the_events_that_the_series_read(
@@ -880,6 +887,25 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             [(series["breakdown_value"], series["data"]) for series in response],
             [(expected_breakdown_value, expected_data)],
         )
+
+    def test_breakdown_event_count_scales_with_sampling_like_the_series_values(self):
+        for index in range(40):
+            with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
+                _create_event(team=self.team, event="signup", distinct_id=f"user-{index}", properties={"shop": "Rome"})
+
+        response = self._run(
+            {
+                "series": [{"kind": "EventsNode", "event": "signup"}, {"kind": "EventsNode", "event": "signup"}],
+                "dateRange": {"date_from": "2020-01-02", "date_to": "2020-01-04"},
+                "breakdownFilter": {"breakdown": "shop"},
+                "trendsFilter": {"formula": "A + B", "display": "ActionsTable"},
+                "samplingFactor": 0.5,
+            }
+        )
+
+        [series] = response
+        self.assertGreater(series["aggregated_value"], 0)
+        self.assertEqual(series["breakdown_event_count"], series["aggregated_value"])
 
     def test_breakdown_limit_ranks_the_values_of_each_compared_period(self):
         with time_machine.travel("2019-12-25T13:01:01Z", tick=False):
