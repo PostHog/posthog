@@ -1567,7 +1567,11 @@ export const WorkflowImportsCreateParams = () => zod.object({
         ),
 })
 
+export const workflowImportsCreateBodySenderIdentitiesItemIdOneMax = 200
+
 export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodySegmentsItemIdOneMax = 200
+
 export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = () => zod.object({
@@ -1617,7 +1621,7 @@ export const WorkflowImportsCreateBody = () => zod.object({
         .array(
             zod.object({
                 id: zod
-                    .union([zod.string(), zod.number()])
+                    .union([zod.string().max(workflowImportsCreateBodySenderIdentitiesItemIdOneMax), zod.number()])
                     .describe("The sender identity's id, which templates name in `from_identity_id`."),
                 email: zod.email().describe('The address the sender sends from.'),
                 name: zod
@@ -1633,7 +1637,9 @@ export const WorkflowImportsCreateBody = () => zod.object({
     segments: zod
         .array(
             zod.object({
-                id: zod.union([zod.string(), zod.number()]).describe("The segment's id."),
+                id: zod
+                    .union([zod.string().max(workflowImportsCreateBodySegmentsItemIdOneMax), zod.number()])
+                    .describe("The segment's id."),
                 name: zod.string().describe("The segment's name."),
                 type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
                 conditions: zod

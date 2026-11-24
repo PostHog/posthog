@@ -35116,11 +35116,8 @@ export namespace Schemas {
     }
 
     export interface CustomerioSegment {
-      /**
-         * The segment's id.
-         * @maxLength 200
-         */
-      id: string;
+      /** The segment's id. */
+      id: string | number;
       /** The segment's name. */
       name: string;
       /** The segment's type: `dynamic`, or `static` for a hand-made list. */
@@ -35131,7 +35128,7 @@ export namespace Schemas {
 
     export interface CustomerioSenderIdentity {
       /** The sender identity's id, which templates name in `from_identity_id`. */
-      id: string;
+      id: string | number;
       /** The address the sender sends from. */
       email: string;
       /** The sender's display name. */

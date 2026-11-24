@@ -33,7 +33,7 @@ MAX_SEGMENT_CONDITIONS_BYTES = 100_000
 
 
 # Customer.io returns these ids as numbers, and callers pass its objects unchanged.
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "integer"}]})
+@extend_schema_field({"oneOf": [{"type": "string", "maxLength": MAX_SOURCE_ID_LENGTH}, {"type": "integer"}]})
 class CustomerioIdField(serializers.CharField):
     pass
 
