@@ -16205,16 +16205,23 @@ Diffed against: <https://workos.com/docs/reference/authkit/waitlist>
 Re-audited 2026-11-19 against: <https://workos.com/docs/llms.txt>
 
 - [x] `Organization memberships (GET /user_management/organization_memberships)` — Join table between users and organizations with role and status; the users and organizations tables cannot be linked without it (high)
-- [ ] `Invitations (GET /user_management/invitations)` — AuthKit invites with state and expiry, to measure invite acceptance by organization (medium)
-- [ ] `Environment roles (GET /authorization/roles)` — Lookup that names the role slugs carried on memberships (medium)
+- [x] `Invitations (GET /user_management/invitations)` — AuthKit invites with state and expiry, to measure invite acceptance by organization (medium)
+- [x] `Environment roles (GET /authorization/roles)` — Lookup that names the role slugs carried on memberships (medium)
 - [ ] `Permissions (GET /authorization/permissions)` — Environment permission catalog that roles refer to (low)
-- [ ] `Organization groups (GET /organizations/{organizationId}/groups)` — AuthKit groups of memberships; needs one call per organization (medium)
+- [x] `Organization groups (GET /organizations/{organizationId}/groups)` — AuthKit groups of memberships; needs one call per organization (medium)
 - [ ] `Feature flags (GET /feature-flags)` — Flag definitions for the environment (low)
-- [ ] `Events (GET /events)` — Change feed of user, organization, directory and connection events; keeps history that current-state tables lose (medium)
+- [x] `Events (GET /events)` — Change feed of user, organization, directory and connection events; keeps history that current-state tables lose (medium)
 
 Note (2026-11-19): Read llms.txt and the reference pages served as .md, and checked each list route heading. Invitations, roles, permissions and events are environment-level lists. Groups need a fan-out per organization. Excluded sessions and identities (per-user fan-out, ephemeral), API keys, agent vault, redirect URIs, CORS origins, webhooks, audit log schema and export, FGA and Pipes. The events list needs a type filter and has a limited retention window, so confirm both before building.
 
 Note (2026-11-23): Built `organization_memberships`. The list call needs `user_id` or `organization_id`, so it fans out over organizations. It returns only active memberships by default, so the sync asks for `statuses=active,inactive,pending`. Webhook sync through the `organization_membership.*` events is not built.
+
+Note (2026-11-24): Built `invitations`, `roles`, `organization_groups` and `events`.
+`invitations` drops the `token` and `accept_invitation_url` columns, because they let anyone accept the invite.
+`roles` takes no `limit` or `order`.
+`organization_groups` fans out over organizations.
+`events` needs a type filter, so it asks for the documented identity event types (not Vault, Pipes, feature flag, Radar or agent registration events).
+It syncs incrementally on `created_at` through `range_start`, in oldest-first order.
 
 ## World Bank Open Data — gaps
 
