@@ -3210,6 +3210,16 @@ export interface EvalSuggestionDismissApi {
     reason?: EvalSuggestionDismissReasonEnumApi | null
 }
 
+export interface EvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled: boolean
+}
+
+export interface PatchedEvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled?: boolean
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -4139,8 +4149,6 @@ export interface PassRateOverviewApi {
     median: number | null
     /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
     medianComparison: PeriodComparisonApi | null
-    /** Median pass rate per bucket, aligned with `buckets`. */
-    medianTrend: (number | null)[]
 }
 
 export interface EvaluationsOverviewApi {
@@ -5470,7 +5478,7 @@ export interface LLMProviderModelsSummaryApi {
     provider: string
     /** How many of this provider's models appear in `models`. */
     model_count: number
-    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
     requires_provider_key: boolean
 }
 
@@ -6560,165 +6568,6 @@ export interface LLMPromptResolveResponseApi {
     labels: LLMPromptLabelApi[]
     /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
     referenced_by: LLMPromptReferencedByApi[]
-}
-
-/**
- * * `llm` - LLM
- * * `hog` - Hog
- */
-export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
-
-export const TaggerTypeEnumApi = {
-    Llm: 'llm',
-    Hog: 'hog',
-} as const
-
-export interface TagDefinitionApi {
-    /**
-     * Tag identifier
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Description to help the LLM classify
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface LLMTaggerConfigApi {
-    /**
-     * Prompt instructing the LLM how to tag generations
-     * @minLength 1
-     */
-    prompt: string
-    /** Available tags the LLM can assign */
-    tags: TagDefinitionApi[]
-    /**
-     * Minimum number of tags to apply
-     * @minimum 0
-     */
-    min_tags?: number
-    /**
-     * Maximum number of tags to apply (null = no limit)
-     * @minimum 1
-     * @nullable
-     */
-    max_tags?: number | null
-}
-
-export interface HogTaggerConfigApi {
-    /**
-     * Hog source code to classify a generation into tags.
-     * @minLength 1
-     */
-    source: string
-    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-    tags?: TagDefinitionApi[]
-}
-
-export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
-
-export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
-
-export interface TaggerConditionApi {
-    /**
-     * Stable identifier for this condition
-     * @maxLength 100
-     */
-    id: string
-    /**
-     * Percentage of matching events to apply this condition to
-     * @minimum 0
-     * @maximum 100
-     */
-    rollout_percentage?: number
-    /** Property filters that scope when this condition fires */
-    properties?: TaggerConditionApiPropertiesItem[]
-}
-
-/**
- * * `openai` - Openai
- * * `anthropic` - Anthropic
- * * `gemini` - Gemini
- * * `openrouter` - Openrouter
- * * `fireworks` - Fireworks
- * * `azure_openai` - Azure OpenAI
- * * `together_ai` - Together AI
- * * `minimax` - MiniMax
- * * `openai_compatible` - OpenAI-compatible
- */
-export type LLMCompletionProviderEnumApi =
-    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
-
-export const LLMCompletionProviderEnumApi = {
-    Openai: 'openai',
-    Anthropic: 'anthropic',
-    Gemini: 'gemini',
-    Openrouter: 'openrouter',
-    Fireworks: 'fireworks',
-    AzureOpenai: 'azure_openai',
-    TogetherAi: 'together_ai',
-    Minimax: 'minimax',
-    OpenaiCompatible: 'openai_compatible',
-} as const
-
-export interface TaggerModelConfigurationApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * LLM provider key UUID pinned for this tagger, or null when none is pinned.
-     * @nullable
-     */
-    provider_key_id: string | null
-    /** @nullable */
-    readonly provider_key_name: string | null
-}
-
-export interface TaggerApi {
-    readonly id: string
-    readonly name: string
-    readonly description: string
-    readonly enabled: boolean
-    readonly tagger_type: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    readonly tagger_config: TaggerConfigApi
-    /** Conditions that scoped when the tagger ran */
-    readonly conditions: readonly TaggerConditionApi[]
-    readonly model_configuration: TaggerModelConfigurationApi | null
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-    readonly deleted: boolean
-    /**
-     * The evaluation that replaced this tagger when it was migrated. Null until then.
-     * @nullable
-     */
-    readonly migrated_to_evaluation_id: string | null
-}
-
-export interface PaginatedTaggerListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaggerApi[]
 }
 
 export type LlmAnalyticsPersonalSpendListParams = {
@@ -8052,42 +7901,4 @@ export type LlmPromptsResolveNameRetrieveParams = {
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
      */
     version_id?: string
-}
-
-export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[]
-    /**
-     * Search in name or description
-     */
-    search?: string
 }

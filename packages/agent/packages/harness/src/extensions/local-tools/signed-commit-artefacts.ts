@@ -7,8 +7,10 @@ const SANDBOX_OAUTH_ENV_FILE = "/tmp/agent-oauth-env";
 
 /**
  * Best-effort "commit hook": after a successful signed-commit push, record one `commit`
- * artefact per pushed commit on every signal report the task is associated with, so the
- * report's work log shows exactly what landed. Attribution is deterministic — the artefact
+ * artefact per pushed commit on every signal report the task's pull requests link to, so the
+ * report's work log shows exactly what landed. A report the task only claimed gets commits
+ * only when the task has no other report, so a triage task that claims many reports does not
+ * put its commits on all of them. Attribution is deterministic — the artefact
  * endpoint reads the `X-PostHog-Task-Id` header, never the model.
  *
  * Credentials come from the sandbox environment (`POSTHOG_API_URL` /
@@ -140,7 +142,7 @@ export async function reportCommitArtefacts(opts: {
       return; // No sandbox PostHog credentials — nothing to report to.
     }
     const reportIds = await withReportDeadline(
-      (signal) => client.getSignalReportIdsForTask(taskId, signal),
+      (signal) => client.getPrTargetReportIdsForTask(taskId, signal),
       "signal report lookup",
     );
     for (const reportId of reportIds) {

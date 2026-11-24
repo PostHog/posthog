@@ -2438,6 +2438,7 @@
       , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
   
       , properties_group_custom Map(String, String)
+      , properties_group_feature_flags Map(LowCardinality(String), LowCardinality(String))
       , person_properties_map_custom Map(String, String)
       
   , _timestamp DateTime
@@ -8594,6 +8595,7 @@
       , properties_group_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')) )
       , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter
       , INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter
+      , properties_group_feature_flags Map(LowCardinality(String), LowCardinality(String)) MATERIALIZED mapSort( mapFilter((key, _) -> key like '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')) )
       , person_properties_map_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%', CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')) )
       , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter
       , INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
@@ -8618,7 +8620,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', max_buckets_in_map = 32
   
   '''
 # ---
@@ -14629,6 +14631,7 @@
       , properties_group_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')) )
       , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter
       , INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter
+      , properties_group_feature_flags Map(LowCardinality(String), LowCardinality(String)) MATERIALIZED mapSort( mapFilter((key, _) -> key like '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')) )
       , person_properties_map_custom Map(String, String) MATERIALIZED mapSort( mapFilter((key, _) -> key NOT LIKE '$%', CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')) )
       , INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter
       , INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter
@@ -14653,7 +14656,7 @@
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, map_serialization_version = 'with_buckets', max_buckets_in_map = 32
   
   '''
 # ---

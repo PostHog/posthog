@@ -401,14 +401,14 @@ class SnowflakeDestinationWriter:
         target = staging_table_name(run) if full_refresh else run.table_name
 
         client = await self._make_client()
-        rows_written = 0
+        outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         async with client.connect():
             if full_refresh and await self._already_published(client, run):
                 # This run's staging table is gone and the live table carries this run's publish
                 # stamp, so the run finished. Re-creating a staging table from this one batch and
                 # swapping it in would replace the whole table with it.
-                return BatchWriteOutcome(rows_written=0)
+                return outcome
 
             first = True
             chunk = 0
@@ -454,15 +454,17 @@ class SnowflakeDestinationWriter:
                     first = False
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
-                    rows_written += await self._merge_chunk(
+                    outcome += await self._merge_chunk(
                         client, target, stamped, list(run.primary_keys), run.run_uuid, ctx.batch_index, chunk
                     )
                 else:
-                    await self._copy_chunk(client, target, stamped, run.run_uuid, ctx.batch_index, chunk)
-                    rows_written += batch.num_rows
+                    bytes_written = await self._copy_chunk(
+                        client, target, stamped, run.run_uuid, ctx.batch_index, chunk
+                    )
+                    outcome += BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
                 chunk += 1
 
-        return BatchWriteOutcome(rows_written=rows_written)
+        return outcome
 
     def _parquet_file(self, batch: pa.RecordBatch, name: str) -> NamedBytesIO:
         # PUT compresses whatever it does not recognize as already compressed, so a plain
@@ -474,7 +476,8 @@ class SnowflakeDestinationWriter:
 
     async def _copy_chunk(
         self, client: SnowflakeClient, target: str, batch: pa.RecordBatch, run_uuid: str, batch_index: int, chunk: int
-    ) -> None:
+    ) -> int:
+        """Stage one chunk as a zstd parquet file and COPY it in. Returns the size of the file PUT."""
         prefix = stage_prefix(run_uuid, batch_index, chunk)
         table = _stage_table(target, batch.schema, prefix)
 
@@ -482,11 +485,11 @@ class SnowflakeDestinationWriter:
         # path its previous attempt used. PUT does not overwrite, so without this the upload
         # would be skipped and COPY INTO would load the file the earlier attempt left behind.
         await client.remove_internal_stage_files(table)
-        await client.put_file_to_snowflake_table_stage(
-            file=self._parquet_file(batch, f"{prefix}.parquet.zst"),
-            table=table,
-        )
+        file = self._parquet_file(batch, f"{prefix}.parquet.zst")
+        file_size = file.getbuffer().nbytes
+        await client.put_file_to_snowflake_table_stage(file=file, table=table)
         await client.copy_loaded_files_to_snowflake_table(table, COPY_TIMEOUT_SECONDS)
+        return file_size
 
     async def _merge_chunk(
         self,
@@ -497,7 +500,7 @@ class SnowflakeDestinationWriter:
         run_uuid: str,
         batch_index: int,
         chunk: int,
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert on the primary keys, staging the chunk in a scratch table first."""
         # A `MERGE` whose source holds one key twice is rejected as a nondeterministic update,
         # and it is rejected again on every retry.
@@ -507,7 +510,7 @@ class SnowflakeDestinationWriter:
 
         await self._ensure_table(client, stage_table, batch.schema, with_batch_index=False)
         try:
-            await self._copy_chunk(client, stage_table, batch, run_uuid, batch_index, chunk)
+            bytes_written = await self._copy_chunk(client, stage_table, batch, run_uuid, batch_index, chunk)
 
             on_clause = " AND ".join(
                 f"target.{quote_identifier(k)} = source.{quote_identifier(k)}" for k in primary_keys
@@ -528,7 +531,7 @@ class SnowflakeDestinationWriter:
         finally:
             await client.execute_async_query(f"DROP TABLE IF EXISTS {self._qualified(stage_table)}")
 
-        return batch.num_rows
+        return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         with self._configuration_errors():

@@ -56,6 +56,19 @@ def check_no_duplicate_migration_numbers() -> bool:
     return True
 
 
+def find_conflict_with_master(index: str, name: str, master_migrations: list[tuple[str, str]]) -> str | None:
+    """Return why a new migration's number doesn't fit after the migrations on master, or None."""
+    collisions = [f"{idx}_{n}" for idx, n in master_migrations if idx == index]
+    if collisions:
+        return f"Migration {index}_{name} conflicts with master: {', '.join(collisions)}"
+    last_index, last_name = max(master_migrations, key=lambda migration: int(migration[0]), default=("0", ""))
+    if int(index) < int(last_index):
+        # A lower number also runs before the cutoff in bin/migrate-clickhouse-with-prod-grants, as the
+        # default user, so the prod grants would never check it.
+        return f"Migration {index}_{name} is numbered before {last_index}_{last_name}, the last migration on master"
+    return None
+
+
 def check_max_migration_file() -> bool:
     """Check that max_migration.txt matches the highest numbered migration."""
     migrations = get_all_migrations()
@@ -134,7 +147,7 @@ class Command(BaseCommand):
             logger.warning("Could not parse migration path '%s': %s", new_migration, exc)
             return
 
-        collisions = [f"{idx}_{n}" for idx, n in old_migrations if idx == index]
-        if collisions:
-            logger.error(f"Migration {index}_{name} conflicts with master: {', '.join(collisions)}")
+        conflict = find_conflict_with_master(index, name, old_migrations)
+        if conflict:
+            logger.error(conflict)
             sys.exit(1)

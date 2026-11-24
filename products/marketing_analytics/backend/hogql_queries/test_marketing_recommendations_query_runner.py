@@ -24,6 +24,8 @@ from posthog.models.utils import uuid7
 from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     FlaggedAd,
+    Keyword,
+    OrganicQueryStats,
     PolicyAds,
     PolicyTopic,
 )
@@ -242,6 +244,40 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         )
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
+
+    def test_keywords_are_the_enabled_ones_that_match_an_organic_query(self) -> None:
+        keywords = self._table(
+            "keyword",
+            {
+                "campaign_id": "Int64",
+                "ad_group_criterion_keyword_text": "String",
+                "ad_group_criterion_status": "String",
+            },
+            "campaign_id,ad_group_criterion_keyword_text,ad_group_criterion_status\n"
+            "1, Funnel Analysis ,ENABLED\n"
+            "2,funnel analysis,PAUSED\n"
+            "4,session replay,ENABLED\n",
+        )
+        # Campaign 1 has no stats rows, so the keyword reads its campaign without depending on spend.
+        campaigns = self._table(
+            "campaign",
+            {"campaign_id": "Int64", "campaign_advertising_channel_type": "String", "campaign_status": "String"},
+            "campaign_id,campaign_advertising_channel_type,campaign_status\n1,SEARCH,ENABLED\n2,SEARCH,ENABLED\n",
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(), team=self.team, user=self.user
+        )
+
+        found = runner._keywords(
+            MarketingAnalyticsRecommendationsSource(
+                sourceType="GoogleAds", keywordTable=keywords, campaignTable=campaigns
+            ),
+            (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=100, position=20),),
+        )
+
+        assert found == [
+            Keyword(text="funnel analysis", campaign_id="1", channel_type="SEARCH", campaign_status="ENABLED")
+        ]
 
     def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
         campaigns = self._table(
@@ -551,7 +587,13 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             else:
                 properties["utm_term"] = "organic"
             _create_event(
-                team=self.team, event="$pageview", distinct_id=f"user{i}", timestamp="2026-01-15", properties=properties
+                team=self.team,
+                # Half the paid sessions have no pageview, so a query that only reads pageviews falls below the
+                # rule's session minimum.
+                event="$pageview" if i % 2 else "$autocapture",
+                distinct_id=f"user{i}",
+                timestamp="2026-01-15",
+                properties=properties,
             )
         flush_persons_and_events()
 
@@ -607,6 +649,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "search_term_stats": True,
                 "search_term_conversion_action_stats": True,
                 "ad": True,
+                "keyword": True,
                 "customer": False,
             },
         )
@@ -627,6 +670,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "searchTermTable": "googleads.acme.search_term_stats",
                 "searchTermConversionActionTable": "googleads.acme.search_term_conversion_action_stats",
                 "adTable": "googleads.acme.ad",
+                "keywordTable": "googleads.acme.keyword",
             },
             {
                 "sourceType": "GoogleSearchConsole",

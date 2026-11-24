@@ -1,7 +1,16 @@
+import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import { HogError } from './errors'
 import type { Runtime } from './runtime'
+
+export function canonical(path: string): string {
+    try {
+        return realpathSync(path)
+    } catch {
+        return path
+    }
+}
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
