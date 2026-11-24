@@ -33,6 +33,7 @@ RULES_FILE_NAMES = frozenset({"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"})
 ENFORCER_TIMEOUT_SECONDS = 300
 ENFORCER_OUTPUT_TAIL_LINES = 20
 ENFORCER_INSTALL_MARKER_PREFIX = ".git/writer-enforcer-install-"
+ENFORCER_COREPACK_HOME = ".git/writer-enforcer-corepack"
 PRE_COMMIT_VERSION = "4.7.0"
 PRE_COMMIT_CONFIG_PATH = ".pre-commit-config.yaml"
 COREPACK_VERSION = "0.36.0"
@@ -1275,6 +1276,9 @@ def enforcer_environment() -> dict[str, str]:
         **inherited,
         "CI": "1",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+        "COREPACK_HOME": os.path.abspath(ENFORCER_COREPACK_HOME),
+        "COREPACK_ON_UNVERIFIED_DOWNLOAD": "strict-error",
+        "NODE_USE_ENV_PROXY": "1",
         "PIP_ONLY_BINARY": ":all:",
         "UV_NO_BUILD": "1",
     }
