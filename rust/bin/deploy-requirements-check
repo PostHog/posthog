@@ -40,7 +40,9 @@ INTERVAL_SECONDS="${SCHEMA_CHECK_INTERVAL_SECONDS:-15}"
 # timeout is set inside the transaction, because PgBouncer refuses it as a startup parameter.
 export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-5}"
 PSQL_TIMEOUT_SECONDS=20
-QUERY="begin; set local statement_timeout = 5000; select version, success from _sqlx_migrations; commit;"
+# The "server" row runs in the same transaction as the version read, so PgBouncer sends both to
+# the same backend. A missing result then shows which database and which kind of server it read.
+QUERY="begin; set local statement_timeout = 5000; select 'server', current_database(), pg_is_in_recovery(); select version, success from _sqlx_migrations; commit;"
 
 STARTED_AT=$(date +%s)
 
@@ -70,15 +72,18 @@ finish() {
         --arg app "$APP" --arg mode "$MODE" --arg result "$result" --arg digest "$DIGEST" \
         --argjson would_exit "$exit_code" --argjson elapsed "$elapsed" \
         --arg missing "$(printf '%s\n' "${MISSING[@]}")" --arg errors "$(printf '%s\n' "${ERRORS[@]}")" \
+        --arg seen "$(printf '%s\n' "${SEEN[@]}")" \
         '{event: "deploy_requirements_check", app: $app, mode: $mode, result: $result,
           would_exit: $would_exit, elapsed_seconds: $elapsed, digest: $digest,
           missing: ($missing | split("\n") | map(select(. != ""))),
-          errors: ($errors | split("\n") | map(select(. != "")))}'
+          errors: ($errors | split("\n") | map(select(. != ""))),
+          seen: ($seen | split("\n") | map(select(. != "")))}'
     exit "$final_exit"
 }
 
 MISSING=()
 ERRORS=()
+SEEN=()
 DIGEST=""
 
 if [ ! -f "$REQUIREMENTS" ]; then
@@ -121,10 +126,26 @@ if [ "${#ERRORS[@]}" -gt 0 ]; then
     finish "error" 2
 fi
 
+# Describes the rows that one read returned. A missing version in a database where the other apps
+# pass can be a read of the wrong database or of a replica that lags. The row count, the highest
+# version and the server row tell these causes apart.
+describe_rows() {
+    local versions count server
+    versions=$(echo "$1" | awk '$1 ~ /^[0-9]+$/ { print $1 }' | sort -n)
+    count=$(echo "$versions" | awk 'NF' | wc -l | tr -d ' ')
+    server=$(echo "$1" | awk '$1 == "server" { print "database " $2 ", in recovery " $3 }')
+    if [ "$count" -eq 0 ]; then
+        echo "0 rows, ${server:-no server row}"
+        return
+    fi
+    echo "$count rows, lowest $(echo "$versions" | head -1), highest $(echo "$versions" | tail -1), ${server:-no server row}"
+}
+
 check_once() {
     MISSING=()
     ERRORS=()
-    local database variable rows required
+    SEEN=()
+    local database variable rows required missing_before
     for database in $DATABASES; do
         variable=$(url_variable "$database")
         if ! rows=$(timeout "$PSQL_TIMEOUT_SECONDS" psql "${!variable}" -X -q -t -A -F ' ' -c "$QUERY" 2>&1); then
@@ -140,6 +161,7 @@ check_once() {
             fi
         fi
         required=$(echo "$REQUIRED" | awk -v db="$database" '$1 == db { print $2 }')
+        missing_before=${#MISSING[@]}
         while read -r version; do
             [ -n "$version" ] || continue
             if echo "$rows" | grep -qx "$version t"; then
@@ -152,6 +174,9 @@ check_once() {
                 MISSING+=("$database $version")
             fi
         done <<< "$required"
+        if [ "${#MISSING[@]}" -gt "$missing_before" ]; then
+            SEEN+=("$database: $(describe_rows "$rows")")
+        fi
     done
 }
 

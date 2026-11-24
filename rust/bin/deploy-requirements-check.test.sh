@@ -92,8 +92,11 @@ printf '20250101000001 t\n20250201000001 t\n20251201000001 t\n' > "$WORK/persons
 export PERSONS_DATABASE_URL="postgres://fixture/persons"
 assert_eq "all applied, newer versions allowed" "0 satisfied" "$(run_check)"
 
-printf '20250101000001 t\n' > "$WORK/persons"
+printf 'server posthog_persons f\n20250101000001 t\n' > "$WORK/persons"
 assert_eq "a missing version holds" "1 missing" "$(run_check)"
+assert_eq "a missing result logs what the read returned" \
+    '["persons: 1 rows, lowest 20250101000001, highest 20250101000001, database posthog_persons, in recovery f"]' \
+    "$(SCHEMA_CHECK_WAIT_SECONDS=0 "$BIN_DIR/deploy-requirements-check" 2>/dev/null | jq -c .seen)"
 
 printf '20250101000001 t\n20250201000001 f\n' > "$WORK/persons"
 assert_eq "a failed required version holds" "1 missing" "$(run_check)"
