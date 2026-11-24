@@ -450,15 +450,17 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             return temporal
 
         with (
-            responses.RequestsMock() as http,
+            responses.RequestsMock(assert_all_requests_are_fired=False) as http,
             patch("posthog.tasks.proxy.async_connect", side_effect=connect_while_deleting),
             patch(
                 "posthog.tasks.proxy.reconcile_proxy.apply_async",
                 side_effect=lambda args, kwargs, countdown: reconcile_proxy.run(*args, **kwargs),
             ),
         ):
+            self._cloudflare(http, exists=True)
             reconcile_managed_proxies.run()
-            self.assertEqual(len(http.calls), 0)
+            expected = ["GET", "DELETE", "DELETE"] if active is False else []
+            self.assertEqual([call.request.method for call in http.calls], expected)
 
         self.assertEqual(
             temporal.started,
@@ -475,6 +477,25 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
                 )
             },
         )
+
+    def test_suspension_cleans_up_deleting_proxy_during_temporal_outage(self) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.DELETING)
+
+        with (
+            responses.RequestsMock(assert_all_requests_are_fired=False) as http,
+            patch("posthog.tasks.proxy.async_connect", side_effect=TimeoutError),
+        ):
+            self._cloudflare(http, exists=True)
+            for _ in range(2):
+                with self.assertRaises(TimeoutError):
+                    reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
+            self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE", "DELETE"])
+
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.status, ProxyRecord.Status.DELETING)
+        self.assertTrue(self.record.cloudflare_deprovisioned)
+        self.assertFalse(self.record.needs_activation_recovery)
 
     def test_sweep_recovers_failed_activation_enqueue_without_interrupting_commit_hooks(self) -> None:
         subsequent_hooks = []
