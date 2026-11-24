@@ -2,8 +2,6 @@ from django.db import migrations
 
 import structlog
 
-from posthog.dataclasses import frozen
-
 logger = structlog.get_logger(__name__)
 
 # Rebuilds 0008's index on databases where it is missing. Django state already has
@@ -35,8 +33,20 @@ _PARTITIONS_SQL = """
     ORDER BY c.relname
 """
 
-_INDEX_STATE_SQL = """
-    SELECT i.indisvalid, EXISTS (SELECT 1 FROM pg_inherits pi WHERE pi.inhrelid = c.oid)
+# Matched by OID, not by name: partitions created after the parent index exists get
+# a child index under a name Postgres generates, and a second ATTACH would fail.
+_PARTITION_ATTACHED_SQL = f"""
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_inherits pi
+        JOIN pg_index ci ON ci.indexrelid = pi.inhrelid
+        WHERE pi.inhparent = 'public.{INDEX_NAME}'::regclass
+          AND ci.indrelid = %s::regclass
+    )
+"""
+
+_INDEX_VALID_SQL = """
+    SELECT i.indisvalid
     FROM pg_class c
     JOIN pg_index i ON i.indexrelid = c.oid
     WHERE c.relname = %s
@@ -56,19 +66,18 @@ def _partitions(schema_editor) -> list[str]:
         return [row[0] for row in cursor.fetchall()]
 
 
-@frozen
-class _IndexState:
-    valid: bool
-    attached: bool
-
-
-def _index_state(schema_editor, index_name: str) -> _IndexState:
+def _partition_attached(schema_editor, partition: str) -> bool:
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(_INDEX_STATE_SQL, [index_name])
+        cursor.execute(_PARTITION_ATTACHED_SQL, [f'public."{partition}"'])
         row = cursor.fetchone()
-    if row is None:
-        return _IndexState(valid=False, attached=False)
-    return _IndexState(valid=bool(row[0]), attached=bool(row[1]))
+    return bool(row and row[0])
+
+
+def _index_valid(schema_editor, index_name: str) -> bool:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(_INDEX_VALID_SQL, [index_name])
+        row = cursor.fetchone()
+    return bool(row and row[0])
 
 
 def _disable_timeouts(schema_editor) -> None:
@@ -85,11 +94,10 @@ def _forward(apps, schema_editor):
 
     _disable_timeouts(schema_editor)
     for partition in _partitions(schema_editor):
-        index_name = f"{partition}_{INDEX_NAME}"
-        state = _index_state(schema_editor, index_name)
-        if state.attached:
+        if _partition_attached(schema_editor, partition):
             continue
-        if not state.valid:
+        index_name = f"{partition}_{INDEX_NAME}"
+        if not _index_valid(schema_editor, index_name):
             schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
             logger.info("sourcebatch_partition_index_build", partition=partition, index_name=index_name)
             schema_editor.execute(
