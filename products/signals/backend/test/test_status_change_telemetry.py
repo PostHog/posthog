@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
 from posthog.models import User
 
@@ -118,28 +119,64 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            ("merge_credits_claim_holder", "merged", "claimer", "attacher", None, "claimer", "claim"),
-            ("merge_credits_pr_attacher_without_claim", "merged", None, "attacher", None, "attacher", "pr_attacher"),
-            ("merge_credits_task_creator_without_claim", "merged", None, None, "attacher", "attacher", "task_creator"),
+            ("merge_credits_claim_holder", "merged", "claimer", "attacher", None, None, "claimer", "claim"),
+            ("merge_credits_pr_attacher", "merged", None, "attacher", None, None, "attacher", "pr_attacher"),
+            ("merge_credits_task_creator", "merged", None, None, "attacher", None, "attacher", "task_creator"),
             (
                 "merge_credits_task_claim_as_task_creator",
                 "merged",
                 "task",
                 None,
                 "attacher",
+                None,
                 "attacher",
                 "task_creator",
             ),
-            ("merge_without_owner_names_nobody", "merged", None, None, None, None, None),
-            ("close_credits_claim_holder", "closed", "claimer", None, None, "claimer", "claim"),
+            ("merge_without_owner_names_nobody", "merged", None, None, None, None, None, None),
+            ("close_credits_claim_holder", "closed", "claimer", None, None, None, "claimer", "claim"),
+            (
+                "merge_credits_merger_over_task_creator",
+                "merged",
+                None,
+                None,
+                "attacher",
+                "linked",
+                "merger",
+                "pr_merger",
+            ),
+            (
+                "merge_credits_merger_over_task_claim",
+                "merged",
+                "task",
+                None,
+                "attacher",
+                "linked",
+                "merger",
+                "pr_merger",
+            ),
+            ("merge_credits_claim_holder_over_merger", "merged", "claimer", None, None, "linked", "claimer", "claim"),
+            (
+                "merge_credits_pr_attacher_over_merger",
+                "merged",
+                None,
+                "attacher",
+                None,
+                "linked",
+                "attacher",
+                "pr_attacher",
+            ),
+            ("merge_ignores_a_login_another_account_holds", "merged", None, None, None, "other_account", None, None),
         ]
     )
     def test_pr_state_transition_credits_work_owner_as_system_actor(
-        self, _name, pr_state, claimer, attacher, task_creator, expected, expected_source
+        self, _name, pr_state, claimer, attacher, task_creator, merged_by, expected, expected_source
     ):
+        merger = User.objects.create_and_join(self.organization, "merger@example.com", None)
+        UserSocialAuth.objects.create(user=merger, provider="github", uid="4242", extra_data={"login": "octo-merger"})
         users = {
             "claimer": User.objects.create_and_join(self.organization, "claimer@example.com", None),
             "attacher": self.user,
+            "merger": merger,
             None: None,
         }
         report = self._create_report()
@@ -174,6 +211,8 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             number=1,
             url="https://github.com/example/app/pull/1",
             state=pr_state,
+            merged_by_login="Octo-Merger" if merged_by else None,
+            merged_by_github_id={"linked": 4242, "other_account": 9999}.get(merged_by),
         )
         SignalReportArtefact.objects.create(
             team=self.team,

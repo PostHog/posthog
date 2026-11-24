@@ -15,6 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.github.attribution import bounded_github_identity_lookup
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
@@ -30,6 +31,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
 )
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import (
     PullRequestStateSource,
     apply_report_completion,
@@ -111,6 +113,7 @@ class PullRequestDetails:
     state: str
     merged: bool
     merged_at: datetime | None = None
+    merged_by: PullRequestMerger | None = None
 
 
 def assignment_snapshot(
@@ -348,6 +351,7 @@ def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = F
         state=pr_state,
         merged=merged,
         merged_at=merged_at if merged_at is not None and timezone.is_aware(merged_at) else None,
+        merged_by=PullRequestMerger.from_github(status.get("merged_by")) if merged else None,
     )
 
 
@@ -419,14 +423,53 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
+def _merger_user(team_id: int, prs: Sequence[ImplementationPr]) -> User | None:
+    """The active org member whose linked GitHub account merged one of the pull requests."""
+    from products.signals.backend.pr_owner_assignments import (  # noqa: PLC0415 - its reviewer resolver reaches the signals facade, which imports this module
+        github_identity_source,
+    )
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415 - same cycle
+        resolve_org_github_login_to_users,
+    )
+
+    mergers = {pr.merged_by.login.lower(): pr.merged_by for pr in prs if pr.merged and pr.merged_by is not None}
+    if not mergers:
+        return None
+    try:
+        # This runs under the report row lock, and on a webhook delivery that GitHub never retries.
+        with bounded_github_identity_lookup():
+            members = resolve_org_github_login_to_users(team_id, mergers)
+            for login, merger in mergers.items():
+                member = members.get(login)
+                if member is None or not member.is_active:
+                    continue
+                identity = github_identity_source(member, login)
+                # Another GitHub account can register a login that a member gave up, so a known id must match.
+                if identity is not None and merger.github_id is not None and identity[1] != merger.github_id:
+                    continue
+                return member
+    except Exception:
+        logger.warning("signals.assignment.pr_merger_lookup_failed", team_id=team_id, exc_info=True)
+    return None
+
+
 def _pr_work_credit(report: SignalReport, prs: Sequence[ImplementationPr]) -> TransitionCredit | None:
-    """The person behind the pull request work: the claim holder, else who attached a PR, else who started its task."""
+    """The person behind the pull request work.
+
+    A person who took the work on comes first: the holder of a person's claim, then who attached a PR.
+    The person who merged it comes next. The creator of a task comes last, because an auto-started
+    task runs as a suggested reviewer who may never have acted on the report.
+    """
     claim = get_active_claim(team_id=report.team_id, report_id=report.id)
-    if claim is not None and (user := responsible_user(claim)) is not None:
-        return TransitionCredit(user=user, source="claim" if claim.actor_user is not None else "task_creator")
+    if claim is not None and claim.actor_user is not None:
+        return TransitionCredit(user=claim.actor_user, source="claim")
     for pr in prs:
         if pr.attached_by_user is not None:
             return TransitionCredit(user=pr.attached_by_user, source="pr_attacher")
+    if (merger := _merger_user(report.team_id, prs)) is not None:
+        return TransitionCredit(user=merger, source="pr_merger")
+    if claim is not None and (claim_task_creator := responsible_user(claim)) is not None:
+        return TransitionCredit(user=claim_task_creator, source="task_creator")
     creators = tasks_facade.get_task_creator_ids([pr.task_id for pr in prs if pr.task_id], [report.team_id])
     for pr in prs:
         if pr.task_id and (creator_id := creators.get(pr.task_id)) is not None:
@@ -707,6 +750,7 @@ def update_assignments_for_pull_request(
     pr_number: int,
     pr_state: str,
     merged_at: datetime | None = None,
+    merged_by: PullRequestMerger | None = None,
 ) -> int:
     from products.signals.backend.implementation_pr import (
         fetch_implementation_prs_for_reports,
@@ -744,6 +788,7 @@ def update_assignments_for_pull_request(
                                 state=pr_state,
                                 merged=pr_state == "merged",
                                 merged_at=merged_at,
+                                merged_by=merged_by,
                             ),
                             actor=ArtefactAttribution.from_task(pr.task_id),
                             claim_id=pr.claim_id,
@@ -754,5 +799,6 @@ def update_assignments_for_pull_request(
                 number=pr_number,
                 state=pr_state,
                 merged_at=merged_at,
+                merged_by=merged_by,
             )
     return updated

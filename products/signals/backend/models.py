@@ -1542,6 +1542,8 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
+    merged_by_login = models.CharField(max_length=255, null=True, blank=True)
+    merged_by_github_id = models.BigIntegerField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
     participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
@@ -2953,6 +2955,12 @@ class SignalReportMonitoringAttempt(UUIDModel):
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
     close_pr_on_resolve = models.BooleanField(null=True, blank=True)
+    # The person who completed the implementation. The automatic transition out of Monitoring names them,
+    # because nobody makes that transition by hand.
+    credited_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    credited_user_source = models.CharField(max_length=16, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

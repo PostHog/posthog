@@ -29,7 +29,11 @@ from products.signals.backend.report_monitoring_aggregation import (
     MonitoringMemberState,
     aggregate_monitoring_members,
 )
-from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_attempts import (
+    attempt_credit,
+    check_definition_version,
+    current_monitoring_attempt,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -194,6 +198,7 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
             target = (
                 SignalReport.Status.RESOLVED if decision == MonitoringAggregation.PASSED else SignalReport.Status.CLOSED
             )
+            report._transition_credit = attempt_credit(attempt)  # type: ignore[attr-defined]
             report.save(update_fields=report.transition_to(target))
         if decision != MonitoringAggregation.WAITING and decision != previous:
             SignalReportArtefact.add_log(

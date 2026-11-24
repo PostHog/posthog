@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import structlog
 from social_django.models import UserSocialAuth
 
@@ -28,6 +31,13 @@ def _attribution_aliases() -> list[str]:
     return list(dict.fromkeys([*read_aliases(_ATTRIBUTION_MODELS), *database_read_aliases()]))
 
 
+@contextmanager
+def bounded_github_identity_lookup() -> Iterator[None]:
+    """Run an org-member lookup by GitHub login under the per-statement cap of this module."""
+    with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, aliases=_attribution_aliases()):
+        yield
+
+
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
     """Distinct id of the org member matching a GitHub login, or None when unresolvable.
 
@@ -42,7 +52,7 @@ def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | 
     )
 
     try:
-        with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, aliases=_attribution_aliases()):
+        with bounded_github_identity_lookup():
             resolved = resolve_github_login_distinct_id(str(login), team_id)
     except Exception as e:
         # timeout is meant to be the leading indicator for the cap we just installed, so it

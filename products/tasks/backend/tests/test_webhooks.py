@@ -1317,6 +1317,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self, _name, merged, actor_kind, relationship, expected_status, _mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
+        merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=merger)
+        UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
         self.assignment.delete()
         self._link_task_pr(self.report, "https://www.github.com/PostHog/posthog/pull/42/", relationship)
         if actor_kind:
@@ -1342,6 +1345,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             assert status_events[0].get("resolution_reason") == ("pr_merged" if merged else None)
             assert status_events[0].get("dismissal_cause") == (None if merged else "pr_closed_without_merge")
             assert status_events[0]["dismissal_reason"] is None
+            assert status_events[0]["actor_distinct_id"] == ("merger-456" if merged else None)
+            assert status_events[0]["actor_user_source"] == ("pr_merger" if merged else None)
         else:
             assert status_events == []
         if relationship == "implementation":
@@ -1385,6 +1390,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 "html_url": pr_url,
                 "merged": merged,
                 "merged_at": "2026-09-20T12:30:00Z" if merged else None,
+                "merged_by": {"login": "Octocat", "id": 583231} if merged else None,
                 "number": int(pr_url.rstrip("/").split("/")[-1]),
             },
             "repository": {"full_name": "posthog/posthog"},
