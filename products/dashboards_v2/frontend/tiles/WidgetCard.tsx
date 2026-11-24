@@ -12,7 +12,8 @@ import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
 import { WidgetView } from '../widgets/WidgetView'
 import type { TileAction } from './tileAction'
-import { TileContextMenu } from './TileContextMenu'
+import { TileContextMenu, hasTileMenu } from './TileContextMenu'
+import { TileMenuButton } from './TileMenuButton'
 
 function UpdatedAt({ refreshedAt }: { refreshedAt?: string }): JSX.Element {
     if (!refreshedAt) {
@@ -50,6 +51,7 @@ export function WidgetCard({
     const showFooter = isPartShown(widget, 'footer', slots)
     const HeaderActions = definition?.HeaderActions
     const Footer = definition?.Footer
+    const hasMenu = hasTileMenu(actions)
 
     return (
         <TileContextMenu actions={actions}>
@@ -64,12 +66,16 @@ export function WidgetCard({
                         {showDescription && (
                             <CardDescription className="truncate">{widget.description}</CardDescription>
                         )}
-                        {HeaderActions && (
+                        {(HeaderActions || hasMenu) && (
                             <CardAction className="flex items-center gap-1">
-                                <HeaderActions widget={widget} />
+                                {HeaderActions && <HeaderActions widget={widget} />}
+                                {hasMenu && <TileMenuButton className="DashboardV2__chrome" />}
                             </CardAction>
                         )}
                     </CardHeader>
+                )}
+                {!showHeader && hasMenu && (
+                    <TileMenuButton className="DashboardV2__chrome DashboardV2__float-toolbar" />
                 )}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} definition={definition} />
