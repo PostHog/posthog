@@ -247,6 +247,13 @@ describe('humanizeActivity', () => {
             expected: ['enabled masking all inputs in session replay'],
             unexpected: ['mobile session replay'],
         },
+        {
+            name: 'config with inputs unmasked cleared',
+            before: { maskAllInputs: false, mobile: { maskAllText: true } },
+            after: null,
+            expected: ['disabled masking all text in mobile session replay'],
+            unexpected: ['masking all inputs'],
+        },
     ])('describes a masking config change: $name', ({ before, after, expected, unexpected = [] }) => {
         const logItem = makeLogItem({
             scope: ActivityScope.TEAM,

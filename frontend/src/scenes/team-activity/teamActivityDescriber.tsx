@@ -294,8 +294,8 @@ const TEAM_PROPERTIES_MAPPING: Record<
         }
     },
     session_recording_masking_config: (change) => {
-        const maskAllInputsBefore = isObject(change.before) ? change.before.maskAllInputs : undefined
-        const maskAllInputsAfter = isObject(change.after) ? change.after.maskAllInputs : undefined
+        const maskAllInputsBefore = isObject(change.before) && !!change.before.maskAllInputs
+        const maskAllInputsAfter = isObject(change.after) && !!change.after.maskAllInputs
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
         const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined
