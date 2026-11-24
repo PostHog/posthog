@@ -404,7 +404,7 @@ def _event_property_metadata(context: HogQLContext, names: set[str]) -> Property
 def flag_calls_only_in_flag_evaluations_error(reason: str, scope: FlagCallScope | None = None) -> QueryError:
     subject, part = (scope.subject, scope.part) if scope is not None else ("this query", "query")
     return QueryError(
-        f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and {subject} "
+        f"Your organization reads {FLAG_CALLED_EVENT} events only from posthog.flag_evaluations, and {subject} "
         f"can't read them there because {reason}. Change that part of the {part}, or query "
         "posthog.flag_evaluations directly."
     )

@@ -60,6 +60,8 @@ const stepsOfRamp = (
             sent: rated?.sent ?? null,
             duplicates: rated?.duplicates ?? null,
             duplicate_rate: rated?.duplicateRate ?? null,
+            refused: rated?.refused ?? null,
+            refused_rate: rated?.refusedRate ?? null,
         }
     })
 

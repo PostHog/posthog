@@ -1,7 +1,6 @@
 AmazonS3 not-checkable:schemas
 AppStoreConnect not-checkable:no-request
 AppleSearchAds not-checkable:no-request
-Attentive not-checkable:database
 AwsAthena not-checkable:schemas
 AwsDocumentDB not-checkable:driver:pymongo
 AzureBlob not-checkable:schemas

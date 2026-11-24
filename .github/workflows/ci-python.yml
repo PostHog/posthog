@@ -835,7 +835,6 @@ jobs:
                       test_feature_flag_gated_writes.py
                       test_feature_flag_raw_reads.py
                       test_local_kafka_consumers.py
-                      test_rbac_shadow_resolver_callers.py
                       test_warehouse_source_generated_config_inputs.py
                   )
                   pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"

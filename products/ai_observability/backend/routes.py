@@ -31,7 +31,6 @@ from products.ai_observability.backend.api import (
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
-    TaggerViewSet,
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.presentation.views.trace_clusters import TraceClustersViewSet
@@ -128,7 +127,6 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_evaluation_directories",
         ["team_id"],
     )
-    routers.projects.register(r"taggers", TaggerViewSet, "project_taggers", ["team_id"])
     routers.projects.register(r"evaluation_runs", EvaluationRunViewSet, "project_evaluation_runs", ["team_id"])
     routers.projects.register(
         r"llm_analytics/text_repr", AIObservabilityTextReprViewSet, "project_llm_analytics_text_repr", ["team_id"]
