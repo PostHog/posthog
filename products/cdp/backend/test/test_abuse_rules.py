@@ -743,7 +743,7 @@ class TestAbuseRules(SimpleTestCase):
                     ("slack_webhook", "https://hooks.slack.com/services/T0/B0/x"),
                     ("discord_webhook", "https://discord.com/api/webhooks/1/x"),
                     ("telegram", "https://api.telegram.org/bot0:x/sendMessage"),
-                    ("teams_webhook", "https://example.webhook.office.com/webhookb2/x"),
+                    ("teams_webhook", "https://example.webhook.office.com/webhookb2/a@b/IncomingWebhook/c/d"),
                     ("google_chat", "https://chat.googleapis.com/v1/spaces/x/messages"),
                 )
             ),
@@ -776,6 +776,7 @@ class TestAbuseRules(SimpleTestCase):
             ("telegram_set_webhook", post_to("https://api.telegram.org/bot0:x/setWebhook"), None),
             ("dot_segment_out_of_the_api_path", post_to("https://slack.com/api/../oauth/v2/authorize"), None),
             ("dot_segment_in_a_teams_path", post_to("https://example.webhook.office.com/x/./y"), None),
+            ("other_teams_path", post_to("https://example.webhook.office.com/x/y"), None),
             (
                 "encoded_slash_before_two_dots",
                 post_to("https://hooks.slack.com/services/T0/B0/a%2F.."),

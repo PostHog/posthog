@@ -158,6 +158,7 @@ _CHAT_MESSAGE_APIS = (
     ("chat.googleapis.com", re.compile(r"/v1/spaces/[^/]+/messages")),
 )
 _TEAMS_WEBHOOK_DOMAIN = ".webhook.office.com"
+_TEAMS_WEBHOOK_PATH = re.compile(r"/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+(?:/[^/]+)?")
 _INTERNAL_HOST_RULES = frozenset({Rule.INTERNAL_HOST, Rule.INTERNAL_HOST_REFERENCE})
 # Public names that resolve to loopback, or to the address written in them as in `127.0.0.1.nip.io`.
 _ADDRESS_DNS_DOMAINS = frozenset(
@@ -177,10 +178,10 @@ _ADDRESS_DNS_DOMAINS = frozenset(
 _EMBEDDED_IPV4 = re.compile(r"(?<![0-9])[0-9]{1,3}(?:[.-][0-9]{1,3}){3}(?![0-9])|(?:^|\.)[0-9a-f]{8}(?:\.|$)")
 # A DNS name whose last label starts with a letter, so neither the host nor its top-level label reads as an address.
 _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?")
+# The bundled public suffix list, so no lookup goes out and no cache file is written. A `.localhost` name or a cluster
+# short name such as `redis.posthog` has no public suffix, but one whose namespace is also a top-level domain does.
+_DOMAIN_PARTS = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
 # A URL part that could name a host on its own, such as a redirect target in the query string.
-# The bundled public suffix list, so no lookup goes out. A cluster short name such as `redis.posthog` or a `.localhost`
-# name has no public suffix.
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 _URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
 _BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
 
@@ -276,7 +277,7 @@ def _is_chat_message_api(url: str) -> bool:
         return False
     host = canonicalize_host(parts.hostname or "")
     if host.endswith(_TEAMS_WEBHOOK_DOMAIN):
-        return True
+        return _TEAMS_WEBHOOK_PATH.fullmatch(parts.path) is not None
     return any(host == api_host and path.fullmatch(parts.path) for api_host, path in _CHAT_MESSAGE_APIS)
 
 
