@@ -339,5 +339,7 @@ At 10:17 the task creates R2 for the 14-day window, and R2 seeds all 14 days.
 - A `PATCH` that leaves any behavioral leaf in a cohort used by an active feature flag, directly or through a nested cohort, is refused.
   That covers every filter edit of a behavioral or mixed cohort, not only behavioral edits, and it keeps a live flag out of the window where the stamp is cleared.
   Only `PATCH` is checked.
+  The exception is a `PATCH` that resends the unchanged criteria of a realtime cohort, as the cohort page does on a rename.
+  The API does not recompile that cohort, so the save clears no stamp.
 - Copying a cohort to another project drops its stamps.
   The copy gets a run on its own only if the target team is trigger-allowlisted.

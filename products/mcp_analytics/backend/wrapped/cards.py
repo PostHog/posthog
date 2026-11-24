@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 from products.mcp_analytics.backend.wrapped.model_families import OTHER_FAMILY, UNKNOWN_FAMILY
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, MonthCalls, WrappedAggregates
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # A project needs this many months with real traffic. One month leaves the monthly cards nothing to compare,
 # and the first month is often a test install.
@@ -60,6 +60,9 @@ NIGHT_OWL_SHARE = 0.4
 WEEKEND_WARRIOR_SHARE = 0.35
 SPEED_DEMON_P95_MS = 250
 ROCKET_GROWTH_MULTIPLE = 5
+# Reliable and quick together, for a server with no stronger usage pattern than doing its job well.
+SUPERHERO_SUCCESS_RATE = 0.995
+SUPERHERO_P95_MS = 1000
 
 
 class Archetype(StrEnum):
@@ -69,6 +72,7 @@ class Archetype(StrEnum):
     WEEKEND_WARRIOR = "weekend_warrior"
     SPEED_DEMON = "speed_demon"
     ROCKET = "rocket"
+    SUPERHERO = "superhero"
     ALL_ROUNDER = "all_rounder"
 
 
@@ -131,11 +135,14 @@ class RushHourCard:
 class ToolErrorRate:
     tool: str
     error_rate: float
+    calls: int
 
 
 @frozen
 class ReliabilityCard:
     success_rate: float
+    # The lowest error rate among busy tools, with more calls winning a tie.
+    most_reliable_tool: ToolErrorRate | None
     struggling_tool: ToolErrorRate | None
 
 
@@ -327,12 +334,21 @@ def _reliability_card(aggregates: WrappedAggregates) -> ReliabilityCard:
     total = aggregates.total
     success_rate = 1 - total.errors / total.calls if total.calls else 1.0
     candidates = [row for row in _chosen_tools(aggregates.tools) if row.calls >= MIN_TOOL_CALLS]
-    struggling: ToolErrorRate | None = None
-    if len(candidates) >= MIN_TOOLS_FOR_WORST:
-        worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
-        if worst.errors > 0:
-            struggling = ToolErrorRate(tool=worst.key, error_rate=_ratio(worst.errors / worst.calls))
-    return ReliabilityCard(success_rate=_ratio(success_rate), struggling_tool=struggling)
+    if len(candidates) < MIN_TOOLS_FOR_WORST:
+        return ReliabilityCard(success_rate=_ratio(success_rate), most_reliable_tool=None, struggling_tool=None)
+    best = min(candidates, key=lambda row: (row.errors / row.calls, -row.calls))
+    worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
+    # Without a gap between the two rates there is no struggling tool to point at, only the same rate twice.
+    struggling = worst if worst.errors / worst.calls > best.errors / best.calls else None
+    return ReliabilityCard(
+        success_rate=_ratio(success_rate),
+        most_reliable_tool=_tool_error_rate(best),
+        struggling_tool=_tool_error_rate(struggling) if struggling else None,
+    )
+
+
+def _tool_error_rate(row: DimensionRow) -> ToolErrorRate:
+    return ToolErrorRate(tool=row.key, error_rate=_ratio(row.errors / row.calls), calls=row.calls)
 
 
 def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:
@@ -387,4 +403,7 @@ def _archetype(
         return ArchetypeCard(archetype=Archetype.SPEED_DEMON, evidence=speed.p95_duration_ms)
     if tool_calls.growth_multiple is not None and tool_calls.growth_multiple >= ROCKET_GROWTH_MULTIPLE:
         return ArchetypeCard(archetype=Archetype.ROCKET, evidence=tool_calls.growth_multiple)
+    success_rate = 1 - aggregates.total.errors / total_calls
+    if speed is not None and success_rate >= SUPERHERO_SUCCESS_RATE and speed.p95_duration_ms < SUPERHERO_P95_MS:
+        return ArchetypeCard(archetype=Archetype.SUPERHERO, evidence=_ratio(success_rate))
     return ArchetypeCard(archetype=Archetype.ALL_ROUNDER, evidence=None)

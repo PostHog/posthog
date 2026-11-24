@@ -367,6 +367,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """Run this saved query."""
         from products.data_modeling.backend.facade.api import (
             TRINO_INCREMENTAL_SCOPE,
+            MaterializationRunTrigger,
             MissingDagNodeError,
             StartedNodeRun,
             assert_user_can_read_saved_query,
@@ -431,7 +432,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     # incrementally instead.
                     clear_incremental_state(saved_query)
                     clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
-                node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+                node_id = materialize_saved_query(
+                    saved_query, trigger=MaterializationRunTrigger.MANUAL, triggered_by_id=request.user.pk
+                )
                 run = StartedNodeRun(node_ids=[str(node_id)], skipped=[])
         except MissingDagNodeError:
             raise exceptions.ValidationError(
