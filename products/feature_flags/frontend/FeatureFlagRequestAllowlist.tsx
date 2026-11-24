@@ -62,7 +62,7 @@ export function FeatureFlagRequestAllowlist(): JSX.Element {
             <LemonField.Pure
                 label="Allowed IP addresses"
                 htmlFor="feature-flag-allowed-ips"
-                help="Only requests from these addresses get flags. This includes your servers and your users' browsers, so leave it empty unless every caller has a fixed address. Enter up to 100 single addresses or CIDR ranges."
+                help="Only requests from these addresses get flags. This includes your servers and your users' browsers, even on allowed domains, so leave it empty unless every caller has a fixed address. Behind a reverse proxy, the proxy's address is checked, so allowed IP addresses don't work with the managed reverse proxy. Enter up to 100 single addresses or CIDR ranges."
             >
                 <LemonInputSelect
                     mode="multiple"

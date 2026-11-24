@@ -2219,7 +2219,7 @@ export interface TeamFeatureFlagPolicyConfigApi {
      */
     allowed_hosts?: string[]
     /**
-     * IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips.
+     * IPv4 or IPv6 addresses or CIDR ranges allowed to make feature flag requests (/flags and /decide), up to 100. When the list is not empty, a request from any other address gets no flags, including requests from server-side SDKs and from browsers. Only the client address that PostHog's edge records is checked, not addresses in X-Forwarded-For, so a request without that address gets no flags. Behind a reverse proxy, the proxy's address is checked, so the list does not work with PostHog's managed reverse proxy. A blocked address wins over an allowed one. When allowed_hosts is also set, a request must pass both lists. Entries follow the same rules as blocked_ips.
      * @maxItems 1000
      * @items.maxLength 2000
      */
