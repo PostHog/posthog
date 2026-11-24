@@ -482,7 +482,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
-    def test_a_heartbeat_fires_on_an_empty_result_and_resolves_when_its_series_returns(self) -> None:
+    def _heartbeat(self, *, periods: int = 1, datapoints: int = 1) -> None:
         with team_scope(self.team.id):
             platform_testing.set_enabled(self.configuration_id, False)
             self.configuration_id = create_configuration(
@@ -494,14 +494,17 @@ class TestMetricsAlertEvaluation(APIBaseTest):
                     source_config={"query": _QUERY, "condition": {"operator": "lt", "threshold": 1}},
                     grouping=Grouping(),
                     schedule_restriction=None,
-                    evaluation_periods=1,
-                    datapoints_to_alarm=1,
+                    evaluation_periods=periods,
+                    datapoints_to_alarm=datapoints,
                     cooldown_minutes=0,
                     on_missing_data=OnMissingData.BREACHING,
                 ),
                 created_by_id=self.user.id,
             ).id
             platform_testing.set_due_at(self.configuration_id, self.due_at)
+
+    def test_a_heartbeat_fires_on_an_empty_result_and_resolves_when_its_series_returns(self) -> None:
+        self._heartbeat()
         self.checkpoint.return_value = self.due_at
         self.snuffle.return_value = _response(200, _vector())
 
@@ -516,6 +519,23 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert [(group.grouping_key, group.kind) for group in self._evaluate().groups] == [
             ("", AlertEventKind.RESOLVED)
         ]
+
+    @parameterized.expand(
+        [
+            ("missing_for_the_whole_window", [], [("", AlertEventKind.FIRING)]),
+            ("healthy_before_it_stopped", [({}, ["5", "5"])], []),
+        ]
+    )
+    def test_a_heartbeat_counts_the_earlier_steps_its_series_was_missing_from(
+        self, _name: str, series: list[tuple[dict[str, str], list[str]]], expected: list[tuple[str, AlertEventKind]]
+    ) -> None:
+        self._heartbeat(periods=3, datapoints=3)
+        self.checkpoint.return_value = self.due_at
+        # Each series ends one step before the check reads, so the newest step has no series at all.
+        newest_with_data = self.due_at - CHECKPOINT_EVAL_DELAY - timedelta(minutes=1)
+        self.snuffle.return_value = _response(200, _matrix(newest_with_data, *series))
+
+        assert [(group.grouping_key, group.kind) for group in self._evaluate().groups] == expected
 
     def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
         self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))

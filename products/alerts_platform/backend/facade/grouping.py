@@ -11,7 +11,7 @@ import math
 import hashlib
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import field, replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Final
 from uuid import UUID
 
@@ -143,15 +143,18 @@ def parts_for(transitions: int) -> int:
 
 @frozen
 class GroupObservation:
-    """What a source measured for one group. `prior_breached` is newest first, as the machine reads it."""
+    """What a source measured for one group. `prior_breached` is newest first, as the machine reads it.
+
+    `prior_missing` is aligned with it: True for an earlier check the source is sure returned nothing
+    for the group. A source that cannot tell leaves it empty, and offers no option that reads it.
+    """
 
     grouping_key: str
     current_breached: bool
     prior_breached: tuple[bool, ...] = ()
     value: float | None = None
     labels: dict[str, str] = field(default_factory=dict)
-    # False for a group judged through its absence whose missing streak counts from `last_seen_at`.
-    seen: bool = True
+    prior_missing: tuple[bool, ...] = ()
 
 
 @frozen
@@ -224,29 +227,20 @@ def _missing_keys(check: PlatformAlertCheckInput) -> list[str]:
     return keys
 
 
-def _breaching_when_missing(
-    check: PlatformAlertCheckInput, observation: GroupObservation, now: datetime
-) -> GroupObservation:
-    """A missing group's observation under Breaching.
+def _missing_as_breaching(observation: GroupObservation) -> GroupObservation:
+    """The observation with every earlier check the group was missing from counted as breaching.
 
-    The earlier checks the group was also missing from count as breaching too. A source reads those
-    checks as clear, so without this an alert that fires on N of M checks would fire M checks late.
-    The missing streak counts from the instance's `last_seen_at`, which a check that judged the group
-    through its absence leaves alone. A group never seen has been missing for the whole window.
+    Applied to returned groups as well as missing ones, so an alert that fires on N of M checks reads
+    the same window whether or not the group is back now.
     """
-    periods = check.evaluation_periods - 1
-    prior = (*observation.prior_breached, *(False,) * periods)[:periods]
-    last_seen_at = check.instance(observation.grouping_key).last_seen_at
-    if last_seen_at is None:
-        streak = periods
-    else:
-        # This check is the first missing one when the group was seen one interval ago.
-        streak = max(0, round((now - last_seen_at) / timedelta(minutes=check.check_interval_minutes)) - 1)
+    prior = observation.prior_breached
+    missing = observation.prior_missing
+    width = max(len(prior), len(missing))
     return replace(
         observation,
-        seen=False,
-        current_breached=True,
-        prior_breached=tuple(breached or index < streak for index, breached in enumerate(prior)),
+        prior_breached=tuple(
+            (index < len(prior) and prior[index]) or (index < len(missing) and missing[index]) for index in range(width)
+        ),
     )
 
 
@@ -289,8 +283,10 @@ def decide_groups(
         if check.on_missing_data == OnMissingData.KEEP_LAST_STATE:
             continue
         if check.on_missing_data == OnMissingData.BREACHING:
-            missing = _breaching_when_missing(check, missing, now)
+            missing = replace(missing, current_breached=True)
         by_key[key] = missing
+    if check.on_missing_data == OnMissingData.BREACHING:
+        by_key = {key: _missing_as_breaching(observation) for key, observation in by_key.items()}
     judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
     for observation in by_key.values():
         snapshot = snapshot_of(check.instance(observation.grouping_key), observation.prior_breached)
@@ -320,7 +316,6 @@ def decide_groups(
                 value=observation.value,
                 labels=bounded_labels(observation.labels, first=kept_first),
                 muted_notification=muted_value(outcome),
-                seen=observation.seen,
             ),
         )
         for observation, snapshot, outcome in judged
