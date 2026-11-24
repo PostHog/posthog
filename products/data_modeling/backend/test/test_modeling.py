@@ -5,6 +5,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, JoinIntoModel
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
@@ -496,6 +497,8 @@ class TestRenameModelReferences(BaseTest):
                 None,
             ),
             ("a_plain_read", "income", "select revenue.id from revenue", None),
+            # The parser drops `\0` from a quoted identifier, so this reads `revenue` without containing the name.
+            ("an_escaped_quoted_read", "income", r"select id from `rev\0enue`", None),
             (
                 "an_aliased_read_beside_another_table_aliased_with_the_new_name",
                 "income",
@@ -684,6 +687,25 @@ class TestRenameModelReferences(BaseTest):
 
         # Each check expands `revenue` once, so one shared budget of one expansion runs out on the second check.
         with patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 1):
+            with pytest.raises(ModelRenameRefusedError, match="This rename affects too many views to check at once."):
+                plan_model_rename(self.team, renamed.id, "income")
+
+    def test_plan_fails_whole_when_time_runs_out_while_it_reads_the_candidates(self):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="costs")
+        # A query that does not parse is never walked or resolved, so nothing else checks the clock for it.
+        for name in ["first", "second"]:
+            DataWarehouseSavedQuery.objects.create(team=self.team, name=name, query={"query": "select id from (costs"})
+
+        def parse_past_the_deadline(*args, **kwargs):
+            budget = compilation_budget.get()
+            assert budget is not None
+            budget.deadline = 0
+            return rename_model_references(*args, **kwargs)
+
+        with patch(
+            "products.data_modeling.backend.logic.model_rename.rename_model_references",
+            side_effect=parse_past_the_deadline,
+        ):
             with pytest.raises(ModelRenameRefusedError, match="This rename affects too many views to check at once."):
                 plan_model_rename(self.team, renamed.id, "income")
 

@@ -64,33 +64,17 @@ def _refusal(saved_query: DataWarehouseSavedQuery) -> str | None:
 
 
 def _candidates_filter(saved_query: DataWarehouseSavedQuery) -> Q:
-    # A query that does not contain the old leaf name cannot reference the model, so it is never parsed.
-    return Q(query__query__icontains=saved_query.name_chain[-1])
+    # A query that contains neither the old leaf name nor a backslash cannot reference the model, so it is never
+    # parsed. A quoted identifier can spell the name with an escape that the parser removes, such as `rev\0enue`.
+    return Q(query__query__icontains=saved_query.name_chain[-1]) | Q(query__query__icontains="\\")
 
 
 def _load(
-    live_queries: QuerySet[DataWarehouseSavedQuery], saved_query_id: uuid.UUID, *, lock: bool
+    live_queries: QuerySet[DataWarehouseSavedQuery], saved_query_id: uuid.UUID
 ) -> tuple[DataWarehouseSavedQuery, list[DataWarehouseSavedQuery]]:
     """The renamed model and the models that may read it, ordered by id."""
     renamed = live_queries.get(pk=saved_query_id)
-    if not lock:
-        return renamed, list(live_queries.filter(_candidates_filter(renamed)).exclude(pk=renamed.pk).order_by("pk"))
-    while True:
-        # One statement in id order locks the model and its readers, so two concurrent renames cannot each hold
-        # a row the other waits for. `FOR NO KEY UPDATE`: a concurrent materialization takes `KEY SHARE` on these
-        # rows for its job's foreign key.
-        rows = list(
-            live_queries.filter(Q(pk=renamed.pk) | _candidates_filter(renamed))
-            .order_by("pk")
-            .select_for_update(no_key=True)
-        )
-        locked = next((row for row in rows if row.pk == renamed.pk), None)
-        if locked is None:
-            raise DataWarehouseSavedQuery.DoesNotExist()
-        if locked.name == renamed.name:
-            return locked, [row for row in rows if row.pk != renamed.pk]
-        # Renamed since it was read, so the candidates were matched on a stale name.
-        renamed = locked
+    return renamed, list(live_queries.filter(_candidates_filter(renamed)).exclude(pk=renamed.pk).order_by("pk"))
 
 
 @frozen
@@ -108,7 +92,7 @@ class _ComputedRename:
     joins: list[DataWarehouseJoin]
 
 
-def _load_joins(team: Team, spellings: set[Chain], *, lock: bool) -> list[DataWarehouseJoin]:
+def _load_joins(team: Team, spellings: set[Chain]) -> list[DataWarehouseJoin]:
     """The saved joins with a side whose name binds to the model, ordered by id.
 
     By spelling, not stored name: a synced table can hold the model's bare name, and its joins are its own.
@@ -120,7 +104,7 @@ def _load_joins(team: Team, spellings: set[Chain], *, lock: bool) -> list[DataWa
         .exclude(deleted=True)
         .order_by("pk")
     )
-    return list(joins.select_for_update(no_key=True) if lock else joins)
+    return list(joins)
 
 
 def _renamed_join(join: DataWarehouseJoin, spellings: set[Chain], new_chain: list[str]) -> ModelRenameJoin:
@@ -234,20 +218,23 @@ def _renamed_catalog(
         return None
 
 
-def _compute(team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool) -> _ComputedRename:
-    # One budget for every resolve, so a large plan stops at one deadline instead of one per query.
-    token = compilation_budget.set(CompilationBudget())
+def _compute(team: Team, saved_query_id: uuid.UUID, new_name: str) -> _ComputedRename:
+    # One budget for every parse and resolve, so a large plan stops at one deadline instead of one per query.
+    budget = CompilationBudget()
+    token = compilation_budget.set(budget)
     try:
-        return _compute_within_budget(team, saved_query_id, new_name, lock=lock)
+        return _compute_within_budget(team, saved_query_id, new_name, budget)
     except CompilationBudgetExceededError as error:
         raise ModelRenameTooLargeError(TOO_MANY_VIEWS_TO_CHECK) from error
     finally:
         compilation_budget.reset(token)
 
 
-def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool) -> _ComputedRename:
+def _compute_within_budget(
+    team: Team, saved_query_id: uuid.UUID, new_name: str, budget: CompilationBudget
+) -> _ComputedRename:
     live_queries = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
-    renamed, candidates = _load(live_queries, saved_query_id, lock=lock)
+    renamed, candidates = _load(live_queries, saved_query_id)
     refusal = _refusal(renamed)
     if refusal is not None:
         raise ModelRenameRefusedError(refusal)
@@ -258,7 +245,7 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
     )
     spellings = model_spellings(renamed, database)
     new_chain = new_name.split(".")
-    joins = _load_joins(team, spellings, lock=lock)
+    joins = _load_joins(team, spellings)
     renamed_joins = [_renamed_join(join, spellings, new_chain) for join in joins]
 
     spliced: list[_Rewrite] = []
@@ -272,6 +259,8 @@ def _compute_within_budget(team: Team, saved_query_id: uuid.UUID, new_name: str,
         before = (dependent.query or {}).get("query")
         if not isinstance(before, str):
             continue
+        # A query that does not parse is never walked, so nothing else checks the deadline for it.
+        budget.check_time()
         try:
             after = rename_model_references(before, spellings, new_chain)
         except ModelReferenceRewriteError as error:
@@ -389,7 +378,7 @@ def plan_model_rename(team: Team, saved_query_id: uuid.UUID, new_name: str) -> M
 
     Writes nothing.
     """
-    return _compute(team, saved_query_id, new_name, lock=False).plan
+    return _compute(team, saved_query_id, new_name).plan
 
 
 def _write_rewritten_query(dependent: DataWarehouseSavedQuery, sql: str) -> None:
@@ -407,6 +396,33 @@ def _write_rewritten_query(dependent: DataWarehouseSavedQuery, sql: str) -> None
     )
 
 
+def _accept(plan: ModelRenamePlan, plan_token: str, authorize: Callable[[ModelRenamePlan], None]) -> None:
+    if plan.token != plan_token:
+        raise ModelRenamePlanStaleError()
+    authorize(plan)
+    if plan.blocked:
+        raise ModelRenameBlockedError(plan)
+
+
+def _lock_plan_rows(team: Team, saved_query_id: uuid.UUID, plan: ModelRenamePlan) -> None:
+    # One statement per table in id order, so two concurrent renames cannot each hold a row the other waits for.
+    # `FOR NO KEY UPDATE`: a concurrent materialization takes `KEY SHARE` on these rows for its job's foreign key.
+    list(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id=team.pk, pk__in=[saved_query_id, *(rewrite.saved_query_id for rewrite in plan.rewrites)]
+        )
+        .order_by("pk")
+        .select_for_update(no_key=True)
+        .values_list("pk", flat=True)
+    )
+    list(
+        DataWarehouseJoin.objects.filter(team_id=team.pk, pk__in=[join.join_id for join in plan.joins])
+        .order_by("pk")
+        .select_for_update(no_key=True)
+        .values_list("pk", flat=True)
+    )
+
+
 def apply_model_rename(
     team: Team,
     saved_query_id: uuid.UUID,
@@ -420,16 +436,18 @@ def apply_model_rename(
     """Renames the model to `new_name`, rewrites the models that read it and renames the joins that name it,
     or writes nothing. Each rewritten model gets an activity entry for `user`.
 
-    Call it in a transaction. It locks the model, the models that read it and those joins, and writes only
-    when the plan is still the one the caller was shown and `authorize` accepts it without raising.
+    Call it in a transaction. It writes only when the plan is still the one the caller was shown and `authorize`
+    accepts it without raising. It checks that before it locks anything, so a refused request holds no row. It
+    then locks the model, the models it rewrites and the joins it renames, and checks the plan again under
+    those locks.
     """
-    computed = _compute(team, saved_query_id, new_name, lock=True)
+    unlocked_plan = _compute(team, saved_query_id, new_name).plan
+    _accept(unlocked_plan, plan_token, authorize)
+    _lock_plan_rows(team, saved_query_id, unlocked_plan)
+    # Read again under the locks: a row can change between the first read and its lock.
+    computed = _compute(team, saved_query_id, new_name)
     plan = computed.plan
-    if plan.token != plan_token:
-        raise ModelRenamePlanStaleError()
-    authorize(plan)
-    if plan.blocked:
-        raise ModelRenameBlockedError(plan)
+    _accept(plan, plan_token, authorize)
     for rewrite in computed.rewrites:
         before_query = dict(rewrite.dependent.query or {})
         _write_rewritten_query(rewrite.dependent, rewrite.after)
@@ -468,11 +486,11 @@ def apply_model_rename(
 def rename_needs_plan(team: Team, saved_query_id: uuid.UUID, new_name: str) -> bool:
     """Whether renaming the model to `new_name` changes or is blocked by a model that reads it, or changes a join.
 
-    Call it in the transaction that renames the model: it locks the same rows as `apply_model_rename`,
-    so a model that starts reading this one cannot commit until the rename has.
+    It locks nothing. A name change it allows rewrites no other row, so the caller locks only the model, and
+    must refuse the change when the model's name changed since it was read.
     """
     try:
-        plan = _compute(team, saved_query_id, new_name, lock=True).plan
+        plan = _compute(team, saved_query_id, new_name).plan
     except ModelRenameTooLargeError:
         return True
     except ModelRenameRefusedError:

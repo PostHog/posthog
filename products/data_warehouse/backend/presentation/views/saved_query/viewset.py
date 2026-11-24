@@ -26,7 +26,12 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rate_limit import (
+    MaterializationRateThrottle,
+    ModelRenameBurstRateThrottle,
+    ModelRenameSustainedRateThrottle,
+    RunSavedQueryRateThrottle,
+)
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -841,7 +846,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             403: OpenApiResponse(description=RENAME_NEEDS_EDIT_ACCESS_DETAIL),
         },
     )
-    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle],
+    )
     def rename_plan(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Show what renaming this model changes in the models that read it and the joins that name it.
 
@@ -887,7 +897,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             409: OpenApiResponse(description=RENAME_PLAN_STALE_DETAIL),
         },
     )
-    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["warehouse_view:write"],
+        throttle_classes=[ModelRenameBurstRateThrottle, ModelRenameSustainedRateThrottle],
+    )
     def rename(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Rename this model and update the models that read it and the joins that name it, in one change.
 

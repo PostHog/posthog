@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import SimpleTestCase
@@ -30,6 +31,7 @@ from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
 from posthog.models import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.rate_limit import ModelRenameBurstRateThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.api import (
@@ -2797,7 +2799,8 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.post(
                 f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
             )
-        assert create_for.call_count == 2
+        # Once before the locks, once under them, once for the response.
+        assert create_for.call_count == 3
 
         assert response.status_code == 200, response.content
         assert response.json()["name"] == "staging.signups"
@@ -2868,9 +2871,12 @@ class TestSavedQuery(APIBaseTest):
             refused_plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
             assert refused_plan.status_code == 400, refused_plan.content
 
-        response = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": plan["plan_token"]})
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": plan["plan_token"]})
 
         assert response.status_code == expected_status, response.content
+        # Refused before any row is locked, so a refused request does not hold up other writers.
+        assert not [q["sql"] for q in queries.captured_queries if "FOR NO KEY UPDATE" in q["sql"]]
         if refusal is not None:
             assert refused_plan.json()["detail"] == refusal
             assert response.json()["detail"] == refusal
@@ -2878,14 +2884,23 @@ class TestSavedQuery(APIBaseTest):
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 
     @parameterized.expand(
-        [("no_dependents", False, False, 200), ("a_dependent", True, False, 400), ("only_a_join", False, True, 400)]
+        [
+            ("no_dependents", False, False, 200, None),
+            ("a_dependent", True, False, 400, None),
+            ("only_a_join", False, True, 400, None),
+            # The parser drops `\0` from a quoted identifier, so this reads the model without containing its name.
+            ("an_escaped_dependent", True, False, 400, r"select id from `stg\0_signups`"),
+        ]
     )
     def test_patch_renames_only_a_model_nothing_reads(
-        self, _case: str, has_dependent: bool, has_join: bool, expected: int
+        self, _case: str, has_dependent: bool, has_join: bool, expected: int, dependent_query: str | None
     ) -> None:
         renamed, dependent = self._model_with_a_dependent()
         if not has_dependent:
             dependent.delete()
+        if dependent_query is not None:
+            dependent.query = {"kind": "HogQLQuery", "query": dependent_query}
+            dependent.save()
         if has_join:
             DataWarehouseJoin.objects.create(
                 team=self.team,
@@ -2902,9 +2917,9 @@ class TestSavedQuery(APIBaseTest):
             )
 
         assert response.status_code == expected, response.content
-        # The first lock covers the model and every reader at once, in id order, so two renames cannot deadlock.
-        first_lock = next(q["sql"] for q in queries.captured_queries if "FOR NO KEY UPDATE" in q["sql"])
-        assert "ORDER BY" in first_lock and "LIKE" in first_lock.upper()
+        # The check takes no lock on the models that may read this one.
+        locks = [q["sql"] for q in queries.captured_queries if "FOR NO KEY UPDATE" in q["sql"]]
+        assert not [lock for lock in locks if "LIKE" in lock.upper()]
         stored = DataWarehouseSavedQuery.objects.get(id=renamed.id)
         assert stored.name == ("staging.signups" if expected == 200 else "stg_signups")
         if has_dependent:
@@ -2994,11 +3009,31 @@ class TestSavedQuery(APIBaseTest):
         self.client.force_login(editor)
 
         plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
-        rename = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": token})
+        with CaptureQueriesContext(connection) as queries:
+            rename = self.client.post(f"{url}/rename/", {"name": "staging.signups", "plan_token": token})
 
         assert plan.status_code == 403, plan.content
         assert "stg_signups.id" not in plan.content.decode()
         assert rename.status_code == 403, rename.content
+        assert not [q["sql"] for q in queries.captured_queries if "FOR NO KEY UPDATE" in q["sql"]]
+        assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "stg_signups"
+        assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_rename_plan_and_rename_share_one_rate_limit_for_a_session(self, _enabled) -> None:
+        cache.clear()
+        renamed, dependent = self._model_with_a_dependent()
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{renamed.id}"
+
+        with patch.object(ModelRenameBurstRateThrottle, "rate", "2/minute"):
+            plan = self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"})
+            assert plan.status_code == 200, plan.content
+            assert self.client.post(f"{url}/rename_plan/", {"name": "staging.signups"}).status_code == 200
+            rename = self.client.post(
+                f"{url}/rename/", {"name": "staging.signups", "plan_token": plan.json()["plan_token"]}
+            )
+
+        assert rename.status_code == 429, rename.content
         assert DataWarehouseSavedQuery.objects.get(id=renamed.id).name == "stg_signups"
         assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query == dependent.query
 

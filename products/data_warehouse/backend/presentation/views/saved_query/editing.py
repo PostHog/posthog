@@ -799,8 +799,8 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
-                # Before the row lock below: the check locks this model together with the models that read it,
-                # in one statement ordered by id, as the rename action does, so concurrent renames cannot deadlock.
+                # Before the row lock below, so a slow check holds no lock. The check locks nothing: a name change
+                # it allows rewrites no other row, and the name check after the lock refuses a stale name.
                 if (
                     "name" in validated_data
                     and validated_data["name"] != instance.name
