@@ -3230,6 +3230,45 @@ def _do_edit_report(
     return result
 
 
+@frozen
+class _StoredReportContent:
+    title: str = ""
+    summary: str = ""
+    suggested_prompts: tuple[str, ...] = ()
+
+
+def _stored_report_content(
+    team_id: int,
+    report_id: str,
+    *,
+    title: str | None,
+    summary: str | None,
+    suggested_prompts: list[str] | None,
+) -> _StoredReportContent:
+    """The stored fields the edit judge needs because the edit leaves them alone.
+
+    A clicked prompt runs against the report text, so new prompts are judged with the stored text
+    and new text with the stored prompts. Reads nothing when the edit needs neither.
+    """
+    edits_text = title is not None or summary is not None
+    new_prompts_need_text = bool(suggested_prompts) and (title is None or summary is None)
+    new_text_arms_stored_prompts = edits_text and suggested_prompts is None
+    if not (new_prompts_need_text or new_text_arms_stored_prompts):
+        return _StoredReportContent()
+    report = (
+        SignalReport.objects.filter(team_id=team_id, id=report_id)
+        .values("title", "summary", "suggested_prompts")
+        .first()
+    )
+    if report is None:
+        return _StoredReportContent()
+    return _StoredReportContent(
+        title=report["title"] or "",
+        summary=report["summary"] or "",
+        suggested_prompts=tuple(report["suggested_prompts"] or ()) if new_text_arms_stored_prompts else (),
+    )
+
+
 def _assert_edit_gates(team: Team, author: ReportAuthor, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
@@ -3463,11 +3502,17 @@ async def edit_report(
     built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
         team, suggested_reviewers, skill_name=author.skill_name
     )
+    stored = await database_sync_to_async(_stored_report_content, thread_sensitive=False)(
+        team.id, report_id, title=title, summary=summary, suggested_prompts=built_prompts
+    )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
             team_id=team.id,
             title=title,
             summary=summary,
+            stored_title=stored.title,
+            stored_summary=stored.summary,
+            stored_suggested_prompts=stored.suggested_prompts,
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
@@ -3605,11 +3650,15 @@ def edit_report_sync(
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
+    stored = _stored_report_content(team.id, report_id, title=title, summary=summary, suggested_prompts=built_prompts)
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
             title=title,
             summary=summary,
+            stored_title=stored.title,
+            stored_summary=stored.summary,
+            stored_suggested_prompts=stored.suggested_prompts,
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),

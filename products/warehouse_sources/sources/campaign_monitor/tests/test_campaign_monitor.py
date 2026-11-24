@@ -78,6 +78,56 @@ class TestPaginatedEndpoints:
         assert result.params("page") == ["2"]
 
 
+class TestTransactionalMessageTimeline:
+    def test_walks_the_message_id_cursor_until_an_empty_page(self) -> None:
+        result = _driver().run(
+            "transactional_messages",
+            [
+                _response([{"MessageID": "m1"}, {"MessageID": "m2"}]),
+                _response([{"MessageID": "m3"}]),
+                _response([]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"MessageID": "m1"}, {"MessageID": "m2"}, {"MessageID": "m3"}]
+        assert result.paths == ["/api/v3.3/transactional/messages"] * 3
+        assert result.params("sentBeforeID") == [None, "m2", "m3"]
+        assert result.params("clientID") == ["client-abc"] * 3
+        assert result.params("status") == ["all"] * 3
+        assert result.params("count") == ["200"] * 3
+        assert result.saved_states == [
+            CampaignMonitorResumeConfig(sent_before_id="m2"),
+            CampaignMonitorResumeConfig(sent_before_id="m3"),
+        ]
+
+    def test_resume_starts_before_the_saved_message(self) -> None:
+        result = _driver().run(
+            "transactional_messages",
+            [_response([{"MessageID": "m3"}]), _response([])],
+            resume_state=CampaignMonitorResumeConfig(sent_before_id="m2"),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"MessageID": "m3"}]
+        assert result.params("sentBeforeID") == ["m2", "m3"]
+
+    @pytest.mark.parametrize(
+        "pages, expected_error",
+        [
+            # The API ignored the cursor and served the same page again: fail instead of looping.
+            ([[{"MessageID": "m1"}], [{"MessageID": "m1"}]], "not advancing"),
+            ([{"Code": 1, "Message": "Fail"}], "list response body"),
+            ([[{"MessageID": "m1"}, {"Recipient": "a@example.com"}]], "without a MessageID"),
+        ],
+    )
+    def test_unexpected_pages_raise(self, pages: list[Any], expected_error: str) -> None:
+        result = _driver().run("transactional_messages", [_response(page) for page in pages])
+
+        assert isinstance(result.raised, ValueError)
+        assert expected_error in str(result.raised)
+
+
 class TestListFanOut:
     def test_iterates_every_list_and_injects_list_id(self) -> None:
         result = _driver().run(

@@ -7,19 +7,13 @@ import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-inges
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '../_tests/fixtures-hogflows'
-import {
-    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
-    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
-} from '../outputs/outputs'
+import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
 import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../services/monitoring/hog-invocation-results.service'
 import {
     INTAKE_ACK_DEADLINE_MS,
-    IntakeMode,
     IntakeOutput,
     IntakeProducer,
     PublishSettlement,
@@ -33,60 +27,52 @@ describe('RunIntake', () => {
     })
 
     // A batch frees a recipient's slot on `publishesSettled()`, so a publish that outlives its ack deadline must still reach it.
-    it.each(['async', 'shadow'] satisfies IntakeMode[])(
-        'hands the settlement a %s publish that is still running after its ack deadline',
-        async (mode) => {
-            jest.useFakeTimers()
-            let ack: () => void = () => {}
-            const held: IngestionOutput = {
-                produce: () => new Promise<void>((resolve) => (ack = resolve)),
-                queueMessages: () => Promise.resolve(),
-                checkHealth: () => Promise.resolve(),
-                checkTopicExists: () => Promise.resolve(),
-            }
-            const producer = new IntakeProducer(
-                new IngestionOutputs<IntakeOutput>({
-                    [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: held,
-                    [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: held,
-                    [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: held,
-                    [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: held,
-                })
-            )
-            const intake = new RunIntake({
-                hogflowQueue: createMockJobQueue(),
-                invocationResultsRowsService: new HogInvocationResultsService(
-                    createRecordingIngestionOutputs<HogInvocationResultsServiceOutput>([
-                        HOG_INVOCATION_RESULTS_OUTPUT,
-                    ]).outputs,
-                    { HOG_INVOCATION_RESULTS_ENABLED: true }
-                ),
-                intake: { modeOf: () => mode, producer },
-            })
-            const hogFlow = new FixtureHogFlowBuilder().withTeamId(1).withSimpleWorkflow().build()
-            const run: Run = {
-                kind: 'transactional-email',
-                invocation: createExampleHogFlowInvocation(hogFlow),
-                claim: { fingerprint: 'request' },
-            }
-            const settlement = new PublishSettlement()
-            let publishSettled = false
-
-            const answered =
-                mode === 'async'
-                    ? intake.produce(run, settlement)
-                    : intake.launch([run], { wait: 'committed', settlement })
-            await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-            await answered
-            void publishesSettled(settlement).then(() => (publishSettled = true))
-            await jest.advanceTimersByTimeAsync(0)
-            expect(publishSettled).toBe(false)
-
-            ack()
-            await jest.advanceTimersByTimeAsync(0)
-
-            expect(publishSettled).toBe(true)
+    it('hands the settlement a publish that is still running after its ack deadline', async () => {
+        jest.useFakeTimers()
+        let ack: () => void = () => {}
+        const held: IngestionOutput = {
+            produce: () => new Promise<void>((resolve) => (ack = resolve)),
+            queueMessages: () => Promise.resolve(),
+            checkHealth: () => Promise.resolve(),
+            checkTopicExists: () => Promise.resolve(),
         }
-    )
+        const producer = new IntakeProducer(
+            new IngestionOutputs<IntakeOutput>({
+                [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: held,
+                [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: held,
+            })
+        )
+        const intake = new RunIntake({
+            hogflowQueue: createMockJobQueue(),
+            invocationResultsRowsService: new HogInvocationResultsService(
+                createRecordingIngestionOutputs<HogInvocationResultsServiceOutput>([
+                    HOG_INVOCATION_RESULTS_OUTPUT,
+                ]).outputs,
+                { HOG_INVOCATION_RESULTS_ENABLED: true }
+            ),
+            intake: { modeOf: () => 'async', producer },
+        })
+        const hogFlow = new FixtureHogFlowBuilder().withTeamId(1).withSimpleWorkflow().build()
+        const run: Run = {
+            kind: 'transactional-email',
+            invocation: createExampleHogFlowInvocation(hogFlow),
+            claim: { fingerprint: 'request' },
+        }
+        const settlement = new PublishSettlement()
+        let publishSettled = false
+
+        const answered = intake.produce(run, settlement)
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        await answered
+        void publishesSettled(settlement).then(() => (publishSettled = true))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(publishSettled).toBe(false)
+
+        ack()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(publishSettled).toBe(true)
+    })
 
     describe('recallAllWithin', () => {
         const claims = [
@@ -141,8 +127,8 @@ describe('RunIntake', () => {
             return { kind: 'transactional-email', invocation, claim: { fingerprint: 'same-request' } }
         }
 
-        const [first] = await intake.launch([keyedRun()], { wait: 'committed' })
-        const [repeat] = await intake.launch([keyedRun()], { wait: 'committed' })
+        const [first] = await intake.launch([keyedRun()])
+        const [repeat] = await intake.launch([keyedRun()])
         await rows.flush()
 
         expect([first.outcome, repeat.outcome]).toEqual(['created', 'replayed'])
@@ -171,10 +157,7 @@ describe('RunIntake', () => {
         const invocation = createExampleHogFlowInvocation(hogFlow)
         invocation.id = keyedRunId(1, 'transactional-email', 'password-reset-2')
 
-        const launched = intake.launch(
-            [{ kind: 'transactional-email', invocation, claim: { fingerprint: 'request' } }],
-            { wait: 'committed' }
-        )
+        const launched = intake.launch([{ kind: 'transactional-email', invocation, claim: { fingerprint: 'request' } }])
         rows.queueLifecycleRow(invocation, 'succeeded')
         returnFromInsert()
         await launched

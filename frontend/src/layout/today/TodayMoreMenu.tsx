@@ -23,20 +23,13 @@ import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
 import { TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
-import { TodayTabBarTab } from './TodayTabBarTab'
 import { todayTourLogic } from './todayTourLogic'
 
 /**
- * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
+ * The "More" menu on the rail. The help menu shortcut opens it too. The phone layout uses `TodayPhoneMoreSheet`.
  * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
  */
-export function TodayMoreMenu({
-    placement = 'rail',
-    overflowPanes = [],
-}: {
-    placement?: 'rail' | 'tab-bar'
-    overflowPanes?: TodayRailPane[]
-}): JSX.Element {
+export function TodayMoreMenu({ overflowPanes = [] }: { overflowPanes?: TodayRailPane[] }): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
@@ -47,14 +40,13 @@ export function TodayMoreMenu({
     const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const overflowActive = overflowPanes.includes(activePane)
-    const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
 
     return (
         // The tour opens this menu and shows its card beside it. A modal menu would swallow the first click on the card.
         <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen} modal={!tourActive}>
             <DropdownMenuTrigger
                 render={
-                    <Tile
+                    <TodayRailTile
                         label="More"
                         icon={
                             statusSeverity === 'ok' ? (
@@ -70,7 +62,7 @@ export function TodayMoreMenu({
                     />
                 }
             />
-            <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
+            <DropdownMenuContent side="right" align="end" className="w-56">
                 {overflowPanes.length > 0 && (
                     <>
                         {overflowPanes.map((pane) => {

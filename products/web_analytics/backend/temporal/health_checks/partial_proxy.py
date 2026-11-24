@@ -23,7 +23,7 @@ MAX_HOSTS_IN_PAYLOAD = 10
 class PartialProxyCheck(RollupHealthCheck):
     name = "partial_proxy"
     kind = "partial_proxy"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     schedule = "45 6 * * *"
     active_since_days = 30
     rollup_model = HostProxyDaily
