@@ -1899,7 +1899,6 @@ export namespace Schemas {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -2027,7 +2026,6 @@ export namespace Schemas {
       Subscription: 'subscription',
       SupportTicket: 'support_ticket',
       Survey: 'survey',
-      Tagger: 'tagger',
       Ticket: 'ticket',
       Task: 'task',
       Today: 'today',
@@ -2155,7 +2153,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2406,7 +2403,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2561,7 +2557,6 @@ export namespace Schemas {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -2623,7 +2618,6 @@ export namespace Schemas {
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       Survey: 'survey',
-      Tagger: 'tagger',
       Ticket: 'ticket',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
@@ -2688,7 +2682,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -2829,7 +2822,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2963,7 +2955,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -3053,7 +3044,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -75027,7 +75017,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
