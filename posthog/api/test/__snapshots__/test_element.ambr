@@ -256,6 +256,16 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
+# name: TestElement.test_element_stats_postgres_queries_are_as_expected.13
+  '''
+  SELECT "posthog_teameventvolume"."events_last_year" AS "events_last_year"
+  FROM "posthog_teameventvolume"
+  WHERE ("posthog_teameventvolume"."team_id" = 99999
+         AND "posthog_teameventvolume"."computed_at" >= '2026-11-21 11:11:36.917386+00:00'::timestamptz)
+  ORDER BY "posthog_teameventvolume"."team_id" ASC
+  LIMIT 1
+  '''
+# ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.2
   '''
   SELECT "posthog_organization"."id",
