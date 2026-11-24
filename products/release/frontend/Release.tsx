@@ -63,12 +63,12 @@ function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element
             )}
             <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
                 <div className="contents @4xl:col-span-2 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                    <Skeleton className="order-1 h-100 w-full @4xl:h-88" />
+                    <Skeleton className="order-2 h-100 w-full @4xl:h-88" />
                     <Skeleton className="order-3 h-32 w-full" />
                     <Skeleton className="order-4 h-100 w-full" />
                 </div>
                 <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                    <Skeleton className="order-2 h-20 w-full" />
+                    <Skeleton className="order-1 h-20 w-full" />
                     {suggestions && <Skeleton className="order-5 h-40 w-full" />}
                     <Skeleton className="order-6 h-96 w-full" />
                 </div>
@@ -150,7 +150,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 <ReleasePartialLoadWarning />
                 <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
                     <div className="contents @4xl:col-span-2 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                        <div className="order-1 min-w-0 empty:hidden">
+                        <div className="order-2 min-w-0 empty:hidden">
                             <ReleaseStatusCard row={row} />
                         </div>
                         <div className="order-3 min-w-0 empty:hidden">
@@ -161,7 +161,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                         </div>
                     </div>
                     <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                        <div className="order-2 min-w-0 empty:hidden">
+                        <div className="order-1 min-w-0 empty:hidden">
                             <ReleaseDetailsCard row={row} />
                         </div>
                         <div className="order-5 min-w-0 empty:hidden">
