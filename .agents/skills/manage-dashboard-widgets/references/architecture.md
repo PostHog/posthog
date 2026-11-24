@@ -47,7 +47,7 @@ Colocate widget code in `widgets/<product>/` — do not scaffold empty `hooks/` 
 - `EXPECTED_WIDGET_TYPES` / `WIDGET_REGISTRY` — `backend/widget_registry.py` (re-exports `widget_specs/registry.py`; enforced in `test_run_widgets.py` — no separate FE union file)
 - `WIDGET_CATALOG` — `backend/widget_catalog.py` (derived from `WIDGET_SPECS`)
 - `DASHBOARD_WIDGET_CATALOG` — `frontend/widget_types/catalog.ts` (hand-written UI metadata)
-- OpenAPI config serializers — `backend/widget_specs/openapi.py` (derived from `WIDGET_SPECS`; re-exported from `presentation/widget_openapi_serializers.py`)
+- OpenAPI config serializers — `backend/presentation/widget_openapi_serializers.py` (derived from `WIDGET_SPECS` through `backend/facade/widget_configs.py`)
 
 CI: `test_run_widgets.py` (registry + catalog + OpenAPI serializer count), `registry.test.tsx` (FE catalog ↔ registry).
 

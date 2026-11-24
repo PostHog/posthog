@@ -3,13 +3,14 @@ from typing import Any
 
 from rest_framework import serializers
 
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
-from products.dashboards.backend.models.dashboard import (
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
+from products.dashboards.backend.facade.enums import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DEFAULTS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    DashboardTileGroupColor,
 )
-from products.dashboards.backend.widget_specs.openapi import DASHBOARD_TILE_GROUP_DEFAULTS, DashboardTileGroupSerializer
 
 
 def normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
@@ -91,6 +92,15 @@ def validate_template_groups(customization: Any, tiles: Any) -> None:
 _NO_DEFAULT = object()
 
 
+# The fields of DashboardTileGroupSerializer, which validates group settings on a write and documents
+# them in the API schema. Internals cannot import presentation, so stored settings are validated with
+# this copy. test_dashboard_groups.py checks that the two accept and coerce the same settings.
+class _StoredGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH, required=False, allow_blank=True)
+    collapsed = serializers.BooleanField(required=False)
+    color = serializers.ChoiceField(choices=DashboardTileGroupColor.choices, required=False, allow_null=True)
+
+
 def _is_stored_group_setting(field: str, setting: Any) -> bool:
     if field == "title":
         return bool(setting)
@@ -102,7 +112,7 @@ def without_default_settings(group: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _sparse_group(group_settings: Any) -> dict[str, Any] | None:
-    group = DashboardTileGroupSerializer(data=group_settings)
+    group = _StoredGroupSerializer(data=group_settings)
     if not group.is_valid():
         return None
     return without_default_settings(group.validated_data)

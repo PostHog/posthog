@@ -41,6 +41,7 @@ from products.dashboards.backend.constants import (
     MAX_WIDGETS_BATCH_SIZE,
 )
 from products.dashboards.backend.presentation import widget_openapi_serializers as widget_openapi_serializers_module
+from products.dashboards.backend.presentation.pydantic_openapi import pydantic_model_to_openapi_components
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widget_specs.configs import (
@@ -51,7 +52,6 @@ from products.dashboards.backend.widget_specs.configs import (
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
 )
-from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_model_to_openapi_components
 from products.dashboards.backend.widgets.activity_events_list import (
     ACTIVITY_EVENTS_WIDGET_SELECT,
     run_activity_events_list_widget,
@@ -79,7 +79,7 @@ class TestWidgetRegistry(SimpleTestCase):
     def test_openapi_widget_config_serializers_match_registry(self) -> None:
         openapi_serializers = widget_openapi_serializers_module.DashboardWidgetConfigOpenApi.serializers
         assert len(openapi_serializers) == len(EXPECTED_WIDGET_TYPES), (
-            "Each WIDGET_SPECS entry must produce a config serializer in widget_specs/openapi.py. "
+            "Each WIDGET_SPECS entry must produce a config serializer in presentation/widget_openapi_serializers.py. "
             f"serializers={len(openapi_serializers)} expected={len(EXPECTED_WIDGET_TYPES)}"
         )
 

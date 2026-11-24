@@ -6,8 +6,8 @@ from drf_spectacular.generators import SchemaGenerator
 
 from posthog.openapi.enum_collisions import EnumCollision, find_unresolved_enum_collisions
 
+from products.dashboards.backend.presentation.widget_openapi_serializers import DashboardWidgetType
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
-from products.dashboards.backend.widget_specs.openapi import DashboardWidgetType
 
 _DASHBOARD_WIDGET_ENUM_COMPONENT_MARKERS = (
     "Widget",
@@ -53,7 +53,7 @@ class TestWidgetOpenApiEnumOverrides:
                 f'"{widget_type.replace("_", " ").title().replace(" ", "")}WidgetTypeEnum": ["{widget_type}"],'
             )
         assert set(DashboardWidgetType.values) == set(EXPECTED_WIDGET_TYPES), (
-            "DashboardWidgetType in widget_specs/openapi.py must list every registered widget type."
+            "DashboardWidgetType in presentation/widget_openapi_serializers.py must list every registered widget type."
         )
 
     def test_dashboard_widget_openapi_has_no_unresolved_widget_type_enum_collisions(self) -> None:

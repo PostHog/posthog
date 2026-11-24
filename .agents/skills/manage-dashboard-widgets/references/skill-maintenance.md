@@ -28,10 +28,11 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `products/dashboards/backend/widgets/**`                                    | New `run_*`, config validation, query wiring                                                   |
 | `products/dashboards/backend/widget_specs/**`                               | Pydantic config models, validation, OpenAPI, registry manifest                                 |
-| `products/dashboards/backend/widget_specs/pydantic_openapi.py`              | `model_json_schema()` injection, `DashboardWidgetConfig` `oneOf` for Orval                     |
+| `products/dashboards/backend/presentation/pydantic_openapi.py`              | `model_json_schema()` injection, `DashboardWidgetConfig` `oneOf` for Orval                     |
 | `products/dashboards/backend/widget_registry.py`                            | Re-exports only — edit `widget_specs/registry.py`                                              |
 | `products/dashboards/backend/widget_catalog.py`                             | Derived catalog — edit `registry.py` `WidgetSpec` for labels/availability                      |
-| `products/dashboards/backend/presentation/widget_openapi_serializers.py`    | Re-exports — OpenAPI serializers derive from `WIDGET_SPECS`                                    |
+| `products/dashboards/backend/presentation/widget_openapi_serializers.py`    | OpenAPI serializers for PATCH, batch writes and the catalog, derived from `WIDGET_SPECS`       |
+| `products/dashboards/backend/facade/widget_configs.py`                      | `WIDGET_CONFIG_MODELS` and `WidgetFilterEntry`, which the OpenAPI serializers read             |
 | `products/dashboards/backend/tests/api/dashboard_openapi_test_helpers.py`   | Dashboard PATCH OpenAPI contract exclusions for `test_dashboard_openapi.py`                    |
 | `products/dashboards/scripts/build_widget_types.py`                         | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
 | `tools/openapi-codegen/package.json` (`orval` version)                      | Widget catalog Zod requires Orval 8.14+ `generateReusableSchemas`                              |

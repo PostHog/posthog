@@ -8,8 +8,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from pydantic import BaseModel
 from rest_framework import serializers
 
-from products.dashboards.backend.widget_specs.common import WidgetFilterEntry
-from products.dashboards.backend.widget_specs.registry import WIDGET_SPECS
+from products.dashboards.backend.facade.widget_configs import WIDGET_CONFIG_MODELS, WidgetFilterEntry
 
 _OPENAPI_REF_PREFIX = "#/components/schemas/"
 
@@ -101,9 +100,7 @@ def inject_widget_spec_pydantic_components(
 
     schemas = result.setdefault("components", {}).setdefault("schemas", {})
 
-    models_to_inject: list[type[BaseModel]] = [WidgetFilterEntry]
-    for spec in WIDGET_SPECS.values():
-        models_to_inject.append(spec.config_model)
+    models_to_inject: list[type[BaseModel]] = [WidgetFilterEntry, *WIDGET_CONFIG_MODELS.values()]
 
     injected_names: set[str] = set()
     for model in models_to_inject:
@@ -126,7 +123,9 @@ def inject_widget_spec_pydantic_components(
 
     # PolymorphicProxySerializer shells for per-type config have no DRF fields, so spectacular
     # emits oneOf: []. Orval 8.14+ turns that into an invalid empty TS union.
-    config_refs = [{"$ref": f"{_OPENAPI_REF_PREFIX}{spec.config_model.__name__}"} for spec in WIDGET_SPECS.values()]
+    config_refs = [
+        {"$ref": f"{_OPENAPI_REF_PREFIX}{config_model.__name__}"} for config_model in WIDGET_CONFIG_MODELS.values()
+    ]
     if config_refs:
         schemas["DashboardWidgetConfig"] = {"oneOf": config_refs}
 

@@ -3,10 +3,10 @@ from rest_framework import serializers
 
 from posthog.schema import DashboardFilter
 
+from products.dashboards.backend.presentation.widget_openapi_serializers import PatchedDashboardOpenApiSerializer
 from products.dashboards.backend.tests.api.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
-from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
 
 # DashboardFilter keys that agents do not set through the dashboard-update MCP tool.
 DASHBOARD_FILTERS_OPENAPI_EXCLUDED_FIELDS: frozenset[str] = frozenset(
