@@ -19,8 +19,14 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.models.tagged_item_registry import TAGGABLE_MODELS, content_type_for_entry, taggable_for_legacy_field
+from posthog.models.tagged_item_registry import (
+    TAGGABLE_MODELS,
+    TaggableModel,
+    content_type_for_entry,
+    taggable_for_legacy_field,
+)
 from posthog.permissions import is_service_auth
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
@@ -510,6 +516,18 @@ class TagListQuerySerializer(serializers.Serializer):
 RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS = ("project", "dashboard", "feature_flag")
 
 
+# model_to_resource derives a scope from the model name, but these models' APIs authorize under a differently named scope.
+_TAGGABLE_RESOURCE_OVERRIDES: dict[str, APIScopeObject] = {
+    "ai_observability.OfflineExperiment": "evaluation",
+    "event_definitions.EventDefinition": "event_definition",
+    "event_definitions.PropertyDefinition": "property_definition",
+}
+
+
+def get_taggable_resource(entry: TaggableModel) -> APIScopeObject | None:
+    return _TAGGABLE_RESOURCE_OVERRIDES.get(entry.model_label) or model_to_resource(apps.get_model(entry.model_label))
+
+
 class _TagCountPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
@@ -605,8 +623,9 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return visible
         for entry in TAGGABLE_MODELS:
             model = apps.get_model(entry.model_label)
-            resource = model_to_resource(model)
+            resource = get_taggable_resource(entry)
             if resource is None:
+                visible &= ~Q(tagged_items__content_type=content_type_for_entry(entry))
                 continue
             include_all_if_admin = resource in RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS
             access = self.user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)

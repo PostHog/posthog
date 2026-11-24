@@ -15,10 +15,12 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsRequestSerializer,
     BulkUpdateTagsUUIDRequestSerializer,
     TagListQuerySerializer,
+    get_taggable_resource,
 )
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item_registry import TAGGABLE_MODELS
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -577,3 +579,9 @@ class TestTagListQueryValidation(SimpleTestCase):
         serializer = TagListQuerySerializer(data={"object_type": object_type})
         assert not serializer.is_valid()
         assert "object_type" in serializer.errors
+
+
+class TestTaggableResources(SimpleTestCase):
+    @parameterized.expand([(entry.legacy_field, entry) for entry in TAGGABLE_MODELS])
+    def test_every_taggable_model_resolves_to_an_access_resource(self, _name, entry) -> None:
+        assert get_taggable_resource(entry) is not None
