@@ -1074,6 +1074,12 @@ class TestSendGridKeys(SimpleTestCase):
         [
             # A key with any marketing scope belongs to a Marketing Campaigns account, so the missing one can be added.
             ("partial_marketing", {"marketing.automation.read"}, ["lists"], {"marketing.read": ["lists"]}),
+            (
+                "account_name",
+                {"marketing.read", "suppression.read", "asm.groups.read"},
+                ["contacts"],
+                {"user.username.read": ["contacts"]},
+            ),
             ("no_marketing_campaigns", {"design_library.read"}, ["single_sends", "lists"], {}),
             ("design_still_needed", set(), ["single_sends", "designs"], {"design_library.read": ["designs"]}),
         ]

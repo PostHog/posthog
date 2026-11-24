@@ -334,9 +334,9 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their contact fields where PostHog "
                 "has none. Fills a cohort with all your contacts and one with each list's contacts, without those who "
-                "unsubscribed from everything. SendGrid prepares an export of each list, which can take a while. Select "
-                "all three steps for suppressions and unsubscribes too, so no one who left in SendGrid gets marketing "
-                "email. Each subuser gets its own cohort of all contacts. Needs marketing.read, suppression.read, "
+                "unsubscribed from everything. Each subuser gets its own cohort of all contacts. SendGrid prepares an "
+                "export of each list, which can take a while. Select all three steps for suppressions and unsubscribes "
+                "too, so no one who left in SendGrid gets marketing email. Needs marketing.read, suppression.read, "
                 "asm.groups.read and user.username.read."
             ),
             count_labels=CONTACT_COUNT_LABELS,
