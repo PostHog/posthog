@@ -9,6 +9,7 @@ from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from posthog.dataclasses import frozen
+from posthog.egress.vercel import vercel_request
 
 logger = structlog.get_logger(__name__)
 
@@ -58,10 +59,17 @@ class OperationResult:
 
 
 class VercelAPIClient:
-    def __init__(self, bearer_token: str | None, timeout: int = 30, base_url: str = "https://api.vercel.com/v1"):
+    def __init__(
+        self,
+        bearer_token: str | None,
+        timeout: int = 30,
+        base_url: str = "https://api.vercel.com/v1",
+        source: str = "integration",
+    ):
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.base_url = base_url
+        self.source = source
         self.session = requests.Session()
 
         # Not all endpoints (Such as SSO token exchange) require authorization
@@ -95,13 +103,14 @@ class VercelAPIClient:
         self,
         method: str,
         url: str,
+        installation_id: str,
         success_msg: str,
         log_kwargs: dict[str, Any],
         result_kwargs: dict[str, Any],
         **request_kwargs,
     ) -> OperationResult:
         try:
-            self._request(method, url, **request_kwargs)
+            self._request(method, url, installation_id=installation_id, **request_kwargs)
             logger.info(success_msg, integration="vercel", **log_kwargs)
             return OperationResult(success=True, **result_kwargs)
         except APIError as e:
@@ -112,9 +121,30 @@ class VercelAPIClient:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception(lambda exc: VercelAPIClient._should_retry_request(exc)),
     )
-    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        installation_id: str | None,
+        json_body: dict[str, Any] | None = None,
+        data: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> requests.Response:
+        if json_body is not None:
+            data = json.dumps(json_body)
+            headers = {**(headers or {}), "Content-Type": "application/json"}
         try:
-            response = self.session.request(method, url, timeout=self.timeout, **kwargs)
+            response = vercel_request(
+                method,
+                url,
+                source=self.source,
+                installation_id=installation_id,
+                headers=headers,
+                data=data,
+                session=self.session,
+                timeout=self.timeout,
+            )
             response.raise_for_status()
             return response
         except Timeout as e:
@@ -139,10 +169,11 @@ class VercelAPIClient:
         return self._crud_operation(
             "POST",
             url,
+            integration_config_id,
             "Successfully created experimentation items",
             {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_count": len(items)},
             {"item_count": len(items)},
-            json={"items": items},
+            json_body={"items": items},
         )
 
     def update_experimentation_item(
@@ -155,10 +186,11 @@ class VercelAPIClient:
         return self._crud_operation(
             "PATCH",
             url,
+            integration_config_id,
             "Successfully updated experimentation item",
             {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_id": item_id},
             {"item_id": item_id},
-            json=data,
+            json_body=data,
         )
 
     def delete_experimentation_item(
@@ -168,6 +200,7 @@ class VercelAPIClient:
         return self._crud_operation(
             "DELETE",
             url,
+            integration_config_id,
             "Successfully deleted experimentation item",
             {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_id": item_id},
             {"item_id": item_id},
@@ -221,10 +254,11 @@ class VercelAPIClient:
         return self._crud_operation(
             "PUT",
             url,
+            integration_config_id,
             "Successfully imported resource to Vercel",
             {"integration_config_id": integration_config_id, "resource_id": resource_id},
             {},
-            json=payload,
+            json_body=payload,
         )
 
     def update_resource_secrets(
@@ -235,10 +269,11 @@ class VercelAPIClient:
         return self._crud_operation(
             "PUT",
             url,
+            integration_config_id,
             "Successfully updated resource secrets",
             {"integration_config_id": integration_config_id, "resource_id": resource_id},
             {},
-            json={"secrets": secrets},
+            json_body={"secrets": secrets},
         )
 
     def oauth_token_exchange(
@@ -256,6 +291,7 @@ class VercelAPIClient:
             response = self._request(
                 "POST",
                 "https://api.vercel.com/v2/oauth/access_token",
+                installation_id=None,
                 data=urlencode(
                     {
                         "code": code,
@@ -320,7 +356,9 @@ class VercelAPIClient:
             )
 
     def get_installation_account(self, installation_id: str) -> dict[str, Any]:
-        response = self._request("GET", f"{self.base_url}/installations/{installation_id}/account")
+        response = self._request(
+            "GET", f"{self.base_url}/installations/{installation_id}/account", installation_id=installation_id
+        )
         return self._parse_json_response(response)
 
     def check_installation_active(self, installation_id: str) -> bool:
@@ -332,7 +370,7 @@ class VercelAPIClient:
         "definitely gone" from "can't tell".
         """
         try:
-            self._request("GET", f"{self.base_url}/installations/{installation_id}")
+            self._request("GET", f"{self.base_url}/installations/{installation_id}", installation_id=installation_id)
             return True
         except APIError as e:
             if e.status_code in (401, 403, 404):
@@ -358,6 +396,7 @@ class VercelAPIClient:
             response = self._request(
                 "POST",
                 f"{self.base_url}/integrations/sso/token",
+                installation_id=None,
                 data=urlencode(data),
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )

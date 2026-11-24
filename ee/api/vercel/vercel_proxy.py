@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from typing import Any, cast
 
@@ -8,6 +9,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.egress.vercel import vercel_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
@@ -74,11 +76,13 @@ def forward_to_vercel(config_id: str, access_token: str, path: str, method: str,
         "Content-Type": "application/json",
     }
 
-    return requests.request(
-        method=method,
-        url=url,
+    return vercel_request(
+        method,
+        url,
+        source="billing_proxy",
+        installation_id=config_id,
         headers=headers,
-        json=body if body else None,
+        data=json.dumps(body) if body else None,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
