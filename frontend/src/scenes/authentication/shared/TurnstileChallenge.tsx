@@ -9,9 +9,8 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 interface TurnstileChallengeProps {
     siteKey: string
     onSuccess: (token: string) => void
-    tokenReceived: boolean
-    // Shown while the form submits again with the token
-    pendingLabel: string
+    // When set, a spinner with this label replaces the check, because the form submits again with the token
+    pendingLabel?: string
     // Shown before the support link after the challenge fails twice
     troublePrompt: string
     email?: string
@@ -20,7 +19,6 @@ interface TurnstileChallengeProps {
 export function TurnstileChallenge({
     siteKey,
     onSuccess,
-    tokenReceived,
     pendingLabel,
     troublePrompt,
     email,
@@ -40,7 +38,7 @@ export function TurnstileChallenge({
         setError(true)
     }, [])
 
-    if (tokenReceived) {
+    if (pendingLabel) {
         return (
             <div className="flex items-center justify-center gap-2 py-2">
                 <Spinner className="text-base" />

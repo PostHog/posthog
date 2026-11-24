@@ -814,7 +814,9 @@ class TestChallengeFlow(TestCase):
         assert exc_info.value.status_code == 428
         assert exc_info.value.extra["challenge_nonce"] == "challenge:abc123:uuid"
         assert exc_info.value.extra["turnstile_site_key"] == "site_key_123"
-        mock_create_nonce.assert_called_once_with("test@example.com", "1.2.3.4", radar_attempt_id="radar_att_01ABC")
+        mock_create_nonce.assert_called_once_with(
+            "test@example.com", "1.2.3.4", action="signup", radar_attempt_id="radar_att_01ABC"
+        )
 
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_challenged"] is True
@@ -913,7 +915,7 @@ class TestChallengeFlow(TestCase):
         factory = RequestFactory()
         request = factory.get("/", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
 
-        nonce = create_challenge_nonce("test@example.com", "1.2.3.4")
+        nonce = create_challenge_nonce("test@example.com", "1.2.3.4", action="signup")
 
         from posthog.redis import get_client
 

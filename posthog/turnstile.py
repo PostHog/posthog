@@ -63,19 +63,23 @@ def verify_turnstile_token(token: str, remote_ip: str) -> bool:
 
 # The value for a challenged attempt without a Radar ID, and the value that nonces from older releases hold
 _NO_ATTEMPT_ID = "1"
+# Nonces from older releases hold no action, and only signup issued them
+_LEGACY_ACTION = "signup"
 
 
-def create_challenge_nonce(email: str, ip_address: str, radar_attempt_id: str = "") -> str:
+def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_attempt_id: str = "") -> str:
     identity_hash = _nonce_identity_hash(email, ip_address)
     nonce = f"challenge:{identity_hash}:{uuid.uuid4()}"
     redis_key = f"turnstile_nonce:{nonce}"
-    # The ID stays on the server, so the browser cannot name another attempt to report as a success
-    get_client().setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, radar_attempt_id or _NO_ATTEMPT_ID)
+    # The action and the ID stay on the server, so a solved login challenge cannot complete a signup
+    # and the browser cannot name another attempt to report as a success
+    get_client().setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, f"{action}:{radar_attempt_id or _NO_ATTEMPT_ID}")
     return nonce
 
 
-def consume_challenge_nonce(nonce: str, email: str, ip_address: str) -> str | None:
-    """Return the Radar attempt ID stored with the nonce ("" when there is none), or None when the nonce is not valid."""
+def consume_challenge_nonce(nonce: str, email: str, ip_address: str, *, action: str) -> str | None:
+    """Return the Radar attempt ID stored with the nonce ("" when there is none), or None when the nonce is not
+    valid for this address, IP and action."""
     if not nonce.startswith("challenge:"):
         return None
 
@@ -101,5 +105,9 @@ def consume_challenge_nonce(nonce: str, email: str, ip_address: str) -> str | No
         logger.warning("turnstile_nonce_not_found_or_expired")
         return None
 
-    attempt_id = stored.decode() if isinstance(stored, bytes) else str(stored)
+    value = stored.decode() if isinstance(stored, bytes) else str(stored)
+    stored_action, _, attempt_id = value.rpartition(":")
+    if (stored_action or _LEGACY_ACTION) != action:
+        logger.warning("turnstile_nonce_action_mismatch", expected=action, got=stored_action or _LEGACY_ACTION)
+        return None
     return "" if attempt_id == _NO_ATTEMPT_ID else attempt_id

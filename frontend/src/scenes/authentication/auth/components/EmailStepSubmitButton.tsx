@@ -17,13 +17,11 @@ export function EmailStepSubmitButton(): JSX.Element | null {
         if (isLoginPasswordHidden) {
             return null
         }
-        if (loginChallenge) {
+        if (loginChallenge && !loginTurnstileToken) {
             return (
                 <TurnstileChallenge
                     siteKey={loginChallenge.siteKey}
                     onSuccess={setLoginTurnstileToken}
-                    tokenReceived={!!loginTurnstileToken}
-                    pendingLabel="Logging you in..."
                     troublePrompt="Having trouble logging in?"
                     email={login.email}
                 />

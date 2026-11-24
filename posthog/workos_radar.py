@@ -265,9 +265,10 @@ def evaluate_auth_attempt(
     short_user_agent = get_short_user_agent(request)
     signals_id = _clean_signals_id(signals_id)
 
-    if turnstile_token and challenge_nonce:
+    # Only an enforced mode issues challenges, so a token sent in any other case is not an answer to one
+    if turnstile_token and challenge_nonce and mode == RadarMode.ENFORCE and challenge_allowed:
         # A resubmit answers the challenge of an earlier attempt, so Radar is not called again
-        challenge_attempt_id = _complete_challenge(email, turnstile_token, challenge_nonce, ip_address)
+        challenge_attempt_id = _complete_challenge(email, turnstile_token, challenge_nonce, ip_address, action)
         attempt = RadarAttempt(
             verdict=RadarVerdict.CHALLENGE,
             attempt_id=challenge_attempt_id or "",
@@ -321,7 +322,7 @@ def evaluate_auth_attempt(
             logger.error("workos_radar_challenge_no_site_key", action=action.value, email_hash=_hash_email(email))
             raise SuspiciousAttemptBlocked()
 
-        nonce = create_challenge_nonce(email, ip_address, radar_attempt_id=attempt.attempt_id)
+        nonce = create_challenge_nonce(email, ip_address, action=action.value, radar_attempt_id=attempt.attempt_id)
         logger.info("workos_radar_challenge_issued", action=action.value, email_hash=_hash_email(email))
         raise ChallengeRequired(
             challenge_nonce=nonce,
@@ -354,9 +355,11 @@ def _evaluate_verdict(
     return attempt, (time.perf_counter() - start_time) * 1000
 
 
-def _complete_challenge(email: str, turnstile_token: str, challenge_nonce: str, ip_address: str) -> Optional[str]:
+def _complete_challenge(
+    email: str, turnstile_token: str, challenge_nonce: str, ip_address: str, action: RadarAction
+) -> Optional[str]:
     """Return the ID of the challenged attempt ("" when Radar gave none), or None when the challenge fails."""
-    attempt_id = consume_challenge_nonce(challenge_nonce, email, ip_address)
+    attempt_id = consume_challenge_nonce(challenge_nonce, email, ip_address, action=action.value)
     if attempt_id is None or not verify_turnstile_token(turnstile_token, ip_address):
         return None
     return attempt_id

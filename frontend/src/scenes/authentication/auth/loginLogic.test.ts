@@ -497,6 +497,36 @@ describe('loginLogic', () => {
                 },
             ])
         })
+        it('keeps a solved challenge for the next submit when the form fails its own validation', async () => {
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => [
+                        428,
+                        {
+                            code: 'challenge_required',
+                            detail: 'Additional verification is required to continue.',
+                            extra: { challenge_nonce: 'challenge:abc:uuid', turnstile_site_key: 'site_key_123' },
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+            logic.actions.setLoginValues({ password: '' })
+            logic.actions.setLoginTurnstileToken('turnstile_abc')
+            await expectLogic(logic)
+                .toDispatchActions(['submitLogin', 'submitLoginFailure'])
+                .toMatchValues({
+                    solvedLoginChallenge: { nonce: 'challenge:abc:uuid', token: 'turnstile_abc' },
+                })
+        })
     })
 
     describe('precheck dedupe', () => {
