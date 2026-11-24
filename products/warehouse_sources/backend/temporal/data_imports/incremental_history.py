@@ -18,6 +18,10 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    resolve_destinations,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -38,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     external_destination_ids_for,
     includes_the_warehouse,
+    is_multi_destination_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
@@ -72,6 +77,28 @@ def incremental_history_refusal(*, incremental_field: str | None, incremental_fi
             "A history table needs an incremental field that holds a date and time, "
             "so each version can say when the row changed."
         )
+    return None
+
+
+HISTORY_NEEDS_THE_WAREHOUSE = (
+    "History tables are kept in the PostHog warehouse, and this table doesn't sync there. "
+    "Add the PostHog warehouse to its destinations to keep a history table."
+)
+HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE = (
+    "A table that keeps only its history table can't sync to other destinations. "
+    "Keep both tables, or sync this table to the PostHog warehouse only."
+)
+
+
+def history_destinations_refusal(schema: ExternalDataSchema, *, history_only: bool) -> str | None:
+    """Why the schema's saved destinations can't take its history table, the same check a run makes."""
+    if not is_multi_destination_enabled(schema.team_id, schema.source.source_type):
+        return None
+    types = {destination.type for destination in resolve_destinations(schema)}
+    if ExternalDataDestination.Type.POSTHOG_WAREHOUSE not in types:
+        return HISTORY_NEEDS_THE_WAREHOUSE
+    if history_only and types != {ExternalDataDestination.Type.POSTHOG_WAREHOUSE}:
+        return HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE
     return None
 
 

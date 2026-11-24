@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     ExternalDataSourceDestination,
 )
+from products.warehouse_sources.backend.facade.source_management import history_destinations_refusal
 
 EMPTY_SET_MESSAGE = (
     "Pick at least one destination. To stop syncing this data, turn off syncing instead of removing every destination."
@@ -81,6 +82,16 @@ def _resolve_destinations(team_id: int, destination_ids: list) -> list[ExternalD
     if missing:
         raise ValidationError({"destination_ids": f"Unknown destinations: {', '.join(sorted(missing))}"})
     return destinations
+
+
+def _refuse_history_without_the_warehouse(schemas: list[ExternalDataSchema], *, name_tables: bool) -> None:
+    # Checked against the links this edit just wrote, so it covers a cleared override and a source's set alike.
+    for schema in schemas:
+        if not (schema.is_incremental and schema.keeps_history):
+            continue
+        refusal = history_destinations_refusal(schema, history_only=schema.cdc_table_mode == "cdc_only")
+        if refusal:
+            raise ValidationError({"destination_ids": f"{schema.name}: {refusal}" if name_tables else refusal})
 
 
 def _resume_paused(
@@ -155,6 +166,14 @@ def set_source_destinations(
             ExternalDataSourceDestination.objects.for_team(team_id).create(
                 team_id=team_id, source_id=source_id, destination=destination
             )
+        _refuse_history_without_the_warehouse(
+            list(
+                ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id)
+                .exclude(deleted=True)
+                .select_related("source")
+            ),
+            name_tables=True,
+        )
         _resume_paused(destinations, authorize_resume)
     return [str(d.id) for d in destinations]
 
@@ -183,13 +202,15 @@ def set_schema_destinations(
 
     with transaction.atomic():
         ExternalDataSchemaDestination.objects.for_team(team_id).filter(schema_id=schema_id).delete()
-
-        if destination_ids is None:
-            return None
-
         for destination in destinations:
             ExternalDataSchemaDestination.objects.for_team(team_id).create(
                 team_id=team_id, schema_id=schema_id, destination=destination
             )
+        _refuse_history_without_the_warehouse(
+            [ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)],
+            name_tables=False,
+        )
+        if destination_ids is None:
+            return None
         _resume_paused(destinations, authorize_resume)
     return [str(d.id) for d in destinations]
