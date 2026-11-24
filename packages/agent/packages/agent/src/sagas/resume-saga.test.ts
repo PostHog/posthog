@@ -87,6 +87,10 @@ describe("ResumeSaga", () => {
       ).mockResolvedValue([
         createUserMessage("Hello"),
         createAgentChunk("Hi there!"),
+        createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
+          reason: "rejected",
+          droppedCount: 1,
+        }),
         createUserMessage("Help me"),
         createAgentChunk("Sure, "),
         createAgentChunk("I can help."),
@@ -566,6 +570,18 @@ describe("ResumeSaga", () => {
           runStarted("session-new"),
         ],
         expected: "session-new",
+      },
+      {
+        name: "skips a session log gap marker after run_started",
+        entries: () => [
+          runStarted("session-abc"),
+          createUserMessage("Hello"),
+          createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
+            reason: "overflow",
+            droppedCount: 3,
+          }),
+        ],
+        expected: "session-abc",
       },
       {
         name: "returns null when no run_started notification is present",

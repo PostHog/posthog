@@ -268,6 +268,18 @@ export function mapNotificationToLogRecord(
         attrs,
       );
     }
+    case POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP: {
+      const attrs: Attributes = {};
+      const reason = strAttr(attrs, "gap_reason", params.reason);
+      numAttr(attrs, "dropped_count", params.droppedCount);
+      numAttr(attrs, "http_status", params.status);
+      return record(
+        WARN,
+        `session log gap${reason ? ` (${reason})` : ""}`,
+        method,
+        attrs,
+      );
+    }
     case POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
     case POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED: {

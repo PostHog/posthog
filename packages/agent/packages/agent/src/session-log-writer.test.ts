@@ -207,8 +207,8 @@ describe("SessionLogWriter", () => {
     });
 
     it.each([
-      ["a 404", 404, ["later"]],
-      ["a 401", 401, ["later"]],
+      ["a 404", 404, ["_posthog/session_log_gap", "later"]],
+      ["a 401", 401, ["_posthog/session_log_gap", "later"]],
       ["a 503", 503, ["test", "later"]],
     ])(
       "after %s the next flush sends %j",
@@ -231,6 +231,112 @@ describe("SessionLogWriter", () => {
         );
       },
     );
+
+    it("keeps the good entries of a batch the server rejects for one bad entry", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      const persisted: StoredNotification[] = [];
+      mockAppendLog.mockImplementation(
+        async (
+          _taskId: string,
+          _runId: string,
+          batch: StoredNotification[],
+        ) => {
+          if (batch.some((entry) => entry.notification.method === "bad")) {
+            throw new PostHogAPIError("Failed request: [400]", 400);
+          }
+          persisted.push(...batch);
+        },
+      );
+
+      for (const method of ["a", "b", "bad", "c", "d"]) {
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method }), method);
+      }
+      await logWriter.flush(sessionId);
+      await logWriter.flush(sessionId);
+
+      expect(
+        persisted.map((entry) => [
+          entry.notification.method,
+          entry.notification.params,
+        ]),
+      ).toEqual([
+        ["a", undefined],
+        ["b", undefined],
+        ["c", undefined],
+        ["d", undefined],
+        [
+          "_posthog/session_log_gap",
+          {
+            droppedCount: 1,
+            firstEventId: "bad",
+            lastEventId: "bad",
+          },
+        ],
+      ]);
+    });
+
+    it("stops re-marking once the server rejects the gap marker itself", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      mockAppendLog.mockRejectedValue(
+        new PostHogAPIError("Failed request: [404]", 404),
+      );
+
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test" }));
+      for (let i = 0; i < 3; i++) {
+        await logWriter.flush(sessionId);
+      }
+
+      expect(mockAppendLog).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops the oldest entries past the queue cap and marks the gap", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      mockAppendLog.mockRejectedValueOnce(new Error("network error"));
+
+      const entriesMax = 10_000;
+      for (let i = 0; i < entriesMax + 5; i++) {
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ method: "test" }),
+          `e${i}`,
+        );
+      }
+      await logWriter.flush(sessionId);
+      await logWriter.flush(sessionId);
+
+      const sent: StoredNotification[] = mockAppendLog.mock.calls[1][2];
+      expect(sent).toHaveLength(entriesMax + 1);
+      expect(sent[0].notification.params).toEqual({
+        droppedCount: 5,
+        firstEventId: "e0",
+        lastEventId: "e4",
+      });
+      expect(sent[1].event_id).toBe("e5");
+    });
+
+    it("splits a backlog larger than one request into ordered requests", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      const text = "x".repeat(3 * 1024 * 1024);
+      for (const method of ["a", "b", "c"]) {
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ method, params: { text } }),
+        );
+      }
+      await logWriter.flush(sessionId);
+
+      expect(
+        mockAppendLog.mock.calls.map((call) =>
+          (call[2] as StoredNotification[]).map(
+            (entry) => entry.notification.method,
+          ),
+        ),
+      ).toEqual([["a", "b"], ["c"]]);
+    });
 
     it("retries on schedule while new entries keep arriving during an outage", async () => {
       vi.useFakeTimers();

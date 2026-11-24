@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { serializeError, TranscriptBoundaries } from "@posthog/agent-contracts";
+import { POSTHOG_NOTIFICATIONS } from "./acp-extensions";
 import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
@@ -70,8 +71,33 @@ interface BufferedToolUpdate {
   bufferedAt: number;
 }
 
+interface PendingEntry {
+  entry: StoredNotification;
+  bytes: number;
+}
+
+interface PendingQueue {
+  entries: PendingEntry[];
+  bytes: number;
+}
+
+interface SessionLogGap {
+  droppedCount: number;
+  firstEventId?: string;
+  lastEventId?: string;
+}
+
+interface SendOutcome {
+  sentBytes: number;
+  rejected: PendingEntry[];
+  rejectedStatus?: number;
+  failure?: { error: unknown; unsent: PendingEntry[] };
+}
+
 interface SessionState {
   context: SessionContext;
+  gap?: SessionLogGap;
+  overflowUnreportedCount?: number;
   transcriptBoundaries: TranscriptBoundaries;
   chunkBuffer?: ChunkBuffer;
   leadingEmptyChunkEventId?: string;
@@ -100,9 +126,22 @@ export class SessionLogWriter {
   private static readonly SHUTDOWN_FLUSH_ATTEMPTS = 3;
   private static readonly MAX_RETRY_DELAY_MS = 30_000;
   private static readonly SESSIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+  private static readonly PENDING_ENTRIES_MAX = 10_000;
+  private static readonly REQUEST_BYTES_MAX = 8 * 1024 * 1024;
+  private static readonly PENDING_BYTES_MAX =
+    8 * SessionLogWriter.REQUEST_BYTES_MAX;
+  /**
+   * Rejections that can depend on the batch contents (a malformed entry, a
+   * body over the request size limit). Only these are bisected to isolate
+   * the offending entries; other rejections fail every entry alike.
+   */
+  private static readonly SPLIT_STATUSES: ReadonlySet<number> = new Set([
+    400, 413, 422,
+  ]);
+  private static readonly SPLIT_REQUESTS_MAX = 64;
 
   private posthogAPI?: PostHogAPIClient;
-  private pendingEntries: Map<string, StoredNotification[]> = new Map();
+  private pendingEntries: Map<string, PendingQueue> = new Map();
   private flushTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private lastFlushAttemptTime: Map<string, number> = new Map();
   private retryCounts: Map<string, number> = new Map();
@@ -139,7 +178,9 @@ export class SessionLogWriter {
   private async flushWithRetries(sessionIds: string[]): Promise<void> {
     const unflushed = () =>
       sessionIds.filter(
-        (sessionId) => this.pendingEntries.get(sessionId)?.length,
+        (sessionId) =>
+          this.pendingEntries.get(sessionId)?.entries.length ||
+          this.sessions.get(sessionId)?.gap,
       );
     for (
       let attempt = 0;
@@ -155,7 +196,7 @@ export class SessionLogWriter {
       }
     }
     for (const sessionId of unflushed()) {
-      const pending = this.pendingEntries.get(sessionId) ?? [];
+      const pending = this.pendingEntries.get(sessionId)?.entries ?? [];
       const timeout = this.flushTimeouts.get(sessionId);
       if (timeout) {
         clearTimeout(timeout);
@@ -165,8 +206,10 @@ export class SessionLogWriter {
         taskId: this.sessions.get(sessionId)?.context.taskId,
         runId: this.sessions.get(sessionId)?.context.runId,
         count: pending.length,
-        firstEventId: pending[0].first_event_id ?? pending[0].event_id,
-        lastEventId: pending[pending.length - 1].event_id,
+        gapDroppedCount: this.sessions.get(sessionId)?.gap?.droppedCount,
+        firstEventId:
+          pending[0]?.entry.first_event_id ?? pending[0]?.entry.event_id,
+        lastEventId: pending[pending.length - 1]?.entry.event_id,
       });
     }
   }
@@ -441,13 +484,19 @@ export class SessionLogWriter {
       this.logger.warn("flush: no session found", { sessionId });
       return;
     }
+    if (!this.posthogAPI) {
+      return;
+    }
 
-    const pending = this.pendingEntries.get(sessionId);
-    if (!this.posthogAPI || !pending?.length) {
+    this.reportOverflow(sessionId, session);
+    const queue = this.pendingEntries.get(sessionId);
+    const gap = session.gap;
+    if (!queue?.entries.length && !gap) {
       return;
     }
 
     this.pendingEntries.delete(sessionId);
+    session.gap = undefined;
     const timeout = this.flushTimeouts.get(sessionId);
     if (timeout) {
       clearTimeout(timeout);
@@ -456,53 +505,269 @@ export class SessionLogWriter {
 
     this.lastFlushAttemptTime.set(sessionId, Date.now());
 
-    try {
-      await this.posthogAPI.appendTaskRunLog(
-        session.context.taskId,
-        session.context.runId,
-        pending,
-      );
-      this.retryCounts.set(sessionId, 0);
-      this.flushedBytes.set(
-        sessionId,
-        (this.flushedBytes.get(sessionId) ?? 0) +
-          Buffer.byteLength(JSON.stringify(pending)),
-      );
-    } catch (error) {
-      if (error instanceof PostHogAPIError && !error.retryable) {
-        this.retryCounts.set(sessionId, 0);
-        this.logger.error("Session log batch rejected, dropping it", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          status: error.status,
-          count: pending.length,
-          firstEventId: pending[0].first_event_id ?? pending[0].event_id,
-          lastEventId: pending[pending.length - 1].event_id,
-        });
-        return;
-      }
-      const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
-      this.retryCounts.set(sessionId, retryCount);
-      const currentPending = this.pendingEntries.get(sessionId) ?? [];
-      this.pendingEntries.set(sessionId, [...pending, ...currentPending]);
+    const marker = gap
+      ? this.toPendingEntry(this.buildGapMarker(gap))
+      : undefined;
+    const entries = queue?.entries ?? [];
+    const outcome = await this.sendBatch(
+      this.posthogAPI,
+      session.context,
+      marker ? [marker, ...entries] : entries,
+    );
+    this.flushedBytes.set(
+      sessionId,
+      (this.flushedBytes.get(sessionId) ?? 0) + outcome.sentBytes,
+    );
 
-      if (retryCount === 1) {
-        this.logger.warn("Failed to persist session logs, will retry", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } else if (retryCount % SessionLogWriter.FLUSH_FAILURE_LOG_EVERY === 0) {
-        this.logger.error("Session logs still failing to persist", {
-          taskId: session.context.taskId,
-          runId: session.context.runId,
-          attempts: retryCount,
-          pendingEntries: pending.length + currentPending.length,
-          errorDetail: serializeError(error),
-        });
-      }
-      this.scheduleFlush(sessionId);
+    const gapSinceSend = session.gap;
+    session.gap = undefined;
+    const unsent = outcome.failure?.unsent ?? [];
+    if (marker && unsent[0] === marker) {
+      this.mergeGap(session, gap);
     }
+    // A rejected marker is not re-marked: it would be retried forever.
+    const rejected = outcome.rejected.filter((entry) => entry !== marker);
+    if (rejected.length < outcome.rejected.length) {
+      this.logger.error("Session log gap marker rejected", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        status: outcome.rejectedStatus,
+        ...gap,
+      });
+    }
+    if (rejected.length > 0) {
+      this.reportDrop(
+        sessionId,
+        session,
+        "rejected",
+        rejected.length,
+        outcome.rejectedStatus,
+      );
+      this.mergeGap(session, this.gapOf(rejected));
+    }
+    this.mergeGap(session, gapSinceSend);
+
+    const requeued = unsent.filter((entry) => entry !== marker);
+    if (requeued.length > 0) {
+      this.requeueFront(sessionId, requeued);
+    }
+
+    if (!outcome.failure) {
+      this.retryCounts.set(sessionId, 0);
+      if (session.gap) {
+        this.scheduleFlush(sessionId);
+      }
+      return;
+    }
+
+    const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
+    this.retryCounts.set(sessionId, retryCount);
+    this.enforcePendingCap(sessionId, session);
+
+    const { error } = outcome.failure;
+    if (retryCount === 1) {
+      this.logger.warn("Failed to persist session logs, will retry", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } else if (retryCount % SessionLogWriter.FLUSH_FAILURE_LOG_EVERY === 0) {
+      this.logger.error("Session logs still failing to persist", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        attempts: retryCount,
+        pendingEntries: this.pendingEntries.get(sessionId)?.entries.length,
+        errorDetail: serializeError(error),
+      });
+    }
+    this.scheduleFlush(sessionId);
+  }
+
+  private async sendBatch(
+    posthogAPI: PostHogAPIClient,
+    context: SessionContext,
+    batch: PendingEntry[],
+  ): Promise<SendOutcome> {
+    const stack = this.chunkByBytes(batch).reverse();
+    const rejected: PendingEntry[] = [];
+    let rejectedStatus: number | undefined;
+    let sentBytes = 0;
+    let splitRequests = 0;
+    for (let chunk = stack.pop(); chunk; chunk = stack.pop()) {
+      try {
+        await posthogAPI.appendTaskRunLog(
+          context.taskId,
+          context.runId,
+          chunk.map((pendingEntry) => pendingEntry.entry),
+        );
+        sentBytes += this.sumBytes(chunk);
+      } catch (error) {
+        if (!(error instanceof PostHogAPIError) || error.retryable) {
+          const unsent = [chunk, ...stack.reverse()].flat();
+          return {
+            sentBytes,
+            rejected,
+            rejectedStatus,
+            failure: { error, unsent },
+          };
+        }
+        rejectedStatus = error.status;
+        if (
+          chunk.length > 1 &&
+          SessionLogWriter.SPLIT_STATUSES.has(error.status) &&
+          splitRequests < SessionLogWriter.SPLIT_REQUESTS_MAX
+        ) {
+          const middle = Math.ceil(chunk.length / 2);
+          stack.push(chunk.slice(middle), chunk.slice(0, middle));
+          splitRequests += 2;
+        } else {
+          rejected.push(...chunk);
+        }
+      }
+    }
+    return { sentBytes, rejected, rejectedStatus };
+  }
+
+  private chunkByBytes(batch: PendingEntry[]): PendingEntry[][] {
+    const chunks: PendingEntry[][] = [];
+    let chunk: PendingEntry[] = [];
+    let chunkBytes = 0;
+    for (const pendingEntry of batch) {
+      if (
+        chunk.length > 0 &&
+        chunkBytes + pendingEntry.bytes > SessionLogWriter.REQUEST_BYTES_MAX
+      ) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = 0;
+      }
+      chunk.push(pendingEntry);
+      chunkBytes += pendingEntry.bytes;
+    }
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+    return chunks;
+  }
+
+  private sumBytes(entries: PendingEntry[]): number {
+    let bytes = 0;
+    for (const pendingEntry of entries) {
+      bytes += pendingEntry.bytes;
+    }
+    return bytes;
+  }
+
+  private toPendingEntry(entry: StoredNotification): PendingEntry {
+    return { entry, bytes: Buffer.byteLength(JSON.stringify(entry)) };
+  }
+
+  private gapOf(dropped: PendingEntry[]): SessionLogGap {
+    const first = dropped[0].entry;
+    return {
+      droppedCount: dropped.length,
+      firstEventId: first.first_event_id ?? first.event_id,
+      lastEventId: dropped[dropped.length - 1].entry.event_id,
+    };
+  }
+
+  private mergeGap(
+    session: SessionState,
+    later: SessionLogGap | undefined,
+  ): void {
+    if (!later) return;
+    if (!session.gap) {
+      session.gap = { ...later };
+      return;
+    }
+    session.gap.droppedCount += later.droppedCount;
+    session.gap.firstEventId ??= later.firstEventId;
+    session.gap.lastEventId = later.lastEventId ?? session.gap.lastEventId;
+  }
+
+  private buildGapMarker(gap: SessionLogGap): StoredNotification {
+    return {
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP,
+        params: {
+          droppedCount: gap.droppedCount,
+          ...(gap.firstEventId ? { firstEventId: gap.firstEventId } : {}),
+          ...(gap.lastEventId ? { lastEventId: gap.lastEventId } : {}),
+        },
+      },
+    };
+  }
+
+  private reportDrop(
+    sessionId: string,
+    session: SessionState,
+    reason: "rejected" | "overflow",
+    droppedCount: number,
+    status?: number,
+  ): void {
+    this.logger.error("Session log entries dropped", {
+      taskId: session.context.taskId,
+      runId: session.context.runId,
+      reason,
+      status,
+      droppedCount,
+    });
+    this.emitToSinks(sessionId, {
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP,
+        params: {
+          reason,
+          droppedCount,
+          ...(status !== undefined ? { status } : {}),
+        },
+      },
+    });
+  }
+
+  private reportOverflow(sessionId: string, session: SessionState): void {
+    const droppedCount = session.overflowUnreportedCount ?? 0;
+    if (droppedCount === 0) return;
+    session.overflowUnreportedCount = 0;
+    this.reportDrop(sessionId, session, "overflow", droppedCount);
+  }
+
+  private requeueFront(sessionId: string, entries: PendingEntry[]): void {
+    const queue = this.pendingEntries.get(sessionId);
+    if (queue) {
+      entries.push(...queue.entries);
+    }
+    this.pendingEntries.set(sessionId, {
+      entries,
+      bytes: this.sumBytes(entries),
+    });
+  }
+
+  private enforcePendingCap(sessionId: string, session: SessionState): void {
+    const queue = this.pendingEntries.get(sessionId);
+    if (!queue) return;
+    let evictCount = 0;
+    let bytes = queue.bytes;
+    while (
+      evictCount < queue.entries.length &&
+      (queue.entries.length - evictCount >
+        SessionLogWriter.PENDING_ENTRIES_MAX ||
+        bytes > SessionLogWriter.PENDING_BYTES_MAX)
+    ) {
+      bytes -= queue.entries[evictCount].bytes;
+      evictCount++;
+    }
+    if (evictCount === 0) return;
+    const evicted = queue.entries.splice(0, evictCount);
+    queue.bytes = bytes;
+    this.mergeGap(session, this.gapOf(evicted));
+    session.overflowUnreportedCount =
+      (session.overflowUnreportedCount ?? 0) + evictCount;
   }
 
   private flushMaxIntervalMs(sessionId: string): number {
@@ -621,9 +886,17 @@ export class SessionLogWriter {
   }
 
   private pushPendingEntry(sessionId: string, entry: StoredNotification): void {
-    const pending = this.pendingEntries.get(sessionId) ?? [];
-    pending.push(entry);
-    this.pendingEntries.set(sessionId, pending);
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const pendingEntry = this.toPendingEntry(entry);
+    const queue = this.pendingEntries.get(sessionId) ?? {
+      entries: [],
+      bytes: 0,
+    };
+    queue.entries.push(pendingEntry);
+    queue.bytes += pendingEntry.bytes;
+    this.pendingEntries.set(sessionId, queue);
+    this.enforcePendingCap(sessionId, session);
     this.scheduleFlush(sessionId);
   }
 

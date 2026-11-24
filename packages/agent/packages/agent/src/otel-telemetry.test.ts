@@ -112,6 +112,17 @@ describe("OtelRunTelemetry", () => {
         },
       },
       {
+        name: "session_log_gap",
+        entry: makeEntry("_posthog/session_log_gap", {
+          reason: "rejected",
+          droppedCount: 2,
+          status: 400,
+        }),
+        severityText: "WARN",
+        body: "session log gap (rejected)",
+        attrs: { gap_reason: "rejected", dropped_count: 2, http_status: 400 },
+      },
+      {
         name: "double-prefixed extension method",
         entry: makeEntry("__posthog/run_started", {}),
         body: "run started",
