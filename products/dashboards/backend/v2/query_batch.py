@@ -43,7 +43,7 @@ from posthog.api.services.query import (
 from posthog.api.utils import is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -794,7 +794,10 @@ class QueryBatch:
             # The client went away: stop what is still running in ClickHouse. A worker that was still planning
             # or waiting for a limiter slot sends its SQL after the first kill, so keep killing until it ends.
             Thread(
-                target=self._cancel_until_idle, args=(active,), daemon=True, name="dashboard-query-batch-cancel"
+                target=self._context.copy().run,
+                args=(self._cancel_until_idle, active),
+                daemon=True,
+                name="dashboard-query-batch-cancel",
             ).start()
         if admitted:
             for future in self._futures:
@@ -823,7 +826,8 @@ class QueryBatch:
         while active:
             for query_id in active:
                 try:
-                    cancel_query_on_cluster(team_id=self._team.pk, client_query_id=query_id)
+                    with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY):
+                        cancel_query_on_cluster(team_id=self._team.pk, client_query_id=query_id)
                 except Exception:
                     logger.exception("dashboard_v2_query_batch_cancel_failed", team_id=self._team.pk)
             if monotonic() >= deadline or self._idle.wait(CANCEL_RETRY_SECONDS):

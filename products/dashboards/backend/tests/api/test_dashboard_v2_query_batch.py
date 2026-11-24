@@ -3,6 +3,7 @@ import json
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import aclosing
+from threading import Event
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -17,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.services.query import run_planned_query
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
@@ -188,11 +190,50 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
-    def test_a_query_that_raises_still_ends_the_stream_with_an_error_line(self) -> None:
-        with patch("products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=RuntimeError("boom")):
+    def test_a_miss_runs_tagged_as_a_query_and_a_raise_still_ends_the_stream(self) -> None:
+        features: list[str | None] = []
+
+        def run(*args: Any, **kwargs: Any) -> Any:
+            # Strict query tagging rejects untagged ClickHouse queries, so a miss must carry the request's feature.
+            features.append(get_query_tag_value("feature"))
+            raise RuntimeError("boom")
+
+        with patch("products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=run):
             lines = self._lines([_insight("$pageview")])
 
         self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
+        self.assertEqual(features, ["query"])
+
+    def test_a_disconnect_cancels_running_queries_with_tags_set(self) -> None:
+        cancelled = Event()
+        seen: list[tuple[str | None, str | None]] = []
+
+        def cancel(**kwargs: Any) -> None:
+            seen.append((get_query_tag_value("product"), get_query_tag_value("feature")))
+            cancelled.set()
+
+        batch = QueryBatch(
+            team=self.team,
+            user=self.user,
+            inputs=[
+                QueryBatchInput(
+                    target=QueryBatchTarget(ref_id="a", language=QueryBatchLanguage.HOGQL, query="select 1"),
+                    date_from="now-7d",
+                    date_to="now",
+                    cache_only=True,
+                )
+            ],
+            dashboard_id=None,
+            client_query_id="dashboard-v2-batch-test",
+        )
+        batch._active.add("dashboard-v2-batch-test-0")
+        with patch("products.dashboards.backend.v2.query_batch.cancel_query_on_cluster", side_effect=cancel):
+            batch._close(complete=False)
+            self.assertTrue(cancelled.wait(timeout=5))
+            batch._idle.set()
+        batch._open.release()
+
+        self.assertEqual(seen[0], ("product_analytics", "query"))
 
     def test_an_oversized_entry_is_read_once_however_many_panels_repeat_it(self) -> None:
         self._warm_via_query_endpoint("$pageview")

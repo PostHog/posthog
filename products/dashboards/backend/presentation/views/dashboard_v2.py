@@ -10,6 +10,7 @@ from rest_framework import exceptions, serializers, viewsets
 from rest_framework.parsers import JSONParser
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
@@ -144,6 +145,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     # JSON only: the scope check reads the raw body, so it must parse it the way the serializer does.
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    @monitor(feature=Feature.QUERY, endpoint="dashboard_v2_query_batch", method="POST")
     def query_batch(self, request: ValidatedRequest, **kwargs: Any) -> HttpResponseBase:
         if request.user.is_anonymous:
             raise exceptions.NotFound()
