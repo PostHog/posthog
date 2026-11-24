@@ -598,6 +598,23 @@ module    = "products/{product}/backend/activity_log_config.py"
 attribute = "FIELD_EXCLUSIONS"
 lifecycle = "setup"
 
+# Celery's `app.autodiscover_tasks()` in posthog/celery.py imports each installed app's `tasks`
+# module by name: a `tasks.py` file, or a `tasks/` package whose `__init__.py` imports the modules
+# beside it. A task's registered name is the module that defines it, and a core test snapshots every
+# name. A glob holds one form, so each form is a registry. Celery reads no attribute; `__all__`
+# names the tasks where a package lists them, and the file glob alone puts each file in the watched set.
+[registries.celery_tasks]
+loader    = "posthog.celery.app.autodiscover_tasks"
+module    = "products/{product}/backend/tasks.py"
+attribute = "__all__"
+lifecycle = "setup"
+
+[registries.celery_task_package]
+loader    = "posthog.celery.app.autodiscover_tasks"
+module    = "products/{product}/backend/tasks/*.py"
+attribute = "__all__"
+lifecycle = "setup"
+
 # The admin console imports each installed app's `console` module by name when it first lists its
 # pages; the module registers its panels and tools on the `console` registry it imports.
 [registries.admin_console]
