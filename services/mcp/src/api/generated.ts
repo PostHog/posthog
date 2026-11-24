@@ -14314,6 +14314,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working
+     */
+    export type AgentActivityKindEnum = typeof AgentActivityKindEnum[keyof typeof AgentActivityKindEnum];
+
+
+    export const AgentActivityKindEnum = {
+      SearchingMetrics: 'searching_metrics',
+      ReadingLabels: 'reading_labels',
+      ReadingLabelValues: 'reading_label_values',
+      RunningQuery: 'running_query',
+      CheckingPanels: 'checking_panels',
+      ExploringLogs: 'exploring_logs',
+      ExploringTraces: 'exploring_traces',
+      ReadingDashboard: 'reading_dashboard',
+      Thinking: 'thinking',
+      Working: 'working',
+    } as const;
+
+    /**
      * A check a scout run answers: re-probe the report's claim and record one verdict.
      *
      * The kind for a claim no single number settles. A resolved error-tracking report is the usual
@@ -35623,6 +35651,36 @@ export namespace Schemas {
       state: PanelProgressStateEnum;
     }
 
+    export interface DashboardImportAgentActivity {
+      /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+       *
+       * * `searching_metrics` - Searching Metrics
+       * * `reading_labels` - Reading Labels
+       * * `reading_label_values` - Reading Label Values
+       * * `running_query` - Running Query
+       * * `checking_panels` - Checking Panels
+       * * `exploring_logs` - Exploring Logs
+       * * `exploring_traces` - Exploring Traces
+       * * `reading_dashboard` - Reading Dashboard
+       * * `thinking` - Thinking
+       * * `working` - Working */
+      kind: AgentActivityKindEnum;
+      /** Seconds since the action started. */
+      seconds: number;
+      /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+      idle_seconds: number;
+      /**
+         * The search term, metric name or attribute key that the action works on, when it has one.
+         * @nullable
+         */
+      subject: string | null;
+      /**
+         * Number of panels that a 'checking_panels' action checks.
+         * @nullable
+         */
+      panel_count: number | null;
+    }
+
     export interface DashboardImportSummary {
       /** Number of panels in the input. */
       total: number;
@@ -35696,6 +35754,8 @@ export namespace Schemas {
       phase: DashboardImportPhaseEnum | null;
       /** Where each panel is, while the import runs. */
       panel_progress: DashboardImportPanelProgress[];
+      /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+      agent_activity: DashboardImportAgentActivity | null;
       /**
          * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
          * @nullable
@@ -120799,6 +120859,13 @@ export namespace Schemas {
          * @nullable
          */
       autostart_enabled?: boolean | null;
+      /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
       default_autostart_priority?: AutonomyPriorityEnum;
       /**
          * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -126970,13 +127037,6 @@ export namespace Schemas {
       coverage: TopicCoverage;
     }
 
-    export interface TopicDefinition {
-      /** Short name of the subject. */
-      title: string;
-      /** One sentence on what the topic covers. */
-      description: string;
-    }
-
     /**
      * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
      */
@@ -128727,11 +128787,6 @@ export namespace Schemas {
          * @nullable
          */
       topics: TopicCluster[] | null;
-      /**
-         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-         * @nullable
-         */
-      topic_definitions: TopicDefinition[] | null;
       /** What the sampled sessions were about, by kind. Null until grouped. */
       topic_sessions: TopicSessionCounts | null;
       /**
@@ -128779,6 +128834,8 @@ export namespace Schemas {
       created_at: string;
       /** The scan result, one key per section. */
       payload: UsageSnapshotPayload;
+      /** How many of the scan's topics the payload leaves out for this reader. A topic is left out when its sessions read a table or view the reader is denied, or read data the scan could not trace to tables. */
+      hidden_topics: number;
     }
 
     export interface UsageSnapshotSummary {
@@ -143942,6 +143999,7 @@ export namespace Schemas {
     event?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
