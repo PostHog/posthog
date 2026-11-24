@@ -401,7 +401,7 @@ export async function expectOk(url: string): Promise<void> {
 }
 
 // The kernel completes a connect to a listening socket without the server's event loop, so a busy runner that hosts
-// the provider edge cannot make it look gone.
+// the provider edge does not time this probe out while the edge's accept queue has room.
 export async function accepts(url: string): Promise<void> {
     const { hostname, port } = new URL(url)
     await new Promise<void>((resolve, reject) => {
@@ -489,6 +489,9 @@ const hostLimitOf = (error: unknown): string | undefined =>
     (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
 
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
+    // One listing serves every probe of the check that hit a host limit, because each `ss` run costs the host more of
+    // what it ran out of.
+    let listing: Promise<Record<string, number> | undefined> | undefined
     const results = await Promise.all(
         Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
             const startedAt = performance.now()
@@ -499,7 +502,7 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
                 const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
                 const hostLimit = hostLimitOf(error)
-                const sockets = hostLimit ? await socketsOf() : undefined
+                const sockets = hostLimit ? await (listing ??= socketsOf()) : undefined
                 return {
                     name,
                     reason,
