@@ -340,7 +340,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'plain',
         projectBased: false,
         organizationBased: false,
-        allowUnauthenticated: true,
     },
     [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.AccountConnected]: {
