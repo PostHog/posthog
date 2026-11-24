@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+_EVERY_EARLIER_BATCH_DELIVERED = UnfinishedEarlierBatches(count=0, first_batch_index=None, states=())
 
 
 class RecordingWriter:
@@ -356,22 +357,24 @@ class TestExternalOnlyRunCompletion(DeliveryTestCase):
         )
         self.destination = self._destination("customer redshift")
 
-    def _process_final_batch(self, batch_index: int = 0) -> None:
+    def _process_final_batch(self, earlier_batches: UnfinishedEarlierBatches = _EVERY_EARLIER_BATCH_DELIVERED) -> None:
         signal = self._signal(
             [str(self.destination.id)],
-            batch_index=batch_index,
+            batch_index=earlier_batches.count,
             is_final=True,
             schema_id=str(self.schema.id),
             job_id=str(self.job.id),
         )
         # The pooled helpers run on another thread, which cannot see this test's uncommitted rows, and
-        # closing old connections would close the test's own connection.
+        # closing old connections would close the test's own connection. The completion check reads
+        # the queue database, which these tests do not have.
         with (
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync.database_sync_to_async_pool",
                 sync_to_async,
             ),
             mock.patch(f"{_PROCESSOR}.close_old_connections"),
+            mock.patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=earlier_batches),
         ):
             process_message(signal.to_dict())
 
@@ -385,13 +388,8 @@ class TestExternalOnlyRunCompletion(DeliveryTestCase):
         assert self.schema.last_synced_at == self.job.created_at
 
     def test_a_run_with_an_undelivered_earlier_batch_leaves_the_schema_unsynced(self) -> None:
-        unfinished = UnfinishedEarlierBatches(count=1, first_batch_index=0, states=("failed",))
-
-        with (
-            mock.patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=unfinished),
-            self.assertRaises(IncompleteRunError),
-        ):
-            self._process_final_batch(batch_index=1)
+        with self.assertRaises(IncompleteRunError):
+            self._process_final_batch(UnfinishedEarlierBatches(count=1, first_batch_index=0, states=("failed",)))
 
         self.schema.refresh_from_db()
         assert self.schema.initial_sync_complete is False
