@@ -9174,15 +9174,11 @@ _REALTIME_PERSON_LEAF = {
     "conditionHash": "email00000000000",
     "bytecode": _REALTIME_BYTECODE,
 }
-_PAGEVIEW_FILTERS = {
-    "properties": {
-        "type": "AND",
-        "values": [{k: v for k, v in _REALTIME_PAGEVIEW_LEAF.items() if k not in ("bytecode", "conditionHash")}],
-    }
+_PAGEVIEW_LEAF: dict[str, Any] = {
+    k: v for k, v in _REALTIME_PAGEVIEW_LEAF.items() if k not in ("bytecode", "conditionHash")
 }
-_SKIPPED_PAGEVIEW_FILTERS = {
-    "properties": {"type": "AND", "values": [{**_PAGEVIEW_FILTERS["properties"]["values"][0], "negation": True}]}
-}
+_PAGEVIEW_FILTERS = {"properties": {"type": "AND", "values": [_PAGEVIEW_LEAF]}}
+_SKIPPED_PAGEVIEW_FILTERS = {"properties": {"type": "AND", "values": [{**_PAGEVIEW_LEAF, "negation": True}]}}
 
 
 @override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3, REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
@@ -9369,10 +9365,10 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             f"/api/projects/{self.team.id}/cohorts/", {"name": "Realtime", "filters": _PAGEVIEW_FILTERS}, format="json"
         )
         cohort = Cohort.objects.get(id=created.json()["id"])
-        Cohort.objects.filter(id=cohort.id).update(
-            realtime_enabled_at=timezone.now(), last_backfill_events_at=timezone.now()
-        )
+        Cohort.objects.filter(id=cohort.id).update(realtime_enabled_at=timezone.now())
         self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", away, format="json")
+        # A cohort that left realtime before stamps were cleared on the way out still carries them.
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
         self.enqueue_backfill.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):

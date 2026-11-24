@@ -2508,7 +2508,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
         ]
         # The processor keeps no membership for a cohort while it is off realtime, so its stamps go stale and it needs
-        # a fresh build when it comes back. Shape hashes don't change while it is away, so no save would queue one.
+        # a fresh build when it comes back. Shape hashes don't change while it is away, so a save that keeps the old
+        # criteria queues none.
         returns_to_realtime = (
             not was_realtime
             and cohort.realtime_enabled
