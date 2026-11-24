@@ -620,6 +620,8 @@ class Resolver(CloningVisitor):
         # Each JOIN constraint being resolved, with its SELECT's scope and the tables joined after it.
         # The resolver visits later joins before a constraint, but a scalar alias read there must not use them.
         self._join_constraints: list[tuple[ast.SelectQueryType, list[ast.Type]]] = []
+        # A declared FROM is a boundary even before its tables have been visited.
+        self._unresolved_from_scopes: set[int] = set()
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1141,6 +1143,7 @@ class Resolver(CloningVisitor):
         while queue:
             name = queue.pop()
             if name not in needed:
+                self._compilation_budget.inherit_scalar_alias()
                 needed.add(name)
                 queue.extend(dep for dep in _field_roots(inherited[name].expr) if dep in inherited and dep not in own)
         if not needed:
@@ -1209,7 +1212,7 @@ class Resolver(CloningVisitor):
                 if crossed_from:
                     raise self._cross_scope_alias_error(name)
                 return self._resolve_pending_alias(scope, name) if is_owner_pending else cte
-            if scope.tables or scope.anonymous_tables:
+            if scope.tables or scope.anonymous_tables or id(scope) in self._unresolved_from_scopes:
                 crossed_from = True
         if bound is not None and crossed_from:
             # The owner is a sibling UNION branch. ClickHouse copies that branch's WITH into this one.
@@ -1283,6 +1286,8 @@ class Resolver(CloningVisitor):
 
         # The scope goes on the stack before WITH, so aliases inside WITH expressions stay in this SELECT.
         self.scopes.append(node_type)
+        if node.select_from is not None:
+            self._unresolved_from_scopes.add(id(node_type))
 
         # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any.
         # A scalar alias that can read this query's columns waits until FROM has put its tables in scope,
@@ -1327,6 +1332,7 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+        self._unresolved_from_scopes.discard(id(node_type))
 
         if from_scalar_aliases:
             assert node.ctes is not None and current_level_ctes is not None

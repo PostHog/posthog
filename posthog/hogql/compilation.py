@@ -9,6 +9,7 @@ from posthog.hogql.errors import QueryError
 MAX_VIEW_DEPTH = 100
 MAX_VIEW_EXPANSIONS = 1000
 MAX_EXPANDED_VIEW_SQL_BYTES = 4 * 1024 * 1024
+MAX_INHERITED_SCALAR_ALIASES = 10_000
 COMPILATION_TIMEOUT_SECONDS = 60.0
 
 
@@ -17,10 +18,20 @@ class CompilationBudget:
         self.deadline = time.monotonic() + COMPILATION_TIMEOUT_SECONDS
         self.view_expansions = 0
         self.expanded_view_sql_bytes = 0
+        self.inherited_scalar_aliases = 0
 
     def check_time(self) -> None:
         if time.monotonic() > self.deadline:
             raise QueryError("HogQL compilation exceeded its time limit. Simplify the query and try again.")
+
+    def inherit_scalar_alias(self) -> None:
+        self.check_time()
+        self.inherited_scalar_aliases += 1
+        if self.inherited_scalar_aliases > MAX_INHERITED_SCALAR_ALIASES:
+            raise QueryError(
+                f"Query exceeds the limit of {MAX_INHERITED_SCALAR_ALIASES} inherited scalar aliases. "
+                "Reduce the number of aliases or UNION branches."
+            )
 
     def expand_view(self, query: str) -> None:
         self.check_time()

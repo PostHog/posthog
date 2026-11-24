@@ -1001,6 +1001,18 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.type, ast.SelectQueryType)
         self.assertEqual(self.context.errors, [])
 
+    def test_pre_from_alias_cannot_capture_outer_table_bound_alias(self):
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            resolve_types(
+                self._select(
+                    "WITH t.properties AS x "
+                    "SELECT (WITH (SELECT x) AS y SELECT y FROM raw_persons AS t LIMIT 1) "
+                    "FROM (SELECT '' AS properties) AS t LIMIT 1"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+
     def test_scalar_alias_with_its_own_from_does_not_bind_an_outer_table_field(self):
         with self.assertRaisesRegex(QueryError, "Unable to resolve field: n"):
             resolve_types(
@@ -1411,6 +1423,15 @@ class TestResolver(BaseTest):
         resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
         self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
         self.assertEqual(self.context.errors, [])
+
+    def test_union_scalar_alias_expansion_has_cumulative_limit(self):
+        query = (
+            "WITH number AS n SELECT n FROM numbers(1) UNION ALL SELECT n FROM numbers(1) "
+            "UNION ALL SELECT n FROM numbers(1)"
+        )
+        with patch("posthog.hogql.compilation.MAX_INHERITED_SCALAR_ALIASES", 1):
+            with self.assertRaisesRegex(QueryError, "limit of 1 inherited scalar aliases"):
+                resolve_types(self._select(query), self.context, dialect="clickhouse")
 
     @parameterized.expand([("arithmetic", "+1"), ("alias_only", "")])
     def test_union_scalar_alias_dependency_chain_does_not_use_python_recursion(self, _name: str, operation: str):
