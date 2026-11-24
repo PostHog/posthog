@@ -1922,7 +1922,7 @@ class TestExperimentService(APIBaseTest):
         service.update_experiment(experiment, {"start_date": timezone.now()})
 
         with self.assertRaises(ValidationError) as ctx:
-            service.update_experiment(experiment, {"holdout": holdout})
+            service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         assert "Can't update holdout" in str(ctx.exception)
 
@@ -2793,7 +2793,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_draft_experiment()
         service = self._service()
 
-        service.update_experiment(experiment, {"holdout": holdout})
+        service.update_experiment(experiment, {"holdout_id": holdout.id})
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.filters["holdout"] == {"id": holdout.id, "exclusion_percentage": 10}

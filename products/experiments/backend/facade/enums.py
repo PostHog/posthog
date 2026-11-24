@@ -14,6 +14,8 @@ MIN_RECALCULATION_GAP_HOURS = 6
 MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
 MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
+LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
