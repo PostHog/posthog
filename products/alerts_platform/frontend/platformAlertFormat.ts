@@ -233,6 +233,14 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
+// One group has the alert's state, so its start time is the alert's start time too.
+export function listRowSince(row: PlatformAlertListRow): string | null {
+    const { configuration } = row
+    const only = configuration.enabled && configuration.alerts.length === 1 ? configuration.alerts[0] : null
+    const alert = row.kind === 'group' ? row.group : only
+    return alert?.state === 'firing' ? alert.firing_started_at : null
+}
+
 export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
     return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }

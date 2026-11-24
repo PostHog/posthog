@@ -20,6 +20,7 @@ import {
     groupSnoozeLockedByAlert,
     describeSchedule,
     listRowMute,
+    listRowSince,
     groupLabels,
     ruleMetadataEntriesError,
 } from './platformAlertFormat'
@@ -166,6 +167,24 @@ describe('platformAlertFormat', () => {
                 ? { kind: 'alert', configuration }
                 : { kind: 'group', configuration, group: alerts[groupIndex] }
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
+    })
+
+    test.each<[string, boolean, number, number | null, string | null]>([
+        ['an alert with one group', true, 1, null, '2026-10-05T11:00:00Z'],
+        ['a disabled alert with one group', false, 1, null, null],
+        ['an alert with two groups', true, 2, null, null],
+        ['a group row', true, 2, 1, '2026-10-05T11:00:00Z'],
+    ])('listRowSince: %s', (_, enabled, groupCount, groupIndex, expected) => {
+        const alerts = Array.from({ length: groupCount }, () => ({
+            ...makeAlert(PlatformAlertStateApi.Firing),
+            firing_started_at: '2026-10-05T11:00:00Z',
+        }))
+        const configuration = makeConfiguration({ enabled, alerts })
+        const row: PlatformAlertListRow =
+            groupIndex === null
+                ? { kind: 'alert', configuration }
+                : { kind: 'group', configuration, group: alerts[groupIndex] }
+        expect(listRowSince(row)).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
