@@ -12,12 +12,13 @@ from redis.exceptions import (
 )
 
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.aeo.backend import keyword_suggestions, tracking
+from products.aeo.backend import keyword_suggestions
 from products.aeo.backend.facade.api import get_prompt_set_overview
-from products.aeo.backend.models import AEOCitationCheck, AEOTeamConfig
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.tasks import tasks
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
@@ -30,27 +31,31 @@ from products.aeo.backend.test.factories import create_citation_check, create_ow
 @pytest.fixture
 def team(db: None) -> Team:
     organization = Organization.objects.create(name="aeo test org", is_ai_data_processing_approved=True)
-    team = Team.objects.create(organization=organization, name="aeo test team")
-    tracking.enable(team.id, user_id=None)
-    return team
+    return Team.objects.create(organization=organization, name="aeo test team")
+
+
+def _add_prompt(team: Team, *, active: bool) -> None:
+    with team_scope(team.pk):
+        AEOPrompt.objects.create(
+            team=team, prompt="Q?", prompt_hash="q", prompt_source=AEOPrompt.Source.MANUAL, active=active
+        )
 
 
 @pytest.mark.parametrize(
-    "state, kill_switch_on, dispatched",
+    "state, kill_switch_on, dispatched, gate_passes",
     [
-        ("enabled", True, True),
-        ("kill_switch_off", False, False),
-        ("not_set_up", True, False),
-        ("ai_not_approved", True, False),
-        ("org_deactivated", True, False),
+        ("active_prompts", True, True, True),
+        ("only_inactive_prompts", True, False, True),
+        ("kill_switch_off", False, False, False),
+        ("ai_not_approved", True, False, False),
+        ("org_deactivated", True, False, False),
     ],
 )
-def test_dispatch_runs_only_teams_that_setup_turned_on(
-    team: Team, state: str, kill_switch_on: bool, dispatched: bool
+def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
+    team: Team, state: str, kill_switch_on: bool, dispatched: bool, gate_passes: bool
 ) -> None:
-    if state == "not_set_up":
-        AEOTeamConfig.objects.for_team(team.id).delete()
-    elif state == "ai_not_approved":
+    _add_prompt(team, active=state != "only_inactive_prompts")
+    if state == "ai_not_approved":
         Organization.objects.filter(id=team.organization_id).update(is_ai_data_processing_approved=False)
     elif state == "org_deactivated":
         Organization.objects.filter(id=team.organization_id).update(is_active=False)
@@ -64,7 +69,7 @@ def test_dispatch_runs_only_teams_that_setup_turned_on(
         run_aeo_citation_checks_for_team_task(team.id)
 
     assert [call.args for call in dispatch.call_args_list] == ([(team.id,)] if dispatched else [])
-    assert run.call_count == (1 if dispatched else 0)
+    assert run.call_count == (1 if gate_passes else 0)
 
 
 @pytest.mark.parametrize("run_in_progress", [False, True])
@@ -194,6 +199,8 @@ def test_keyword_suggestion_task_skips_a_job_that_is_no_longer_pending(team: Tea
 
 @pytest.mark.parametrize("flag_on, expected_starts", [(True, 1), (False, 0)], ids=["enabled", "flag_off"])
 def test_sentiment_backlog_pass_scores_each_enabled_team(team: Team, flag_on: bool, expected_starts: int) -> None:
+    _add_prompt(team, active=True)
+
     with (
         patch.object(tasks, "feature_enabled_or_false", return_value=flag_on),
         patch.object(tasks, "start_backlog_sentiment_scoring", side_effect=RuntimeError("temporal down")) as start,

@@ -76,7 +76,6 @@ rules:
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
-                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential

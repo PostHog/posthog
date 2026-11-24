@@ -31,9 +31,8 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
-The scheduled tasks cover the teams with an enabled `AEOTeamConfig` row whose organization is active, not pending deletion, and approved AI data processing.
-Setup (`POST aeo_setup/`), a prompt import that adds prompts, and turning a prompt on each create that row for someone the early-access flag lets in.
-The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls.
+The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
+The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
 The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
 PostHog pays for every engine call and nothing caps a team's active prompts yet, so add organizations to it by hand and do not roll it out widely.
 Removing an organization from it stops that organization's runs.

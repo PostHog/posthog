@@ -1,8 +1,8 @@
 """Scheduled entrypoints for the AEO citation runner.
 
-The dispatcher covers the teams that a setup turned on (an enabled AEOTeamConfig),
-whose organization approved AI data processing, and whose organization the
-`aeo-citation-tracking` ops kill switch leaves on. Each eligible team gets its own
+The dispatcher covers the teams with active prompts whose organization is active,
+approved AI data processing, and is in the `aeo-citation-tracking` flag. Only people
+with the early-access flag can add or turn on prompts. Each eligible team gets its own
 long-running task so one slow team can't block another and a worker restart only
 loses one team's in-flight run.
 
@@ -28,7 +28,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend import auto_setup, keyword_suggestions, suggestions, tracking
+from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
 from products.aeo.backend.facade.contracts import (
@@ -38,7 +38,7 @@ from products.aeo.backend.facade.contracts import (
     SetupRequest,
 )
 from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -74,7 +74,8 @@ ENRICH_TIME_LIMIT_SECONDS = ENRICH_SOFT_TIME_LIMIT_SECONDS + 60
 ENRICH_LOCK_SECONDS = ENRICH_TIME_LIMIT_SECONDS + 60
 
 
-def citation_tracking_available(team: Team) -> bool:
+def citation_tracking_enabled(team: Team) -> bool:
+    """Shared by the dispatcher and the per-team task so a task queued directly cannot skip the gate."""
     organization = team.organization
     if not organization.is_active or organization.is_pending_deletion:
         return False
@@ -90,20 +91,17 @@ def citation_tracking_available(team: Team) -> bool:
     )
 
 
-def citation_tracking_enabled(team: Team) -> bool:
-    return tracking.is_enabled(team.id) and citation_tracking_available(team)
-
-
-def _enabled_teams() -> list[Team]:
-    return list(Team.objects.filter(id__in=tracking.enabled_team_ids()).select_related("organization").order_by("id"))
+def _teams_with_active_prompts() -> list[Team]:
+    active = AEOPrompt.objects.unscoped().filter(active=True, archived_at__isnull=True).values("team_id")
+    return list(Team.objects.filter(id__in=active).select_related("organization").order_by("id"))
 
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
 def run_aeo_citation_checks_task() -> None:
-    """Beat entrypoint: fan out one runner task per enabled team."""
-    for team in _enabled_teams():
-        if not citation_tracking_available(team):
+    """Beat entrypoint: fan out one runner task per team with active prompts that passes the gate."""
+    for team in _teams_with_active_prompts():
+        if not citation_tracking_enabled(team):
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
         run_aeo_citation_checks_for_team_task.delay(team.id)
@@ -114,8 +112,8 @@ def run_aeo_citation_checks_task() -> None:
 def score_aeo_sentiment_backlog_task() -> None:
     """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
     covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
-    for team in _enabled_teams():
-        if not citation_tracking_available(team):
+    for team in _teams_with_active_prompts():
+        if not citation_tracking_enabled(team):
             continue
         try:
             start_backlog_sentiment_scoring(team.id)
@@ -128,8 +126,8 @@ def score_aeo_sentiment_backlog_task() -> None:
 def refresh_aeo_stored_results_task() -> None:
     """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
     bounds how long a write that forgot to bump the version can leave an old result in use."""
-    for team in _enabled_teams():
-        if citation_tracking_available(team):
+    for team in _teams_with_active_prompts():
+        if citation_tracking_enabled(team):
             refresh_aeo_stored_results_for_team_task.delay(team.id)
 
 

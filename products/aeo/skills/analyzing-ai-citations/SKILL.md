@@ -54,7 +54,7 @@ papercuts that make the first query fail.
 - **Is the runner active on this project?** Run
   `SELECT count() FROM system.aeo_citation_checks WHERE created_at >= now() - INTERVAL 14 DAY`.
   Zero rows means no prompts are being checked for this project. The scheduled runner only
-  covers projects that set up AI visibility or added prompts; it runs once a day at 07:30 UTC.
+  covers projects with active prompts whose organization is enabled for it; it runs once a day at 07:30 UTC.
 
 ## Data sources
 
