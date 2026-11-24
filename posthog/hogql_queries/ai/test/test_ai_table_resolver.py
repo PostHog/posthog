@@ -472,7 +472,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (function, property_type, value, parser, expected, in_union)
-            for function in ("coalesce", "ifNull")
+            for function in ("coalesce", "COALESCE", "ifNull", "IFNULL", "ifnull")
             for property_type, value, parser, expected in (
                 ("Numeric", 123, "toFloatOrZero(value)", 123.0),
                 ("DateTime", "2024-04-05T06:07:08Z", "toYear(toDateTime(value))", 2024),
@@ -493,6 +493,17 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
         assert result.results == [(expected,)]
+
+    def test_uppercase_null_default_keeps_raw_values_for_string_parser(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_value", property_type="Numeric")
+        self._create_generations("posthog.ai_events", {"example_value": 123}, {})
+
+        query = (
+            "SELECT toIntOrZero(COALESCE(properties.example_value, '0')) FROM posthog.ai_events ORDER BY distinct_id"
+        )
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(123,), (0,)]
 
     @parameterized.expand(
         [

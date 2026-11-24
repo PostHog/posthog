@@ -156,7 +156,7 @@ STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOr
 # These functions return one of their arguments unchanged, so the call around them receives the property itself.
 # A property that the outer call needs as its stored string must stay unconverted through them, as in
 # `JSONExtractArrayRaw(properties.items ?? '[]')`.
-NULL_DEFAULT_FUNCTIONS = frozenset({"ifNull", "coalesce"})
+NULL_DEFAULT_FUNCTIONS = frozenset({"ifnull", "coalesce"})
 
 
 class PropertySwapper(CloningVisitor):
@@ -366,8 +366,9 @@ class PropertySwapper(CloningVisitor):
         # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
         # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
+        is_null_default = node.name.lower() in NULL_DEFAULT_FUNCTIONS
         self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
-            saved_suppress and node.name in NULL_DEFAULT_FUNCTIONS
+            saved_suppress and is_null_default
         )
 
         self._inside_call_depth += 1
@@ -380,7 +381,7 @@ class PropertySwapper(CloningVisitor):
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
 
-        if node.name in NULL_DEFAULT_FUNCTIONS:
+        if is_null_default:
             self._refresh_null_default_type(result)
         return self._maybe_extract_exception_string_array(result)
 
