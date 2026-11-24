@@ -177,6 +177,13 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
+def internal_reference_hosts(content: HogFunctionContent) -> frozenset[str]:
+    """The internal hosts the internal host rules read, to compare with what a redacted copy of the content shows."""
+    url_inputs = _template_url_inputs(content)
+    hosts = {*_hosts_in(_request_targets(content, url_inputs)), *_hosts_in(_texts(content, url_inputs))}
+    return frozenset(host for host in hosts if _is_internal(host))
+
+
 def has_outbound_call(content: HogFunctionContent) -> bool:
     """Whether the code or a Hog template can call a function that sends a request. Code that does not parse counts,
     as does unedited template code, which still runs."""

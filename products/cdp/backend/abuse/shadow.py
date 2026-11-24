@@ -75,14 +75,14 @@ class ScoredHogFunction:
     outbound_call: bool
     account: Account
     account_tier: AccountTier
-    # The model reads only the public content, so a rule hit from a secret input is not covered by its rating.
-    rule_hits_in_public_content: bool
+    # The model reads only the public content, so its rating does not cover an internal host in a secret input.
+    hidden_internal_host: bool
 
     @property
     def would_alert(self) -> bool:
         if self.verdict is None:
             return bool(self.rule_hits)
-        weak_rules_only = set(self.rule_hits) <= rules.WEAK_RULES and self.rule_hits_in_public_content
+        weak_rules_only = set(self.rule_hits) <= rules.WEAK_RULES and not self.hidden_internal_host
         rules_alert = bool(self.rule_hits) and not (weak_rules_only and self.verdict.clearly_normal)
         return rules_alert or self.verdict.would_alert
 
@@ -190,6 +190,8 @@ def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
         if key not in payload:
             continue
         try:
+            if isinstance(payload[key], bool):
+                raise TypeError(f"not a number: {payload[key]!r}")
             values[field] = float(payload[key])
         except (TypeError, ValueError, OverflowError):
             logger.warning("cdp_abuse_classifier_threshold_unreadable", team_id=team_id, key=key)
@@ -350,18 +352,31 @@ def classify_if_due(hog_function: HogFunction) -> None:
     runtime_content = _with_secret_inputs(hog_function, content)
     rule_hits = rules.matched_rules(runtime_content)
     outbound_call = rules.has_outbound_call(runtime_content)
+    hidden_internal_host = _hides_internal_host(runtime_content, content, rule_hits)
     scoring = _scoring_for(hog_function.team)
     public_content_hash = content_hash(content)
     reported = cache.get(_hash_key(str(hog_function.id)))
     # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
     covering_states = (True,) if hog_function.enabled else (True, False)
     if any(
-        reported == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, enabled=state)
+        reported
+        == _cache_entry(
+            public_content_hash,
+            rule_hits,
+            outbound_call,
+            scoring.account_tier,
+            hidden_internal_host=hidden_internal_host,
+            enabled=state,
+        )
         for state in covering_states
     ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rule_hits, outbound_call, scoring), trigger=Trigger.SAVE)
+    report(
+        hog_function,
+        _score(hog_function, content, rule_hits, outbound_call, hidden_internal_host, scoring),
+        trigger=Trigger.SAVE,
+    )
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -378,13 +393,23 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
     runtime_content = _with_secret_inputs(hog_function, content)
+    rule_hits = rules.matched_rules(runtime_content)
     return _score(
         hog_function,
         content,
-        rules.matched_rules(runtime_content),
+        rule_hits,
         rules.has_outbound_call(runtime_content),
+        _hides_internal_host(runtime_content, content, rule_hits),
         _scoring_for(hog_function.team),
     )
+
+
+def _hides_internal_host(
+    runtime_content: HogFunctionContent, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
+) -> bool:
+    if not rules.WEAK_RULES & set(rule_hits):
+        return False
+    return not rules.internal_reference_hosts(runtime_content) <= rules.internal_reference_hosts(content)
 
 
 def _score(
@@ -392,6 +417,7 @@ def _score(
     content: HogFunctionContent,
     rule_hits: tuple[rules.Rule, ...],
     outbound_call: bool,
+    hidden_internal_host: bool,
     scoring: _Scoring,
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
@@ -415,7 +441,7 @@ def _score(
         outbound_call=outbound_call,
         account=scoring.account,
         account_tier=scoring.account_tier,
-        rule_hits_in_public_content=not rule_hits or set(rule_hits) <= set(rules.matched_rules(content)),
+        hidden_internal_host=hidden_internal_host,
     )
 
 
@@ -444,16 +470,20 @@ def _cache_entry(
     outbound_call: bool,
     account_tier: AccountTier,
     *,
+    hidden_internal_host: bool,
     enabled: bool,
 ) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
     Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
     cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
     moderate score alerts, so an account that enters or leaves it scores again on its next save. Enabling a function
-    that was scored while disabled reports it again, so a probe that starts running alerts as enabled. An enabled
-    entry carries no state suffix, so entries that earlier releases wrote stay valid."""
+    that was scored while disabled reports it again, so a probe that starts running alerts as enabled. A secret input
+    that names an internal host the public content does not decides whether a weak rule alerts, so it is kept too.
+    An enabled entry without a hidden host carries no suffix, so entries that earlier releases wrote stay valid."""
     established = account_tier is AccountTier.ESTABLISHED
     entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
+    if hidden_internal_host:
+        entry = f"{entry}:hidden_internal_host"
     return entry if enabled else f"{entry}:disabled"
 
 
@@ -504,6 +534,7 @@ def report(
             scored.rule_hits,
             scored.outbound_call,
             scored.account_tier,
+            hidden_internal_host=scored.hidden_internal_host,
             enabled=hog_function.enabled,
         ),
         _HASH_TTL_SECONDS,

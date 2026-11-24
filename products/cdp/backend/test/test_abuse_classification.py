@@ -26,6 +26,7 @@ LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
 SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
 CLEARLY_NORMAL_SCORES = {**SCORES, "resource_exhaustion": 0.1, "normal_integration": 0.9}
 LOCAL_URL_FILTER = "if (event.properties.$current_url == 'http://127.0.0.1/') {\n  return\n}\n"
+LOCAL_URL_TEMPLATE = "{{event.properties.$current_url == 'http://{host}/' ? 'a' : 'b'}}"
 NO_CALL_HOG = "print(event.properties.$ip)"
 REQUEST_CATCHER_HOG = "fetch('https://webhook.site/0000')"
 METADATA_HOG = "fetch('http://169.254.169.254/latest')"
@@ -194,6 +195,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 "weak_rule_control_threshold_above_one_turns_the_quieting_off",
                 {**CLEARLY_NORMAL_SCORES, "normal_integration": 1.0},
                 {"weak_rule_control_threshold": 2},
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                True,
+                False,
+            ),
+            (
+                "boolean_weak_rule_control_threshold_is_ignored",
+                {**CLEARLY_NORMAL_SCORES, "normal_integration": 0.89},
+                {"weak_rule_control_threshold": False},
                 LOCAL_URL_FILTER + RULE_FREE_HOG,
                 ["internal_host_reference"],
                 True,
@@ -571,19 +581,28 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "model_alert_gates": model_alert_gates,
         }
 
-    def test_a_weak_rule_hit_from_a_secret_input_alerts_on_a_clearly_normal_function(self) -> None:
+    @parameterized.expand(
+        [
+            ("only_in_a_secret_input", "return event", "127.0.0.1", True),
+            ("another_host_in_a_secret_input", LOCAL_URL_FILTER + "return event", "10.0.0.1", True),
+            ("the_public_host_in_a_secret_input", LOCAL_URL_FILTER + "return event", "127.0.0.1", False),
+        ]
+    )
+    def test_a_weak_rule_stays_quiet_only_on_hosts_the_model_sees(
+        self, _name: str, hog: str, secret_host: str, would_alert: bool
+    ) -> None:
         self.gateway.response = httpx.Response(200, json=decision_payload(CLEARLY_NORMAL_SCORES))
 
         self.create_destination(
             type="transformation",
-            hog="return event",
-            inputs={"api_key": {"value": "{event.properties.$current_url == 'http://127.0.0.1/' ? 'a' : 'b'}"}},
+            hog=hog,
+            inputs={"api_key": {"value": LOCAL_URL_TEMPLATE.format(host=secret_host)}},
         )
 
         [event] = self.captured_events()
-        assert "127.0.0.1" not in self.gateway.bodies()[0]
+        assert secret_host not in json.dumps(json.loads(self.gateway.bodies()[0])["state"]["inputs"])
         assert event["properties"]["rule_hits"] == ["internal_host_reference"]
-        assert event["properties"]["would_alert"] is True
+        assert event["properties"]["would_alert"] is would_alert
 
     @parameterized.expand(
         [
@@ -761,6 +780,18 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 },
                 2,
                 {"hog": "print(event)"},
+            ),
+            (
+                "secret_input_that_hides_another_internal_host",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": LOCAL_URL_TEMPLATE.format(host="10.0.0.1")},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {"type": "transformation", "hog": LOCAL_URL_FILTER + "return event"},
             ),
         ]
     )
