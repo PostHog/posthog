@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import Organization, ProxyRecord
 from posthog.tasks.proxy import reconcile_managed_proxies, reconcile_proxy, reconcile_proxy_root_redirect
 from posthog.temporal.proxy_service.common import (
@@ -258,13 +259,14 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         self.record.status = ProxyRecord.Status.DELETING
         self.record.save(update_fields=["status"])
 
-        async_to_sync(activity_update_proxy_record)(
-            UpdateProxyRecordInputs(
-                organization_id=self.organization.id,
-                proxy_record_id=self.record.id,
-                status=status,
+        with self.assertRaises(RecordDeletedException):
+            async_to_sync(activity_update_proxy_record)(
+                UpdateProxyRecordInputs(
+                    organization_id=self.organization.id,
+                    proxy_record_id=self.record.id,
+                    status=status,
+                )
             )
-        )
 
         self.record.refresh_from_db()
         self.assertEqual(self.record.status, ProxyRecord.Status.DELETING)
@@ -283,9 +285,18 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         self.record.save(update_fields=["status", "target_cname"])
         Organization.objects.filter(pk=self.organization.pk).update(is_active=active)
         temporal = AsyncMock()
+
+        def connect_while_deleting():
+            competing_lock = cloudflare_proxy_lock(self.record.id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            self.assertFalse(acquired)
+            return temporal
+
         with (
             responses.RequestsMock() as http,
-            patch("posthog.tasks.proxy.sync_connect", return_value=temporal),
+            patch("posthog.tasks.proxy.sync_connect", side_effect=connect_while_deleting),
             patch("posthog.tasks.proxy.reconcile_proxy.delay", side_effect=reconcile_proxy.run),
         ):
             reconcile_managed_proxies.run()
