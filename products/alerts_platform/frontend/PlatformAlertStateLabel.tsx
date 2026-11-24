@@ -9,7 +9,7 @@ interface StatusDisplay {
     icon: JSX.Element
 }
 
-const STATUS_CONFIG: Partial<Record<PlatformAlertConfigurationStatus, StatusDisplay>> = {
+const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, StatusDisplay> = {
     not_firing: { label: 'OK', icon: <IconCheckCircle className="text-success" /> },
     firing: { label: 'Firing', icon: <IconErrorOutline className="text-danger" /> },
     errored: { label: 'Errored', icon: <IconXCircle className="text-warning" /> },
@@ -21,6 +21,12 @@ const STATUS_CONFIG: Partial<Record<PlatformAlertConfigurationStatus, StatusDisp
 
 const UNKNOWN_STATUS_DISPLAY: Omit<StatusDisplay, 'label'> = { icon: <IconCircleDashed /> }
 
+// A state added on the backend before this map knows it still renders.
+function statusDisplay(status: string): StatusDisplay {
+    const displays: Partial<Record<string, StatusDisplay>> = STATUS_CONFIG
+    return displays[status] ?? { ...UNKNOWN_STATUS_DISPLAY, label: status }
+}
+
 export function PlatformAlertStateLabel({
     status,
     count,
@@ -28,8 +34,7 @@ export function PlatformAlertStateLabel({
     status: PlatformAlertConfigurationStatus
     count?: number
 }): JSX.Element {
-    // A state added on the backend before this map knows it still renders.
-    const { label, icon } = STATUS_CONFIG[status] ?? { ...UNKNOWN_STATUS_DISPLAY, label: status }
+    const { label, icon } = statusDisplay(status)
     return (
         <span
             className="flex items-center gap-1 whitespace-nowrap"

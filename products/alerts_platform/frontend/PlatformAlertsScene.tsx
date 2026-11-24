@@ -20,6 +20,7 @@ import { OptionalTimeLabel } from './OptionalTimeLabel'
 import {
     PlatformAlertListRow,
     SOURCE_KINDS,
+    canExpand,
     describeCondition,
     describeGroup,
     describeInterval,
@@ -78,7 +79,7 @@ function listColumns(
                 const expanded = expandedIds.includes(configuration.id)
                 return (
                     <div className="flex items-center gap-1">
-                        {configuration.alerts.length > 1 ? (
+                        {canExpand(configuration) ? (
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconChevronRight className={expanded ? 'rotate-90' : undefined} />}
@@ -196,7 +197,7 @@ export function PlatformAlertsScene(): JSX.Element {
             Couldn't load alert configurations. Try again in a moment.
         </LemonBanner>
     ) : (
-        <div ref={listRef} className="@container/alerts-list">
+        <div ref={listRef}>
             <LemonTable
                 dataSource={listRows}
                 columns={columns}

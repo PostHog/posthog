@@ -185,6 +185,10 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
     }))
 }
 
+export function canExpand(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.alerts.length > 1
+}
+
 export type PlatformAlertListRow =
     | { kind: 'alert'; configuration: PlatformAlertConfigurationApi }
     | { kind: 'group'; configuration: PlatformAlertConfigurationApi; group: PlatformAlertApi }
@@ -195,7 +199,7 @@ export function configurationListRows(
 ): PlatformAlertListRow[] {
     return configurations.flatMap((configuration): PlatformAlertListRow[] => [
         { kind: 'alert', configuration },
-        ...(expandedIds.includes(configuration.id) && configuration.alerts.length > 1
+        ...(expandedIds.includes(configuration.id) && canExpand(configuration)
             ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
             : []),
     ])
