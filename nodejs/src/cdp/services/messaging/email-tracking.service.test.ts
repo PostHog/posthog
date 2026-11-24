@@ -1488,6 +1488,27 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore)
             })
 
+            it('counts a notification once when the worker exits right after its batch flushed and Kafka redelivers the batch', async () => {
+                await postBounce({ functionId: hogFunction.id })
+                const service = consumer['emailTrackingService']
+                const flush = service.flush.bind(service)
+                let flushed!: () => void
+                const batchFlushed = new Promise<void>((resolve) => (flushed = resolve))
+                // A flush that never settles stands in for a worker that exits right after its counts went out.
+                jest.spyOn(service, 'flush').mockImplementationOnce(async () => {
+                    await flush()
+                    flushed()
+                    return new Promise<void>(() => {})
+                })
+                const batch = queuedSesNotifications()
+
+                void consumer.processBatch(batch)
+                await batchFlushed
+                await consumer.processBatch(batch)
+
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+            })
+
             it('flushes the notifications that recorded before it fails the batch, and counts them once when Kafka redelivers it', async () => {
                 const parentRunId = new UUIDT().toString()
                 const failingId = new UUIDT().toString()

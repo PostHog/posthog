@@ -33,7 +33,7 @@ const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
 const sesRecordedMarksUnavailableCounter = new Counter({
     name: 'email_tracking_ses_recorded_marks_unavailable_total',
-    help: 'Batches whose recorded-notification marks Redis could not read or write in full, so a redelivery can count again',
+    help: 'Batches whose recorded-notification marks Redis could not read, write or delete in full, so a redelivery can count again or not at all',
     labelNames: ['operation'],
 })
 
@@ -79,17 +79,22 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             }
         }
         await Promise.all(Array.from({ length: SES_NOTIFICATIONS_IN_FLIGHT }, recordNext))
+        // Mark before the flush, so a worker that exits between the two loses this batch's counts instead of counting
+        // them again when Kafka redelivers the batch.
+        await this.markRecorded(marks.recorded)
         // Flush a failed batch too: its recorded opens already grew the unique-person counters, which a redelivery won't.
         try {
             await this.emailTrackingService.flush()
         } catch (error) {
+            // A failed flush fails the batch, so its marks go and the redelivered batch records again. A flush that
+            // produced part of the batch before it failed counts that part twice.
+            await this.unmarkRecorded(marks.recorded)
             if (errors.length === 0) {
                 throw error
             }
             logger.error('[CdpSesWebhooksConsumer] Failed to flush a failed batch', { error: serializeError(error) })
             throw errors[0]
         }
-        await this.markRecorded(marks.recorded)
         if (errors.length > 0) {
             throw errors[0]
         }
@@ -157,9 +162,20 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         })
     }
 
+    private async unmarkRecorded(snsMessageIds: string[]): Promise<void> {
+        if (snsMessageIds.length === 0) {
+            return
+        }
+        await this.recordedMarksPipeline('delete', (pipeline) => {
+            for (const id of snsMessageIds) {
+                pipeline.del(sesNotificationRecordedKey(id))
+            }
+        })
+    }
+
     // failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
     private async recordedMarksPipeline(
-        operation: 'read' | 'write',
+        operation: 'read' | 'write' | 'delete',
         addCommands: (pipeline: RedisClientPipeline) => void
     ): Promise<RedisPipelineResults | null> {
         const results = await this.redis
