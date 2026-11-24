@@ -290,7 +290,7 @@ verification.
   enabled for the team since).
 - **Wipe when the shape changes.** Switching sync strategy often changes the physical table. If you don't resync,
   you'll be mixing row shapes and queries will return garbage.
-- **CDC needs prerequisites.** Never switch to `sync_type: "cdc"` without running `check-cdc-prerequisites-create`
+- **CDC needs prerequisites.** Never switch to `sync_type: "cdc"` without running `external-data-sources-check-cdc-prerequisites-create`
   first. The sync will just fail immediately.
 - **Don't touch a Running schema.** If the schema is currently running, either wait for it to finish or
   `external-data-schemas-cancel` before applying the change. Updating config mid-sync can leave the incremental

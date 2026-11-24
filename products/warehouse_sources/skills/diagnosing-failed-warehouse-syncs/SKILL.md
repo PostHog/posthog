@@ -106,7 +106,7 @@ Map the `latest_error` string to a root cause. Common patterns:
 | `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `external-data-schemas-incremental-fields-create` to re-detect, then `external-data-schemas-partial-update` |
 | `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                                                             |
 | `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                                           |
-| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate                                                    |
+| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `external-data-sources-check-cdc-prerequisites-create`; may need slot recreate                              |
 | `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                                                              |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
