@@ -5796,7 +5796,7 @@ Note: Google discovery documents supplied Auth and Firestore operations, includi
 
 Re-audited 2026-11-19 against: <https://identitytoolkit.googleapis.com/$discovery/rest?version=v2>
 
-- [ ] `Identity Platform tenants (GET v2/{+parent}/tenants)` — lookup for tenantId on auth_tenant_users, with display name and sign-in settings (low)
+- [x] `Identity Platform tenants (GET v2/{+parent}/tenants)` — lookup for tenantId on auth_tenant_users, with display name and sign-in settings (low)
 
 Note (2026-11-19): Parsed the Identity Toolkit v1 and v2 discovery documents. Our source already lists tenants internally to fetch tenant users, so a table is a small addition. IdP, SAML and OAuth configs, MFA, and password policy are config and were excluded.
 
