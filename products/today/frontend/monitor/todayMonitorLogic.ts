@@ -8,7 +8,6 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { HrefPin, hrefPinsFromShortcuts, unpinnedRecents } from '~/layout/today/sidebar/hrefPins'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import {
-    MonitorProduct,
     MonitorProducts,
     TODAY_MONITOR_RECENT_TYPES,
     TodayMonitorRecent,
@@ -16,6 +15,7 @@ import {
     monitorItems,
     monitorProductForPath,
 } from '~/layout/today/todayMonitor'
+import { TodayPaneProduct } from '~/layout/today/todayPaneProducts'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
 import { TodayRecent, recentRowKey } from '~/layout/today/todayRecents'
 import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
@@ -53,9 +53,9 @@ export interface todayMonitorLogicValues {
     isSearching: boolean
     isSectionOpen: (section: TodayMonitorSection) => boolean
     matchingPinnedRows: HrefPin<TodayMonitorRecentType>[]
-    matchingProducts: MonitorProduct[]
+    matchingProducts: TodayPaneProduct[]
     matchingRecentRows: TodayMonitorRecent[]
-    matchingTools: MonitorProduct[]
+    matchingTools: TodayPaneProduct[]
     pinnedRows: HrefPin<TodayMonitorRecentType>[]
     products: MonitorProducts
     searchQuery: string
@@ -75,8 +75,8 @@ export interface todayMonitorLogicActions {
 export interface todayMonitorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         products: (featureFlags: FeatureFlagsSet) => MonitorProducts
-        matchingTools: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
-        matchingProducts: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
+        matchingTools: (products: MonitorProducts, searchQuery: string) => TodayPaneProduct[]
+        matchingProducts: (products: MonitorProducts, searchQuery: string) => TodayPaneProduct[]
         pinnedRows: (shortcutData: FileSystemEntry[]) => HrefPin<TodayMonitorRecentType>[]
         matchingPinnedRows: (
             pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
@@ -146,12 +146,12 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
         products: [(s) => [s.featureFlags], (featureFlags: FeatureFlagsSet) => monitorItems(featureFlags)],
         matchingTools: [
             (s) => [s.products, s.searchQuery],
-            (products: MonitorProducts, searchQuery: string): MonitorProduct[] =>
+            (products: MonitorProducts, searchQuery: string): TodayPaneProduct[] =>
                 products.tools.filter((product) => matchesPaneQuery(product.label, searchQuery)),
         ],
         matchingProducts: [
             (s) => [s.products, s.searchQuery],
-            (products: MonitorProducts, searchQuery: string): MonitorProduct[] =>
+            (products: MonitorProducts, searchQuery: string): TodayPaneProduct[] =>
                 products.products.filter((product) => matchesPaneQuery(product.label, searchQuery)),
         ],
         pinnedRows: [

@@ -19,10 +19,11 @@ interface LiveNoTrafficProps {
     state: 'quiet' | 'not_set_up'
     scope: ProjectScope | null
     mobile?: boolean
+    onEditFilters?: () => void
 }
 
 /** Live without events: why it is empty, and the Meanwhile list in place of the cards. */
-export function LiveNoTraffic({ state, scope, mobile = false }: LiveNoTrafficProps): ReactElement {
+export function LiveNoTraffic({ state, scope, mobile = false, onEditFilters }: LiveNoTrafficProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
@@ -39,13 +40,17 @@ export function LiveNoTraffic({ state, scope, mobile = false }: LiveNoTrafficPro
                 {state === 'quiet' ? (
                     <StateView
                         icon={<LiveIcon size={iconSizes.empty} color={colors.tertiary} />}
-                        title="Quiet right now"
+                        title={onEditFilters ? 'No matching traffic' : 'Quiet right now'}
                         message={
-                            mobile
-                                ? 'No mobile events in the last 30 minutes. Live keeps checking.'
-                                : 'No events in the last 30 minutes. Live keeps checking.'
+                            onEditFilters
+                                ? 'No events matched your filters in the last 30 minutes.'
+                                : mobile
+                                  ? 'No mobile events in the last 30 minutes. Live keeps checking.'
+                                  : 'No events in the last 30 minutes. Live keeps checking.'
                         }
                         style={styles.state}
+                        actionLabel={onEditFilters ? 'Edit filters' : undefined}
+                        onAction={onEditFilters}
                         testID="live-quiet"
                     />
                 ) : (

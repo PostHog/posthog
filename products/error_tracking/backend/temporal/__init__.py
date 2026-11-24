@@ -41,6 +41,13 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup import (
     ErrorTrackingSymbolSetCleanupWorkflow,
     cleanup_symbol_sets_activity,
 )
+from products.error_tracking.backend.temporal.tag_rule_sweep import (
+    ACTIVITIES as TAG_RULE_SWEEP_ACTIVITIES,
+    WORKFLOWS as TAG_RULE_SWEEP_WORKFLOWS,
+    ErrorTrackingTagRuleSweepWorkflow,
+    list_tag_rule_teams_activity,
+    sweep_team_tag_rules_activity,
+)
 from products.error_tracking.backend.temporal.weekly_digest import (
     ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
@@ -59,6 +66,7 @@ WORKFLOWS = (
     + WEEKLY_DIGEST_WORKFLOWS
     + ALERT_WORKFLOWS
     + BUILT_IN_FILTERS_REFRESH_WORKFLOWS
+    + TAG_RULE_SWEEP_WORKFLOWS
 )
 ACTIVITIES = (
     SYMBOL_SET_ACTIVITIES
@@ -68,6 +76,7 @@ ACTIVITIES = (
     + WEEKLY_DIGEST_ACTIVITIES
     + ALERT_ACTIVITIES
     + BUILT_IN_FILTERS_REFRESH_ACTIVITIES
+    + TAG_RULE_SWEEP_ACTIVITIES
 )
 
 __all__ = [
@@ -84,13 +93,16 @@ __all__ = [
     "ErrorTrackingRecommendationsRefreshWorkflow",
     "ErrorTrackingSpikeEventCleanupWorkflow",
     "ErrorTrackingSymbolSetCleanupWorkflow",
+    "ErrorTrackingTagRuleSweepWorkflow",
     "ErrorTrackingWeeklyDigestWorkflow",
     "cleanup_issue_changes_activity",
     "cleanup_spike_events_activity",
     "cleanup_symbol_sets_activity",
     "get_digest_orgs_activity",
     "get_team_batches_activity",
+    "list_tag_rule_teams_activity",
     "refresh_built_in_filter_rules_activity",
     "refresh_recommendations_batch_activity",
     "send_org_digest_activity",
+    "sweep_team_tag_rules_activity",
 ]

@@ -900,7 +900,7 @@ def get_evaluations_overview(
         buckets=list(overview.buckets),
         evaluations=rows,
         totals=overview_totals(rows, bucket_count),
-        pass_rate_overview=pass_rate_overview(rows, bucket_count),
+        pass_rate_overview=pass_rate_overview(rows),
     )
 
 
@@ -1153,8 +1153,11 @@ def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:
     )
 
 
-def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str:
-    team = Team.objects.get(id=team_id)
+def start_eval_suggestions_run(team_id: int, trigger: str, batch_id: str, run_id: str) -> str | None:
+    """None when the team was deleted after its run was queued."""
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return None
     return str(eval_suggestion_runs.create_run(team, trigger, batch_id, run_id=run_id).id)
 
 

@@ -129,7 +129,7 @@ def pre_aggregate_web_analytics_data(
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_pre_aggregated_bounces"},
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
     retry_policy=web_analytics_retry_policy_def,
 )
 def web_pre_aggregated_bounces(
@@ -153,7 +153,7 @@ def web_pre_aggregated_bounces(
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_pre_aggregated_stats"},
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
     retry_policy=web_analytics_retry_policy_def,
 )
 def web_pre_aggregated_stats(
@@ -172,7 +172,7 @@ def web_pre_aggregated_stats(
 @dagster.asset(
     name="clear_web_staging_partitions",
     group_name="web_analytics_v2",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def clear_web_staging_partitions(
     context: dagster.AssetExecutionContext,
@@ -198,7 +198,7 @@ web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
     },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
@@ -209,7 +209,7 @@ web_pre_aggregate_job = dagster.define_asset_job(
     cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
     job=web_pre_aggregate_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 @skip_on_kill_switch
 def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
@@ -228,7 +228,7 @@ def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationCon
     cron_schedule=INTRA_DAY_HOURLY_CRON_SCHEDULE,
     job=web_pre_aggregate_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 @skip_on_kill_switch
 def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
@@ -264,7 +264,7 @@ def ensure_web_analytics_tables_exist(context: dagster.ScheduleEvaluationContext
     cron_schedule="*/10 * * * *",
     job=web_pre_aggregate_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
     default_status=dagster.DefaultScheduleStatus.RUNNING if DEBUG else dagster.DefaultScheduleStatus.STOPPED,
 )
 @skip_on_kill_switch
