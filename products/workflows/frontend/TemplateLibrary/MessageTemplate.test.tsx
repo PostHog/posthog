@@ -37,11 +37,11 @@ const PASSWORD_RESET_WITH_DRAFT = {
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
-    let panel: HTMLElement | undefined
+    let scenePanel: HTMLElement | undefined
 
     afterEach(() => {
         cleanup()
-        panel?.remove()
+        scenePanel?.remove()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
@@ -250,7 +250,8 @@ describe('MessageTemplate', () => {
             },
         })
         await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
-        panel = document.createElement('div')
+        const panel = document.createElement('div')
+        scenePanel = panel
         document.body.appendChild(panel)
         act(() => sceneLayoutLogic.actions.registerScenePanelElement(panel))
 
