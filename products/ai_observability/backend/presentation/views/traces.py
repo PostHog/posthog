@@ -42,7 +42,7 @@ class TraceAvailabilitySerializer(serializers.Serializer):
     )
 
 
-class TraceListQuerySerializer(serializers.Serializer):
+class TraceDateRangeQuerySerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
         help_text="Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, "
@@ -53,19 +53,22 @@ class TraceListQuerySerializer(serializers.Serializer):
         help_text="End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time "
         "includes that whole day. Defaults to now.",
     )
-    properties = PropertyFiltersField(
-        required=False,
-        help_text=f"Up to {api.MAX_PROPERTY_FILTERS} property filters as a JSON-encoded list. A trace is listed when one "
-        "of its events matches every filter. Supported types are event, event_metadata, person, session, group, "
-        "cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the "
-        f"{QUERY_SCOPE} scope.",
-    )
     filter_test_accounts = serializers.BooleanField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Whether to leave out events from the project's test accounts. Defaults to the project's own "
         "setting for filtering test accounts.",
+    )
+
+
+class TraceListQuerySerializer(TraceDateRangeQuerySerializer):
+    properties = PropertyFiltersField(
+        required=False,
+        help_text=f"Up to {api.MAX_PROPERTY_FILTERS} property filters as a JSON-encoded list. A trace is listed when one "
+        "of its events matches every filter. Supported types are event, event_metadata, person, session, group, "
+        "cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the "
+        f"{QUERY_SCOPE} scope.",
     )
     search = serializers.CharField(
         required=False,

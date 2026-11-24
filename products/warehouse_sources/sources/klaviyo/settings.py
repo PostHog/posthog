@@ -688,6 +688,28 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             },
         ],
     ),
+    "universal_content": KlaviyoEndpointConfig(
+        name="universal_content",
+        path="/template-universal-content",
+        default_incremental_field="updated",
+        partition_key="created",
+        page_size=100,
+        sort="updated",
+        incremental_fields=[
+            {
+                "label": "updated",
+                "type": IncrementalFieldType.DateTime,
+                "field": "updated",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+            {
+                "label": "created",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
     "forms": KlaviyoEndpointConfig(
         name="forms",
         path="/forms",

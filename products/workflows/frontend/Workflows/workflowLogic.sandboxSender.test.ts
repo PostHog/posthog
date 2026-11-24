@@ -236,14 +236,32 @@ describe('workflowLogic first-run email sender', () => {
             {},
             'welcome.email',
         ],
+        [
+            'the email is sensitive, which the PostHog test sender would drop',
+            [],
+            sandboxStatus({ integration_id: null }),
+            200,
+            {},
+            EMAIL_ID,
+            { sensitive: true },
+        ],
     ])(
         'keeps an own email step without a sender when %s',
-        async (_, integrations, status, provisionStatus, emailValue, emailId = EMAIL_ID) => {
-            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue, {}, emailId))
+        async (
+            _,
+            integrations,
+            status,
+            provisionStatus,
+            emailValue,
+            emailId = EMAIL_ID,
+            stepConfig: Record<string, unknown> = {}
+        ) => {
+            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue, stepConfig, emailId))
 
             const email = await openTemplate()
 
             expect(email?.type).toEqual('function_email')
+            expect(email?.config).toMatchObject(stepConfig)
             expect((email?.config as any).inputs.email.value).toMatchObject({ from: {}, ...emailValue })
             expect(sandboxSenders).toEqual({})
         }

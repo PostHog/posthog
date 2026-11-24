@@ -736,6 +736,22 @@ def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     )
 
 
+def list_user_roles(*, user_id: int, organization_id: UUID) -> list[contracts.UserRole]:
+    """Organization roles the user belongs to, ordered by role name."""
+    rows = (
+        RoleMembership.objects.filter(user_id=user_id, role__organization_id=organization_id)
+        .valid_for_authorization()
+        .order_by("role__name")
+        .values_list("role_id", "role__name")
+    )
+    return [contracts.UserRole(id=role_id, name=role_name) for role_id, role_name in rows]
+
+
+def list_user_role_ids(*, user_id: int, organization_id: UUID) -> list[UUID]:
+    """Ids of the organization's roles the user belongs to, ordered by role name."""
+    return [role.id for role in list_user_roles(user_id=user_id, organization_id=organization_id)]
+
+
 # --- Write API ---
 
 

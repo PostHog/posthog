@@ -52,7 +52,7 @@ import {
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
-import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import { confirmPendingSelfManagedBulkSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -745,12 +745,28 @@ function ManagedSchemaTable({
                     sorter: (a, b) =>
                         (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
                         (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
-                    render: (_, schema) =>
-                        schema.last_synced_at ? (
+                    render: (_, schema) => {
+                        const lastSynced = schema.last_synced_at ? (
                             <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                         ) : (
                             <span className="text-muted">Never</span>
-                        ),
+                        )
+                        const lastChecked = schema.last_checked_at
+                        if (
+                            !lastChecked ||
+                            (schema.last_synced_at && !dayjs(lastChecked).isAfter(schema.last_synced_at))
+                        ) {
+                            return lastSynced
+                        }
+                        return (
+                            <div className="flex flex-col">
+                                {lastSynced}
+                                <span className="text-xs text-muted">
+                                    Checked <TZLabel time={lastChecked} />, no new rows
+                                </span>
+                            </div>
+                        )
+                    },
                 },
                 {
                     title: 'Row count',
@@ -963,20 +979,18 @@ function SchemaBulkActions({
     const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
-        const pendingCount = selected.filter(
-            (schema) => !schema.should_sync && schema.pending_self_managed_table
-        ).length
-        if (pendingCount > 0) {
-            confirmPendingSelfManagedSync(pendingCount, enableWithDefaults, 'bulk')
+        const pendingSelfManaged = selected.filter((schema) => !schema.should_sync && schema.pending_self_managed_table)
+        if (pendingSelfManaged.length > 0) {
+            confirmPendingSelfManagedBulkSync(pendingSelfManaged, enableWithDefaults)
             return
         }
         enableWithDefaults()
     }
 
-    const enableWithDefaults = (): void => {
+    const enableWithDefaults = (pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
         if (needingDefaults.length === 0) {
-            run(() => bulkEnable(selected))
+            run(() => bulkEnable(selected, pendingSelfManagedSyncFrequency))
             return
         }
         LemonDialog.open({
@@ -989,7 +1003,7 @@ function SchemaBulkActions({
             primaryButton: {
                 children: 'Enable',
                 type: 'primary',
-                onClick: () => run(() => bulkEnable(selected)),
+                onClick: () => run(() => bulkEnable(selected, pendingSelfManagedSyncFrequency)),
             },
             secondaryButton: { children: 'Cancel', type: 'tertiary' },
         })

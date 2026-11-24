@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     is_pinned_schema,
     mark_schema_running_unless_halted,
     persist_schema_metadata,
+    request_manual_runs,
     resolve_sync_type,
     self_managed_table_ref,
     source_has_column_restricted_schemas,
@@ -79,7 +80,6 @@ from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
-    asave_datawarehousetable,
     create_datawarehousetable,
 )
 from products.warehouse_sources.backend.models.util import (
@@ -126,7 +126,6 @@ __all__ = [
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
-    "asave_datawarehousetable",
     "auto_enable_new_schemas",
     "discovered_schema_finder",
     "is_pinned_schema",
@@ -163,6 +162,7 @@ __all__ = [
     "sync_old_schemas_with_new_schemas",
     "update_should_sync",
     "mark_schema_running_unless_halted",
+    "request_manual_runs",
     "update_sync_type_config_keys",
     "UnsupportedSyncTypeError",
     "resolve_sync_type",
