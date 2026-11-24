@@ -2091,17 +2091,12 @@ function applyRustNonCrateLanes(file, targets, context) {
 }
 
 function computeTargets(changedFiles, context) {
-    const {
-        products,
-        isolatedProducts,
-        rustInventory,
-        importGraph,
-        contractSurfaces = new Map(),
-        productWorkspaces = new Map(),
-        backendDetachedProducts = new Set(),
-        mappedProducts = listMappedProducts(products, importGraph),
-        deletedFiles = new Set(),
-    } = context
+    const { products, rustInventory, productWorkspaces = new Map(), deletedFiles = new Set() } = context
+    // hoglint answers these, and buildContext runs it on first read. Destructuring them here
+    // would run it for every change set, so only a change to a product's backend reads them.
+    const contractSurfaces = () => context.contractSurfaces ?? new Map()
+    const backendDetachedProducts = () => context.backendDetachedProducts ?? new Set()
+    const mappedProducts = () => context.mappedProducts ?? listMappedProducts(products, context.importGraph)
     const targets = new Set()
 
     const allPyProducts = () => {
@@ -2334,19 +2329,19 @@ function computeTargets(changedFiles, context) {
                     // unknown. The PR that removes a facade module beside a
                     // caller it missed is the exact conflict lanes exist for.
                     allPyProducts()
-                } else if (isolatedProducts.has(product)) {
+                } else if (context.isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
-                    if (touchesContractSurface(product, file, contractSurfaces)) {
+                    if (touchesContractSurface(product, file, contractSurfaces())) {
                         cascadeSeeds.add(product)
                     }
-                } else if (backendDetachedProducts.has(product)) {
+                } else if (backendDetachedProducts().has(product)) {
                     // No backend suite covers this product and no declared
                     // module imports it, so the lane it keeps is its own. This
                     // case comes first because it also answers the declaration
                     // case below: a product absent from the module graph has no
                     // importers for the cascade to name.
                     targets.add(pyProduct(product))
-                } else if (isContractDeclaration(product, file) || mappedProducts.has(product)) {
+                } else if (isContractDeclaration(product, file) || mappedProducts().has(product)) {
                     // A non-isolated product has declared no contract surface,
                     // so every backend file in it counts as contract and seeds
                     // the cascade. That names its direct importers, which is
@@ -2394,7 +2389,7 @@ function computeTargets(changedFiles, context) {
     // deep. See the two numbered narrowings at the top of this file for what
     // that gives up.
     if (cascadeSeeds.size > 0) {
-        const dependents = importDependentProducts([...cascadeSeeds], importGraph)
+        const dependents = importDependentProducts([...cascadeSeeds], context.importGraph)
         if (dependents === null) {
             allPyProducts()
         } else {
@@ -3119,31 +3114,57 @@ function findDeletedFiles(changedFiles) {
     return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
 }
 
+// A field computed on its first read and kept. The getter is enumerable, so a spread of the
+// object reads it: extend a context with extendContext instead.
+function defineLazyField(target, name, compute) {
+    let computed = false
+    let value
+    Object.defineProperty(target, name, {
+        enumerable: true,
+        get() {
+            if (!computed) {
+                value = compute()
+                computed = true
+            }
+            return value
+        },
+    })
+}
+
+// The context with more fields. The copy inherits the lazy fields, so none of them runs.
+function extendContext(context, fields) {
+    return Object.assign(Object.create(context), fields)
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
-    const importGraph = loadImportMap(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
-    const watched = loadWatched(repoRoot)
     const nodeLaneMap = loadNodeLaneMap(repoRoot)
     const headLockfile = readOptional(path.join(repoRoot, 'pnpm-lock.yaml'))
-    return {
+    const context = {
         products,
         nodeLaneMap,
         nodeWorkspaceDependencies: nodeWorkspaceDependencies(headLockfile),
         jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(products, watched),
-        contractSurfaces: loadContractSurfaces(products, watched),
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
-        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, importGraph),
-        mappedProducts: listMappedProducts(products, importGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
         warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
         warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
-        importGraph,
     }
+    // hoglint answers these, and a run takes most of a minute. A docs-only or frontend-only
+    // change never reads them, so it never runs hoglint.
+    defineLazyField(context, 'importGraph', () => loadImportMap(repoRoot))
+    defineLazyField(context, 'mappedProducts', () => listMappedProducts(products, context.importGraph))
+    defineLazyField(context, 'backendDetachedProducts', () =>
+        loadBackendDetachedProducts(repoRoot, products, context.importGraph)
+    )
+    defineLazyField(context, 'watched', () => loadWatched(repoRoot))
+    defineLazyField(context, 'isolatedProducts', () => listIsolatedProducts(products, context.watched))
+    defineLazyField(context, 'contractSurfaces', () => loadContractSurfaces(products, context.watched))
+    return context
 }
 
 module.exports = {
@@ -3155,6 +3176,7 @@ module.exports = {
     allKnownTargets,
     buildContext,
     compileWorkspaceMatcher,
+    extendContext,
     findDeletedFiles,
     globToRegExp,
     isProductDirectory,
@@ -3206,10 +3228,7 @@ if (require.main === module) {
         } else {
             context = buildContext(REPO_ROOT)
             deletedFiles = findDeletedFiles(changedFiles)
-            result = computeTargets(changedFiles, {
-                ...context,
-                deletedFiles,
-            })
+            result = computeTargets(changedFiles, extendContext(context, { deletedFiles }))
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a

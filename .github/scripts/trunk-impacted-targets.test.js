@@ -22,6 +22,7 @@ const {
     NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
+    extendContext,
     parseRustAffectedCrates,
     compileWorkspaceMatcher,
     globToRegExp,
@@ -1649,6 +1650,38 @@ test('the crate inventory holds every crate the determinator can name', () => {
         .filter(Boolean)
     const missing = members.filter((dir) => !rustInventory.byDir.some((crate) => crate.dir === dir))
     assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
+})
+
+// A hoglint run takes most of a minute, and no lane of a docs or frontend change reads its
+// answer. A field read eagerly again (a destructure, a spread, a call in buildContext) fails here.
+test('only a product backend change runs hoglint', () => {
+    const turboDiscover = require('./turbo-discover')
+    const { loadImportGraph, loadWatchedSets } = turboDiscover
+    const calls = []
+    turboDiscover.loadImportGraph = () => {
+        calls.push('graph')
+        return null
+    }
+    turboDiscover.loadWatchedSets = () => {
+        calls.push('watched')
+        return { status: 'unavailable', digest: null, isolated: new Set(), watched: new Map() }
+    }
+    try {
+        const context = buildContext(REPO_ROOT)
+        for (const file of ['docs/internal/monorepo-layout.md', 'frontend/src/scenes/App.tsx']) {
+            const targets = computeTargets([file], extendContext(context, { deletedFiles: new Set() }))
+            assert.equal(Array.isArray(targets), true, file)
+        }
+        assert.deepEqual(calls, [])
+
+        const backendFile = `products/${context.products[0]}/backend/api.py`
+        computeTargets([backendFile], context)
+        computeTargets([backendFile], context)
+        assert.deepEqual(calls.sort(), ['graph', 'watched'])
+    } finally {
+        turboDiscover.loadImportGraph = loadImportGraph
+        turboDiscover.loadWatchedSets = loadWatchedSets
+    }
 })
 
 // The consumer lanes are declared rather than derived, so a second dependent
