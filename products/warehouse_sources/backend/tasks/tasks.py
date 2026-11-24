@@ -59,6 +59,16 @@ STALLED_SCHEMA_SCHEDULES_GAUGE = Gauge(
 )
 
 
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def sweep_expired_file_uploads_task() -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (  # noqa: PLC0415
+        sweep_expired_file_uploads,
+    )
+
+    sweep_expired_file_uploads()
+
+
 @shared_task(
     ignore_result=True,
     autoretry_for=(Exception,),

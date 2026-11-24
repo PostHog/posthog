@@ -1,10 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -12,6 +15,7 @@ from products.warehouse_sources.backend.file_uploads import LegacyUpload, Upload
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_file_upload import PendingFileUpload
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.source import FileUploadSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
@@ -20,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
     release_superseded_uploads,
     superseded_metadata,
     superseded_uploads,
+    sweep_expired_file_uploads,
 )
 
 STORAGE = "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage"
@@ -119,6 +124,24 @@ class TestFileUploadStorage(BaseTest):
 
         with self.assertNumQueries(0):
             assert FileUploadSource().uploaded_file_name(source) == "first.csv"
+
+    def test_expiry_retries_storage_failures_and_preserves_files_used_by_an_older_worker(self) -> None:
+        now = timezone.now()
+        pending = PendingFileUpload.objects.for_team(self.team.pk)
+        for upload_id in (CURRENT_ID, OLD_ID, NEWER_ID):
+            pending.create(id=upload_id, team_id=self.team.pk, filename="orders.csv", expires_at=now)
+        self._source(self._inputs(CURRENT_ID), SupersededUpload(upload=self._upload(OLD_ID), superseded_at=now))
+        self.s3.rm.side_effect = [OSError("storage unavailable"), FileNotFoundError()]
+
+        with time_machine.travel(now, tick=False):
+            sweep_expired_file_uploads()
+        self.s3.rm.assert_called_once_with(self._upload(NEWER_ID).path)
+        assert pending.get().pk == UUID(NEWER_ID)
+
+        with time_machine.travel(now + timedelta(hours=1)):
+            sweep_expired_file_uploads()
+        assert self.s3.rm.call_count == 2
+        assert not pending.exists()
 
     def test_a_completed_sync_deletes_only_the_uploads_replaced_before_it_started(self) -> None:
         before = SupersededUpload(upload=self._upload(OLD_ID), superseded_at=SYNC_STARTED_AT - timedelta(minutes=1))

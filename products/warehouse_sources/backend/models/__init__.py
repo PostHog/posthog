@@ -12,6 +12,7 @@ from .external_data_job import ExternalDataJob
 from .external_data_schema import ExternalDataSchema
 from .external_data_source import ExternalDataSource
 from .oom_event import ExternalDataSchemaOOMEvent
+from .pending_file_upload import PendingFileUpload
 from .pending_source_credential import PendingSourceCredential
 from .table import DataWarehouseTable
 from .warehouse_migration import WarehouseMigration, WarehouseMigrationItem
@@ -28,6 +29,7 @@ __all__ = [
     "ExternalDataSourceDestination",
     "ExternalDataSchemaOOMEvent",
     "ExternalDataSource",
+    "PendingFileUpload",
     "PendingSourceCredential",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",

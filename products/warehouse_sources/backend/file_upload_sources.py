@@ -73,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
     SupersededUpload,
+    claim_file_upload,
     connection_metadata_with_superseded,
     lock_source,
     superseded_uploads,
@@ -363,6 +364,7 @@ def replace_file_upload(
                 source.connection_metadata = connection_metadata_with_superseded(
                     source, SupersededUpload(upload=old, superseded_at=now)
                 )
+        claim_file_upload(schema.team_id, upload.location.upload_id, upload.location.filename)
         SourceInputsStore.update_runtime(
             source, upload_job_inputs(upload, schema.name), extra_update_fields=("connection_metadata", "updated_at")
         )

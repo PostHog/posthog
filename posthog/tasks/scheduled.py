@@ -174,7 +174,11 @@ from products.visual_review.backend.facade.tasks import (
     sweep_visual_review_artifacts,
     sweep_visual_review_runs,
 )
-from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
+from products.warehouse_sources.backend.facade.tasks import (
+    sweep_expired_file_uploads_task,
+    sweep_stalled_schema_schedules,
+    sweep_stopped_schema_syncs,
+)
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
@@ -665,6 +669,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="23"), sweep_expired_file_uploads_task.s(), name="expire unclaimed warehouse uploads"
     )
 
     # Backstop for the write-time teardown dispatch: Running import jobs whose schema

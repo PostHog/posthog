@@ -8,11 +8,12 @@ the team still reads it, because one upload can back more than one table.
 """
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -20,6 +21,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.warehouse_sources.backend.facade.contracts import FileUploadSourceError
 from products.warehouse_sources.backend.file_uploads import (
     HostedUpload,
     InvalidUploadError,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.file_uploads import (
 )
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_file_upload import PendingFileUpload
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -36,6 +39,36 @@ logger = structlog.get_logger(__name__)
 # The `connection_metadata` key that holds the uploads a source no longer reads.
 FILE_UPLOAD_METADATA_KEY = "file_upload"
 SUPERSEDED_KEY = "superseded"
+
+PENDING_UPLOAD_TTL = timedelta(days=1)
+
+
+def reserve_file_upload(team_id: int, filename: str) -> str:
+    pending = PendingFileUpload.objects.for_team(team_id).create(
+        team_id=team_id, filename=filename, expires_at=timezone.now() + PENDING_UPLOAD_TTL
+    )
+    return str(pending.pk)
+
+
+def claim_file_upload(team_id: int, upload_id: str, filename: str) -> None:
+    """Consume the reservation in the transaction that saves the table or points the source at the upload."""
+    upload = UploadLocation(team_id=team_id, upload_id=upload_id, filename=filename)
+    pending = (
+        PendingFileUpload.objects.for_team(team_id).select_for_update().filter(pk=upload_id, filename=filename).first()
+    )
+    if pending is not None:
+        pending.delete()
+        if pending.expires_at > timezone.now():
+            return
+    # An expired file can disappear after the column probe, even if storage timed out
+    # acknowledging its deletion. Older and shared files can still exist without a reservation.
+    try:
+        exists = get_s3_client(skip_instance_cache=True).exists(upload.path)
+    except Exception as error:
+        capture_exception(error)
+        raise FileUploadSourceError("Could not verify the uploaded file. Please try uploading it again.") from error
+    if not exists:
+        raise FileUploadSourceError("Uploaded file not found. Please upload the file again.")
 
 
 @frozen
@@ -159,6 +192,26 @@ def _delete_if_unused(upload: HostedUpload, exclude_source_id: str | None) -> bo
 def delete_upload_if_unused(upload: HostedUpload, exclude_source_id: str | None = None) -> bool:
     """Best-effort delete. Returns whether the object was deleted."""
     return _delete_if_unused(upload, exclude_source_id) is True
+
+
+def sweep_expired_file_uploads() -> None:
+    if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+        return
+    now = timezone.now()
+    due = PendingFileUpload.objects.unscoped().filter(expires_at__lte=now)
+    ids = list(due.order_by("expires_at").values_list("pk", flat=True)[:100])
+    for upload_id in ids:
+        with transaction.atomic():
+            pending = due.select_for_update(skip_locked=True).filter(pk=upload_id).first()
+            if pending is None:
+                continue
+            upload = UploadLocation(team_id=pending.team_id, upload_id=str(pending.pk), filename=pending.filename)
+            if _delete_if_unused(upload, exclude_source_id=None) is None:
+                # Move failures behind the backlog, keeping them expired so a late claim checks storage.
+                pending.expires_at = now
+                pending.save(update_fields=["expires_at"])
+            else:
+                pending.delete()
 
 
 def lock_source(source_id: str, team_id: int) -> ExternalDataSource | None:

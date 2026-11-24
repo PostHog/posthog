@@ -4,6 +4,7 @@ import dataclasses
 from typing import Any, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.manager import BaseManager
 
@@ -90,6 +91,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.facade.pending_file_uploads import claim_file_upload, reserve_file_upload
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableCreatedVia,
@@ -174,8 +176,8 @@ def _missing_upload_response(team_id: int, upload: UploadedFileRef) -> response.
 
 def _store_upload(team_id: int, file: Any, safe_filename: str) -> str | None:
     """Write a received file to a new upload in the team's folder. Returns its upload id, or None on failure."""
-    upload_id = str(uuid.uuid4())
     try:
+        upload_id = reserve_file_upload(team_id, safe_filename)
         with get_s3_client().open(build_file_upload_s3_path(team_id, upload_id, safe_filename), "wb") as destination:
             for chunk in file.chunks():
                 destination.write(chunk)
@@ -1080,7 +1082,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             ),
         )
 
-        table.save()
+        try:
+            with transaction.atomic():
+                claim_file_upload(self.team_id, upload_id, filename)
+                table.save()
+        except FileUploadSourceError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
         log_table_activity(table, "created")
         # The table reads the file in place until the source's first sync imports it.
         create_file_upload_source(

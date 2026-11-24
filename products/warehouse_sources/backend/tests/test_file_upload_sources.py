@@ -1,11 +1,15 @@
 import io
+from datetime import timedelta
+from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -19,7 +23,11 @@ from products.warehouse_sources.backend.facade.testing import (
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_file_upload import PendingFileUpload
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
+    sweep_expired_file_uploads,
+)
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
@@ -54,16 +62,19 @@ class _FakeS3:
     def __init__(self, *, exists_result: bool = True) -> None:
         self.written: dict[str, bytes] = {}
         self.removed: list[str] = []
+        self.timeout_after_delete = False
         self._exists_result = exists_result
 
     def open(self, path: str, mode: str) -> io.BytesIO:
         return _CapturingBuffer(self.written, path)
 
     def exists(self, path: str) -> bool:
-        return self._exists_result
+        return self._exists_result and path not in self.removed
 
     def rm(self, path: str) -> None:
         self.removed.append(path)
+        if self.timeout_after_delete:
+            raise TimeoutError("Delete acknowledgement timed out")
 
 
 SERVICE_MODULE = "products.warehouse_sources.backend.file_upload_sources"
@@ -108,6 +119,15 @@ class TestFileUploadSources(APIBaseTest):
         self.trigger_count += 1
         return MagicMock(workflow_id=f"workflow-{self.trigger_count}", schedule_paused_now=False)
 
+    def _upload(self, filename: str = "orders.csv") -> str:
+        response = self.client.post(
+            f"{self.base_url}/upload_file/",
+            {"file": SimpleUploadedFile(filename, b"id,total\n1,9\n"), "file_format": "csv"},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["upload_id"]
+
     def _create(self, upload_id: str = UPLOAD_ID, **payload: str):
         return self.client.post(
             f"{self.base_url}/create_from_upload/?include_columns=false",
@@ -129,6 +149,51 @@ class TestFileUploadSources(APIBaseTest):
             data={"upload_id": upload_id, "filename": "orders_v2.csv", "file_format": "csv"} | payload,
             format="json",
         )
+
+    def test_abandoned_upload_expires_while_retried_create_and_replacement_keep_their_files(self) -> None:
+        now = timezone.now()
+        with time_machine.travel(now, tick=False):
+            abandoned, retried, replaced = self._upload(), self._upload(), self._upload("orders_v2.csv")
+            assert self._create(retried, table_name="events").status_code == status.HTTP_400_BAD_REQUEST
+
+        with time_machine.travel(now + timedelta(hours=23), tick=False):
+            sweep_expired_file_uploads()
+            assert self.s3.removed == []
+            created = self._create(retried)
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            table = DataWarehouseTable.objects.get(id=created.json()["id"])
+            assert self._replace(table, replaced).status_code == status.HTTP_202_ACCEPTED
+
+        pending = PendingFileUpload.objects.for_team(self.team.pk)
+        assert list(pending.values_list("pk", flat=True)) == [UUID(abandoned)]
+        with time_machine.travel(now + timedelta(days=1), tick=False):
+            sweep_expired_file_uploads()
+            sweep_expired_file_uploads()
+        assert self.s3.removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{abandoned}/orders.csv"]
+        assert not pending.exists()
+
+    @parameterized.expand([("create", False), ("replace", True)])
+    def test_sweep_wins_after_an_expired_upload_was_read(self, operation: str, timeout_after_delete: bool) -> None:
+        table, schema = self._table_with_source()
+        upload_id = self._upload("orders_v2.csv")
+        self.s3.timeout_after_delete = timeout_after_delete
+        with time_machine.travel(timezone.now() + timedelta(days=2)):
+
+            def columns_after_sweep() -> dict[str, dict[str, str]]:
+                sweep_expired_file_uploads()
+                return FAKE_COLUMNS
+
+            self.get_columns.side_effect = columns_after_sweep
+            if operation == "create":
+                response = self._create(upload_id, filename="orders_v2.csv", table_name="other_orders")
+            else:
+                response = self._replace(table, upload_id)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "not found" in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="other_orders").exists()
+        schema.source.refresh_from_db()
+        assert schema.source.job_inputs["upload_id"] == UPLOAD_ID
+        assert self.trigger_count == 1
 
     def test_an_upload_becomes_a_file_upload_source_and_one_billable_sync(self) -> None:
         response = self._create()
