@@ -283,9 +283,26 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateCurrentProject: 'scenes.projectLogic',
 }
 
+/*
+Loads whose owning logic renders a 403 of any code as an access-denied state and stops asking again.
+A 403 can arrive without the `permission_denied` code, for example with an empty body, so
+`shouldReportApiFailure` would still report it.
+*/
+const PIPELINE_OVERVIEW_LOGIC_PATH =
+    'products.warehouse_sources.frontend.scenes.PipelineOverviewScene.pipelineOverviewSceneLogic'
+const FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadJobStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRowsStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadHealthIssues: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRecentRuns: PIPELINE_OVERVIEW_LOGIC_PATH,
+}
+
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
     if (GITHUB_SETUP_ERROR_CODES.has(error?.code)) {
         return isOwnedByLogic(GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 403 && isOwnedByLogic(FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) {
+        return true
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
