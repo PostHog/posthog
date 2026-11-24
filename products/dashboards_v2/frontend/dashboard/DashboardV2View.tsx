@@ -82,14 +82,16 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             }
             event.preventDefault()
             if (key === 'y' || event.shiftKey) {
-                undoable.onRedo()
+                if (can('redo')) {
+                    undoable.onRedo()
+                }
             } else {
                 undoable.onUndo()
             }
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-    }, [undoable])
+    }, [undoable, can])
 
     return (
         <DashboardV2StateContext.Provider value={state}>

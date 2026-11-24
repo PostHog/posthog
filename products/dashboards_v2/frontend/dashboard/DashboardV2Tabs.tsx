@@ -14,8 +14,10 @@ import {
     TabsTrigger,
 } from '@posthog/quill'
 
+import { hasDangerousScheme } from 'lib/utils/url'
+
 import { useGridDrag } from '../grid/gridDrag'
-import { isGridTab } from './dashboardTypes'
+import { type DashboardTab, isGridTab } from './dashboardTypes'
 import { useDashboardV2 } from './dashboardV2Context'
 
 interface TabDraft {
@@ -52,9 +54,10 @@ export function DashboardV2Tabs(): JSX.Element | null {
 
     const renameDisabledReason = disabledReasonFor('renameTab')
     const addDisabledReason = disabledReasonFor('addTab')
-    const removeDisabledReason =
+    const lastGridTab = dashboard.tabs.filter(isGridTab).length === 1
+    const removeDisabledReasonFor = (tab: DashboardTab): string | null =>
         disabledReasonFor('removeTab') ??
-        (dashboard.tabs.filter(isGridTab).length === 1 ? 'A dashboard needs at least one tab with tiles' : null)
+        (lastGridTab && isGridTab(tab) ? 'A dashboard needs at least one tab with tiles' : null)
 
     const commitRename = (): void => {
         if (draft === null) {
@@ -164,7 +167,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                             // eslint-disable-next-line react/forbid-elements
                             <a
                                 key={tab.id}
-                                href={tab.href}
+                                href={hasDangerousScheme(tab.href) ? undefined : tab.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className={clsx(
@@ -222,15 +225,15 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                     <ContextMenuItem
                                         variant="destructive"
                                         data-attr="dashboard-v2-delete-tab"
-                                        disabled={removeDisabledReason !== null}
+                                        disabled={removeDisabledReasonFor(tab) !== null}
                                         onClick={() => onEdit({ edit: 'removeTab', id: tab.id })}
                                     >
                                         <IconTrash />
                                         <span className="flex flex-col items-start">
                                             Delete
-                                            {removeDisabledReason && (
+                                            {removeDisabledReasonFor(tab) && (
                                                 <span className="text-xs text-muted-foreground">
-                                                    {removeDisabledReason}
+                                                    {removeDisabledReasonFor(tab)}
                                                 </span>
                                             )}
                                         </span>

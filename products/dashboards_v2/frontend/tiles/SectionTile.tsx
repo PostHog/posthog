@@ -36,7 +36,7 @@ export function SectionTile({
     /** Draws the section's own grid. Passed in because that grid draws sections too. */
     renderGrid: (grid: SectionGridProps) => ReactNode
 }): JSX.Element {
-    const { onEdit, onSectionFoldedChange } = useDashboardV2()
+    const { onEdit, onSectionFoldedChange, can } = useDashboardV2()
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, widget, () => setDraft(widget.title))
@@ -44,8 +44,13 @@ export function SectionTile({
 
     const onLiveRows = useCallback(
         (rows: number | null): void =>
-            onSectionRows(id, rows === null ? null : GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows)),
-        [id, onSectionRows]
+            onSectionRows(
+                id,
+                rows === null
+                    ? null
+                    : Math.max(widget.minRows ?? 0, GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows))
+            ),
+        [id, onSectionRows, widget.minRows]
     )
 
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
@@ -58,7 +63,7 @@ export function SectionTile({
                     actions={
                         editable && (
                             <SectionActions>
-                                <AddTileMenu gridId={id} />
+                                {can('addTile') && <AddTileMenu gridId={id} />}
                                 {remove && (
                                     <Button
                                         size="icon-xs"
@@ -78,7 +83,7 @@ export function SectionTile({
                     <SectionTitle
                         title={widget.title}
                         collapsed={collapsed}
-                        canEdit={editable}
+                        canEdit={editable && can('updateSection')}
                         onToggle={() => onSectionFoldedChange(id, !collapsed)}
                         onRename={(title) => onEdit({ edit: 'updateSection', id, patch: { title } })}
                         draft={draft}

@@ -68,7 +68,7 @@ export function DashboardTileGrid({
     editable,
     onLiveRows,
 }: Omit<SectionGridProps, 'onLiveRows'> & Partial<Pick<SectionGridProps, 'onLiveRows'>>): JSX.Element {
-    const { dashboard, onEdit, sizeOf } = useDashboardV2()
+    const { dashboard, onEdit, sizeOf, can } = useDashboardV2()
     const renderTile = useCallback(
         (tile: Tile, columnPx: number, onSectionRows: OnSectionRows) => (
             <TileFrame tile={tile} columnPx={columnPx} editable={editable} onSectionRows={onSectionRows} />
@@ -97,7 +97,7 @@ export function DashboardTileGrid({
             renderTile={renderTile}
             findCarried={findCarried}
             onPlaceTiles={onPlaceTiles}
-            onMoveTile={onMoveTile}
+            onMoveTile={can('moveTile') ? onMoveTile : undefined}
             onLiveRows={onLiveRows}
         />
     )

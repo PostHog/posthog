@@ -47,7 +47,8 @@ export interface TileGridProps {
     /** Looks up a tile carried in from another grid, so this grid can preview where it lands. */
     findCarried: (id: string) => Tile | null
     onPlaceTiles: (places: Record<string, TilePlace>, resized?: string) => void
-    onMoveTile: (id: string, target: DropTarget) => void
+    /** Left out when the person may not move tiles between grids, so a tile only moves within its own. */
+    onMoveTile?: (id: string, target: DropTarget) => void
     onLiveRows?: (rows: number | null) => void
 }
 
@@ -212,6 +213,7 @@ export function TileGrid({
                 setDropTarget(null)
             }
             onLiveRows?.(null)
+            resizeFeedback.current?.stop()
         },
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs once, when the grid leaves the page
         []
@@ -261,7 +263,7 @@ export function TileGrid({
                 }}
                 onDrag={(_current, _old, item, _placeholder, event, node) => {
                     autoScrollOnDrag(event)
-                    if (!item || !node || !gesture.current || !dropZones.current) {
+                    if (!onMoveTile || !item || !node || !gesture.current || !dropZones.current) {
                         return
                     }
                     const under = gridUnderPointer(event, node, dropZones.current)
@@ -275,7 +277,7 @@ export function TileGrid({
                     const target = lastTarget.current
                     setAway(null)
                     end()
-                    if (target && item) {
+                    if (target && item && onMoveTile) {
                         onMoveTile(item.i, target)
                     } else {
                         savePlaces(finalLayout)
@@ -284,7 +286,8 @@ export function TileGrid({
                 onResizeStart={(current, _old, item, _placeholder, event) => {
                     resizeHandle.current = resizeHandleOf(event)
                     begin(current, item, 'resize')
-                    const tile = item && rootRef.current?.querySelector<HTMLElement>(`[data-dv2-tile="${item.i}"]`)
+                    const tile =
+                        item && rootRef.current?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(item.i)}"]`)
                     if (item && tile) {
                         const onMove = (move: MouseEvent): void => {
                             const active = resizeFeedback.current
