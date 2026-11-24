@@ -471,9 +471,10 @@ def _resolve_sandbox_github_token(
     A run that requested read-only access is resolved FIRST: a task whose team has GitHub
     connected can carry the team integration, so has_github_credentials is true for it. Resolved the
     other way around, the write-capable installation token would reach a run that asked for
-    read-only. Repository selection does not grant write access. The read-only mint is best-effort (empty string on failure, never the full token);
-    the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
-    work without credentials.
+    read-only. Repository selection does not grant write access. The read-only mint is best-effort
+    (empty string on failure, never the full token). A repo-less run can continue without GitHub
+    when user auth needs reauthorization; a repo-backed run still fails because it cannot work
+    without credentials.
 
     Everything else follows the attached integration, including a repo-less signals run: a scout or
     scout-chat task never gets one (`github_resolution_allowed` in `Task._build_task` refuses to
@@ -509,6 +510,9 @@ def _resolve_sandbox_github_token(
             or ""
         )
     except ReauthorizationRequired as e:
+        if not has_repo:
+            _log_github_unavailable_without_repository(ctx.run_id)
+            return ""
         # Expected user-actionable state — the acting user must re-link GitHub. Non-retryable and
         # kept out of the raw error stream (CredentialUnavailableError does not capture) so it does
         # not surface as error-tracking noise. Mirrors the refresh path in sandbox_credentials.py.
@@ -523,6 +527,10 @@ def _resolve_sandbox_github_token(
             f"Failed to get GitHub token for integration {ctx.github_integration_id}",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
         )
+
+
+def _log_github_unavailable_without_repository(run_id: str) -> None:
+    emit_agent_log(run_id, "debug", "GitHub access is unavailable. Continuing because no repository was selected.")
 
 
 def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
@@ -1600,6 +1608,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
+        has_repository = bool(ctx.repositories or input.repository)
         if ctx.github_read_access:
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
             # read-only run must never regain the write-capable token on resume, cloned repos or
@@ -1620,11 +1629,14 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     or ""
                 )
             except ReauthorizationRequired as e:
-                raise CredentialUnavailableError(
-                    "GitHub user integration for this run requires reauthorization",
-                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
-                    cause=e,
-                )
+                if not has_repository:
+                    _log_github_unavailable_without_repository(ctx.run_id)
+                else:
+                    raise CredentialUnavailableError(
+                        "GitHub user integration for this run requires reauthorization",
+                        {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+                        cause=e,
+                    )
             except Exception as e:
                 raise _github_token_error(
                     e,
