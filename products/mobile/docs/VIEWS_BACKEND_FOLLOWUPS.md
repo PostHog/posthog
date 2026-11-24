@@ -37,14 +37,11 @@ The app can force a refresh when a view comes back into focus, not only when the
 A check on the server makes that safe: a forced read inside the window returns the cache, whatever the client sends.
 
 **Why it matters to users:**
-People open a view on the phone to see the latest number.
-Dashboards already refresh their first visible tiles when opened or returned to, using the published refresh window.
-A server-side check would apply that window against the latest cached result, including refreshes from other devices.
-Other views can keep showing a cached number until the normal staleness window passes, which is 6 hours for daily data.
+Dashboards already refresh on open. A server-side check would honor the refresh window across devices.
 
 **What the app does today:**
 
-- Dashboard open reads the latest cached tiles and refreshes eligible visible tiles through the automatic queue. Other automatic reads send `refresh=blocking`, which computes only past `cache_target_age`.
+- [Dashboards refresh on open and return](VIEWS.md#refresh). Other automatic reads use `blocking`.
 - Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
 - Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
 - One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.
@@ -82,7 +79,7 @@ Skills and tests:
 
 **App change when it lands:**
 
-- `useViewRefresh` can extend dashboard open refresh to other Views screens on focus for each visible item that `isEligible` accepts.
+- Extend automatic refresh on focus to other Views screens.
 - Keep `isEligible`, the queue and the token buckets. They keep the app inside the limits on older deploys and on self-hosted instances.
 
 **Size:** M.
