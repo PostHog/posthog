@@ -2,8 +2,10 @@ import uuid
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import timedelta
+from threading import Event
 
 import pytest
 from unittest.mock import patch
@@ -13,7 +15,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 import responses
 import temporalio.worker
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -31,6 +33,7 @@ from posthog.tasks.proxy import (
     reconcile_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import (
+    NonRetriableException,
     RecordDeletedException,
     SendProxyCreatedEmailInputs,
     UpdateProxyRecordInputs,
@@ -423,23 +426,6 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         self.assertTrue(self.record.needs_activation_recovery)
         self.assertEqual(list(temporal.started), [f"proxy-create-{self.record.id}"])
 
-    @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
-    def test_background_status_updates_preserve_deletion_intent(self, status: str) -> None:
-        self.record.status = ProxyRecord.Status.DELETING
-        self.record.save(update_fields=["status"])
-
-        with self.assertRaises(RecordDeletedException):
-            async_to_sync(activity_update_proxy_record)(
-                UpdateProxyRecordInputs(
-                    organization_id=self.organization.id,
-                    proxy_record_id=self.record.id,
-                    status=status,
-                )
-            )
-
-        self.record.refresh_from_db()
-        self.assertEqual(self.record.status, ProxyRecord.Status.DELETING)
-
     @parameterized.expand(
         [
             (False, "test.proxy.example.com"),
@@ -525,6 +511,79 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
     CLOUDFLARE_ACCOUNT_ID="test-account",
 )
 class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCase):
+    @parameterized.expand([(True, True, True), (False, True, False), (True, False, False)])
+    async def test_running_certificate_check_recovers_a_suspended_hostname(
+        self, active: bool, recovery_pending: bool, restore: bool
+    ) -> None:
+        await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(
+            status=ProxyRecord.Status.ISSUING,
+            needs_activation_recovery=recovery_pending,
+            cloudflare_deprovisioned=recovery_pending,
+        )
+        await Organization.objects.filter(pk=self.organization.pk).aupdate(is_active=active)
+        inputs = CreateCloudflareProxyInputs(self.organization.pk, self.record.pk, self.record.domain)
+
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=False)
+            if restore:
+                with self.assertRaisesRegex(ApplicationError, "waiting for a certificate"):
+                    await wait_for_cloudflare_certificate(inputs)
+                self.assertEqual([call.request.method for call in http.calls], ["GET", "GET", "POST", "PUT"])
+            else:
+                with self.assertRaises(NonRetriableException):
+                    await wait_for_cloudflare_certificate(inputs)
+                self.assertEqual([call.request.method for call in http.calls], ["GET"])
+
+        await self.record.arefresh_from_db()
+        self.assertEqual(self.record.cloudflare_deprovisioned, recovery_pending and not restore)
+        self.assertEqual(self.record.needs_activation_recovery, recovery_pending)
+
+    @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
+    async def test_background_status_updates_preserve_deletion_intent(self, status: str) -> None:
+        await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(status=ProxyRecord.Status.DELETING)
+
+        with self.assertRaises(RecordDeletedException):
+            await activity_update_proxy_record(
+                UpdateProxyRecordInputs(
+                    organization_id=self.organization.id,
+                    proxy_record_id=self.record.id,
+                    status=status,
+                )
+            )
+
+        await self.record.arefresh_from_db()
+        self.assertEqual(self.record.status, ProxyRecord.Status.DELETING)
+
+    async def test_recovery_lock_does_not_block_other_orm_work(self) -> None:
+        await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(needs_activation_recovery=True)
+        loop = asyncio.get_running_loop()
+        waiting_for_lock = asyncio.Event()
+        release_lock = Event()
+
+        @contextmanager
+        def contended_lock(_proxy_id: uuid.UUID):
+            loop.call_soon_threadsafe(waiting_for_lock.set)
+            if not release_lock.wait(timeout=10):
+                raise TimeoutError("test did not release the recovery lock")
+            yield
+
+        with patch("posthog.managed_proxy.cloudflare_proxy_lock", new=contended_lock):
+            completion = asyncio.create_task(
+                activity_update_proxy_record(
+                    UpdateProxyRecordInputs(self.organization.pk, self.record.pk, status=ProxyRecord.Status.VALID)
+                )
+            )
+            try:
+                async with asyncio.timeout(5):
+                    await waiting_for_lock.wait()
+                    self.assertTrue(await ProxyRecord.objects.filter(pk=self.record.pk).aexists())
+            finally:
+                release_lock.set()
+                await completion
+
+        await self.record.arefresh_from_db()
+        self.assertFalse(self.record.needs_activation_recovery)
+
     @parameterized.expand([(False,), (True,)])
     async def test_recovery_waits_for_final_status_and_preserves_deactivation(self, deactivate: bool) -> None:
         await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(
