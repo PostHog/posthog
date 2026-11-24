@@ -5746,7 +5746,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.recalculation.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",

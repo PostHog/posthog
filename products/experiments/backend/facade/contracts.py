@@ -16,7 +16,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus, RecalculationStartOutcome
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -927,6 +927,19 @@ class DailyMetricCalculation:
     calculation_key: str
 
 
+@frozen
+class BaselineStats:
+    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
+
+    number_of_samples: int
+    sum: float
+    sum_squares: float = 0.0
+    denominator_sum: float | None = None
+    denominator_sum_squares: float | None = None
+    numerator_denominator_sum_product: float | None = None
+    step_counts: tuple[float, ...] = ()
+
+
 class RunningTimeMode(LabeledStrEnum):
     # pinned: the page's `ConversionRateInputType` values in frontend/src/types.ts, stored in
     # `running_time_calculation.exposure_estimate_config.conversionRateInputType`.
@@ -1184,6 +1197,69 @@ class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None
     detail: str = ""
+
+
+@frozen
+class MetricRecalculationResult:
+    """One metric's result row in a metrics recalculation run."""
+
+    metric_uuid: str
+    status: Literal["pending", "completed", "failed"]
+    # The ExperimentQueryResponse shape. None while the metric is pending, and when it failed.
+    result: dict[str, Any] | None
+    error_message: str | None
+    configuration_status: ExperimentResultConfigurationStatus
+
+
+@frozen
+class MetricsRecalculationJob:
+    """A metrics recalculation run, with the counters that its result rows and errors give."""
+
+    # The run's uuid, or `timeseries-fallback` for a placeholder that the latest read builds from timeseries data.
+    id: str
+    experiment_id: int
+    status: Literal["pending", "in_progress", "completed", "failed"]
+    total_metrics: int
+    completed_metrics: int
+    failed_metrics: int
+    metric_errors: dict[str, Any]
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    query_to: datetime | None
+
+
+@frozen
+class RequestedMetricsRecalculation(MetricsRecalculationJob):
+    # True when an active or fresh run already existed, so the request created no run.
+    is_existing: bool
+
+
+@frozen
+class MetricsRecalculationRun(MetricsRecalculationJob):
+    """A metrics recalculation run with its per-metric results, retry state and live query progress."""
+
+    metric_retries: dict[str, Any]
+    results: tuple[MetricRecalculationResult, ...]
+    # Live ClickHouse progress of an in-progress run. None for any other run, and when the progress read fails.
+    rows_read: int | None = None
+    estimated_rows_total: int | None = None
+
+
+@frozen
+class ActiveMetricsRecalculation:
+    id: str
+    status: Literal["pending", "in_progress"]
+
+
+@frozen
+class LatestMetricsRecalculation(MetricsRecalculationRun):
+    """The run that the latest read of an experiment shows, with a pointer to the run that is still executing."""
+
+    active_run: ActiveMetricsRecalculation | None
+    result_source: Literal["recalculation", "timeseries_fallback"]
+    # The experiment started too long ago for a new recalculation. Its saved results stay readable.
+    exceeds_recalculation_age_limit: bool
 
 
 @frozen

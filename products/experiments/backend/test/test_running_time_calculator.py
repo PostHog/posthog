@@ -4,8 +4,8 @@ import pytest
 
 from parameterized import parameterized
 
+from products.experiments.backend.facade.contracts import BaselineStats
 from products.experiments.backend.running_time_calculator import (
-    BaselineStats,
     calculate_baseline_value,
     calculate_detectable_effect,
     calculate_running_time_days,
@@ -19,18 +19,18 @@ class TestCalculateBaselineValue:
     @parameterized.expand(
         [
             # mean total count: avg events per user = sum / samples
-            ("mean_count", BaselineStats(number_of_samples=14000, sum=56000, step_counts=[]), 4),
+            ("mean_count", BaselineStats(number_of_samples=14000, sum=56000, step_counts=()), 4),
             # mean sum: avg property value per user
-            ("mean_sum_or_avg", BaselineStats(number_of_samples=14000, sum=700000, step_counts=[]), 50),
+            ("mean_sum_or_avg", BaselineStats(number_of_samples=14000, sum=700000, step_counts=()), 50),
             # funnel: conversion rate = final step / samples
-            ("funnel", BaselineStats(number_of_samples=1000, sum=100, step_counts=[1000, 100]), 0.1),
+            ("funnel", BaselineStats(number_of_samples=1000, sum=100, step_counts=(1000, 100)), 0.1),
         ]
     )
     def test_baseline_value(self, metric_type, baseline, expected):
         assert calculate_baseline_value(baseline, metric_type) == expected
 
     def test_funnel_falls_back_to_sum_when_no_step_counts(self):
-        baseline = BaselineStats(number_of_samples=1000, sum=100, step_counts=[])
+        baseline = BaselineStats(number_of_samples=1000, sum=100, step_counts=())
         assert calculate_baseline_value(baseline, "funnel") == 0.1
 
     def test_ratio_uses_denominator_sum(self):

@@ -1,6 +1,6 @@
 """Service layer for experiment metrics recalculation.
 
-Module-level free functions (not methods on ExperimentService) so the API view can compose them directly:
+Module-level free functions (not methods on ExperimentService) so the facade can compose them directly:
 
 - ``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
 - ``get_latest_recalculation`` — most recent recalc row for an experiment, or ``None``.
@@ -46,6 +46,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
+    ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.models import (
@@ -53,6 +54,7 @@ from products.experiments.backend.temporal.models import (
     RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
+from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -337,6 +339,28 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
         raise
 
 
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Dispatch the timeseries backfill workflow for a row that request_timeseries_recalculation just created. If the
+    start fails, the row is marked FAILED and the exception propagates to the caller."""
+    try:
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                "experiment-timeseries-recalculation-workflow",
+                ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
+                id=f"experiment-recalculation-{recalculation_id}",
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            )
+        )
+    except Exception:
+        # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+        # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+        ExperimentTimeseriesRecalculation.objects.filter(team_id=team_id, id=recalculation_id).update(
+            status=ExperimentTimeseriesRecalculation.Status.FAILED
+        )
+        raise
+
+
 # Ceiling on the Temporal connect and describe for an old active row. The request holds the experiment row lock
 # while it waits.
 _WORKFLOW_STATUS_TIMEOUT_SECONDS = 3
@@ -536,6 +560,19 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     caller must not start a workflow. Otherwise creates a fresh pending row.
     """
     return _request_recalculation(experiment, user, trigger, max_age=_recalculation_max_age(experiment))
+
+
+def request_and_start_recalculation(experiment: Experiment, user: User | None, trigger: str) -> dict:
+    """``request_recalculation``, then the workflow start for the run it created. A reused run gets no workflow, and
+    neither does a rejected run, which is new but already FAILED."""
+    result = request_recalculation(experiment, user, trigger)
+    if not result.get("is_existing", False) and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
+        start_metrics_recalculation_workflow(
+            str(result["id"]),
+            team_id=experiment.team_id,
+            organization_id=str(experiment.team.organization_id),
+        )
+    return result
 
 
 def request_recalculation_without_age_limit(experiment: Experiment, user: User | None, trigger: str) -> dict:
@@ -832,3 +869,36 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "results": results,
             "result_source": "timeseries_fallback",
         }
+
+
+def build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
+    """``build_job_payload`` of a run with its per-metric results and live query progress, as a read of the run shows it."""
+    results = get_run_results(recalc)
+    payload = build_job_payload(recalc, results=results, include_live_progress=True)
+    payload["results"] = results
+    return payload
+
+
+def build_latest_payload(experiment: Experiment) -> dict | None:
+    """The run that the latest read shows, with a pointer to the active run and the age limit verdict. None when the
+    experiment has no terminal run, no fresh timeseries data and no active run."""
+    active = get_active_recalculation(experiment)
+    recalc = get_latest_recalculation(experiment)
+    if recalc is not None:
+        payload = build_run_payload(recalc)
+    else:
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
+        fallback = build_timeseries_cold_start_payload(experiment)
+        if fallback is not None:
+            payload = fallback
+        elif active is not None:
+            payload = build_run_payload(active)
+        else:
+            return None
+    if active is not None:
+        payload["active_run"] = {"id": str(active.id), "status": active.status}
+    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
+    return payload

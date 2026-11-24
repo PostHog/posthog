@@ -497,7 +497,6 @@ export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_ENROLLMEN
 export-shape	products.experiments.backend.temporal.registry.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.TIMESERIES_WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
 export-shape	products.experiments.backend.temporal.registry.WORKFLOWS	products.experiments.backend.facade.temporal	export-unknown	1
-export-shape	products.experiments.backend.temporal.timeseries.models.ExperimentTimeseriesRecalculationWorkflowInputs	products.experiments.backend.facade.temporal	export-shape(class)	1
 export-shape	products.feature_flags.backend.facade.warnings.ManagementWarningWire	products.feature_flags.backend.facade.warnings	export-shape(class)	1
 export-shape	products.feature_flags.backend.models.feature_flag.FeatureFlag	products.experiments.backend.facade.queries	export-denied(model)	1
 export-shape	products.feature_flags.backend.types.FlagProperty	products.feature_flags.backend.facade.references	export-shape(class)	1
@@ -2930,12 +2929,7 @@ presentation-uses-facade	products.data_warehouse.backend.presentation.views.tabl
 presentation-uses-facade	products.early_access_features.backend.routes	products.early_access_features.backend.api	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.ai_observability.backend.models.llm_prompt	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.experiment_service	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.hogql_queries.exposure_query_logic	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.llm_metric_templates	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.metric_events	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.metric_utils	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.models.experiment	1
-presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.running_time_calculator	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.session_buckets	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.session_context	1
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.experiments.backend.session_event_deltas	1
@@ -2944,10 +2938,7 @@ presentation-uses-facade	products.experiments.backend.presentation.serializers	p
 presentation-uses-facade	products.experiments.backend.presentation.serializers	products.feature_flags.backend.models.feature_flag	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.approvals.backend.presentation.mixins	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.experiment_service	1
-presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.llm_metric_templates	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.models.experiment	1
-presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.recalculation	1
-presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.running_time_calculator	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.session_buckets	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.session_context	1
 presentation-uses-facade	products.experiments.backend.presentation.views	products.experiments.backend.session_event_deltas	1

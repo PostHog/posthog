@@ -60,23 +60,26 @@ from products.experiments.backend.facade.contracts import (
     ExperimentValidationError,
     RunningTimeMode,
 )
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
+from products.experiments.backend.facade.enums import (
     EXPERIMENT_EXPOSURE_EVENT,
-    resolve_default_exposure_event,
+    LLM_METRIC_TEMPLATE_NAMES,
+    RUNNING_TIME_METRIC_TYPES,
+    ExperimentResultConfigurationStatus,
+    MetricSourceRole,
 )
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.facade.exposure import resolve_team_default_exposure_event
+from products.experiments.backend.facade.metrics import refresh_action_names_in_metric
+from products.experiments.backend.facade.recalculation import (
+    METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
+    METRICS_RECALCULATION_STATUS_CHOICES,
+)
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
     get_experiment_rule,
 )
-from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import (
     MAX_BUCKET_SCAN_DAYS,
     MAX_SESSION_BUCKET_LIMIT,
@@ -1105,7 +1108,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             return EXPERIMENT_EXPOSURE_EVENT
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_team_default_exposure_event(obj.team_id, obj.start_date or timezone.now())
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
@@ -1123,7 +1126,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                refreshed_metric = refresh_action_names_in_metric(metric, team_id=instance.team_id)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
 
@@ -1852,13 +1855,13 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         ),
     )
     templates = serializers.ListField(
-        child=serializers.ChoiceField(choices=TEMPLATE_NAMES),
+        child=serializers.ChoiceField(choices=LLM_METRIC_TEMPLATE_NAMES),
         min_length=1,
-        max_length=len(TEMPLATE_NAMES),
+        max_length=len(LLM_METRIC_TEMPLATE_NAMES),
         help_text=(
             "One or more metric templates to attach as primary metrics. "
             "Each template becomes one metric on the experiment. "
-            f"Allowed values: {', '.join(TEMPLATE_NAMES)}."
+            f"Allowed values: {', '.join(LLM_METRIC_TEMPLATE_NAMES)}."
         ),
     )
     name = serializers.CharField(
@@ -2014,7 +2017,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
+        choices=METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
         required=False,
         default="manual",
         help_text=(
@@ -2029,7 +2032,7 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=METRICS_RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Status of the executing run (pending or in_progress)",
     )
@@ -2045,7 +2048,7 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=METRICS_RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Current status of the recalculation job",
     )
@@ -2220,7 +2223,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     """Inputs for estimating the recommended sample size and running time of an experiment."""
 
     metric_type = serializers.ChoiceField(
-        choices=METRIC_TYPE_CHOICES,
+        choices=RUNNING_TIME_METRIC_TYPES,
         help_text=(
             "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
             "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "

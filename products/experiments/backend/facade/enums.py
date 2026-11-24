@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal, get_args
 
 from posthog.enums import LabeledStrEnum
 
@@ -21,6 +22,30 @@ class ExposuresPath(StrEnum):
 
     PRECOMPUTED = "precomputed"
     DIRECT_SCAN = "direct_scan"
+
+
+# The dedicated exposure event that replaces $feature_flag_called as the default, gated per team by the
+# `experiment-exposure-event` flag while it rolls out.
+EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
+
+# The metric types that the running time calculator sizes.
+RunningTimeMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
+RUNNING_TIME_METRIC_TYPES: tuple[str, ...] = get_args(RunningTimeMetricType)
+
+# The LLM metric templates that an experiment created from a prompt can attach. llm_metric_templates has one builder
+# for each name.
+LLM_METRIC_TEMPLATE_NAMES = ("cost", "latency", "eval_pass_rate")
+
+
+class MetricSourceRole(StrEnum):
+    """What one source node means to its metric, so a hit can say which side of the metric fired."""
+
+    SOURCE = "source"
+    STEP = "step"
+    NUMERATOR = "numerator"
+    DENOMINATOR = "denominator"
+    RETENTION_START = "retention_start"
+    RETENTION_COMPLETION = "retention_completion"
 
 
 class PrecomputeSkipReason(StrEnum):

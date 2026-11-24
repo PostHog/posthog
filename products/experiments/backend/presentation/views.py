@@ -9,12 +9,10 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 """
 
 import json
-import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
@@ -61,7 +59,6 @@ from posthog.rate_limit import (
 )
 from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.api import (
@@ -77,22 +74,34 @@ from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health, get_running_time_target
 from products.experiments.backend.facade.contracts import (
+    BaselineStats,
     ExperimentHealthReaderAccess,
     LegacyMigrationError,
     RunningTimeMode,
 )
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
+from products.experiments.backend.facade.llm_metric_templates import build_template, list_templates
+from products.experiments.backend.facade.recalculation import (
+    AGENT_MCP_RECALCULATION_TRIGGER,
+    get_latest_metrics_recalculation,
+    get_metrics_recalculation,
+    request_metrics_recalculation,
+    start_timeseries_recalculation_workflow,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
-from products.experiments.backend.llm_metric_templates import build_template, list_templates
+from products.experiments.backend.facade.running_time import (
+    calculate_baseline_value,
+    calculate_running_time_days,
+    calculate_sample_size,
+    calculate_variance,
+    calculate_variance_from_stats,
+)
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
-    ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
-    ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
@@ -139,25 +148,6 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeTargetQuerySerializer,
     RunningTimeTargetSerializer,
     ShipVariantSerializer,
-)
-from products.experiments.backend.recalculation import (
-    build_job_payload,
-    build_timeseries_cold_start_payload,
-    exceeds_recalculation_age_limit,
-    get_active_recalculation,
-    get_latest_recalculation,
-    get_recalculation_by_id,
-    get_run_results,
-    request_recalculation,
-    start_metrics_recalculation_workflow,
-)
-from products.experiments.backend.running_time_calculator import (
-    BaselineStats,
-    calculate_baseline_value,
-    calculate_running_time_days,
-    calculate_sample_size,
-    calculate_variance,
-    calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
     ExperimentSessionBucket,
@@ -581,7 +571,13 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "in_session_exposure"):
+        if self.action in (
+            "health",
+            "in_session_exposure",
+            "metrics_recalculation",
+            "metrics_recalculation_latest",
+            "metrics_recalculation_detail",
+        ):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -1608,24 +1604,7 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-timeseries-recalculation-workflow",
-                        ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
-                        id=f"experiment-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                ExperimentTimeseriesRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
-                    status=ExperimentTimeseriesRecalculation.Status.FAILED
-                )
-                raise
+            start_timeseries_recalculation_workflow(str(result["id"]), team_id=self.team.id)
 
         status_code = 200 if is_existing else 201
         return Response(result, status=status_code)
@@ -1666,29 +1645,17 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
 
         is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
-        trigger = (
-            ExperimentMetricsRecalculation.Trigger.AGENT_MCP
-            if is_mcp_client
-            else request_serializer.validated_data["trigger"]
-        )
+        trigger = AGENT_MCP_RECALCULATION_TRIGGER if is_mcp_client else request_serializer.validated_data["trigger"]
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
-        result = request_recalculation(experiment, cast(User, request.user), trigger)
-        # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
-        # the idempotent-reuse path without inspecting the HTTP status code.
-        is_existing = result.get("is_existing", False)
-
-        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
-        if not is_existing and result["status"] == ExperimentMetricsRecalculation.Status.PENDING:
-            start_metrics_recalculation_workflow(
-                str(result["id"]),
-                team_id=experiment.team_id,
-                organization_id=str(experiment.team.organization_id),
-            )
-
+        result = request_metrics_recalculation(
+            team_id=self.team.id, experiment_id=experiment.id, user=cast(User, request.user), trigger=trigger
+        )
+        # The serializer surfaces is_existing on the response so clients can detect the idempotent-reuse path
+        # without inspecting the HTTP status code. A rejected run is new but already FAILED, so it gets a 201.
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
-            status=200 if is_existing else 201,
+            status=200 if result.is_existing else 201,
         )
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
@@ -1701,25 +1668,10 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
-        active = get_active_recalculation(experiment)
-        active_run = {"id": str(active.id), "status": active.status} if active is not None else None
-        recalc = get_latest_recalculation(experiment)
-
-        if recalc is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
-
-        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately, even while a first run is active (its pending
-        # payload would blank them out); an active run still rides along for polling. Pure read, no
-        # workflow start.
-        fallback = build_timeseries_cold_start_payload(experiment)
-        if fallback is not None:
-            return Response(_serialize_latest(experiment, fallback, active_run))
-
-        if active is not None:
-            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
-
-        return Response({"detail": "No completed recalculation found"}, status=404)
+        latest = get_latest_metrics_recalculation(team_id=self.team.id, experiment_id=experiment.id)
+        if latest is None:
+            return Response({"detail": "No completed recalculation found"}, status=404)
+        return Response(ExperimentMetricsRecalculationLatestSerializer(latest).data)
 
     @extend_schema(
         parameters=[
@@ -1749,10 +1701,12 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
-        recalc = get_recalculation_by_id(experiment, recalculation_id)
-        if recalc is None:
+        run = get_metrics_recalculation(
+            team_id=self.team.id, experiment_id=experiment.id, recalculation_id=recalculation_id
+        )
+        if run is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
+        return Response(ExperimentMetricsRecalculationRunSerializer(run).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1813,7 +1767,7 @@ class EnterpriseExperimentsViewSet(
                 denominator_sum=stats.get("denominator_sum"),
                 denominator_sum_squares=stats.get("denominator_sum_squares"),
                 numerator_denominator_sum_product=stats.get("numerator_denominator_sum_product"),
-                step_counts=stats.get("step_counts") or [],
+                step_counts=tuple(stats.get("step_counts") or ()),
             )
 
         baseline_value = data.get("baseline_value")
@@ -2162,17 +2116,3 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
-
-
-def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
-    results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results, include_live_progress=True)
-    payload["results"] = results
-    return payload
-
-
-def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
-    if active_run is not None:
-        payload["active_run"] = active_run
-    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
-    return ExperimentMetricsRecalculationLatestSerializer(payload).data

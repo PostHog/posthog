@@ -70,9 +70,9 @@ def get_default_quantile_metric_title(metric_dict: dict) -> str:
 logger = logging.getLogger(__name__)
 
 
-def refresh_action_names_in_metric(
+def refresh_team_action_names_in_metric(
     query: dict[str, Any] | None,
-    team: Team,
+    team_id: int,
     actions_by_id: dict[int, str] | None = None,
 ) -> dict[str, Any] | None:
     """
@@ -88,7 +88,7 @@ def refresh_action_names_in_metric(
 
     Args:
         query: The metric query dictionary (ExperimentMetric)
-        team: The team to fetch actions for
+        team_id: The team to fetch actions for
         actions_by_id: Optional preloaded {action_id: name} map. When provided, the
             per-call DB query is skipped — callers serializing many experiments can
             resolve every action in one batched query and pass the result in here.
@@ -116,7 +116,7 @@ def refresh_action_names_in_metric(
             # Only include actions that still exist (not deleted)
             names = {
                 action.id: action.name
-                for action in get_actions(action_ids=action_ids, team_id=team.pk, include_deleted=False)
+                for action in get_actions(action_ids=action_ids, team_id=team_id, include_deleted=False)
             }
         else:
             names = actions_by_id
@@ -132,9 +132,17 @@ def refresh_action_names_in_metric(
             "Error refreshing action names in metric query: %s",
             e,
             exc_info=True,
-            extra={"team_id": team.id, "query_kind": query.get("kind") if query else None},
+            extra={"team_id": team_id, "query_kind": query.get("kind") if query else None},
         )
         return query
+
+
+def refresh_action_names_in_metric(
+    query: dict[str, Any] | None,
+    team: Team,
+    actions_by_id: dict[int, str] | None = None,
+) -> dict[str, Any] | None:
+    return refresh_team_action_names_in_metric(query, team.id, actions_by_id)
 
 
 def without_action_names(obj: Any) -> Any:
