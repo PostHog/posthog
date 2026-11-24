@@ -719,8 +719,9 @@ class HealthContext:
     # isn't archived.
     latest_calculation: LatestCalculation | None
     # False when the reader may not read the stored results, which `primary_metric` and `latest_calculation` come
-    # from. A warehouse-native experiment stores totals read from the customer's warehouse, so they need the access to
-    # the warehouse connection that the results endpoints ask for. Both fields are None then.
+    # from. A warehouse-native experiment stores totals read from the customer's warehouse, so reading those totals
+    # needs the connection access that the results endpoints check. `primary_metric` and `latest_calculation` are None
+    # then.
     can_read_results: bool
     # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
     # calculation completed and a failed query read the events.

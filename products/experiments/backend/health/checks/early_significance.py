@@ -19,7 +19,6 @@ from products.experiments.backend.health.context import HealthContext, PrimaryMe
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
-    NO_WAREHOUSE_RESULTS_ACCESS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
@@ -40,6 +39,7 @@ BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
 # The results page shows results from 50 exposures (`EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS` in
 # products/experiments/frontend/constants.ts). Keep the two in step, so that the note never names a result the page hides.
 MIN_SAMPLES_FOR_RESULTS = 50
+FUNNEL_ONLY = "Runs on funnel primary metrics only"
 
 
 @frozen
@@ -105,13 +105,14 @@ def _readout(ctx: HealthContext) -> _Readout | CheckSkip:
         return not_applicable(NOT_AFTER_END)
     if ctx.primary_metric_count == 0:
         return not_applicable(NEEDS_PRIMARY_METRIC)
-    if not ctx.can_read_results:
-        return not_checked(NO_WAREHOUSE_RESULTS_ACCESS)
+    # The schema allows a warehouse-native source on a mean or a ratio metric only.
+    if ctx.warehouse_native_exposures:
+        return not_applicable(FUNNEL_ONLY)
     metric = ctx.primary_metric
     if metric is None:
         return not_checked("Couldn't read the results of the primary metric")
     if not metric.is_funnel:
-        return not_applicable("Runs on funnel primary metrics only")
+        return not_applicable(FUNNEL_ONLY)
     result = metric.result
     if result is None:
         return not_applicable("Runs once the primary metric has results")

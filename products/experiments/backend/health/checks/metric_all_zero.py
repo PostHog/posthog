@@ -280,7 +280,8 @@ def _warehouse_native_id_causes() -> list[str]:
     return [
         "PostHog counts a row of a warehouse-native query only for an entity_id that the exposure query returned, and "
         "only after that entity's first exposure.",
-        "Check that the metric query returns the same entity_id values as the exposure query, with the same type.",
+        "Check that the metric query returns the same entity_id values as the exposure query. PostHog compares them "
+        'as text, so 123 and "0123" don\'t match.',
     ]
 
 

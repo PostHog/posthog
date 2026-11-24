@@ -15,6 +15,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthSetup,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.facade.warehouse_native_access import (
+    validate_warehouse_native_connection_access,
+    warehouse_native_connection_id,
+)
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
@@ -29,10 +33,6 @@ from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECK
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
-from products.experiments.backend.warehouse_native_sources import (
-    validate_warehouse_native_connection_access,
-    warehouse_native_exposure_config,
-)
 from products.feature_flags.backend.facade.filters import condition_aggregation, condition_rollout_percentage
 
 
@@ -161,12 +161,12 @@ def _health_context(
 
 def _can_read_results(experiment: Experiment, user: User | None) -> bool:
     """Whether `user` may read the experiment's stored results, by the check that the results endpoints run."""
-    exposure = warehouse_native_exposure_config(experiment.exposure_criteria)
-    if exposure is None:
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
         return True
-    try:
-        validate_warehouse_native_connection_access(experiment.team, user, str(exposure.get("connection_id") or ""))
     # The table access check raises DRF's PermissionDenied, which the access check passes on.
+    try:
+        validate_warehouse_native_connection_access(experiment.team, user, connection_id)
     except (DjangoPermissionDenied, PermissionDenied):
         return False
     return True
