@@ -59,19 +59,17 @@ class _DefinitionsV2Batch:
     bodies: dict[int, dict[str, Any]]
     # Teams that hold a v2 flag and have no body, because their legacy response did not build.
     failed_team_ids: frozenset[int]
-    # Teams whose v2 flags are all deleted.
-    former_holder_team_ids: frozenset[int]
 
 
 def _build_flag_definitions_v2_batch(teams: list[Team]) -> _DefinitionsV2Batch:
     """Build the v2 body of every team in ``teams`` that holds a config version 2 flag.
 
-    One query finds those teams. A batch without one runs no other query. A v2 row never
-    reaches the legacy builder's cohort or dependency transforms: the legacy builder
+    One query finds those teams' live v2 rows. A batch without one runs no other query. A v2
+    row never reaches the legacy builder's cohort or dependency transforms: the legacy builder
     excludes it, and its entry here is the stored document as it is.
     """
-    rows = list(
-        FeatureFlag.objects_including_soft_deleted.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+    live_rows = list(
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
         .filter(team_id__in=[team.id for team in teams], **v2_config_lookup())
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(
@@ -82,11 +80,9 @@ def _build_flag_definitions_v2_batch(teams: list[Team]) -> _DefinitionsV2Batch:
         )
         .order_by("team_id", "key")
     )
-    live_rows = [flag for flag in rows if not flag.deleted]
     holder_ids = {flag.team_id for flag in live_rows}
-    former_holders = frozenset(flag.team_id for flag in rows if flag.team_id not in holder_ids)
     if not live_rows:
-        return _DefinitionsV2Batch(bodies={}, failed_team_ids=frozenset(), former_holder_team_ids=former_holders)
+        return _DefinitionsV2Batch(bodies={}, failed_team_ids=frozenset())
 
     legacy_responses = _get_flags_response_for_local_evaluation_batch([team for team in teams if team.id in holder_ids])
 
@@ -118,7 +114,6 @@ def _build_flag_definitions_v2_batch(teams: list[Team]) -> _DefinitionsV2Batch:
             for team_id, legacy in legacy_responses.items()
         },
         failed_team_ids=frozenset(holder_ids - legacy_responses.keys()),
-        former_holder_team_ids=former_holders,
     )
 
 
@@ -148,18 +143,25 @@ def _build_flag_definitions_v2_hypercache() -> HyperCache:
 flag_definitions_v2_hypercache = _build_flag_definitions_v2_hypercache()
 
 
-def _holds_entry(team: Team) -> bool:
-    cache = flag_definitions_v2_hypercache
-    keys = [cache.get_cache_key(team), cache.get_etag_key(team)]
-    clients = (cache.cache_client, cache.secondary_cache_client)
-    return any(client.get_many(keys) for client in clients if client is not None)
+def _tracked_expiry_score(team: Team) -> float | None:
+    """Every write tracks the team and only a removal untracks it, so the member still marks an
+    entry whose last v2 row was hard-deleted."""
+    redis_client = get_client(flag_definitions_v2_hypercache.redis_url)
+    return redis_client.zscore(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(team.id))
 
 
-def _remove_entry(team: Team) -> None:
+def _mirror_holds_entry(team: Team) -> bool:
+    """A removal whose mirror delete failed leaves the entry on the secondary tier only."""
     cache = flag_definitions_v2_hypercache
+    mirror = cache.secondary_cache_client
+    return mirror is not None and bool(mirror.get_many([cache.get_cache_key(team), cache.get_etag_key(team)]))
+
+
+def _remove_entry(team: Team, tracked_expiry_score: float | None) -> None:
     # Passing the score keeps the tracking member when a delete fails, so upkeep visits the team again.
-    score = get_client(cache.redis_url).zscore(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(team.id))
-    cache.delete_cache_entry(team, strict_mirror=True, tracked_expiry_score=score)
+    flag_definitions_v2_hypercache.delete_cache_entry(
+        team, strict_mirror=True, tracked_expiry_score=tracked_expiry_score
+    )
 
 
 def update_flag_definitions_v2_cache(
@@ -169,8 +171,8 @@ def update_flag_definitions_v2_cache(
     config version 2 flag, remove it otherwise. Returns False when the entry was left as it was.
 
     A failure is logged and counted, and never raises, so the caller's legacy rebuild is not
-    affected. ``entry_expected=False`` is for a caller that visits every team: a team that
-    never held a config version 2 flag then costs the one query and no Redis call.
+    affected. ``entry_expected=False`` is for a caller that visits every team: a team without
+    a config version 2 flag then costs the one query and one read of the expiry set.
     """
     resolved_team = _resolve_team(team)
     if resolved_team is None:
@@ -188,10 +190,11 @@ def update_flag_definitions_v2_cache(
             size = cache.set_cache_value(resolved_team, body, ttl=ttl, skip_if_unchanged=skip_if_unchanged)
         elif resolved_team.id in batch.failed_team_ids:
             raise RuntimeError(f"Flag definitions v2 build failed for team {resolved_team.id}")
-        elif entry_expected or (resolved_team.id in batch.former_holder_team_ids and _holds_entry(resolved_team)):
-            _remove_entry(resolved_team)
         else:
-            return True
+            score = _tracked_expiry_score(resolved_team)
+            if score is None and not entry_expected:
+                return True
+            _remove_entry(resolved_team, score)
     except SoftTimeLimitExceeded:
         raise
     except GroupTypesUnavailable:
@@ -240,9 +243,10 @@ def verify_team_flag_definitions_v2(
 ) -> dict:
     """Verify a team's v2 entry against the database.
 
-    The expected body is compared through its ETag. A team that holds no config version 2
-    flag matches when it has no entry, and a mismatch without ``db_data`` makes the verifier
-    call the update function, which removes the entry.
+    The stored body and its ETag must both match the expected body: they are separate keys,
+    so a stored ETag can describe another body. A team that holds no config version 2 flag
+    matches when it has no entry, and a mismatch without ``db_data`` makes the verifier call
+    the update function, which removes the entry.
     """
     cache = flag_definitions_v2_hypercache
     if cache_batch_data and team.id in cache_batch_data:
@@ -254,11 +258,12 @@ def verify_team_flag_definitions_v2(
     expected = db_batch_data.get(team.id)
 
     if expected is None:
-        if cached_data is None and etag is None:
+        if cached_data is None and etag is None and not _mirror_holds_entry(team):
             return {"status": "match", "issue": "", "details": ""}
         return {"status": "mismatch", "issue": "STALE_ENTRY", "details": "Entry for a team that holds no v2 flag"}
     if cached_data is None:
         return {"status": "miss", "issue": "CACHE_MISS", "details": "No cache entry found", "db_data": expected}
-    if etag != cache._compute_etag(json.dumps(expected, sort_keys=True)):
-        return {"status": "mismatch", "issue": "DATA_MISMATCH", "details": "ETag differs", "db_data": expected}
+    expected_json = json.dumps(expected, sort_keys=True)
+    if etag != cache._compute_etag(expected_json) or cached_data != json.loads(expected_json):
+        return {"status": "mismatch", "issue": "DATA_MISMATCH", "details": "Body or ETag differs", "db_data": expected}
     return {"status": "match", "issue": "", "details": ""}

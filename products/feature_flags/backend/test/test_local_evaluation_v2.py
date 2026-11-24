@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.core.cache import cache as django_cache
+from django.core.cache.backends.locmem import LocMemCache
+from django.db.models.signals import post_init
 from django.test import override_settings
 
 from jsonschema import Draft202012Validator
@@ -36,6 +38,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET,
     FLAG_DEFINITIONS_V2_CACHE_TYPE,
     FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG,
+    _build_flag_definitions_v2_batch,
     flag_definitions_v2_hypercache,
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
@@ -295,13 +298,35 @@ class TestDefinitionsV2Body(DefinitionsV2TestCase):
         Survey.objects.create(team=self.team, name="Survey", type="popover", targeting_flag=survey_flag)
         FeatureFlag.objects.filter(pk=survey_flag.pk).update(filters=BOOLEAN_V2)
         invalid = _create_flag(self.team, "v2-invalid", INVALID_V2)
+        # The body carries no cohort definitions for v2 rules, so cohort targeting must stay rejected.
+        cohort_targeting = deepcopy(BOOLEAN_V2)
+        cohort_targeting["rules"][0]["targeting"]["properties"] = [
+            {"key": "id", "type": "cohort", "operator": "in", "value": 1}
+        ]
+        cohort_flag = _create_flag(self.team, "v2-cohort", cohort_targeting)
 
         with capture_logs() as logs:
             self._rebuild()
 
         assert _keys(_body(V2, self.team)) == ["v2-float-version"]
         omitted = [log for log in logs if log["event"] == "Invalid v2 feature flag omitted from definitions"]
-        assert [(log["team_id"], log["flag_id"]) for log in omitted] == [(self.team.id, invalid.pk)]
+        assert sorted(log["flag_id"] for log in omitted) == sorted([invalid.pk, cohort_flag.pk])
+        assert {log["team_id"] for log in omitted} == {self.team.id}
+
+    def test_deleted_v2_rows_are_not_loaded(self) -> None:
+        for index in range(3):
+            _create_flag(self.team, f"v2-deleted-{index}", BOOLEAN_V2, deleted=True)
+
+        loaded: list[FeatureFlag] = []
+
+        def record(sender: type[FeatureFlag], instance: FeatureFlag, **kwargs: Any) -> None:
+            loaded.append(instance)
+
+        post_init.connect(record, sender=FeatureFlag)
+        self.addCleanup(post_init.disconnect, record, sender=FeatureFlag)
+        assert _build_flag_definitions_v2_batch([self.team]).bodies == {}
+
+        assert loaded == []
 
     def test_entry_of_a_team_with_only_invalid_v2_rows_equals_its_legacy_entry(self) -> None:
         self._create_v1_flags()
@@ -317,7 +342,7 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
         assert V2.cache_client is LEGACY.cache_client
         assert V2.secondary_cache_client is LEGACY.secondary_cache_client
 
-    def test_team_without_v2_flags_costs_one_query_and_no_redis_call(self) -> None:
+    def test_team_without_v2_flags_costs_one_query_and_one_tracking_read(self) -> None:
         self._create_v1_flags()
 
         with (
@@ -326,9 +351,13 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
             patch.object(V2, "secondary_cache_client") as mirror,
             patch(f"{MODULE}.get_client") as raw_client,
         ):
+            raw_client.return_value.zscore.return_value = None
             assert update_flag_definitions_v2_cache(self.team, skip_if_unchanged=True, entry_expected=False) is True
 
-        assert primary.mock_calls == mirror.mock_calls == raw_client.mock_calls == []
+        assert primary.mock_calls == mirror.mock_calls == []
+        assert raw_client.return_value.mock_calls == [
+            call.zscore(FLAG_DEFINITIONS_V2_CACHE_EXPIRY_SORTED_SET, str(self.team.id))
+        ]
         self._rebuild()
         assert _stored(V2, self.team) == ABSENT
         assert _tracked_score(self.team) is None
@@ -369,10 +398,9 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
         assert _keys(_body(LEGACY, self.team)) == ["alpha", "beta"]
 
         # With the entry gone, a later rebuild of this team deletes nothing.
-        with patch.object(V2.cache_client, "delete") as delete, patch(f"{MODULE}.get_client") as raw_client:
+        with patch.object(V2.cache_client, "delete") as delete:
             assert update_flag_definitions_v2_cache(self.team, skip_if_unchanged=True, entry_expected=False) is True
         delete.assert_not_called()
-        raw_client.assert_not_called()
 
     def test_failed_removal_keeps_the_entry_tracked_for_upkeep(self) -> None:
         flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
@@ -389,20 +417,18 @@ class TestDefinitionsV2EntryLifecycle(DefinitionsV2TestCase):
         assert _stored(V2, self.team) == ABSENT
         assert _tracked_score(self.team) is None
 
-    def test_entry_of_a_hard_deleted_last_v2_flag_is_removed_by_upkeep(self) -> None:
-        flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+    def test_entry_goes_when_the_last_v2_flag_is_hard_deleted(self) -> None:
+        flag = _create_flag(self.team, "reused", BOOLEAN_V2)
         self._rebuild()
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
         FeatureFlag.objects_including_soft_deleted.filter(pk=flag.pk).delete()
+        _create_flag(self.team, "reused", V1_FILTERS)
 
-        # No row is left to tell the rebuild after a flag change that an entry existed.
         self._rebuild()
-        assert _stored(V2, self.team) != ABSENT
-        assert verify_team_flag_definitions_v2(self.team)["issue"] == "STALE_ENTRY"
-
-        maintain_flag_definitions_v2_cache_entries()
 
         assert _stored(V2, self.team) == ABSENT
         assert _tracked_score(self.team) is None
+        assert _keys(_body(LEGACY, self.team)) == ["reused"]
 
     def test_clearing_a_team_removes_both_entries(self) -> None:
         self._create_v1_flags()
@@ -459,6 +485,35 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         mismatch = verify_team_flag_definitions_v2(self.team)
         assert mismatch["issue"] == "DATA_MISMATCH"
         assert _keys(mismatch["db_data"]) == ["v2-added", "v2-boolean", "v2-experiment", "v2-inactive"]
+
+    def test_verification_repairs_a_body_that_its_etag_does_not_describe(self) -> None:
+        flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        self._rebuild()
+        old_text = _stored(V2, self.team).text
+        FeatureFlag.objects.filter(pk=flag.pk).update(active=False)
+        self._rebuild()
+        V2.cache_client.set(V2.get_cache_key(self.team), old_text, timeout=60)
+
+        assert verify_team_flag_definitions_v2(self.team)["issue"] == "DATA_MISMATCH"
+        assert self._verify_and_fix().cache_mismatch_fixed == 1
+        assert [flag["active"] for flag in _body(V2, self.team)["flags"]] == [False]
+
+    def test_upkeep_retries_a_removal_that_failed_on_the_mirror(self) -> None:
+        mirror = LocMemCache("flag-definitions-v2-mirror", {})
+        flag = _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        with patch.object(V2, "secondary_cache_client", mirror):
+            self._rebuild()
+            FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+            with patch.object(mirror, "delete", side_effect=ConnectionError("redis down")):
+                self._rebuild()
+            assert _stored(V2, self.team) == ABSENT
+            assert mirror.get(V2.get_cache_key(self.team)) is not None
+            assert verify_team_flag_definitions_v2(self.team)["issue"] == "STALE_ENTRY"
+
+            maintain_flag_definitions_v2_cache_entries()
+
+            assert mirror.get_many([V2.get_cache_key(self.team), V2.get_etag_key(self.team)]) == {}
+            assert _tracked_score(self.team) is None
 
     def test_verification_repairs_holders_and_tracked_teams_only(self) -> None:
         self._create_v2_flags()
