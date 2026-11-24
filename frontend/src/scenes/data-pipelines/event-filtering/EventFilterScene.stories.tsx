@@ -646,11 +646,18 @@ Expected to show:
             }
         })
 
-        // Fill the new condition (last Value... input)
+        // Fill the new condition (last Value... input). Typed rather than pasted: paste is a single
+        // input event, so it cannot catch the tree rebuilding itself between keystrokes and taking
+        // focus with it, which used to leave only the first character behind.
         const condInputs = document.querySelectorAll<HTMLInputElement>('input[placeholder="Value..."]')
         const newCondInput = condInputs[condInputs.length - 1]
         await userEvent.clear(newCondInput)
-        await userEvent.paste('$new_event')
+        await userEvent.type(newCondInput, '$new_event')
+        await waitFor(() => {
+            if (newCondInput.value !== '$new_event') {
+                throw new Error(`Expected the whole value to be typed, got "${newCondInput.value}"`)
+            }
+        })
 
         const testCasesBefore = document.querySelectorAll('input[placeholder="$pageview"]').length
 
