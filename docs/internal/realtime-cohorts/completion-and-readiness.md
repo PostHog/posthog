@@ -241,6 +241,10 @@ A `daily` cohort whose criteria look back further than `REALTIME_COHORT_MAX_HIST
 Both carry the plan's limit in `history_limit_days`, because that is the limit a person can raise.
 A `needs_attention` cohort carries `reason: too_large_to_build` when the save path refused its behavioral run on the scan limit, see [backfill coordination](backfill-coordination.md#when-things-go-wrong).
 
+A cohort that needs two backfill kinds reads `building` or `rebuilding` while every kind that has not stamped is being prepared, and `needs_attention` when nothing is preparing one of those kinds.
+A kind that has stamped is finished for this cohort, so neither its runs nor its debounce key are consulted, including a team run of that kind that stays active while it holds for other cohorts.
+While `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is off, person runs wait in `reconciling` and never stamp, so a cohort that needs both kinds reads `building` or `rebuilding` in the `checking` phase from the moment its events kind stamps until the gate opens.
+
 ### In the feature flags service
 
 The Rust flags service reads cohorts from the flags cache, or from Postgres through a short-lived cache when the flags cache has none.
@@ -252,6 +256,7 @@ It routes a cohort to the membership table when all of these hold:
 - its stamps satisfy the configured stamp policy.
 
 Otherwise the cohort is evaluated dynamically from person properties, where behavioral leaves can never match.
+A routed cohort that a dynamically evaluated cohort includes keeps its table answer.
 [Membership output and readers](membership-output-and-readers.md#feature-flags) describes the read path.
 
 The Django rule and the Rust rule are separate predicates.

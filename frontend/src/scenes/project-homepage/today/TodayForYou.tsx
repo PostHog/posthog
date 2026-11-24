@@ -60,11 +60,11 @@ function TodayForYouBody(): JSX.Element | null {
     }
     const fixCount = countFixes(forYouRows.rows)
     return (
-        <>
+        <ol className="TodayRows">
             <TodayAiRow />
             {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
-            <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
-        </>
+            {forYouVisibleRows.map(renderRow)}
+        </ol>
     )
 }
 

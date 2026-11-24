@@ -904,6 +904,44 @@ class ExperimentRef:
     created_by_id: int | None
 
 
+class WebExperimentNotFound(Exception):
+    """Raised when the project has no web experiment with the id."""
+
+
+@frozen
+class WebExperimentConfig:
+    """A web experiment, as the web experiments API and the toolbar show it.
+
+    `variants` holds every variant of the feature flag with the rollout percentage that the flag stores, plus
+    the transforms that the experiment stores for that variant. When the flag has no variants, it holds the
+    variants that the experiment stores.
+    """
+
+    id: int
+    name: str
+    created_at: datetime
+    # The stored key of the flag. A soft-deleted flag keeps its tombstone suffix here.
+    feature_flag_key: str
+    variants: dict[str, Any]
+
+
+WebExperimentWriteField = Literal["name", "created_at", "variants"]
+
+
+@frozen
+class WebExperimentWrite:
+    """The fields of a web experiment that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update sets only those fields. A create needs a
+    name and variants, and does not read `created_at`.
+    """
+
+    fields_set: frozenset[WebExperimentWriteField]
+    name: str | None = None
+    created_at: datetime | None = None
+    variants: dict[str, Any] | None = None
+
+
 @frozen
 class MetricCalculationKeys:
     """The calculation key of each metric on an experiment. Result rows and the stored metric
@@ -1092,11 +1130,76 @@ class TeamExperimentsSettingsUpdate:
 
 @frozen
 class LinkedExperiment:
-    """An experiment that is not deleted, as the flag it uses lists it."""
+    """An experiment that is not deleted, as the flag or the shared metric it uses lists it."""
 
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class ListAccess:
+    """Which records the access control rules let a list show the viewer.
+
+    This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
+    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
+    viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+class SavedMetricNotFound(Exception):
+    """Raised when the team has no shared metric with the id."""
+
+
+@frozen
+class SavedMetric:
+    """A shared metric, as the shared metrics API shows it.
+
+    `query` names each action it references by the current name of that action. A deleted action keeps the
+    name that the metric stored.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    query: dict[str, Any]
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    tags: tuple[str, ...]
+
+
+@frozen
+class SavedMetricListFilters:
+    # Each term must match the name, the description or a tag of the metric.
+    search_terms: tuple[str, ...] = ()
+    # Keeps the metrics whose query references this event, directly or through an action.
+    event: str | None = None
+
+
+SavedMetricWriteField = Literal["name", "description", "query", "tags"]
+
+
+@frozen
+class SavedMetricWrite:
+    """The fields of a shared metric that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update keeps the stored value of every other
+    field, and keeps the tags unless `tags` is in `fields_set`.
+    """
+
+    fields_set: frozenset[SavedMetricWriteField]
+    name: str | None = None
+    description: str | None = None
+    query: dict[str, Any] | None = None
+    tags: tuple[str, ...] = ()
 
 
 @frozen

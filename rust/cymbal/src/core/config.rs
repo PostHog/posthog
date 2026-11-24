@@ -75,6 +75,10 @@ pub struct ResolverConfig {
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
 
+    // When true, frame saves skip the WAL flush wait. Frame rows are a cache rebuilt on the next miss.
+    #[envconfig(default = "true")]
+    pub frame_save_async_commit: bool,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result
