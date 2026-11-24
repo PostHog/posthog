@@ -12,8 +12,8 @@ export const UNSUPPORTED_MARKETING_HTML_TAGS: ReadonlySet<string> = new Set([
     'noscript',
 ])
 
-export const UNSUPPORTED_EMAIL_MARKUP_MESSAGE =
-    "Marketing emails can't include frameset, template, select, svg, math, or noscript tags. Remove those tags and put the unsubscribe link in a plain <a href> in the body."
+export const UNSUBSCRIBE_LINK_REQUIRED_MESSAGE =
+    "A marketing email needs a clickable unsubscribe link in a plain <a href> in the body. Bodies with frameset, template, select, svg, math, or noscript tags aren't accepted for marketing sends."
 
 const TEXT_MODES = new Map<string, Tokenizer['state']>([
     ['title', TokenizerMode.RCDATA],
@@ -119,20 +119,14 @@ const parsePreferencesUrl = (href: string, siteIsAscii: boolean): URL | undefine
 export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
     (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
 
-export type ClickableHrefsResult =
-    | { ok: true; hrefs: string[] }
-    | { ok: false; reason: 'too_large' | 'too_complex' | 'unsupported_markup' }
-
-export type UnsubscribeLinkCheck = 'ok' | 'unsupported_email_markup' | 'unsubscribe_link_required'
-
 /**
  * Extracts plain HTML `<a href>` values outside raw-text elements and comments in one linear
  * `parse5.Tokenizer` pass. Fails closed if any of `UNSUPPORTED_MARKETING_HTML_TAGS` appears
  * anywhere outside raw-text elements and comments.
  */
-export const scanClickableHrefs = (body: string): ClickableHrefsResult => {
+export const clickableHrefs = (body: string): string[] => {
     if (body.length > BODY_MAX_LENGTH) {
-        return { ok: false, reason: 'too_large' }
+        return []
     }
     const hrefs = new Set<string>()
 
@@ -171,20 +165,12 @@ export const scanClickableHrefs = (body: string): ClickableHrefsResult => {
     try {
         tokenizer.write(body, true)
     } catch (error) {
-        if (error instanceof UnsupportedMarkup) {
-            return { ok: false, reason: 'unsupported_markup' }
-        }
-        if (error instanceof TooComplex) {
-            return { ok: false, reason: 'too_complex' }
+        if (error instanceof UnsupportedMarkup || error instanceof TooComplex) {
+            return []
         }
         throw error
     }
-    return { ok: true, hrefs: [...hrefs] }
-}
-
-export const clickableHrefs = (body: string): string[] => {
-    const scanned = scanClickableHrefs(body)
-    return scanned.ok ? scanned.hrefs : []
+    return [...hrefs]
 }
 
 export const filledUnsubscribeLength = (body: string | undefined, url: string | undefined): number => {
@@ -222,48 +208,22 @@ const unusedSentinelUrl = (source: string): { origin: string; pathname: string; 
     }
 }
 
-export const checkReplaceableUnsubscribeLink = ({
-    html,
-    text,
-}: {
-    html?: string
-    text?: string
-}): UnsubscribeLinkCheck => {
+export const hasReplaceableUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean => {
     if (html) {
-        if (html.length > BODY_MAX_LENGTH) {
-            return 'unsubscribe_link_required'
-        }
-        if (html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
-            const scanned = scanClickableHrefs(html)
-            return !scanned.ok && scanned.reason === 'unsupported_markup'
-                ? 'unsupported_email_markup'
-                : 'unsubscribe_link_required'
+        if (html.length > BODY_MAX_LENGTH || html.search(UNSUBSCRIBE_PLACEHOLDER) === -1) {
+            return false
         }
         const sentinel = unusedSentinelUrl(html)
         const filled = replaceUnsubscribePlaceholder(html, sentinel.url)
-        const scanned = scanClickableHrefs(filled)
-        if (!scanned.ok) {
-            return scanned.reason === 'unsupported_markup' ? 'unsupported_email_markup' : 'unsubscribe_link_required'
-        }
-        return scanned.hrefs.some((href) => {
+        return clickableHrefs(filled).some((href) => {
             const page = parsePreferencesUrl(href, true)
             return page !== undefined && page.origin === sentinel.origin && page.pathname === sentinel.pathname
         })
-            ? 'ok'
-            : 'unsubscribe_link_required'
     }
-    return (text ?? '').search(UNSUBSCRIBE_PLACEHOLDER) !== -1 ? 'ok' : 'unsubscribe_link_required'
+    return (text ?? '').search(UNSUBSCRIBE_PLACEHOLDER) !== -1
 }
 
-export const hasReplaceableUnsubscribeLink = (body: { html?: string; text?: string }): boolean =>
-    checkReplaceableUnsubscribeLink(body) === 'ok'
-
-export type PreferencesTokensResult = { ok: true; tokens: string[] } | { ok: false; reason: 'unsupported_markup' }
-
-export const scanPreferencesTokensInBody = (
-    body: { html?: string; text?: string },
-    siteUrl: string
-): PreferencesTokensResult => {
+export const preferencesTokensInBody = (body: { html?: string; text?: string }, siteUrl: string): string[] => {
     const preferencesPage = `${siteUrl}/messaging-preferences/`
     const tokens = new Set<string>()
     const addPath = (path: string): void => {
@@ -273,14 +233,8 @@ export const scanPreferencesTokensInBody = (
         }
     }
     if (body.html) {
-        const scanned = scanClickableHrefs(body.html)
-        if (!scanned.ok) {
-            return scanned.reason === 'unsupported_markup'
-                ? { ok: false, reason: 'unsupported_markup' }
-                : { ok: true, tokens: [] }
-        }
         const siteIsAscii = isAscii(siteUrl)
-        for (const href of scanned.hrefs) {
+        for (const href of clickableHrefs(body.html)) {
             const page = parsePreferencesUrl(href, siteIsAscii)
             const path = page ? `${page.origin}${page.pathname}` : ''
             if (path.startsWith(preferencesPage)) {
@@ -301,10 +255,5 @@ export const scanPreferencesTokensInBody = (
             }
         }
     }
-    return { ok: true, tokens: [...tokens] }
-}
-
-export const preferencesTokensInBody = (body: { html?: string; text?: string }, siteUrl: string): string[] => {
-    const scanned = scanPreferencesTokensInBody(body, siteUrl)
-    return scanned.ok ? scanned.tokens : []
+    return [...tokens]
 }

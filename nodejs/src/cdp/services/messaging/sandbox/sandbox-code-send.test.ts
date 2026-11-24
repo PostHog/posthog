@@ -1109,6 +1109,20 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                     html: '<a href="https://example.com/?next={{ unsubscribe_url }}">Unsubscribe</a>',
                 },
             ],
+            [
+                'B3: preceded by a frameset containing a table and select',
+                {
+                    subject: 'Monthly news',
+                    html: '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
+                },
+            ],
+            [
+                'M1: an svg anchor after a misplaced span end tag',
+                {
+                    subject: 'Monthly news',
+                    html: '<span><div><svg></span><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg></div>',
+                },
+            ],
         ])('refuses a marketing code send when the clickable unsubscribe link is %s', async (_case, badContent) => {
             const res = await sendFromCode(
                 request(
@@ -1120,28 +1134,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             )
 
             expect(res.status).toEqual(400)
-            expect(res.body).toEqual({ error: 'unsubscribe_link_required' })
-            expect(await deliver()).toEqual([])
-            expect(world.ses.delivered).toEqual([])
-        })
-
-        it('refuses a marketing code send whose html uses an unsupported tag', async () => {
-            const res = await sendFromCode(
-                request(
-                    sandboxSend({
-                        content: {
-                            subject: 'Monthly news',
-                            html: '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
-                        },
-                        message_category: { id: new UUIDT().toString(), type: 'marketing' },
-                    })
-                )
-            )
-
-            expect(res.status).toEqual(400)
             expect(res.body).toEqual({
-                error: 'unsupported_email_markup',
-                reason: expect.stringContaining('plain <a href>'),
+                error: 'unsubscribe_link_required',
+                reason: expect.stringMatching(/plain <a href>.*frameset, template, select, svg, math, or noscript/),
             })
             expect(await deliver()).toEqual([])
             expect(world.ses.delivered).toEqual([])

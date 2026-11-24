@@ -3,13 +3,10 @@ import { DefaultTreeAdapterMap, parse } from 'parse5'
 import {
     BODY_MAX_LENGTH,
     UNSUBSCRIBE_TOKENS_CHECKED,
-    checkReplaceableUnsubscribeLink,
     clickableHrefs,
     hasReplaceableUnsubscribeLink,
     preferencesTokensInBody,
     replaceUnsubscribePlaceholder,
-    scanClickableHrefs,
-    scanPreferencesTokensInBody,
 } from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
@@ -101,17 +98,15 @@ describe('clickableHrefs', () => {
             'M1: a misplaced span end tag inside svg',
             '<span><div><svg></span><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg></div>',
         ],
-    ])('refuses markup containing %s as unsupported_markup', (_name, html) => {
-        expect(scanClickableHrefs(html)).toEqual({ ok: false, reason: 'unsupported_markup' })
+    ])('fails closed on markup containing %s', (_name, html) => {
         expect(clickableHrefs(html)).toEqual([])
     })
 
     it.each([
-        ['longer than the tokenizer reads', ' '.repeat(BODY_MAX_LENGTH), 'too_large'],
-        ['with more attributes on one tag than the tokenizer reads', `<div ${manyAttributes}></div>`, 'too_complex'],
-    ] as const)('fails closed on markup %s', (_name, filler, reason) => {
+        ['longer than the tokenizer reads', ' '.repeat(BODY_MAX_LENGTH)],
+        ['with more attributes on one tag than the tokenizer reads', `<div ${manyAttributes}></div>`],
+    ])('fails closed on markup %s', (_name, filler) => {
         const html = filler + '<a href="https://example.com/bye">Unsubscribe</a>'
-        expect(scanClickableHrefs(html)).toEqual({ ok: false, reason })
         expect(clickableHrefs(html)).toEqual([])
     })
 
@@ -159,7 +154,6 @@ describe('clickableHrefs', () => {
             '<noscript><a href="{{ unsubscribe_url }}">Unsubscribe</a></noscript>',
         ]
         for (const html of refusedCases) {
-            expect(checkReplaceableUnsubscribeLink({ html })).toBe('unsupported_email_markup')
             expect(hasReplaceableUnsubscribeLink({ html })).toBe(false)
         }
 
@@ -302,107 +296,102 @@ describe('preferencesTokensInBody', () => {
         expect(tokens[0]).toBe('tok-first')
     })
 
-    it('reports unsupported_markup when a forbidden tag appears alongside a valid preferences link', () => {
+    it('returns no tokens when a forbidden tag appears alongside a valid preferences link', () => {
         const html = '<svg></svg><a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
-        expect(scanPreferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual({
-            ok: false,
-            reason: 'unsupported_markup',
-        })
         expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual([])
     })
 })
 
-describe('checkReplaceableUnsubscribeLink', () => {
+describe('hasReplaceableUnsubscribeLink', () => {
     it.each([
         {
             name: 'a plain placeholder href',
             content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a placeholder href surrounded by spaces',
             content: { html: '<a href="  {{ unsubscribe_url }}  ">Unsubscribe</a>' },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a placeholder href with a query string',
             content: { html: '<a href="{{ unsubscribe_url }}?utm_source=x">Unsubscribe</a>' },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a placeholder padded to the size limit',
             content: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x') },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a placeholder after an Outlook conditional comment with noscript',
             content: {
                 html: '<!--[if mso]><noscript><xml></xml></noscript><![endif]--><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
             },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a placeholder with HTML entities inside the braces',
             content: { html: '<a href="{{&#32;unsubscribe_url&#32;}}">Unsubscribe</a>' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'a placeholder wrapped in another host URL',
             content: { html: '<a href="https://example.com/?next={{ unsubscribe_url }}">Unsubscribe</a>' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'a placeholder followed by extra path text',
             content: { html: '<a href="{{ unsubscribe_url }}extra">Unsubscribe</a>' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'a body that already contains the first sentinel URL outside a placeholder',
             content: { html: '<a href="https://a/_0/">Fake</a><!-- {{ unsubscribe_url }} -->' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'a body that entity-encodes a deterministic sentinel URL outside a placeholder',
             content: { html: '<a href="https://a/&#95;0/">Fake</a><!-- {{ unsubscribe_url }} -->' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'a body that entity-encodes a padded sentinel URL outside a placeholder',
             content: { html: '<a href="https://a/&#95;00000/">Fake</a><!-- {{ unsubscribe_url }} -->' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
         {
             name: 'B3: a frameset containing a table and select before the unsubscribe link',
             content: {
                 html: '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
             },
-            expected: 'unsupported_email_markup',
+            expected: false,
         },
         {
             name: 'M1: an svg anchor after a misplaced span end tag',
             content: {
                 html: '<span><div><svg></span><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg></div>',
             },
-            expected: 'unsupported_email_markup',
+            expected: false,
         },
         {
             name: 'a forbidden tag with no placeholder at all',
             content: { html: '<svg></svg><p>News</p>' },
-            expected: 'unsupported_email_markup',
+            expected: false,
         },
         {
             name: 'a text-only body with the placeholder',
             content: { text: 'Unsubscribe: {{ unsubscribe_url }}' },
-            expected: 'ok',
+            expected: true,
         },
         {
             name: 'a text-only body without the placeholder',
             content: { text: 'Unsubscribe here' },
-            expected: 'unsubscribe_link_required',
+            expected: false,
         },
     ])('returns $expected for $name', ({ content, expected }) => {
-        expect(checkReplaceableUnsubscribeLink(content)).toBe(expected)
-        expect(hasReplaceableUnsubscribeLink(content)).toBe(expected === 'ok')
+        expect(hasReplaceableUnsubscribeLink(content)).toBe(expected)
     })
 
     it('remains fast when the body already mentions many fallback sentinel tokens', () => {

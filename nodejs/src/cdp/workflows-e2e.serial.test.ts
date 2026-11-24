@@ -4064,6 +4064,10 @@ describe('Workflows E2E (email queue)', () => {
             })
         })
 
+        const unsubscribeLinkReason = expect.stringMatching(
+            /plain <a href>.*frameset, template, select, svg, math, or noscript/
+        )
+
         it.each<ApiSend & { status: number; error?: string; reason?: unknown; logged?: string }>([
             {
                 name: 'a code send in a marketing category whose text is longer than PostHog checks',
@@ -4076,7 +4080,7 @@ describe('Workflows E2E (email queue)', () => {
                 reason: expect.stringContaining('1,500,000 characters'),
             },
             {
-                name: 'a code send in a marketing category whose html includes an unsupported frameset and select tag',
+                name: 'B3: a code send in a marketing category whose html includes a frameset and select tag',
                 kind: 'code',
                 payload: codeSendIn(newsletter, {
                     content: {
@@ -4085,8 +4089,21 @@ describe('Workflows E2E (email queue)', () => {
                     },
                 }),
                 status: 400,
-                error: 'unsupported_email_markup',
-                reason: expect.stringContaining('plain <a href>'),
+                error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
+            },
+            {
+                name: 'M1: a code send in a marketing category whose html includes an svg anchor after a misplaced span end tag',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: {
+                        subject: 'News',
+                        html: '<span><div><svg></span><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg></div>',
+                    },
+                }),
+                status: 400,
+                error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category whose html has no unsubscribe link',
@@ -4096,6 +4113,7 @@ describe('Workflows E2E (email queue)', () => {
                 }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category whose html encodes spaces inside the unsubscribe placeholder as HTML entities',
@@ -4105,6 +4123,7 @@ describe('Workflows E2E (email queue)', () => {
                 }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category whose html wraps the unsubscribe placeholder in another host URL',
@@ -4117,6 +4136,7 @@ describe('Workflows E2E (email queue)', () => {
                 }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category whose text has no unsubscribe link and no html',
@@ -4124,6 +4144,7 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: { subject: 'News', text: 'News' } }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category without its own content whose email step has no unsubscribe link',
@@ -4132,6 +4153,7 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: undefined }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category without its own content whose email step href ends in spaces and a newline',
@@ -4143,6 +4165,7 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: undefined }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category without its own content whose email step wraps a conditional unsubscribe link in another host URL',
@@ -4154,6 +4177,7 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: undefined }),
                 status: 400,
                 error: 'unsubscribe_link_required',
+                reason: unsubscribeLinkReason,
             },
             {
                 name: 'a code send in a marketing category with a cc',
@@ -4971,7 +4995,10 @@ describe('Workflows E2E (email queue)', () => {
                 const fresh = await post('code', flow, { ...send, idempotency_key: new UUIDT().toString() }, otherApp)
                 const retry = await post('code', flow, send, otherApp)
 
-                expect(fresh.body).toEqual({ error: 'unsubscribe_link_required' })
+                expect(fresh.body).toEqual({
+                    error: 'unsubscribe_link_required',
+                    reason: expect.stringMatching(/plain <a href>.*frameset, template, select, svg, math, or noscript/),
+                })
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
             })
@@ -4991,7 +5018,7 @@ describe('Workflows E2E (email queue)', () => {
                     html: '<svg></svg><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
                     text: 'News',
                 }),
-                skipped: 'unsupported_email_markup',
+                skipped: 'unsubscribe_link_required',
             },
         ])(
             'skips a marketing code send without its own content whose email step gains $name between the API accepting it and the email worker sending it',

@@ -118,7 +118,7 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { BODY_MAX_LENGTH, UNSUPPORTED_EMAIL_MARKUP_MESSAGE } from './services/messaging/helpers/clickable-links'
+import { BODY_MAX_LENGTH, UNSUBSCRIBE_LINK_REQUIRED_MESSAGE } from './services/messaging/helpers/clickable-links'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/helpers/utm'
@@ -326,7 +326,6 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     recipient_opted_out: 422,
     content_too_large: 413,
     unsubscribe_link_required: 400,
-    unsupported_email_markup: 400,
     copies_not_allowed: 400,
     quota_limited: 429,
     recipient_unreachable: 422,
@@ -363,8 +362,8 @@ const sendReplyOf = (result: TransactionalSendResult): SendReply => {
             ...(result.outcome === 'content_too_large' && {
                 reason: `The html and the text of a marketing email can each be at most ${BODY_MAX_LENGTH.toLocaleString('en-US')} characters long.`,
             }),
-            ...(result.outcome === 'unsupported_email_markup' && {
-                reason: UNSUPPORTED_EMAIL_MARKUP_MESSAGE,
+            ...(result.outcome === 'unsubscribe_link_required' && {
+                reason: UNSUBSCRIBE_LINK_REQUIRED_MESSAGE,
             }),
         },
     }

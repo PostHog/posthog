@@ -222,27 +222,27 @@ describe('marketingSendRefusal', () => {
         [
             'B3: a frameset containing a table and select before an unsubscribe link',
             '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
-            'unsupported_email_markup',
+            'unsubscribe_link_required',
         ],
         [
             'M1: an svg anchor after a misplaced span end tag',
             '<span><div><svg></span><a xlink:href="{{ unsubscribe_url }}"><text>Unsubscribe</text></a></svg></div>',
-            'unsupported_email_markup',
+            'unsubscribe_link_required',
         ],
         [
             'a template tag alongside an unsubscribe link',
             '<template></template><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            'unsupported_email_markup',
+            'unsubscribe_link_required',
         ],
         [
             'a math tag alongside an unsubscribe link',
             '<math></math><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            'unsupported_email_markup',
+            'unsubscribe_link_required',
         ],
         [
             'a noscript tag alongside an unsubscribe link',
             '<noscript></noscript><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-            'unsupported_email_markup',
+            'unsubscribe_link_required',
         ],
         [
             'a duplicate else clause in a suffix conditional after unsubscribe_url',
