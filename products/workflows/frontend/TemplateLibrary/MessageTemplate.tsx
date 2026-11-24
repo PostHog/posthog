@@ -44,6 +44,8 @@ import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { MessageTemplateSceneMenuBar } from './MessageTemplateSceneMenuBar'
+import { MessageTemplateScenePanel } from './MessageTemplateScenePanel'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -137,6 +139,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+    const isTransactional = !!template.transactional_hog_flow_id
+    // An empty one is added from the side panel. A saved one stays while it's cleared, so its row can't vanish mid-edit.
+    const showDescription = isTransactional || !!template.description || !!originalTemplate.description
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft
@@ -308,12 +313,23 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {...{ className: 'flex flex-col grow h-full' }}
         >
             <SceneContent className="h-full flex flex-col grow">
+                {!isTransactional && (
+                    <>
+                        <MessageTemplateSceneMenuBar
+                            {...props}
+                            editDisabledReason={editDisabledReason}
+                            saveDisabledReason={saveDisabledReason}
+                            sendTestDisabledReason={sendTestDisabledReason}
+                        />
+                        <MessageTemplateScenePanel {...props} canEdit={!editDisabledReason} />
+                    </>
+                )}
                 <SceneTitleSection
                     name={template.name}
-                    description={template.description}
+                    description={showDescription ? template.description : null}
                     resourceType={{ type: 'template' }}
                     canEdit={!editDisabledReason}
-                    descriptionAlwaysVisible
+                    descriptionAlwaysVisible={isTransactional}
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
@@ -480,13 +496,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     }
                 />
 
-                <SceneTags
-                    tags={[...(template.tags ?? [])]}
-                    onSave={saveTags}
-                    canEdit={!editDisabledReason}
-                    loading={isTemplateSubmitting}
-                    dataAttrKey="message-template"
-                />
+                {isTransactional && (
+                    <SceneTags
+                        tags={[...(template.tags ?? [])]}
+                        onSave={saveTags}
+                        canEdit={!editDisabledReason}
+                        loading={isTemplateSubmitting}
+                        dataAttrKey="message-template"
+                    />
+                )}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />

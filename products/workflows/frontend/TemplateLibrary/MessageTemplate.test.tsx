@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -8,11 +8,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { MessageTemplate } from './MessageTemplate'
+import { messageTemplateLogic } from './messageTemplateLogic'
 
 const TEMPLATE_ID = 'tmpl-1'
 
@@ -40,7 +42,11 @@ describe('MessageTemplate', () => {
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
-    const renderAs = async (workflowAccess: AccessControlLevel, templateName: string): Promise<void> => {
+    const renderAs = async (
+        workflowAccess: AccessControlLevel,
+        templateName: string,
+        extraFlags: Record<string, boolean> = {}
+    ): Promise<void> => {
         window.POSTHOG_APP_CONTEXT = {
             ...priorAppContext,
             resource_access_control: {
@@ -55,6 +61,7 @@ describe('MessageTemplate', () => {
             {
                 [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+                ...extraFlags,
             }
         )
 
@@ -211,5 +218,63 @@ describe('MessageTemplate', () => {
 
         expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
+
+    it.each([
+        ['a library template without one keeps the title row alone', { ...ORDER_RECEIPT }, false, 0],
+        ['a library template shows the one it has', { ...ORDER_RECEIPT, description: 'Sent after checkout' }, false, 1],
+        ['a transactional template keeps its tags and description', PASSWORD_RESET_WITH_DRAFT, true, 1],
+    ])('header tags and description: %s', async (_, template, tagsInPage, descriptions) => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
+        await renderAs(AccessControlLevel.Editor, template.name)
+
+        await waitFor(() =>
+            expect(!!document.querySelector('[data-attr="message-template-tags-button"]')).toBe(tagsInPage)
+        )
+        expect(screen.queryAllByText(template.description || 'Enter description (optional)')).toHaveLength(descriptions)
+    })
+
+    it('edits tags and description from the side panel', async () => {
+        const patches: unknown[] = []
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [200, { ...ORDER_RECEIPT, ...body }]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        const panel = document.createElement('div')
+        document.body.appendChild(panel)
+        act(() => sceneLayoutLogic.actions.registerScenePanelElement(panel))
+
+        fireEvent.click(await within(panel).findByText('Enter description (optional)'))
+        fireEvent.change(panel.querySelector('textarea')!, { target: { value: 'Sent after checkout' } })
+        fireEvent.blur(panel.querySelector('textarea')!)
+        await waitFor(() =>
+            expect(messageTemplateLogic({ id: TEMPLATE_ID }).values.template.description).toBe('Sent after checkout')
+        )
+
+        fireEvent.click(within(panel).getByText('Click to add tags'))
+        const input = panel.querySelector<HTMLInputElement>('input')!
+        fireEvent.change(input, { target: { value: 'receipts' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+        await waitFor(() => expect(patches).toEqual([{ tags: ['receipts'] }]))
+        panel.remove()
+    })
+
+    it('puts subject, preheader and the content switch of a library template on one row', async () => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT } })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name, {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+        })
+
+        const row = (await screen.findByText('Subject')).closest('.border-b') as HTMLElement
+        expect(within(row).getByLabelText('Preheader')).toBeInTheDocument()
+        expect(within(row).getByText('Plain text')).toBeInTheDocument()
+        expect(screen.getAllByText('Plain text')).toHaveLength(1)
     })
 })
