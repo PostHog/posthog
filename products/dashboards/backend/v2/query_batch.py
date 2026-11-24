@@ -435,6 +435,10 @@ class QueryBatch:
         except RuntimeError:
             pass
 
+    def _is_cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
     def _work(self, job: _Job, query_id: str) -> None:
         try:
             with self._lock:
@@ -449,9 +453,7 @@ class QueryBatch:
                 line = job()
             # Waits while the client is behind, so a slow reader holds a few results, not every finished one.
             while not self._unread.acquire(timeout=1.0):
-                with self._lock:
-                    cancelled = self._cancelled
-                if cancelled:
+                if self._is_cancelled():
                     return
             self._emit(line)
         finally:
