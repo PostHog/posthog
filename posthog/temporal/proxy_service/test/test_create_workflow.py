@@ -247,7 +247,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             self._sweep()
             self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE", "DELETE"])
 
-        Organization.objects.filter(pk=self.organization.pk).update(is_active=True)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=True, is_pending_deletion=None)
         ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.ERRORING)
         temporal = ProxyWorkflowTestClient()
         with responses.RequestsMock(), patch("posthog.tasks.proxy.async_connect", return_value=temporal):
@@ -458,8 +458,8 @@ class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCas
         expected_state = CloudflareActivationState.SUSPENDED if deactivate else CloudflareActivationState.IDLE
         self.assertEqual(self.record.cloudflare_activation_state, expected_state)
 
-    @parameterized.expand([(True, False), (False, False), (True, True)])
-    async def test_creation_respects_organization_activation(self, active: bool, pending_deletion: bool) -> None:
+    @parameterized.expand([(True, False), (True, None), (False, False), (True, True)])
+    async def test_creation_respects_organization_activation(self, active: bool, pending_deletion: bool | None) -> None:
         await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(root_redirect_url=None)
         await Organization.objects.filter(pk=self.organization.pk).aupdate(
             is_active=active, is_pending_deletion=pending_deletion
