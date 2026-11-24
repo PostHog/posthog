@@ -369,8 +369,7 @@ async def _stage_seed(
 
 
 def _seed_tag(requested_at: str) -> str:
-    # One per request, so the redelivery check of a run's batches never finds it, and turning history off
-    # and on again makes a new copy.
+    # Per request: a run's redelivery check never finds it, and turning history on again copies anew.
     return f"seed-{requested_at}"
 
 

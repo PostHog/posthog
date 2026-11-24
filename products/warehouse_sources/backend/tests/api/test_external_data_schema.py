@@ -5361,7 +5361,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
     def test_patch_sets_the_output_tables_of_an_incremental_table(
         self, _name: str, case: _OutputTablesCase, reloads: bool, seeds: bool
     ):
-        # A copy reads nothing from the source, so the billing limit holds back only a reload.
         self._patch_output_tables(case, paused=seeds and not reloads)
 
         self.schema.refresh_from_db()
