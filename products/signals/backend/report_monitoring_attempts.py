@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -21,11 +21,10 @@ from products.signals.backend.report_check_artefacts import write_check_expired
 from products.signals.backend.report_check_research import check_authoring_failed
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.transition_credit import CreditSource, TransitionCredit, resolve_transition_credit
 
 if TYPE_CHECKING:
     from posthog.models import User
-
-    from products.signals.backend.transition_credit import TransitionCredit
 
 
 def check_definition_version(check: SignalReportCheck) -> str:
@@ -60,6 +59,13 @@ def verifying_attempt(report: SignalReport, check: SignalReportCheck) -> SignalR
         return None
     attempt = current_monitoring_attempt(report)
     return attempt if attempt is not None and str(check.id) in attempt.check_versions else None
+
+
+def attempt_credit(attempt: SignalReportMonitoringAttempt) -> TransitionCredit | None:
+    """The person who completed the implementation that this attempt verifies."""
+    if attempt.credited_user is None or attempt.credited_user_source is None:
+        return None
+    return TransitionCredit(user=attempt.credited_user, source=cast(CreditSource, attempt.credited_user_source))
 
 
 def complete_implementation(
@@ -148,12 +154,19 @@ def complete_implementation(
         if monitoring_started_at is None:
             raise ValueError("An implementation-complete timestamp is required to enter Monitoring.")
 
+        completed_by = (
+            attempt_credit(previous_attempt)
+            if previous_attempt
+            else resolve_transition_credit(attribution, credit, team_id=team_id, actor_user=actor_user)
+        )
         attempt = SignalReportMonitoringAttempt.objects.for_team(team_id).create(
             team_id=team_id,
             report=report,
             monitoring_started_at=monitoring_started_at,
             check_versions={str(check.id): check_definition_version(check) for check in applicable},
             close_pr_on_resolve=previous_attempt.close_pr_on_resolve if previous_attempt else close_pr_on_resolve,
+            credited_user=completed_by.user if completed_by else None,
+            credited_user_source=completed_by.source if completed_by else None,
         )
         SignalReportCheck.objects.for_team(team_id).filter(id__in=[check.id for check in applicable]).update(
             status=SignalReportCheck.Status.PENDING,
