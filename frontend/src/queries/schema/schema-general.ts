@@ -807,6 +807,11 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: non_negative_integer
+    /**
+     * Rows to return in place of the default row limit, capped at the maximum for the query's context.
+     * Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL.
+     */
+    limit?: positive_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */

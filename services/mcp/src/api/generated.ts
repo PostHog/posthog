@@ -9972,6 +9972,8 @@ export namespace Schemas {
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
       kind?: 'HogQLQuery';
+      /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Client provided name of the query */

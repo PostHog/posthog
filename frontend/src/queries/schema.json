@@ -33600,6 +33600,10 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"

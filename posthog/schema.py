@@ -36608,6 +36608,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(
