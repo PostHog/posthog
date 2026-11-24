@@ -60,23 +60,26 @@ from products.experiments.backend.facade.contracts import (
     ExperimentValidationError,
     RunningTimeMode,
 )
-from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
+from products.experiments.backend.facade.enums import (
     EXPERIMENT_EXPOSURE_EVENT,
-    resolve_default_exposure_event,
+    RUNNING_TIME_METRIC_TYPES,
+    ExperimentResultConfigurationStatus,
+    MetricSourceRole,
 )
-from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.facade.exposure import resolve_team_default_exposure_event
+from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.facade.metrics import refresh_action_names_in_metric
+from products.experiments.backend.facade.recalculation import (
+    METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
+    METRICS_RECALCULATION_STATUS_CHOICES,
+)
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
     get_experiment_rule,
 )
-from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import (
     MAX_BUCKET_SCAN_DAYS,
     MAX_SESSION_BUCKET_LIMIT,
@@ -106,7 +109,6 @@ from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
 
@@ -820,9 +822,16 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
 
 
 @extend_schema_serializer(component_name="ExperimentToSavedMetric")
-class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
+class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
     """A shared metric's link to one experiment, as the experiment API returns it."""
 
+    id = serializers.IntegerField(read_only=True)
+    experiment = serializers.IntegerField(source="experiment_id")
+    saved_metric = serializers.IntegerField(source="saved_metric_id")
+    metadata = serializers.JSONField(required=False)
+    created_at = serializers.DateTimeField(read_only=True)
+    query = serializers.JSONField(source="saved_metric.query", read_only=True)
+    name = serializers.CharField(source="saved_metric.name", read_only=True)
     # The link model has no such attribute, so this serializer renders it as null.
     # ExperimentSerializer.to_representation sets the value from the served query.
     effective_query = ExperimentMetricDefinitionField(
@@ -837,8 +846,15 @@ class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
         ),
     )
 
-    class Meta(ExperimentToSavedMetricSerializer.Meta):
-        fields = [*ExperimentToSavedMetricSerializer.Meta.fields, "effective_query"]
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Refresh action names to show current names instead of stale cached values.
+        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
+        # parent serializer context); None when used standalone, falling back to a per-call query.
+        team = instance.experiment.team
+        actions_by_id = self.context.get("actions_by_id")
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
+        return data
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -1105,7 +1121,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             return EXPERIMENT_EXPOSURE_EVENT
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
-        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+        return resolve_team_default_exposure_event(obj.team_id, obj.start_date or timezone.now())
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:
@@ -1123,11 +1139,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                refreshed_metric = refresh_action_names_in_metric(metric, team_id=instance.team_id)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
 
-        # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
+        # Note: Action name refresh is handled by ExperimentSavedMetricLinkSerializer.to_representation
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
@@ -2014,7 +2030,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
+        choices=METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
         required=False,
         default="manual",
         help_text=(
@@ -2029,7 +2045,7 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=METRICS_RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Status of the executing run (pending or in_progress)",
     )
@@ -2045,7 +2061,7 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=METRICS_RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Current status of the recalculation job",
     )
@@ -2220,7 +2236,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     """Inputs for estimating the recommended sample size and running time of an experiment."""
 
     metric_type = serializers.ChoiceField(
-        choices=METRIC_TYPE_CHOICES,
+        choices=RUNNING_TIME_METRIC_TYPES,
         help_text=(
             "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
             "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "

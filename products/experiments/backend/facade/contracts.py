@@ -16,7 +16,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import ExperimentResultConfigurationStatus, RecalculationStartOutcome
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -927,6 +927,19 @@ class DailyMetricCalculation:
     calculation_key: str
 
 
+@frozen
+class BaselineStats:
+    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
+
+    number_of_samples: int
+    sum: float
+    sum_squares: float = 0.0
+    denominator_sum: float | None = None
+    denominator_sum_squares: float | None = None
+    numerator_denominator_sum_product: float | None = None
+    step_counts: tuple[float, ...] = ()
+
+
 class RunningTimeMode(LabeledStrEnum):
     # pinned: the page's `ConversionRateInputType` values in frontend/src/types.ts, stored in
     # `running_time_calculation.exposure_estimate_config.conversionRateInputType`.
@@ -1092,11 +1105,76 @@ class TeamExperimentsSettingsUpdate:
 
 @frozen
 class LinkedExperiment:
-    """An experiment that is not deleted, as the flag it uses lists it."""
+    """An experiment that is not deleted, as the flag or the shared metric it uses lists it."""
 
     id: int
     name: str
     is_running: bool
+
+
+@frozen
+class ListAccess:
+    """Which records the access control rules let a list show the viewer.
+
+    This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
+    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
+    viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+class SavedMetricNotFound(Exception):
+    """Raised when the team has no shared metric with the id."""
+
+
+@frozen
+class SavedMetric:
+    """A shared metric, as the shared metrics API shows it.
+
+    `query` names each action it references by the current name of that action. A deleted action keeps the
+    name that the metric stored.
+    """
+
+    id: int
+    team_id: int
+    name: str
+    description: str | None
+    query: dict[str, Any]
+    created_by_id: int | None
+    created_by: ExperimentCreator | None
+    created_at: datetime
+    updated_at: datetime
+    tags: tuple[str, ...]
+
+
+@frozen
+class SavedMetricListFilters:
+    # Each term must match the name, the description or a tag of the metric.
+    search_terms: tuple[str, ...] = ()
+    # Keeps the metrics whose query references this event, directly or through an action.
+    event: str | None = None
+
+
+SavedMetricWriteField = Literal["name", "description", "query", "tags"]
+
+
+@frozen
+class SavedMetricWrite:
+    """The fields of a shared metric that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update keeps the stored value of every other
+    field, and keeps the tags unless `tags` is in `fields_set`.
+    """
+
+    fields_set: frozenset[SavedMetricWriteField]
+    name: str | None = None
+    description: str | None = None
+    query: dict[str, Any] | None = None
+    tags: tuple[str, ...] = ()
 
 
 @frozen
@@ -1184,6 +1262,63 @@ class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None
     detail: str = ""
+
+
+@frozen
+class MetricRecalculationResult:
+    metric_uuid: str
+    status: Literal["pending", "completed", "failed"]
+    # The ExperimentQueryResponse shape. None while the metric is pending, and when it failed.
+    result: dict[str, Any] | None
+    error_message: str | None
+    configuration_status: ExperimentResultConfigurationStatus
+
+
+@frozen
+class MetricsRecalculationJob:
+    """A metrics recalculation run, with the counters that its result rows and errors give."""
+
+    # The run's uuid, or `timeseries-fallback` for a placeholder that the latest read builds from timeseries data.
+    id: str
+    experiment_id: int
+    status: Literal["pending", "in_progress", "completed", "failed"]
+    total_metrics: int
+    completed_metrics: int
+    failed_metrics: int
+    metric_errors: dict[str, Any]
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    query_to: datetime | None
+
+
+@frozen
+class RequestedMetricsRecalculation(MetricsRecalculationJob):
+    is_existing: bool
+
+
+@frozen
+class MetricsRecalculationRun(MetricsRecalculationJob):
+    metric_retries: dict[str, Any]
+    results: tuple[MetricRecalculationResult, ...]
+    # Live ClickHouse progress of an in-progress run. None for any other run, and when the progress read fails.
+    rows_read: int | None = None
+    estimated_rows_total: int | None = None
+
+
+@frozen
+class ActiveMetricsRecalculation:
+    id: str
+    status: Literal["pending", "in_progress"]
+
+
+@frozen
+class LatestMetricsRecalculation(MetricsRecalculationRun):
+    """The run that the latest read of an experiment shows, with a pointer to the run that is still executing."""
+
+    active_run: ActiveMetricsRecalculation | None
+    result_source: Literal["recalculation", "timeseries_fallback"]
+    exceeds_recalculation_age_limit: bool
 
 
 @frozen

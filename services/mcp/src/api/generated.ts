@@ -14314,6 +14314,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working
+     */
+    export type AgentActivityKindEnum = typeof AgentActivityKindEnum[keyof typeof AgentActivityKindEnum];
+
+
+    export const AgentActivityKindEnum = {
+      SearchingMetrics: 'searching_metrics',
+      ReadingLabels: 'reading_labels',
+      ReadingLabelValues: 'reading_label_values',
+      RunningQuery: 'running_query',
+      CheckingPanels: 'checking_panels',
+      ExploringLogs: 'exploring_logs',
+      ExploringTraces: 'exploring_traces',
+      ReadingDashboard: 'reading_dashboard',
+      Thinking: 'thinking',
+      Working: 'working',
+    } as const;
+
+    /**
      * A check a scout run answers: re-probe the report's claim and record one verdict.
      *
      * The kind for a claim no single number settles. A resolved error-tracking report is the usual
@@ -35623,6 +35651,36 @@ export namespace Schemas {
       state: PanelProgressStateEnum;
     }
 
+    export interface DashboardImportAgentActivity {
+      /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+       *
+       * * `searching_metrics` - Searching Metrics
+       * * `reading_labels` - Reading Labels
+       * * `reading_label_values` - Reading Label Values
+       * * `running_query` - Running Query
+       * * `checking_panels` - Checking Panels
+       * * `exploring_logs` - Exploring Logs
+       * * `exploring_traces` - Exploring Traces
+       * * `reading_dashboard` - Reading Dashboard
+       * * `thinking` - Thinking
+       * * `working` - Working */
+      kind: AgentActivityKindEnum;
+      /** Seconds since the action started. */
+      seconds: number;
+      /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+      idle_seconds: number;
+      /**
+         * The search term, metric name or attribute key that the action works on, when it has one.
+         * @nullable
+         */
+      subject: string | null;
+      /**
+         * Number of panels that a 'checking_panels' action checks.
+         * @nullable
+         */
+      panel_count: number | null;
+    }
+
     export interface DashboardImportSummary {
       /** Number of panels in the input. */
       total: number;
@@ -35696,6 +35754,8 @@ export namespace Schemas {
       phase: DashboardImportPhaseEnum | null;
       /** Where each panel is, while the import runs. */
       panel_progress: DashboardImportPanelProgress[];
+      /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+      agent_activity: DashboardImportAgentActivity | null;
       /**
          * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
          * @nullable
@@ -104490,6 +104550,12 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** The project's monthly training budget, in whole US dollars. A training run is refused once training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off. */
+      max_training_spend_usd_per_month: number;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, a run in progress included. A run whose cost is not recorded yet counts as 0. */
+      training_spend_usd: number;
+      /** When training_spend_usd resets to 0: the start of the next UTC calendar month. */
+      training_spend_resets_at: string;
       /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
        *
        * * `project` - Project
@@ -104508,6 +104574,12 @@ export namespace Schemas {
        * * `default` - Default
        * * `code` - Code */
       max_live_pipelines_source: LimitSourceEnum;
+      /** Where max_training_spend_usd_per_month comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_spend_usd_per_month_source: LimitSourceEnum;
     }
 
     /**
@@ -114218,7 +114290,7 @@ export namespace Schemas {
       readonly review_drafts: boolean;
       /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False gives each pull request its reviews only when it opens or is marked ready. */
       readonly review_pushes: boolean;
-      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
       readonly deep_review_gated_prs: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
@@ -114331,7 +114403,7 @@ export namespace Schemas {
       review_drafts: boolean;
       /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. */
       review_pushes: boolean;
-      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
       deep_review_gated_prs: boolean;
       /** Whether auto-approval reviews this repository in this project. Only then can its size, restricted-path and tier rules make an automatic review a Deep review. */
       auto_approval: boolean;
@@ -114418,7 +114490,7 @@ export namespace Schemas {
       flash_for?: AutomaticFlashForEnum | null;
       /** True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value. */
       review_drafts?: boolean;
-      /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+      /** True gives a pull request one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. The first case works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
       deep_review_gated_prs?: boolean;
       /** True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value. */
       review_pushes?: boolean;
@@ -120799,6 +120871,13 @@ export namespace Schemas {
          * @nullable
          */
       autostart_enabled?: boolean | null;
+      /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
       default_autostart_priority?: AutonomyPriorityEnum;
       /**
          * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -122419,6 +122498,35 @@ export namespace Schemas {
       /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`. */
       settings?: StartProviderImportSettings;
     }
+
+    export interface TrainingRunCapReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
+      used: number;
+      /** The project's daily limit of sandbox training runs. */
+      limit: number;
+      /**
+         * When the next training run can start. Null when training runs are turned off for the project.
+         * @nullable
+         */
+      next_slot_at: string | null;
+    }
+
+    export interface TrainingBudgetReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code. */
+      code: string;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, across all its pipelines. A run whose cost is not recorded yet counts as 0. */
+      spent_usd: number;
+      /** The project's monthly training budget, in whole US dollars. 0 means training is turned off. */
+      limit_usd: number;
+      /** When the budget resets: the start of the next UTC calendar month. */
+      resets_at: string;
+    }
+
+    export type StartTrainingRefused = TrainingRunCapReached | TrainingBudgetReached;
 
     export interface StartTrainingRequest {
       /**
@@ -126970,13 +127078,6 @@ export namespace Schemas {
       coverage: TopicCoverage;
     }
 
-    export interface TopicDefinition {
-      /** Short name of the subject. */
-      title: string;
-      /** One sentence on what the topic covers. */
-      description: string;
-    }
-
     /**
      * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
      */
@@ -127933,20 +128034,6 @@ export namespace Schemas {
       regenerate?: boolean;
     }
 
-    export interface TrainingRunCapReached {
-      /** Why the run did not start. */
-      detail: string;
-      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
-      used: number;
-      /** The project's daily limit of sandbox training runs. */
-      limit: number;
-      /**
-         * When the next training run can start. Null when training runs are turned off for the project.
-         * @nullable
-         */
-      next_slot_at: string | null;
-    }
-
     /**
      * One prior completed training run plus its full iteration trail.
      */
@@ -128727,11 +128814,6 @@ export namespace Schemas {
          * @nullable
          */
       topics: TopicCluster[] | null;
-      /**
-         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-         * @nullable
-         */
-      topic_definitions: TopicDefinition[] | null;
       /** What the sampled sessions were about, by kind. Null until grouped. */
       topic_sessions: TopicSessionCounts | null;
       /**
@@ -128779,6 +128861,8 @@ export namespace Schemas {
       created_at: string;
       /** The scan result, one key per section. */
       payload: UsageSnapshotPayload;
+      /** How many of the scan's topics the payload leaves out for this reader. A topic is left out when its sessions read a table or view the reader is denied, or read data the scan could not trace to tables. */
+      hidden_topics: number;
     }
 
     export interface UsageSnapshotSummary {
@@ -143942,6 +144026,7 @@ export namespace Schemas {
     event?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

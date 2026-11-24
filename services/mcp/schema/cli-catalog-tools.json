@@ -20446,8 +20446,8 @@
     "experiment-launch": {
         "name": "experiment-launch",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:experiments/launchExperimentHooks"],
+        "hooks": "experiments/launchExperimentHooks",
         "uiApp": "experiment",
         "request": {
             "method": "POST",
