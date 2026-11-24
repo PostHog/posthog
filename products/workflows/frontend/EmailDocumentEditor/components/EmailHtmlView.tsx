@@ -5,11 +5,18 @@ import { useEffect } from 'react'
 import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { emailHtmlViewLogic } from '../emailHtmlViewLogic'
+
+const VIEWER_OPTIONS: CodeEditorProps['options'] = {
+    readOnly: true,
+    minimap: { enabled: false },
+    wordWrap: 'on',
+    scrollBeyondLastLine: false,
+}
 
 /** The html a save stores, to read and copy. Nothing here changes the email. */
 export function EmailHtmlView(): JSX.Element {
@@ -20,9 +27,9 @@ export function EmailHtmlView(): JSX.Element {
     const savedHtml = logicProps.value?.html ?? ''
 
     useEffect(() => {
-        // pinned: analytics event name and property, renaming breaks dashboards
-        posthog.capture('email editor html viewed', { email_type: emailType })
-    }, [emailType])
+        // pinned: analytics event name and properties, renaming breaks dashboards
+        !reading && posthog.capture('email editor html viewed', { email_type: emailType, success: !latestEditUnsaved })
+    }, [reading, latestEditUnsaved, emailType])
 
     if (reading) {
         return (
@@ -50,7 +57,7 @@ export function EmailHtmlView(): JSX.Element {
         )
     }
     return (
-        <div className="flex flex-col flex-1 min-h-80 gap-2 p-2" data-attr="email-editor-html-view">
+        <div className="ph-no-capture flex flex-col flex-1 min-h-0 gap-2 p-2" data-attr="email-editor-html-view">
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
                     size="xsmall"
@@ -70,18 +77,10 @@ export function EmailHtmlView(): JSX.Element {
                 </LemonButton>
                 <span className="text-xs text-secondary">Read-only. Variables and conditions show as written.</span>
             </div>
-            <div className="flex-1 min-h-0 border rounded overflow-hidden">
-                <CodeEditor
-                    language="html"
-                    className="h-full"
-                    value={savedHtml}
-                    options={{
-                        readOnly: true,
-                        minimap: { enabled: false },
-                        wordWrap: 'on',
-                        scrollBeyondLastLine: false,
-                    }}
-                />
+            <div className="relative flex-1 min-h-80 border rounded overflow-hidden">
+                <div className="absolute inset-0">
+                    <CodeEditor language="html" className="h-full" value={savedHtml} options={VIEWER_OPTIONS} />
+                </div>
             </div>
         </div>
     )

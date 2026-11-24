@@ -1,3 +1,4 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,24 +11,32 @@ import {
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { emailHtmlViewLogic } from './emailHtmlViewLogic'
+import { emailHtmlViewLogic } from '../emailHtmlViewLogic'
+import { EmailHtmlView } from './EmailHtmlView'
+
+jest.mock('lib/monaco/CodeEditor', () => ({
+    CodeEditor: ({ value }: { value: string }) => <pre data-attr="code">{value}</pre>,
+}))
 
 const STORED_HTML = '<p>stored {{ person.properties.name }}</p>'
 const DESIGN = { body: { rows: [{ id: 'stored' }] } }
-const EDITED_DESIGN = { body: { rows: [{ id: 'edited' }] } }
 
-describe('emailHtmlViewLogic', () => {
+describe('EmailHtmlView', () => {
     let onChange: jest.Mock
     let editorListeners: Record<string, () => void>
     let canvas: { html: string; design: Record<string, any>; broken: boolean }
     let templater: ReturnType<typeof emailTemplaterLogic.build>
-    let logic: ReturnType<typeof emailHtmlViewLogic.build>
 
-    const shown = (): { reading: boolean; unsaved: boolean; html?: string } => ({
-        reading: logic.values.reading,
-        unsaved: templater.values.latestEditUnsaved,
-        html: templater.props.value?.html,
-    })
+    const shown = (): string | null => screen.queryByTestId('code')?.textContent ?? null
+    const opened = async (): Promise<void> => {
+        render(<EmailHtmlView />)
+        await act(() => expectLogic(emailHtmlViewLogic).toDispatchActions(['latestEditRead']))
+    }
+    const edit = (html: string): void => {
+        canvas.html = html
+        canvas.design = { body: { rows: [{ id: html }] } }
+        editorListeners['design:updated']()
+    }
 
     beforeEach(async () => {
         useMocks({
@@ -70,43 +79,39 @@ describe('emailHtmlViewLogic', () => {
         templater.actions.onEmailEditorReady()
         editorListeners['design:loaded']()
         await expectLogic(templater).toFinishAllListeners()
-        logic = emailHtmlViewLogic()
     })
 
     afterEach(() => {
-        logic.unmount()
+        cleanup()
         templater.unmount()
     })
 
     it('shows the stored html of an email nobody edited, and writes nothing', async () => {
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        await opened()
 
-        expect(shown()).toEqual({ reading: false, unsaved: false, html: STORED_HTML })
+        expect(shown()).toBe(STORED_HTML)
         expect(onChange).not.toHaveBeenCalled()
     })
 
-    it('shows an edit made just before opening, as a save would store it', async () => {
-        canvas.design = EDITED_DESIGN
-        editorListeners['design:updated']()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['latestEditRead'])
+    it('shows an edit made just before opening, and one made while open, as a save would store them', async () => {
+        edit('<p>just before</p>')
+        await opened()
+        expect(shown()).toBe('<p>just before</p>')
 
-        expect(shown()).toEqual({ reading: false, unsaved: false, html: '<p>fresh render</p>' })
-        expect(onChange).toHaveBeenCalledTimes(1)
+        act(() => edit('<p>while open</p>'))
+        expect(shown()).toBeNull()
+        await waitFor(() => expect(shown()).toBe('<p>while open</p>'))
     })
 
-    it('reports an edit it cannot read instead of passing off the older html as current', async () => {
-        canvas.design = EDITED_DESIGN
+    it('says so when it cannot read the latest edit, instead of showing the older html', async () => {
         canvas.broken = true
-        editorListeners['design:updated']()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(shown()).toMatchObject({ reading: false, unsaved: true })
+        edit('<p>fresh</p>')
+        await opened()
+        expect(shown()).toBeNull()
+        expect(screen.getByText(/Couldn't read your latest change/)).toBeTruthy()
 
         canvas.broken = false
-        logic.actions.readLatestEdit()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(shown()).toEqual({ reading: false, unsaved: false, html: '<p>fresh render</p>' })
+        fireEvent.click(screen.getAllByText('Try again')[0])
+        await waitFor(() => expect(shown()).toBe('<p>fresh</p>'))
     })
 })
