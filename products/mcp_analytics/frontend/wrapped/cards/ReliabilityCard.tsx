@@ -18,24 +18,22 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                 {errorLine(card.success_rate)}
             </p>
             {card.struggling_tool && (
-                <div className="MCPWrapped__rise flex items-center gap-3 rounded-xl bg-black/10 p-3">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black/80 text-white">
-                        <IconWarning className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm opacity-75">Most errors</div>
-                        <div className="truncate font-mono font-bold">{card.struggling_tool.tool}</div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                        <div className="font-bold tabular-nums">{formatPercent(card.struggling_tool.error_rate)}</div>
-                        <div className="text-sm opacity-75">error rate</div>
+                <div className="MCPWrapped__rise mt-2 flex flex-col gap-2">
+                    <span className="text-sm opacity-75">The tool with the most errors</span>
+                    <div className="grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums">
+                        <span className="row-span-2 flex size-7 items-center justify-center self-center rounded-full bg-white">
+                            <IconWarning className="size-4" />
+                        </span>
+                        <span className="truncate font-mono font-bold">{card.struggling_tool.tool}</span>
+                        <span>{formatPercent(card.struggling_tool.error_rate)} errors</span>
+                        <span className="col-span-2 col-start-2 row-start-2 h-3 overflow-hidden rounded-full bg-black/10">
+                            <span
+                                className="MCPWrapped__grow-x block h-full rounded-full bg-black/70"
+                                style={{ width: `${Math.max(2, card.struggling_tool.error_rate * 100)}%` }}
+                            />
+                        </span>
                     </div>
                 </div>
-            )}
-            {card.struggling_tool && (
-                <p className="MCPWrapped__rise absolute bottom-10 left-6 m-0 max-w-[50%] rounded-xl rounded-br-none bg-white/60 px-3 py-2 text-sm font-bold">
-                    Even superheroes have bad days.
-                </p>
             )}
         </WrappedCard>
     )
