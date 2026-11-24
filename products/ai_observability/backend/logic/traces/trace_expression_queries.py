@@ -20,6 +20,7 @@ class TraceColumns:
     distinct_id: ast.Expr
     person: ast.Expr
     session_id: ast.Expr
+    properties: ast.Expr
     ingestion_source: ast.Expr
     total_cost: ast.Expr
 
@@ -45,6 +46,7 @@ AI_EVENTS_COLUMNS = TraceColumns(
     distinct_id=_field("distinct_id"),
     person=_field("distinct_id"),
     session_id=_field("session_id"),
+    properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
     total_cost=_finite(_field("total_cost_usd")),
 )
@@ -59,6 +61,7 @@ EVENTS_COLUMNS = TraceColumns(
     distinct_id=_field("distinct_id"),
     person=_field("person_id"),
     session_id=_field("properties", "$ai_session_id"),
+    properties=_field("properties"),
     ingestion_source=_field("properties", "$ai_ingestion_source"),
     total_cost=_finite(ast.Call(name="toFloat", args=[_field("properties", "$ai_total_cost_usd")])),
 )
@@ -174,10 +177,14 @@ def trace_session_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     return ast.Call(name="nullIf", args=[earliest, _constant("")])
 
 
+def event_is_otel(columns: TraceColumns) -> ast.Expr:
+    return _compare(ast.CompareOperationOp.Eq, _if_null(columns.ingestion_source, ""), _constant("otel"))
+
+
 def event_identified(columns: TraceColumns) -> ast.Expr:
     return ast.And(
         exprs=[
             _compare(ast.CompareOperationOp.NotEq, columns.distinct_id, _if_null(columns.trace_id, "")),
-            _compare(ast.CompareOperationOp.NotEq, _if_null(columns.ingestion_source, ""), _constant("otel")),
+            ast.Not(expr=event_is_otel(columns)),
         ]
     )
