@@ -69,6 +69,7 @@ SLACK_PROFILE = get_task_profile("slack")
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 SOURCE_ID = uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")
+REPORT_DEFAULT_IMAGE = "0190f1f0-0000-7000-8000-00000000a11e"
 FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
 REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
 POSTHOG_AI_BOT_PROFILE = replace(
@@ -1075,8 +1076,8 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("implementation", True, {"ai_stage": "implementation"}, "background", "default"),
-            ("discussion", True, {}, "interactive", "default"),
+            ("implementation", True, {"ai_stage": "implementation"}, "background", REPORT_DEFAULT_IMAGE),
+            ("discussion", True, {}, "interactive", REPORT_DEFAULT_IMAGE),
             ("caller_image_wins", True, {"custom_image_id": "caller-image"}, "interactive", "caller-image"),
             ("research", True, {"ai_stage": "research"}, "background", None),
             ("custom_agent", True, {"ai_stage": "custom_agent"}, "background", None),
@@ -1088,8 +1089,7 @@ class TestTask(TestCase):
     ):
         from products.signals.backend.models import SignalReport, SignalTeamConfig
 
-        default_image = str(uuid.uuid4())
-        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=default_image)
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=REPORT_DEFAULT_IMAGE)
         task = Task.objects.create(
             team=self.team,
             title="Report run",
@@ -1100,9 +1100,7 @@ class TestTask(TestCase):
 
         run = task.create_run(mode=mode, extra_state=extra_state)
 
-        self.assertEqual(
-            run.state.get("custom_image_id"), default_image if expected_image == "default" else expected_image
-        )
+        self.assertEqual(run.state.get("custom_image_id"), expected_image)
 
     @parameterized.expand(
         [

@@ -191,6 +191,7 @@ from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogInde
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     ENDED_BY_STALE_SWEEP_STATE_KEY,
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
@@ -9727,13 +9728,15 @@ def _find_idling_warm_run(
         .select_related("task")
         .order_by("-created_at")[:20]
     )
-    if custom_image_id is None and signal_report_id is not None:
+    if custom_image_id is None and signal_report_id is not None and candidates:
         from products.signals.backend.facade.agent_instructions import (
             get_report_run_custom_image_id,  # noqa: PLC0415 — cross-product read kept off the api import path
         )
 
         # `Task.create_run` gave the warm run the report image, so a request that names none expects that image.
-        custom_image_id = get_report_run_custom_image_id(team_id=team_id)
+        custom_image_id = get_report_run_custom_image_id(
+            team_id=team_id, ai_stage=INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN[Task.OriginProduct.SIGNAL_REPORT]
+        )
     wanted = (
         runtime_adapter or None,
         model or None,
