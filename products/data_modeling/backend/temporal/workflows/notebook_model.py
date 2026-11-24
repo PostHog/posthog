@@ -28,13 +28,14 @@ class MaterializeNotebookWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         started = workflow.now()
+        parent = workflow.info().parent
         run = ModelRun(
             team_id=inputs.team_id,
             node_id=inputs.node_id,
             dag_id=inputs.dag_id,
             run_id=workflow.uuid4(),
             triggered_by_id=inputs.manually_triggered_by_id,
-            parent_workflow_id=workflow.info().parent.workflow_id if workflow.info().parent else None,
+            parent_workflow_id=parent.workflow_id if parent else None,
         )
         retry = RetryPolicy(maximum_attempts=3)
         try:

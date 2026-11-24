@@ -46,7 +46,8 @@ def prepare_notebook_model(run: ModelRun) -> list[str]:
         if run.triggered_by_id is not None and run.triggered_by_id != binding.owner_id:
             raise ValueError("Only the model author can trigger an unattended notebook run.")
         if (
-            binding.latest_run_id != run.run_id
+            binding.latest_run_id is not None
+            and binding.latest_run_id != run.run_id
             and DataModelingJob.objects.filter(
                 team_id=run.team_id, id=binding.latest_run_id, status=DataModelingJob.Status.RUNNING
             ).exists()

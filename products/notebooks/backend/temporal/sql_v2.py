@@ -70,7 +70,7 @@ def dispatch_sql_v2_run_activity(input: SQLV2RunInput) -> None:
         # where the cancellation is recorded, and this is the last point before the code
         # leaves for the kernel, so it is where the two have to meet.
         return
-    if run.notebook_run_id and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
+    if run.notebook_run is not None and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
         from products.notebooks.backend.warehouse_model import check_model_author
 
         check_model_author(notebook, user)

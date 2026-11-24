@@ -131,7 +131,7 @@ def open_model_output(team_id: int, notebook_id: UUID, run_id: UUID) -> Iterator
     )
     if run.status != NotebookRun.Status.DONE:
         raise ValueError(f"Notebook run {run.id} {run.status} at cell {run.failed_node_id or 'unknown'}.")
-    check_model_author(run.notebook, run.user)
+    author = check_model_author(run.notebook, run.user)
     cell = NotebookNodeRun.objects.for_team(team_id).get(
         notebook_run=run,
         notebook_id=notebook_id,
@@ -140,13 +140,17 @@ def open_model_output(team_id: int, notebook_id: UUID, run_id: UUID) -> Iterator
     )
     if cell.result_id is None:
         raise ValueError(f"Cell {cell.node_id} did not return a dataframe.")
-    runtime = KernelRuntime.objects.filter(
-        pk=cell.kernel_runtime_id,
-        team_id=team_id,
-        notebook_id=notebook_id,
-        user_id=run.user_id,
-        status=KernelRuntime.Status.RUNNING,
-    ).first()
+    runtime = (
+        KernelRuntime.objects.filter(
+            pk=cell.kernel_runtime_id,
+            team_id=team_id,
+            notebook_id=notebook_id,
+            user_id=author.pk,
+            status=KernelRuntime.Status.RUNNING,
+        ).first()
+        if cell.kernel_runtime_id is not None
+        else None
+    )
     if runtime is None or not runtime.server_url:
         raise ValueError("The output frame expired. Run the model again.")
     token = mint_command_token(kernel_server_secret(str(runtime.id)), str(cell.id))

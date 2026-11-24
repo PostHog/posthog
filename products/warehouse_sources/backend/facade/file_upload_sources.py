@@ -130,13 +130,13 @@ def discard_unused_upload(team_id: int, upload: UploadedFileRef) -> None:
 def warehouse_output_url(team_id: int, upload: UploadedFileRef) -> str:
     location = UploadLocation(team_id=team_id, upload_id=upload.upload_id, filename=upload.filename)
     if settings.USE_LOCAL_SETUP:
-        return f"{settings.OBJECT_STORAGE_ENDPOINT.rstrip('/')}/{location.path}"
+        return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{location.path}"
     return location.url_pattern
 
 
 def discard_replaced_upload(team_id: int, url_pattern: str) -> None:
     if settings.USE_LOCAL_SETUP:
-        prefix = f"{settings.OBJECT_STORAGE_ENDPOINT.rstrip('/')}/{settings.DATAWAREHOUSE_BUCKET}/"
+        prefix = f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.DATAWAREHOUSE_BUCKET}/"
         if (
             not url_pattern.startswith(prefix)
             or DataWarehouseTable.objects.exclude(deleted=True).filter(url_pattern=url_pattern).exists()

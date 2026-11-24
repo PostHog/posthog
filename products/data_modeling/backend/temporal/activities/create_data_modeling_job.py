@@ -146,7 +146,11 @@ def _record_skipped_notebook(node: Node, job: DataModelingJob, started_at: str |
         if DataModelingJob.objects.filter(id=job.id, team_id=node.team_id).exists():
             return
         job.save(force_insert=True)
-        latest = DataModelingJob.objects.filter(id=model.latest_run_id, team_id=node.team_id).first()
+        latest = (
+            DataModelingJob.objects.filter(id=model.latest_run_id, team_id=node.team_id).first()
+            if model.latest_run_id is not None
+            else None
+        )
         if latest and (
             latest.status == DataModelingJob.Status.RUNNING
             or (started_at and latest.created_at > dt.datetime.fromisoformat(started_at))

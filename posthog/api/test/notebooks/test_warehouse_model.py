@@ -336,6 +336,7 @@ class TestNotebookWarehouseModel(APIBaseTest):
                 publish_frame(run, upload, 14000)
                 publish_frame(run, upload, 14000)
                 binding.refresh_from_db()
+                assert binding.table_id is not None
                 table = DataWarehouseTable.objects.get(team=self.team, id=binding.table_id)
                 original_url = table.url_pattern
                 assert table.row_count == 14000

@@ -444,7 +444,7 @@ def dispatch_sql_v2_run(
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
-    if run.notebook_run_id and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
+    if run.notebook_run is not None and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
         payload["model_session"] = str(run.notebook_run_id)
         payload["input_limits"] = {"object": MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT, "inline": MAX_SELECT_RETURNED_ROWS}
     if node_type in ("python", "duckdb"):
@@ -492,7 +492,7 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
         payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id))
     else:
         payload["result_id"] = str(run.result_id)
-        if run.notebook_run_id and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
+        if run.notebook_run is not None and run.notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
             payload["model_session"] = str(run.notebook_run_id)
     try:
         response = requests.post(

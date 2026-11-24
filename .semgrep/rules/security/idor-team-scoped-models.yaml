@@ -358,6 +358,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookModel
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -907,6 +908,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookModel
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
