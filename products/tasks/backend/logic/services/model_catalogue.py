@@ -225,11 +225,6 @@ def display_name_for_model(model: str) -> str:
     return _display_name(listed) if listed else _name_from_id(model)
 
 
-def known_model_choices() -> tuple[ModelChoice, ...]:
-    listing = _listing()
-    return _choices(agent_models(listing), listing)
-
-
 def product_model_choices(product: str, *, offered_only: bool) -> tuple[ModelChoice, ...]:
     listing = _listing()
     rows = offered_listing(product, listing) if offered_only else admitted_listing(product, listing)
@@ -276,7 +271,6 @@ __all__ = [
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
-    "known_model_choices",
     "models_for_runtime_adapter",
     "offered_model_choices",
     "plan_model_choices",
