@@ -2,6 +2,8 @@ import './TodayShell.scss'
 
 import { useActions, useValues } from 'kea'
 
+import { Button } from '@posthog/quill'
+
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { customNavCountRegistry } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
@@ -12,7 +14,9 @@ import { TodayPeopleRow, TodayPeopleRowKey, todayPeopleLogic } from './todayPeop
 import { TodayPeopleNavRow } from './TodayPeopleNavRow'
 import { TodayPeopleRecentRow } from './TodayPeopleRecentRow'
 import { TodayPinnedRecentSections } from './TodayPinnedRecentSections'
+import { TodayRecentRemoveButton } from './TodayRecentRemoveButton'
 import { recentRowKey } from './todayRecents'
+import { todayRecentsLogic } from './todayRecentsLogic'
 
 function rowMeta(key: TodayPeopleRowKey, counts: Partial<Record<TodayPeopleRowKey, number>>): string | undefined {
     const count = counts[key]
@@ -32,6 +36,7 @@ export function TodayPeopleSidebar(): JSX.Element {
         searchQuery,
     } = useValues(todayPeopleLogic)
     const { toggleSection, setSearchQuery } = useActions(todayPeopleLogic)
+    const { removePeopleRecents } = useActions(todayRecentsLogic)
 
     // The unread ticket count comes from the logic behind the classic nav's Support badge, so it is fetched once.
     // No unread tickets shows no number, like that badge.
@@ -72,8 +77,28 @@ export function TodayPeopleSidebar(): JSX.Element {
                         />
                     )}
                     renderRecent={(recent) => (
-                        <TodayPeopleRecentRow recent={recent} active={activeRow === recentRowKey(recent.href)} />
+                        <TodayPeopleRecentRow
+                            recent={recent}
+                            active={activeRow === recentRowKey(recent.href)}
+                            action={
+                                <TodayRecentRemoveButton
+                                    name={recent.name}
+                                    onRemove={() => removePeopleRecents([recent.href])}
+                                    dataAttr="people-sidebar-recent-remove"
+                                />
+                            }
+                        />
                     )}
+                    recentsActions={
+                        <Button
+                            size="xs"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => removePeopleRecents(matchingRecentRows.map((recent) => recent.href))}
+                            data-attr="people-sidebar-recents-clear"
+                        >
+                            Clear
+                        </Button>
+                    }
                     isSectionOpen={isSectionOpen}
                     onToggleSection={toggleSection}
                     dataAttrPrefix="people"

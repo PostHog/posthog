@@ -23,10 +23,12 @@ const RECENT_DESCRIPTIONS: Record<TodayPeopleRecentType, string> = {
 export function TodayPeopleRecentRow({
     recent,
     active,
+    action,
     dataAttr = 'people-sidebar-recent',
 }: {
     recent: TodayPeopleRecent
     active: boolean
+    action?: JSX.Element
     dataAttr?: string
 }): JSX.Element {
     return (
@@ -37,6 +39,7 @@ export function TodayPeopleRecentRow({
             icon={RECENT_ICONS[recent.type]}
             description={RECENT_DESCRIPTIONS[recent.type]}
             active={active}
+            action={action}
             dataAttr={dataAttr}
         />
     )

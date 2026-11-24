@@ -172,6 +172,34 @@ describe('todayRecentsLogic', () => {
         }
     })
 
+    it('removes People recents until the record is opened again, and keeps Monitor recents', () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.MONITOR_AREA], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.MONITOR_AREA]: true,
+        })
+        sceneLogic.mount()
+        const logic = todayRecentsLogic()
+        logic.mount()
+        const setActive = (sceneLogic.actions as any).setActiveSceneLogic
+
+        logic.actions.addRecent(recent('/cohorts/1'))
+        logic.actions.addRecent(issue)
+        setActive(sceneShowing(recent('/cohorts/2')))
+
+        logic.actions.removePeopleRecents(['/cohorts/2'])
+        expect(logic.values.peopleRecents.map((item) => item.href)).toEqual(['/cohorts/1'])
+
+        setActive(sceneShowing(null))
+        setActive(sceneShowing(recent('/cohorts/2')))
+        expect(logic.values.peopleRecents.map((item) => item.href)).toEqual(['/cohorts/2', '/cohorts/1'])
+
+        logic.actions.removePeopleRecents(['/cohorts/1', '/cohorts/2'])
+        expect(logic.values.peopleRecents).toEqual([])
+        expect(logic.values.monitorRecents).toEqual([issue])
+    })
+
     it('stores a recent, newest first, and lists the rows by name', () => {
         initKeaTests()
         const logic = todayRecentsLogic()

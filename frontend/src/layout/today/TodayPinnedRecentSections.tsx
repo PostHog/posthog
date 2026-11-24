@@ -11,6 +11,7 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
     recents,
     renderPin,
     renderRecent,
+    recentsActions,
     isSectionOpen,
     onToggleSection,
     dataAttrPrefix,
@@ -19,6 +20,8 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
     recents: R[]
     renderPin: (pin: P) => JSX.Element
     renderRecent: (recent: R) => JSX.Element
+    /** Controls on the Recents heading, shown while the section is open. */
+    recentsActions?: JSX.Element | null
     isSectionOpen: (section: TodayPinnedRecentSection) => boolean
     onToggleSection: (section: TodayPinnedRecentSection) => void
     dataAttrPrefix: string
@@ -49,6 +52,7 @@ export function TodayPinnedRecentSections<P extends HrefPin<string>, R extends {
                     count={recents.length}
                     showCount={false}
                     onToggle={() => onToggleSection('recents')}
+                    actions={recentsActions}
                     divider
                     dataAttr={`${dataAttrPrefix}-section-recents`}
                 >
