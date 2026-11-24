@@ -64,8 +64,8 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             # MCP integration tests boot the full PostHog backend (Django web server,
-            # Celery worker, migrations, demo data), so the filter stays broad: any
-            # non-pytest Python change across the app triggers it.
+            # Celery worker, migrations, demo data), so the mcp-backend filter stays
+            # broad: any non-pytest Python change across the app triggers them.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -125,7 +125,7 @@ jobs:
                         - 'products/*/backend/**/*.py'
                         # Django entry point (manage.py migrate / generate_demo_data)
                         - manage.py
-                        # Python dependencies (build + integration-tests run `uv sync --frozen`)
+                        # Python dependencies (integration tests run `uv sync --frozen`)
                         - pyproject.toml
                         - uv.lock
                         # Docker compose stack (dev.yml extends base.yml)
