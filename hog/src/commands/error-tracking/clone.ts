@@ -21,7 +21,8 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }) {
-        return cloneMaps(ctx, args.packagerMap, args.composedMap, await readOptions(options, ctx))
+        const settings = await readOptions(options, ctx)
+        return cloneMaps(ctx, args.packagerMap, args.composedMap, settings)
     },
 
     human({ result, out }) {

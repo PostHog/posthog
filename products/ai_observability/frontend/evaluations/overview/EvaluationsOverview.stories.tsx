@@ -250,11 +250,6 @@ function overview(evaluations: EvaluationResultApi[]): EvaluationsOverviewApi {
                 currentMedian !== null && previousMedian !== null
                     ? { current: currentMedian, previous: previousMedian }
                     : null,
-            medianTrend: measured.length
-                ? DAYS.map((_, index) =>
-                      median(measured.map((row) => row.trend.values[index]).filter((value) => value !== null))
-                  )
-                : [],
         },
     }
 }
@@ -282,7 +277,10 @@ function listEntry(row: EvaluationResultApi): EvaluationApi {
     return {
         id: row.id,
         name: row.name,
-        description: '',
+        description:
+            row.id === GROUNDEDNESS.id
+                ? 'Fails when the answer states something the retrieved docs do not support. Passes when every claim traces back to a doc in the context.'
+                : '',
         directory_id: DIRECTORIES.find((directory) => directory.name === row.directoryName)?.id ?? null,
         enabled: row.enabled,
         status: row.statusReason ? 'error' : row.enabled ? 'active' : 'paused',

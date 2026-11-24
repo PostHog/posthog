@@ -98,6 +98,44 @@
         </signals>
     </profiles>
 
+    <!-- The prod `migrations` user grants that decide whether a migration runs. The
+         sync-clickhouse-versions workflow in posthog-cloud-infra copies them from prod,
+         so change them there, not here. -->
+    <!-- BEGIN synced-migrations-roles: generated, do not edit -->
+    <roles>
+        <prod_migrations>
+            <grants>
+                <query>GRANT ALL ON *.*</query>
+                <query>REVOKE OPTIMIZE ON *.*</query>
+                <query>REVOKE DROP DATABASE ON posthog</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.cohortpeople</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.groups</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id2</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_distinct_id_backup</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.person_static_cohort</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.posthog_document_embeddings</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.property_definitions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_events_recent</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_heatmaps</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_log_entries</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_posthog_document_embeddings_text_embedding_3_large_3072</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_precalculated_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_precalculated_person_properties</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_raw_sessions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_raw_sessions_v3</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_session_replay_events</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.sharded_sessions</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.swap_person_distinct_id</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.web_pre_aggregated_bounces</query>
+                <query>REVOKE DROP TABLE, DELETE, TRUNCATE ON posthog.web_pre_aggregated_stats</query>
+            </grants>
+        </prod_migrations>
+    </roles>
+    <!-- END synced-migrations-roles -->
+
     <!-- Users and ACL. -->
     <users>
         <!-- If user name was not specified, 'default' user is used. -->
@@ -326,6 +364,17 @@
             <profile>signals</profile>
             <quota>default</quota>
         </signals>
+        <!-- Local and CI ClickHouse migrations run as this user, so a statement prod refuses
+             (e.g. DROP TABLE on a protected table) fails here first. -->
+        <migrations>
+            <password>migrationspass</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT prod_migrations</query>
+            </grants>
+        </migrations>
     </users>
 
     <!-- Quotas. -->

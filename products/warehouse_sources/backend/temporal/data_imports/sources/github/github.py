@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
     COLLABORATOR_ONLY_ENDPOINTS,
+    COLLABORATOR_ONLY_GRANT,
     ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
     GRANT_DENIAL_PREFIX,
@@ -824,8 +825,10 @@ def _is_endpoint_permission_denial(message: str) -> bool:
 def _grant_hint(required_permission: str | None, endpoint: str | None = None) -> str:
     if endpoint is not None and endpoint in COLLABORATOR_ONLY_ENDPOINTS:
         return (
-            " GitHub limits this table to admins and collaborators of the repository. To sync it, connect "
-            "with a personal access token from an account with one of those roles."
+            " GitHub limits this table to admins and collaborators of the repository. A fine-grained "
+            f'token or app installation also needs "{COLLABORATOR_ONLY_GRANT}" for it, even from an admin '
+            "account. To sync it, connect with a personal access token from an account with one of "
+            "those roles, give a fine-grained token that permission, then sync again."
         )
     names = GRANT_NAMES.get(required_permission) if required_permission is not None else None
     if names is None:
