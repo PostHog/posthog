@@ -1,5 +1,7 @@
 import re
 import json
+import uuid
+import hashlib
 from datetime import timedelta
 from typing import Any, Optional, Union
 
@@ -322,15 +324,37 @@ def send_transactional_email(
     )
 
 
+WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_PUSH,
+    settings_name="WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_transactional_push_jwt(team_id: int, hog_flow_id: str, distinct_id: str) -> str:
+    """A token for one push request to one person. The CDP service accepts each `jti` once, so a retry needs a new
+    token."""
+    if not WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET is not configured, cannot send push")
+    return WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE.mint(
+        {
+            "team_id": team_id,
+            "hog_flow_id": hog_flow_id,
+            # A hash, because a long non-ASCII distinct ID makes the token too large for the CDP service's headers.
+            "distinct_id_sha256": hashlib.sha256(distinct_id.encode()).hexdigest(),
+            "jti": uuid.uuid4().hex,
+        }
+    )
+
+
 def send_transactional_push(team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10) -> requests.Response:
     """Run a transactional push's workflow once. `payload` carries the recipient's distinct_id and the template
     variables. 202 means queued, 429 means the team is over its quota."""
+    token = _mint_transactional_push_jwt(team_id, hog_flow_id, payload["distinct_id"])
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_push",
         json=payload,
-        headers={
-            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind='push')}"
-        },
+        headers={"Authorization": f"Bearer {token}"},
         timeout=timeout,
     )
 
