@@ -33,6 +33,7 @@ from posthog.models.person_group_membership.sql import (
 MIGRATION = "posthog.clickhouse.migrations.0343_person_group_membership"
 INGESTION_MIGRATION = "posthog.clickhouse.migrations.0369_person_group_membership_ingestion"
 ACTIVITY_MIGRATION = "posthog.clickhouse.migrations.0375_person_group_membership_activity"
+FLAG_CALLS_MIGRATION = "posthog.clickhouse.migrations.0396_person_group_membership_exclude_flag_calls"
 SOURCE_TABLE = "test_source_person_group_membership"
 
 
@@ -72,8 +73,9 @@ def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None
         ),
         (INGESTION_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 5, True),
         (ACTIVITY_MIGRATION, [[NodeRole.INGESTION_EVENTS]], False),
+        (FLAG_CALLS_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 4, True),
     ],
-    ids=["storage", "ingestion", "activity"],
+    ids=["storage", "ingestion", "activity", "flag_calls"],
 )
 @pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
 @pytest.mark.parametrize("multinode", [False, True])
@@ -98,10 +100,20 @@ def test_migration_placement(
                     assert op._sharded is False
                     assert op._is_alter_on_replicated_table is False
                     assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
+                elif op._sql.startswith("DROP TABLE"):
+                    assert "IF EXISTS" in op._sql
                 else:
                     assert "IF NOT EXISTS" in op._sql
             assert any("Kafka" in op._sql for op in operations) == consumes_kafka
             assert any("kafka_events_json_ws" in op._sql for op in operations) is False
+            if migration == FLAG_CALLS_MIGRATION:
+                assert [op._sql.strip().splitlines()[0] for op in operations] == [
+                    f"DROP TABLE IF EXISTS {django_settings.CLICKHOUSE_DATABASE}.person_group_membership_mv",
+                    f"DROP TABLE IF EXISTS {django_settings.CLICKHOUSE_DATABASE}.kafka_person_group_membership",
+                    "CREATE TABLE IF NOT EXISTS kafka_person_group_membership",
+                    "CREATE MATERIALIZED VIEW IF NOT EXISTS person_group_membership_mv",
+                ]
+                assert "event != '$feature_flag_called'" in operations[3]._sql
     finally:
         importlib.reload(module)
 
@@ -310,18 +322,36 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
     suppressed = json.dumps({**json.loads(every_group), "$update_person_last_seen_at": False})
     configured_empty = json.dumps({f"$group_{group_type_index}": ""})
     events = [
-        (2001, "identified", every_group, datetime(2024, 1, 2, tzinfo=UTC), "full"),
-        (2001, "identified", every_group, datetime(2024, 1, 1, tzinfo=UTC), "force_upgrade"),
-        (2001, "identified", every_group, datetime(2024, 1, 3, tzinfo=UTC), "full"),
-        (2001, "numeric-key", json.dumps({f"$group_{group_type_index}": 42}), datetime(2024, 1, 1, tzinfo=UTC), "full"),
-        (2001, "personless", every_group, datetime(2024, 1, 1, tzinfo=UTC), "propertyless"),
-        (2001, "empty-key", configured_empty, datetime(2024, 1, 1, tzinfo=UTC), "full"),
-        (2001, "no-properties", "", datetime(2024, 1, 1, tzinfo=UTC), "full"),
-        (2002, "disabled-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
-        (2003, "missing-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2001, "$pageview", "identified", every_group, datetime(2024, 1, 2, tzinfo=UTC), "full"),
+        (2001, "$pageview", "identified", every_group, datetime(2024, 1, 1, tzinfo=UTC), "force_upgrade"),
+        (2001, "$pageview", "identified", every_group, datetime(2024, 1, 3, tzinfo=UTC), "full"),
+        (
+            2001,
+            "$pageview",
+            "numeric-key",
+            json.dumps({f"$group_{group_type_index}": 42}),
+            datetime(2024, 1, 1, tzinfo=UTC),
+            "full",
+        ),
+        (2001, "$pageview", "personless", every_group, datetime(2024, 1, 1, tzinfo=UTC), "propertyless"),
+        (2001, "$pageview", "empty-key", configured_empty, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2001, "$pageview", "no-properties", "", datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2002, "$pageview", "disabled-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2003, "$pageview", "missing-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (2001, "$feature_flag_called", "identified", every_group, datetime(2023, 11, 1, tzinfo=UTC), "full"),
+        (2001, "$feature_flag_called", "identified", every_group, datetime(2024, 3, 1, tzinfo=UTC), "full"),
+        (2001, "$feature_flag_called", "flag-calls-only", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (
+            2001,
+            "$pageview",
+            "flag-property",
+            json.dumps({**json.loads(every_group), "$feature_flag": "example-flag"}),
+            datetime(2024, 1, 2, tzinfo=UTC),
+            "full",
+        ),
     ]
     events.extend(
-        (2001, distinct_id, suppressed, timestamp, "full")
+        (2001, "$pageview", distinct_id, suppressed, timestamp, "full")
         for distinct_id, timestamp in [
             ("identified", datetime(2023, 12, 1, tzinfo=UTC)),
             ("identified", datetime(2024, 2, 1, tzinfo=UTC)),
@@ -331,6 +361,7 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
     events.extend(
         (
             2001,
+            "$pageview",
             f"retained-{index}",
             json.dumps({**json.loads(every_group), "$update_person_last_seen_at": value}),
             datetime(2024, 1, 2, tzinfo=UTC),
@@ -354,6 +385,14 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
         ORDER BY distinct_id"""
     ) == [
+        (
+            2001,
+            group_type_index,
+            f"account-{group_type_index}",
+            "flag-property",
+            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 2, tzinfo=UTC),
+        ),
         (
             2001,
             group_type_index,

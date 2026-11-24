@@ -100,6 +100,7 @@ CREATE TABLE posthog.kafka_logs_avro (
 ) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
 CREATE TABLE posthog.kafka_person_group_membership (
   team_id Int64,
+  event String,
   distinct_id String,
   properties String,
   timestamp DateTime64(6, 'UTC'),
@@ -526,6 +527,8 @@ FROM
       dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
     AND
       (person_mode != 'propertyless')
+    AND
+      (event != '$feature_flag_called')
     AND
       (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
   )
