@@ -1455,7 +1455,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, cache }) => {
         const closeAllSurfaces = (): void => {
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
@@ -1504,6 +1504,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
                 }
+                // The Scouts page of the Automate pane is not an inbox tab, so the inbox's own entry opens Reports
+                // rather than keeping it.
+                if (values.activeTab === 'scouts' && cache.scoutsTabOpenedInAutomate) {
+                    router.actions.replace(urls.inbox('reports'), searchParams, hashParams)
+                    return
+                }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
@@ -1537,6 +1543,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (isInboxTabKey(tab) && values.activeTab !== tab) {
                     actions.setActiveTab(tab)
                 }
+                cache.scoutsTabOpenedInAutomate = tab === 'scouts' && values.scoutsInAutomate
             },
             [urls.inboxScout(':skillName')]: (
                 { skillName }: { skillName?: string },
