@@ -560,7 +560,21 @@ test('an isolated product skips Django only when the diff leaves its watched set
             { affectedProducts: [], changedFiles: ['products/canvas/backend/logic/seed.json'] },
             { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
         ],
-        // A fixture under the product's tests is no backend data file: the product's own suite reads it.
+        // So can a data file outside backend/ that backend code reads, and a product package.json
+        // or turbo.json changes what Turbo selects.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/packages/canvas_builder/manifest.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/package.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/turbo.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A fixture under the product's tests is no data file: the product's own suite reads it.
         [
             { affectedProducts: [], changedFiles: ['products/canvas/backend/tests/fixture.json'] },
             { products: ['canvas'], runLegacy: false, runLegacyReason: '' },

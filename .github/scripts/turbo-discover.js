@@ -803,12 +803,11 @@ function isProductInputFile(file) {
     return !directories.some((directory) => NOT_PRODUCT_INPUT_DIRS.includes(directory))
 }
 
-// A non-Python input under a product's backend: a seed or a template that core tests can read.
-// hoglint watches Python modules, and Turbo's backend:test inputs are Python only.
-const PRODUCT_BACKEND = /^products\/[^/]+\/backend\//
-
-function isBackendDataFile(file) {
-    return PRODUCT_BACKEND.test(file) && !file.endsWith('.py') && isProductInputFile(file)
+// A non-Python product input: a seed, a template or a manifest that product or core code reads,
+// or the product's package.json or turbo.json, which decide what Turbo selects. hoglint watches
+// Python modules only, so a change to one counts as a watched change.
+function isProductDataFile(file) {
+    return !file.endsWith('.py') && isProductInputFile(file)
 }
 
 // The products (dashed names, among allProducts) that a product input or a product test input of
@@ -825,7 +824,7 @@ function productsReachedByFiles(changedFiles, allProducts) {
 }
 
 // The products among `products` (dashed names) whose watched set the diff touched: a
-// changed file in the set, a backend data file of the product, or a deleted or renamed-away
+// changed file in the set, a data file of the product, or a deleted or renamed-away
 // file under the product. A deleted file is in no set of the head tree, so any deletion
 // counts. Without a list of changed files every product counts.
 function productsWithWatchedChanges(products, changedFiles, deletedFiles, watched) {
@@ -838,7 +837,7 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
             const files = watched.get(productToModule(product)) ?? new Set()
             return changedFiles.some(
                 (file) =>
-                    files.has(file) || (file.startsWith(prefix) && (deletedFiles.has(file) || isBackendDataFile(file)))
+                    files.has(file) || (file.startsWith(prefix) && (deletedFiles.has(file) || isProductDataFile(file)))
             )
         })
         .sort()

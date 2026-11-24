@@ -175,6 +175,7 @@ The lint does not check the boundaries between products.
 hoglint checks them: run `hoglint check`.
 hoglint judges its Isolated level for every product, and nothing in a product marks it: a product that passes is isolated.
 turbo-discover then skips the full Django test suite for a change in that product that leaves its watched files untouched.
+A changed non-Python file of the product outside `frontend/` and test directories, other than Markdown, runs the suite too: hoglint watches Python modules only, and the product's `package.json` and `turbo.json` change what Turbo selects.
 hoglint derives the watched files from the tree; `hoglint watched --level isolated` prints them per product, with the reasons a product does not pass.
 
 > [!NOTE]
