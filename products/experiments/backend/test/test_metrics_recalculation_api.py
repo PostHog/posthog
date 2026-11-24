@@ -24,11 +24,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.recalculation import (
-    RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG,
-    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
-)
+from products.experiments.backend.recalculation import RECALCULATION_AGE_LIMIT_FEATURE_FLAG
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.temporal.recalculation.routing import RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
@@ -103,8 +101,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("key_version_2", False, None, 2),
         ]
     )
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_creates_and_starts_workflow(
         self,
         _name: str,
@@ -124,7 +122,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         exp = self._launched_experiment()
         with (
             mock.patch(
-                "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+                "products.experiments.backend.organization_flags.feature_enabled_or_false", side_effect=evaluate_flag
             ),
             mock.patch(
                 "posthoganalytics.feature_enabled",
@@ -148,8 +146,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         )
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_from_mcp_client_attributes_trigger_to_agent(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), format="json", headers={"X-PostHog-Client": "mcp"})
@@ -165,8 +163,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("stale_refresh", ExperimentMetricsRecalculation.Trigger.STALE_REFRESH),
         ]
     )
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_without_mcp_header_honors_body_trigger(
         self, trigger: str, expected_trigger: str, mock_run, mock_connect
     ):
@@ -175,8 +173,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         assert ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger == expected_trigger
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_each_endpoint_returns_only_its_own_fields(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         created = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json").json()
@@ -198,8 +196,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
         assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exists()
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         first = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
@@ -209,9 +207,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
-    @mock.patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.organization_flags.feature_enabled_or_false", return_value=True)
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect, _mock_flag):
         exp = self._launched_experiment()
         now = timezone.now()
@@ -232,11 +230,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     @mock.patch(
-        "products.experiments.backend.recalculation.feature_enabled_or_false",
+        "products.experiments.backend.organization_flags.feature_enabled_or_false",
         side_effect=lambda key, *args, **kwargs: key == RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     )
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_for_old_experiment_rejects_without_a_workflow_and_keeps_earlier_results(
         self, mock_run, mock_connect, _mock_flag
     ):
@@ -278,8 +276,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert (latest["completed_metrics"], latest["failed_metrics"]) == (1, 0)
         assert latest["exceeds_recalculation_age_limit"] is True
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_rejects_unlaunched_experiment(self, mock_run, mock_connect):
         exp = Experiment.objects.create(
             team=self.team, created_by=self.user, feature_flag=self._flag("unlaunched"), name="draft"
@@ -287,8 +285,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect", side_effect=RuntimeError("temporal down"))
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch(
+        "products.experiments.backend.temporal.recalculation.dispatch.sync_connect",
+        side_effect=RuntimeError("temporal down"),
+    )
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
         # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
         # The DRF test client converts the exception into a 500 response rather than propagating it.
@@ -298,8 +299,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
 
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
-    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_rollback_spares_row_already_started_by_workflow(self, mock_run, mock_connect):
         # start_workflow can raise after Temporal accepted the start (RPC failure on the response leg).
         # By then the worker may have run mark_started; flipping that row to FAILED would release the
@@ -576,7 +577,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
-    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.
         exp = self._launched_experiment(flag_key="ts-pure-read")

@@ -469,14 +469,16 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
+            # Every tool below is a root devDependency, and the complexity check resolves
+            # typescript from the root too, so the job installs the root package only. Nothing
+            # here reads a workspace package's build output, so no turbo prepare either.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root install --frozen-lockfile
+                  # A small store of its own, written cold by pnpm-store-cache.yml.
+                  store-key-prefix: pnpm-root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Prepare frontend
-              run: bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with oxfmt
               run: pnpm run format:frontend:check

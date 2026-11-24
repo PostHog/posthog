@@ -3,7 +3,8 @@ name: hogli
 description: >
   PostHog developer CLI and repo tooling reference. Use when the user mentions
   hogli, asks about repo CLI tools, bin scripts, Makefiles, how to run/build/test/lint,
-  or any dev environment commands.
+  or any dev environment commands. Also use when the disk is full, a command fails
+  with "No space left on device", or the user asks to free disk space.
 ---
 
 # hogli - PostHog Developer CLI
@@ -27,6 +28,23 @@ Where logs land depends on how the stack was launched:
 - `/tmp/posthog-<process>.log` — full stdout+stderr; persists in the generated config until `dev:setup` is re-run without `--log`.
 
 When the phrocs MCP is reachable, prefer `mcp__phrocs__get_process_logs` over grepping files.
+
+## Disk full
+
+Preview before deleting anything:
+
+- `hogli doctor:disk --dry-run` estimates each cleanup area: caches, build output, Docker images and the Nix store.
+- `hogli worktrees:clean --before 7d --mode deps,build --dry-run` lists idle worktrees whose dependencies and build output can go.
+- On a devbox, the `setting-up-devbox` skill covers `hogli devbox:cleanup:disk`.
+
+Show the user the estimates, then run what they approve with `--yes` and one `--area` per approved area.
+The cleanup commands need `--yes` or `--dry-run` in an agent shell, because no terminal answers their prompts.
+
+Ask before these, because they lose data or force a full rebuild:
+
+- `--area docker-volumes` drops the local databases.
+- `--area rust` and `--area sccache` force a full Rust rebuild.
+- `worktrees:clean --mode full` removes whole worktrees. Remove only the worktrees this session created.
 
 ## Key references
 

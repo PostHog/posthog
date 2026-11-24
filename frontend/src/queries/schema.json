@@ -33622,6 +33622,10 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -33796,6 +33800,10 @@
                     "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {
+                    "type": "boolean"
+                },
+                "sessionFilterGlobalJoin": {
+                    "description": "Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.",
                     "type": "boolean"
                 },
                 "sessionIdPushdown": {
