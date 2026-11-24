@@ -105,6 +105,21 @@ class TestRunTokenFencing(TestCase):
         assert token is None
         assert post.call_args.kwargs["json"] == {"token": "phe_abc"}
 
+    @parameterized.expand(
+        [
+            ("that_no_longer_exists", "00000000-0000-4000-8000-000000000000"),
+            ("with_a_malformed_id", "not-a-run-id"),
+        ]
+    )
+    def test_a_token_minted_for_an_unknown_run_is_revoked_and_not_returned(self, _name: str, run_id: str) -> None:
+        with patch(
+            GATEWAY_POST, side_effect=[_answer(201, {"token": "phe_abc"}), _answer(200, {"revoked": True})]
+        ) as post:
+            token = mint_scoped_token(ai_product="signals_scout", team_id=self.team.id, run_id=run_id)
+
+        assert token is None
+        assert post.call_args.kwargs["json"] == {"token": "phe_abc"}
+
     def test_a_run_with_more_hashes_than_one_request_takes_is_revoked_in_full(self) -> None:
         stored = tuple(f"{number:064d}" for number in range(150))
         run = self._run(token_hashes=stored)
