@@ -44,6 +44,7 @@ from products.tasks.backend.temporal.constants import (
 )
 from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.oauth import dispatched_run_scopes
+from products.tasks.backend.temporal.process_task.utils import record_opening_slack_message
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.run_trace import run_trace_context
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
@@ -303,6 +304,7 @@ async def execute_task_processing_workflow_async(
         if workflow_id_prefix:
             await sync_to_async(_record_prefixed_workflow_id)(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
+        await sync_to_async(record_opening_slack_message)(run_id, slack_context_dict)
 
         workflow_input = ProcessTaskInput(
             run_id=run_id,
@@ -399,6 +401,7 @@ def execute_task_processing_workflow(
         if workflow_id_prefix:
             _record_prefixed_workflow_id(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
+        record_opening_slack_message(run_id, slack_context_dict)
 
         workflow_input = ProcessTaskInput(
             run_id=run_id,

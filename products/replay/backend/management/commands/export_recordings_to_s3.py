@@ -1,6 +1,6 @@
 """Export a team's session recordings to an S3 bucket the customer owns, one .phrec file per session.
 
-The customer adds an AWS S3 integration with a role ARN to the project, as for an S3 batch export.
+The customer creates a role that trusts PostHog's recording-exports role and sends us its ARN.
 Each file plays back in Replay's file playback page.
 
 Usage:
@@ -9,7 +9,7 @@ Usage:
         --date-from 2026-08-01 --date-to 2026-10-31 [--session-ids-file ids.txt | --playlist <short id>]
 
     # Start the export of a quoted selection.
-    python manage.py export_recordings_to_s3 --quote-id <id> --integration-id 7 --bucket my-bucket \\
+    python manage.py export_recordings_to_s3 --quote-id <id> --role-arn <arn> --bucket my-bucket \\
         --region us-east-1 --prefix replay-export
 
     # Show the state of a run.
@@ -23,20 +23,23 @@ import argparse
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
 from posthog.clickhouse.workload import Workload
-from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
+from posthog.models.integration.aws import is_unique_aws_role_by_organization_id
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.errors import describe_failure
 
 from products.replay.backend.temporal.export_recordings.activities import destination_error
 from products.replay.backend.temporal.export_recordings.quote import (
@@ -72,7 +75,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--allow-cross-region", action="store_true", help="Price and allow a bucket outside our replay region."
         )
-        parser.add_argument("--integration-id", type=int, help="The project's AWS S3 integration with a role ARN.")
+        parser.add_argument("--role-arn", help="The customer's IAM role, trusting PostHog's recording-exports role.")
+        parser.add_argument(
+            "--approved-by", metavar="EMAIL", help="The admin of the team's organization who sent the role ARN."
+        )
         parser.add_argument("--bucket")
         parser.add_argument("--prefix", default="", help="Key prefix in the customer's bucket.")
         parser.add_argument(
@@ -148,7 +154,8 @@ class Command(BaseCommand):
         workflow_id = f"export-recordings-{quote.team_id}-{quote.quote_id}"
         if options["shards"]:
             check_shard_rerun(asyncio.run(_last_run_status(workflow_id)))
-        integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
+        role_arn, bucket = _required(options, "role_arn"), _required(options, "bucket")
+        approved_by = _required(options, "approved_by")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]
         if only_shards:
@@ -159,19 +166,17 @@ class Command(BaseCommand):
                     raise CommandError(f"Shard {name} is outside the quoted range {quote.date_from} to {quote.date_to}")
                 if int(shard) >= quote.shards_per_day:
                     raise CommandError(f"Shard {name} is not below the quote's {quote.shards_per_day} shards per day")
-        try:
-            integration = IntegrationManager.any.get(quote.team_id, integration_id)
-        except IntegrationNotFound as e:
-            raise CommandError(f"Team {quote.team_id} has no integration {integration_id}") from e
-        if integration.kind != IntegrationKind.AWS_S3:
-            raise CommandError(f"Integration {integration_id} is not an AWS S3 integration")
-
         run_id = uuid.uuid4().hex
         destination = ExportDestination(
-            integration_id=integration_id, bucket=bucket, region=region, prefix=prefix, kms_key_id=kms_key_id
+            role_arn=role_arn, bucket=bucket, region=region, prefix=prefix, kms_key_id=kms_key_id
         )
         if error := destination_error(destination):
             raise CommandError(error)
+        organization_id = Team.objects.values_list("organization_id", flat=True).get(id=quote.team_id)
+        # Same rule as AWS integrations: a role another organization registered must not receive this team's data.
+        if not is_unique_aws_role_by_organization_id(role_arn, str(organization_id)):
+            raise CommandError(f"{role_arn} is registered by another organization")
+        check_approver(organization_id, approved_by)
         workflow_input = ExportRecordingsInput(
             team_id=quote.team_id,
             destination=destination,
@@ -187,13 +192,18 @@ class Command(BaseCommand):
         self.stdout.write(format_quote(quote))
         encryption = f", KMS key {kms_key_id}" if kms_key_id else ""
         shards = f", only shards {','.join(only_shards)}" if only_shards else ""
-        self.stdout.write(f"Destination: s3://{bucket}/{prefix} ({region}{encryption}), run {run_id}{shards}")
+        self.stdout.write(
+            f"Destination: s3://{bucket}/{prefix} ({region}{encryption}) as {role_arn}, approved by {approved_by}, "
+            f"run {run_id}{shards}"
+        )
         if not options["yes"]:
             # A non-interactive exec has no terminal to answer the prompt.
             if not sys.stdin.isatty():
                 raise CommandError("Not started. Check the quote and destination above, then rerun with --yes.")
             if input("Start the export? [y/N] ").strip().lower() != "y":
                 raise CommandError("Not started")
+        # Written first and fail-closed, so an export never runs without its entry in the organization's activity log.
+        record_export(organization_id, workflow_input, workflow_id, approved_by)
         try:
             asyncio.run(_start_workflow(workflow_input, workflow_id))
         except WorkflowAlreadyStartedError as e:
@@ -201,6 +211,50 @@ class Command(BaseCommand):
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
+
+
+def check_approver(organization_id: UUID, email: str) -> None:
+    is_admin = OrganizationMembership.objects.filter(
+        organization_id=organization_id,
+        user__email__iexact=email,
+        user__is_active=True,
+        level__gte=OrganizationMembership.Level.ADMIN,
+    ).exists()
+    if not is_admin:
+        raise CommandError(f"{email} is not an admin of the team's organization")
+
+
+def record_export(
+    organization_id: UUID, workflow_input: ExportRecordingsInput, workflow_id: str, approved_by: str
+) -> None:
+    """Lets the customer's organization see in its activity log which AWS account received the team's recordings."""
+    destination = workflow_input.destination
+    log_activity(
+        organization_id=organization_id,
+        team_id=workflow_input.team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=workflow_input.quote_id,
+        scope="Replay",
+        activity="exported",
+        strict=True,
+        detail=Detail(
+            name=f"Recordings exported to s3://{destination.bucket}/{destination.prefix}",
+            trigger=Trigger(
+                job_type="export_recordings_to_s3",
+                job_id=workflow_id,
+                payload={
+                    "role_arn": destination.role_arn,
+                    "bucket": destination.bucket,
+                    "prefix": destination.prefix,
+                    "region": destination.region,
+                    "kms_key_id": destination.kms_key_id,
+                    "run_id": workflow_input.run_id,
+                    "approved_by": approved_by,
+                },
+            ),
+        ),
+    )
 
 
 def check_shard_rerun(last_run_status: WorkflowExecutionStatus | None) -> None:
@@ -294,6 +348,19 @@ async def _last_run_status(workflow_id: str) -> WorkflowExecutionStatus | None:
 
 async def _describe(workflow_id: str) -> str:
     client = await async_connect()
-    description = await client.get_workflow_handle(workflow_id).describe()
+    handle = client.get_workflow_handle(workflow_id)
+    description = await handle.describe()
     status = description.status.name if description.status else "UNKNOWN"
-    return f"{workflow_id}: {status}, started {description.start_time}, closed {description.close_time}"
+    line = f"{workflow_id}: {status}, started {description.start_time}, closed {description.close_time}"
+    if description.status != WorkflowExecutionStatus.FAILED:
+        return line
+    try:
+        await handle.result()
+    except WorkflowFailureError as e:
+        return f"{line}\n{failure_message(e)}"
+    return line
+
+
+def failure_message(error: WorkflowFailureError) -> str:
+    # The client error is not a Temporal FailureError, so unwrapping starts at its cause.
+    return describe_failure(error.cause)

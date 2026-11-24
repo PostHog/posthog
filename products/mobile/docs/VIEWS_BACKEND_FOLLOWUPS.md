@@ -326,7 +326,7 @@ The badge helps them find what the agent made.
   Run `hogli build:openapi`.
 - Migration: two nullable `AddField` operations, with no default and no backfill.
   Old dashboards stay null and get no badge.
-  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hogli product:lint` for the `products/dashboards` isolation rules.
+  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hoglint check` for the `products/dashboards` isolation rules.
 - Tests: one parameterized create test over event sources, in the dashboards API tests.
   Invoke `/writing-tests`.
 

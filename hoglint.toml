@@ -131,13 +131,3 @@ sets = ["owners"]
 [ledger]
 file       = "hoglint.ledger"
 exceptions = "hoglint.exceptions.toml"
-
-# Shadow only: the preset's level without its claim. Delete this table when hoglint starts to block.
-[levels.isolated]
-replace      = true
-doc          = "turbo may skip the full Django suite when only this product changes."
-group_by     = "package"
-select       = "tier == 'product' and path startswith 'products/'"
-requires     = ["reached-watched", "wiring-watched", "presentation-uses-facade", "has-facade"]
-strict       = ["reached-watched", "wiring-watched", "presentation-uses-facade", "has-facade"]
-within_group = ["presentation-uses-facade"]

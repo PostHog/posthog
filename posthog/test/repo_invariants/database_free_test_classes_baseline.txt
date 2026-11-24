@@ -5,6 +5,7 @@ posthog/hogql/database/test/test_postgres_table.py::TestPostgresTablePrimaryKey
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestEscapePreservationOnParserOutput
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestPrintTimeOnlyAllowlists
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestVerbatimFieldPrinterDefenseInDepth
+posthog/models/person/test/test_delete_persons_personhog.py::TestDeletePersonsForTeamsRouting
 posthog/models/tophog/test/test_tophog_queries.py::TestTopHogQueries
 posthog/tasks/test/test_usage_report.py::TestSendNoUsage
 posthog/test/activity_logging/test_feature_flag_activity_logging.py::TestChangesBetweenFeatureFlags
