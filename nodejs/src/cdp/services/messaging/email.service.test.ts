@@ -84,7 +84,7 @@ import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
-import { MESSAGE_MAX_BYTES } from './message-estimate'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
@@ -2612,15 +2612,24 @@ describe('EmailService', () => {
                 }
             )
 
+            const longHtml = `<p>${'x'.repeat(200_000)}</p>`
+            // Leaves room for the html and half of its text part, so the message fits only without the text part.
+            const fileBytesThatLeaveNoRoomForText = Math.floor(
+                (((MESSAGE_MAX_BYTES - estimateMessageBytes([], [longHtml, 'x'.repeat(100_000)])) * 76) / 78) * 0.75
+            )
+
             it.each([
-                ['with a text part when it fits beside them', 0, 'Hello'],
-                // The html alone fits beside the file. Its text part, about as large as the html, does not.
-                ['without a text part when one would carry it past the size limit', 27_800_000, undefined],
-            ])('sends html-only content with files %s', async (_name, fileBytes, expectedText) => {
+                ['with a text part when it fits beside them', 0, '<p>Hello</p>', 'Hello'],
+                [
+                    'without a text part when one would carry it past the size limit',
+                    fileBytesThatLeaveNoRoomForText,
+                    longHtml,
+                    undefined,
+                ],
+            ])('sends html-only content with files %s', async (_name, fileBytes, html, expectedText) => {
                 const file = fileBytes
                     ? await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(fileBytes, 1))
                     : pdf
-                const html = fileBytes ? `<p>${'x'.repeat(1_000_000)}</p>` : '<p>Hello</p>'
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
                     to: { email: recipient, name: 'Test User' },
@@ -2632,13 +2641,10 @@ describe('EmailService', () => {
                 const result = await sender({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(ses.sent).toEqual([
-                    expect.objectContaining({
-                        text: expectedText,
-                        html: expect.any(String),
-                        attachments: [expect.objectContaining({ filename: file.metadata.filename })],
-                    }),
-                ])
+                // A projection, so a failure does not print the file bytes.
+                expect(
+                    ses.sent.map(({ text, attachments }) => ({ text, files: attachments.map((a) => a.filename) }))
+                ).toEqual([{ text: expectedText, files: [file.metadata.filename] }])
             })
 
             it.each([

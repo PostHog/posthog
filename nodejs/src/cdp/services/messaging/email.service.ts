@@ -1684,7 +1684,7 @@ export class EmailService {
             throw new MessageTooLargeError()
         }
         const candidateText = this.textPart(params, result.invocation.teamId)
-        // A text part made from the html can outgrow it, so it goes out only when the message still fits.
+        // The text part made from the html adds to the message, so it goes out only when the message still fits.
         const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
