@@ -40,7 +40,11 @@ dependency_cache = caches["cohort_dependencies"]
 
 # A save that persists none of these fields cannot change a dependency edge.
 DEPENDENCY_FIELDS = frozenset({"filters", "groups", "deleted"})
-COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
+# A processor pod loads a cohort that was just turned on, or a criterion that just changed, at its next catalog
+# refresh. That is FILTER_CATALOG_REFRESH_SECS plus FILTER_CATALOG_REFRESH_JITTER_SECS after the previous one
+# ended, 360 s by default, plus a poll tick and the load itself. The pod drops a person seed for a condition its
+# catalog lacks, so a run must not start before the refresh after the save that queued it. Keep this above their sum.
+COHORT_BACKFILL_DEBOUNCE_SECONDS = 420
 # The lock expiring exactly as the task fires is what closes the lost-dispatch window: a TTL longer
 # than the countdown would swallow a save that lands after the task already read its state.
 COHORT_BACKFILL_REDIS_TTL_SECONDS = COHORT_BACKFILL_DEBOUNCE_SECONDS

@@ -241,9 +241,9 @@ def _active_participations_per_cohort(
 def _queued_triggers(pairs: Sequence[tuple[int, str]]) -> dict[tuple[int, str], str] | None:
     """The trigger kind of the debounced run-creation task for each cohort and backfill kind asked for.
 
-    A save enqueues that task with a five-minute countdown, so for those five minutes the debounce
-    key is the only record that a build was asked for. Without it, every cohort would read as
-    `needs_attention` for the first five minutes after the edit that is about to rebuild it.
+    A save enqueues that task with a countdown, so during the countdown the debounce key is the only
+    record that a build was asked for. Without it, every cohort would read as `needs_attention` from
+    the edit that is about to rebuild it until the task creates the run.
 
     Returns None when the lookup itself failed, which is not the same answer as "no task is
     queued": the caller reports no state at all rather than asserting that nothing is preparing

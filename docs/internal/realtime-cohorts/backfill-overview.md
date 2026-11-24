@@ -250,41 +250,41 @@ stateDiagram-v2
 Team 7 uses UTC.
 At 10:00:00 on 2026-03-10 a user creates cohort 42: "3 or more `/pricing` pageviews in the last 7 days".
 Person p-1, who hashes to partition 26, made 4 matching pageviews on 2026-03-05.
-Every backfill gate is on, and the default timings apply: a 5-minute save debounce, a 10-minute fence margin, and a finalizer every 2 minutes.
+Every backfill gate is on, and the default timings apply: a 7-minute save debounce, a 10-minute fence margin, and a finalizer every 2 minutes.
 
 1. **10:00:00, save.**
-   Django compiles the cohort, marks it `realtime`, stores its shape hashes, and schedules a backfill task 5 minutes out.
+   Django compiles the cohort, marks it `realtime`, stores its shape hashes, and schedules a backfill task 7 minutes out.
    Within a few minutes the processor loads the new definition, and live `/pricing` pageviews start counting into the new leaf.
-2. **10:05:00, run created.**
+2. **10:07:00, run created.**
    The task pins cohort 42's definition into run R, status `awaiting_boundary`.
-3. **10:05:10, boundary.**
-   The seeder picks up R and sets `B` to 10:05:10.
+3. **10:07:10, boundary.**
+   The seeder picks up R and sets `B` to 10:07:10.
    It plans one chunk per day from 2026-03-03 through 2026-03-09.
-4. **10:05:25, scan.**
+4. **10:07:25, scan.**
    Workers claim chunks newest day first.
-   The 2026-03-05 chunk is claimed at 10:05:25, so its `S_chunk` is 10:05:25.
+   The 2026-03-05 chunk is claimed at 10:07:25, so its `S_chunk` is 10:07:25.
    ClickHouse returns p-1's 4 pageviews, all of which arrived long ago.
    The seeder produces a tile: p-1, condition H, 2026-03-05, count 4.
    Kafka acknowledges it, and the chunk is confirmed.
-5. **10:05:45, reconcile dispatch.**
+5. **10:07:45, reconcile dispatch.**
    All seven chunks are confirmed, so on its next tick the seeder moves R to `reconciling` and sends a reconcile request for cohort 42 to all 64 partitions.
-6. **10:05:50, most partitions reconcile.**
+6. **10:07:50, most partitions reconcile.**
    The 63 partitions with no held tile walk their Stage 2 rows for cohort 42 within seconds, re-emit them with `origin: reconcile`, and produce markers.
-7. **10:15:30, apply on partition 26.**
-   On partition 26 the tile has been waiting for the live watermark to pass 10:15:25, and the reconcile request waits behind it.
+7. **10:17:30, apply on partition 26.**
+   On partition 26 the tile has been waiting for the live watermark to pass 10:17:25, and the reconcile request waits behind it.
    The fence opens.
    The processor slides the leaf's window to today, merges `max(0, 4) = 4` into the 2026-03-05 bucket, and the leaf flips to true.
    It emits `entered` for cohort 42 and p-1, with `origin: seed`.
-8. **10:15:35, reconcile on partition 26.**
+8. **10:17:35, reconcile on partition 26.**
    The request runs, re-emits p-1's row as `entered`, and produces the 64th marker.
-9. **10:15:45, observed.**
+9. **10:17:45, observed.**
    The seeder's marker watcher has all 64 markers for cohort 42, so the next tick marks the participation complete and the run observed.
-10. **10:16:00, stamp.**
+10. **10:18:00, stamp.**
     The finalizer checks that cohort 42's behavioral shape hash still equals the pinned one, stamps `last_backfill_events_at`, moves R to `completed`, and triggers a rebuild of the flags cache.
     Feature flags can now read cohort 42 from the membership table.
 
 The fence dominates a small run.
-In this example, save to readiness takes about 16 minutes, and up to about 18 depending on the finalizer's schedule.
+In this example, save to readiness takes about 18 minutes, and up to about 20 depending on the finalizer's schedule.
 A backlog, a failure or a slow catalog refresh makes it longer.
 
 ## What backfill does not fix
