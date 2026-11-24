@@ -27,7 +27,7 @@ from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.regions import current_region_host
 from ee.api.agentic_provisioning.serializers import ResourceCreateSerializer, RotateCredentialsSerializer
 from ee.api.agentic_provisioning.teams import ProjectIdCollisionError, resolve_or_create_project_team
-from ee.api.agentic_provisioning.tokens import remove_team_from_token_scopes
+from ee.api.agentic_provisioning.tokens import lock_application, remove_team_from_token_scopes
 from ee.api.agentic_provisioning.views.base import BearerResourceAPIView
 
 
@@ -212,6 +212,10 @@ class ResourceRemoveView(BearerResourceAPIView):
         # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
         # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
         with transaction.atomic():
+            # Before the mapping and the tokens, like token refresh, so a refresh that runs during the
+            # removal waits for it and computes its scope without the removed team.
+            if access_token.application_id is not None:
+                lock_application(access_token.application_id)
             try:
                 # Clear the mapping only if it is unclaimed or owned by the caller's
                 # application; an in-scope partner must not delete another partner's

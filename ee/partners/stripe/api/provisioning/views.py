@@ -941,6 +941,10 @@ class ResourceRemoveView(StripeResourceAPIView):
         # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
         # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
         with transaction.atomic():
+            # Before the mapping and the tokens, like token refresh, so a refresh that runs during the
+            # removal waits for it and computes its scope without the removed team.
+            if access_token.application_id is not None:
+                lock_application(access_token.application_id)
             try:
                 # Clear the mapping only if it is unclaimed or owned by the caller's
                 # application; an in-scope partner must not delete another partner's
