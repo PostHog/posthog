@@ -16,6 +16,7 @@ The rerun worker also re-checks each invocation's latest status before it
 enqueues it.
 """
 
+import time
 import uuid
 import hashlib
 from collections import Counter
@@ -1021,6 +1022,9 @@ _OUTCOME_ID_CHUNK = 1000
 OUTCOME_MAX_RUNS = 50_000
 # A run the rerun skipped never gets a new attempt, so after this the status page stops waiting for one.
 OUTCOME_WAIT = timedelta(minutes=30)
+# The status page waits for these queries, and it must render when ClickHouse accepts a connection and then stalls.
+_OUTCOME_QUERY_SECONDS = 30
+_OUTCOME_TOTAL_SECONDS = 60
 
 _OUTCOME_QUERY = """
 SELECT
@@ -1099,8 +1103,11 @@ def get_replay_outcome(fingerprint: str) -> ReplayOutcome | None:
         datetime.fromisoformat(result["sent_at"]) for result in state["results"] if result["may_have_queued"]
     )
     latest: dict[str, tuple[str, int, str]] = {}
+    deadline = time.monotonic() + _OUTCOME_TOTAL_SECONDS
     with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
         for offset in range(0, len(runs), _OUTCOME_ID_CHUNK):
+            if time.monotonic() > deadline:
+                raise TimeoutError("The outcome of the replay took too long to read")
             chunk = runs[offset : offset + _OUTCOME_ID_CHUNK]
             rows = sync_execute(
                 _OUTCOME_QUERY,
@@ -1110,6 +1117,8 @@ def get_replay_outcome(fingerprint: str) -> ReplayOutcome | None:
                     "window_start": window_start,
                     "invocation_ids": [run.invocation_id for run in chunk],
                 },
+                settings={"max_execution_time": _OUTCOME_QUERY_SECONDS},
+                send_receive_timeout=_OUTCOME_QUERY_SECONDS,
             )
             for invocation_id, status, version, error in rows:
                 latest[str(invocation_id)] = (str(status), int(version), str(error))
