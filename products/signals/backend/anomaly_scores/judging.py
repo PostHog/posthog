@@ -251,11 +251,14 @@ def judge_flags(
     insight: Insight,
     ai_judge: AIJudgeConfig,
     limits: ScoringLimits = DEFAULT_LIMITS,
+    before_history_fetch: Callable[[], None] | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[InsightScores, JudgeCounts]:
     """Add the AI member's result to every scored bucket of a profile with an AI member.
 
     Never raises for a model error. A failed fetch of the judge's history raises, as a failed scoring fetch does.
+    ``before_history_fetch`` runs before that fetch starts, so the caller can charge queries that a failed fetch
+    has already sent.
     """
     member = scores.ai_member
     if member is None or member.judge is None:
@@ -273,6 +276,8 @@ def judge_flags(
     history_fetches = 0
     # Without consent the judge refuses every call, so the history would be fetched for nothing.
     if reserved and scores.judge_history is not None and team.organization.is_ai_data_processing_approved is True:
+        if before_history_fetch is not None:
+            before_history_fetch()
         try:
             scores = fetch_judge_history(insight, team, scores, limits)
         except Exception:

@@ -620,11 +620,21 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         split=split,
         ai_judge=input.ai_judge,
     )
-    scores, ai_checks = judge_flags(scores, team=team, insight=insight, ai_judge=input.ai_judge, limits=input.limits)
-    # The history fetch has the series of the scoring query, so it sends the queries of the pick again.
+
+    def charge_history_fetch() -> None:
+        # The history fetch has the series of the scoring query, so it sends the queries of the pick again. The
+        # charge comes before the fetch, because a fetch that fails has already sent queries.
+        charge_queries(team.id, pick.query_cost, now, ScoringRun.SCORE)
+
+    scores, ai_checks = judge_flags(
+        scores,
+        team=team,
+        insight=insight,
+        ai_judge=input.ai_judge,
+        limits=input.limits,
+        before_history_fetch=charge_history_fetch,
+    )
     history_queries = pick.query_cost * ai_checks.history_fetches
-    if history_queries:
-        charge_queries(team.id, history_queries, now, ScoringRun.SCORE)
     if scores.artifacts and scores.state is not None:
         # The blob goes first, so every event of this visit names a model that exists.
         stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)
