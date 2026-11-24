@@ -22,6 +22,7 @@ import * as intakeMessage from '~/cdp/intake/message'
 import { RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { decodeJobState } from '~/cdp/services/cyclotron-v2/job-codec'
 import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
@@ -2956,7 +2957,10 @@ describe('CDP API', () => {
             const producedTo = (prefix: string) =>
                 produceOutput.mock.calls.filter(([output]) => output.startsWith(prefix)).map(([, message]) => message)
 
-            const sealedStateKeys = api['config'].CDP_SEALED_STATE_KEYS
+            let sealedStateKeys = ''
+            beforeEach(() => {
+                sealedStateKeys = api['config'].CDP_SEALED_STATE_KEYS
+            })
             afterEach(() => {
                 api['config'].CDP_SEALED_STATE_KEYS = sealedStateKeys
             })
@@ -5228,7 +5232,14 @@ describe('CDP API', () => {
                 Object.fromEntries(
                     records.map((value) => {
                         const { job } = parseJSON(value.toString())
-                        return [job.id, job.state.state.variables]
+                        const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
+                        const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
+                        const variables = decodeJobState(row, opener).state?.variables ?? {}
+                        for (const variable of Object.values(variables)) {
+                            const plaintext = typeof variable === 'string' ? variable : JSON.stringify(variable)
+                            expect(value.toString()).not.toContain(plaintext)
+                        }
+                        return [job.id, variables]
                     })
                 )
             let releaseStalledReads = () => {}
@@ -5272,7 +5283,7 @@ describe('CDP API', () => {
             it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
                 const { suppressed, unreachable } = await refusableRecipients()
                 const recipients = [
-                    recipient('ada@example.com', { variables: { name: 'Ada' } }),
+                    recipient('ada@example.com', { variables: { name: 'Ada Lovelace' } }),
                     recipient('not-an-address'),
                     recipient('cy@example.com', { distinct_id: null }),
                     recipient('bo@example.com'),
@@ -5280,7 +5291,7 @@ describe('CDP API', () => {
                     unreachable,
                 ]
 
-                const res = await sendBatch(TEMPLATE, { variables: { name: 'there' }, recipients })
+                const res = await sendBatch(TEMPLATE, { variables: { name: 'you there' }, recipients })
 
                 expect(res.status).toEqual(200)
                 expect(res.body.results).toEqual([
@@ -5309,8 +5320,8 @@ describe('CDP API', () => {
                 )
                 expect(intakeRecords()).toHaveLength(2)
                 expect(variablesOf(intakeRecords())).toEqual({
-                    [runIdOf(recipients[0])]: { name: 'Ada' },
-                    [runIdOf(recipients[3])]: { name: 'there' },
+                    [runIdOf(recipients[0])]: { name: 'Ada Lovelace' },
+                    [runIdOf(recipients[3])]: { name: 'you there' },
                 })
                 expect(await storedRuns()).toEqual([])
                 const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
