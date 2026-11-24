@@ -2,7 +2,7 @@ import type { ComponentType } from 'react'
 import type { z } from 'zod'
 
 import type { WidgetQuery } from '../../dashboard/dashboardSchema'
-import type { WidgetSize } from '../../dashboard/dashboardTypes'
+import type { TimeRange, WidgetSize } from '../../dashboard/dashboardTypes'
 
 export type { WidgetQuery }
 
@@ -12,8 +12,23 @@ export interface DataFrame {
     fields: { name: string; type: 'time' | 'number' | 'string' | 'boolean' | 'other'; values: unknown[] }[]
 }
 
+/** What a chart asks the host's runner to run. The time range is the chart's own, or the one around it. */
+export interface QueryRequest {
+    query: WidgetQuery
+    time: TimeRange
+}
+
+/** A query's frames, and how fresh they are when the host's runner knows it, such as from a cached result. */
+export interface QueryResult {
+    frames: DataFrame[]
+    /** When the result was computed, as an ISO timestamp. */
+    fetchedAt?: string
+    /** True when the result is older than its query's refresh interval, so a newer one may be on its way. */
+    stale?: boolean
+}
+
 /** Runs a chart's query and returns its result. The host supplies it, so the dashboard never fetches data itself. */
-export type RunQuery = (query: WidgetQuery) => Promise<DataFrame[]>
+export type RunQuery = (request: QueryRequest) => Promise<QueryResult>
 
 /** One kind of chart, without its component, so code outside the browser can load it. */
 export interface VizSpec<Options = unknown> {

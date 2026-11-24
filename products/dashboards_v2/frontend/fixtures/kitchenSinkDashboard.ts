@@ -53,6 +53,7 @@ export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
     description: 'Every widget, section and chart option on one dashboard.',
+    time: { from: 'now-14d', to: 'now' },
     tabs: [
         {
             id: 'kitchen-sink',
@@ -91,6 +92,18 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', 'select count() from events by plan', { type: 'bar', options: { stack: true } })),
                     tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', 'currency')),
                     tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', 'number')),
+                    tile('ks-q-insight', 12, 22, 12, 8, {
+                        type: 'chart',
+                        title: 'Insight query, last 24 hours',
+                        config: {
+                            query: {
+                                language: 'insight',
+                                query: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+                            },
+                            viz: { type: 'line' },
+                            time: { from: 'now-24h', to: 'now' },
+                        },
+                    }),
                 ]),
             ],
         },
