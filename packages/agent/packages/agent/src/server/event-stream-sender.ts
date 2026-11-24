@@ -146,18 +146,23 @@ function isMediaBlock(value: unknown): boolean {
 
 function rejectOnlyPermissionRequest(
   event: Record<string, unknown>,
-): Record<string, unknown> {
+): Record<string, unknown> | null {
   const toolCall = asRecord(event.toolCall);
   const options = Array.isArray(event.options) ? event.options : [];
+  const rejectOptions = options.filter((option) =>
+    String(asRecord(option)?.kind).startsWith("reject"),
+  );
+  if (rejectOptions.length === 0) {
+    return null;
+  }
   return {
     ...event,
-    options: options.filter((option) =>
-      String(asRecord(option)?.kind).startsWith("reject"),
-    ),
+    options: rejectOptions,
     toolCall: {
       toolCallId: toolCall?.toolCallId,
       title: toolCall?.title,
       kind: toolCall?.kind,
+      _meta: toolCall?._meta,
       content: toolContent().text(OVERSIZED_PERMISSION_TEXT).build(),
     },
   };
@@ -378,7 +383,6 @@ export class TaskRunEventStreamSender {
       if (this.flushPromise === flushPromise) {
         this.flushPromise = null;
       }
-      this.bufferPendingGapEvent();
       if (!this.stopped && this.hasUnwrittenBufferedEvents()) {
         this.scheduleFlush(0);
       }
@@ -783,6 +787,7 @@ export class TaskRunEventStreamSender {
     );
     if (this.bufferedEvents.length !== previousLength) {
       this.bufferRevision += 1;
+      this.bufferPendingGapEvent();
     }
   }
 
@@ -869,8 +874,11 @@ export class TaskRunEventStreamSender {
   private truncateOversizedEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    if (event.type === "permission_request") {
-      const rejectOnlyEvent = rejectOnlyPermissionRequest(event);
+    const rejectOnlyEvent =
+      event.type === "permission_request"
+        ? rejectOnlyPermissionRequest(event)
+        : null;
+    if (rejectOnlyEvent) {
       return this.envelopeBytes(rejectOnlyEvent) <= this.maxEventBytes
         ? rejectOnlyEvent
         : null;

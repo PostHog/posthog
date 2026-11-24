@@ -593,6 +593,7 @@ describe("TaskRunEventStreamSender", () => {
         toolCallId: "tool-1",
         title: "Edit src/app.ts",
         kind: "edit",
+        _meta: { codeToolKind: "edit" },
         rawInput: {
           old_string: "a".repeat(2000),
           new_string: "b".repeat(2000),
@@ -617,6 +618,7 @@ describe("TaskRunEventStreamSender", () => {
         toolCallId: "tool-1",
         title: "Edit src/app.ts",
         kind: "edit",
+        _meta: { codeToolKind: "edit" },
         content: [
           {
             type: "content",
@@ -630,26 +632,51 @@ describe("TaskRunEventStreamSender", () => {
     });
   });
 
-  it("sends the loss event once the buffer drains without new events", async () => {
+  it("keeps the answers of an oversized request that has no reject option", async () => {
     const requestBodies = stubRecordingFetch();
-    const sender = createSender({
-      maxBufferedEvents: 1,
-      keepProxyStreamOpen: false,
-    });
+    const sender = createSender({ maxEventBytes: 1000 });
+    const options = [{ kind: "allow_once", optionId: "yes", name: "Yes" }];
 
-    sender.enqueue({ type: "notification", notification: { method: "first" } });
     sender.enqueue({
-      type: "notification",
-      notification: { method: "second" },
-    });
-
-    await vi.waitFor(() => {
-      expect(requestBodies.flatMap((body) => parseLines(body))).toContainEqual(
-        lossLine(2, 1),
-      );
+      type: "permission_request",
+      requestId: "request-1",
+      options,
+      toolCall: { toolCallId: "tool-1", title: "q".repeat(2000) },
     });
     await sender.stop();
+
+    expect(parseLines(requestBodies[1])[0].event).toMatchObject({ options });
   });
+
+  it.each([
+    { name: "per-batch uploads", options: { keepProxyStreamOpen: false } },
+    {
+      name: "a persistent upload",
+      options: { keepProxyStreamOpen: true, streamWindowMs: 20 },
+    },
+  ])(
+    "sends the loss event once the buffer drains with $name",
+    async ({ options }) => {
+      const requestBodies = stubRecordingFetch();
+      const sender = createSender({ maxBufferedEvents: 1, ...options });
+
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          requestBodies.flatMap((body) => parseLines(body)),
+        ).toContainEqual(lossLine(2, 1));
+      });
+      await sender.stop();
+    },
+  );
 
   it.each<[string, number]>([
     ["tool_call", 10],

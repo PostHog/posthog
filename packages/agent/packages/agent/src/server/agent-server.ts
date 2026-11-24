@@ -5828,7 +5828,10 @@ export class AgentServer {
 
     if (completeEventStream) {
       await this.emitRtkSavings();
-      await this.eventStreamSender?.stop();
+      await withTimeout(
+        this.eventStreamSender?.stop() ?? Promise.resolve(),
+        3_000,
+      );
     }
 
     // Shutdown ends open spans and flushes batched records; without it,
