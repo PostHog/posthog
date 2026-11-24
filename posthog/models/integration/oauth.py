@@ -18,6 +18,7 @@ import requests
 import structlog
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
+from urllib3.exceptions import NewConnectionError
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
@@ -125,6 +126,19 @@ def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
         return False
     description = _oauth_error_field(res, "error_description") or ""
     return "authorization code only supports returning" in description
+
+
+def _request_never_sent(error: requests.RequestException) -> bool:
+    """Whether the connection failed before the request reached the provider.
+
+    A connect timeout, a DNS failure and a refused connection all fail before the request is sent.
+    Requests wraps the last two as a `ConnectionError` around urllib3's `NewConnectionError`. A
+    connection that is reset after it opened can still have delivered the request.
+    """
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    reason = getattr(error.args[0], "reason", None) if error.args else None
+    return isinstance(reason, NewConnectionError)
 
 
 # `config` key: how many times Stripe answered a refresh of the stored refresh token with a
@@ -1844,7 +1858,7 @@ class OauthIntegration:
         config: dict = {}
         used_fallback = False
         request_started_at = int(time.time())
-        connect_timed_out = False
+        request_never_sent = False
         try:
             res = self._post_token_refresh(oauth_config, client)
             config = self._parse_token_refresh_response(res)
@@ -1858,7 +1872,7 @@ class OauthIntegration:
             # this the Celery sweep task errors out before recording the failure, so the backoff and
             # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
             logger.warning(f"Network error on primary credentials for {self}", error=str(e))
-            connect_timed_out = isinstance(e, requests.ConnectTimeout)
+            request_never_sent = _request_never_sent(e)
 
         # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
         # credentials can refresh. Retry with the fallback pair — including when the primary hit a
@@ -1876,7 +1890,7 @@ class OauthIntegration:
                 used_fallback = True
             except requests.RequestException as e:
                 logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
-                connect_timed_out = isinstance(e, requests.ConnectTimeout)
+                request_never_sent = _request_never_sent(e)
                 res = None
                 config = {}
 
@@ -1891,9 +1905,7 @@ class OauthIntegration:
                 if res is not None
                 else refresh_tracking.REFRESH_FAILURE_REASON_NETWORK
             )
-            # The provider got the request and may have rotated the refresh token, unless the
-            # connection never opened.
-            response_lost = (res is None and not connect_timed_out) or (res is not None and res.status_code >= 500)
+            response_lost = (res is None and not request_never_sent) or (res is not None and res.status_code >= 500)
             failure, attempt = refresh_tracking.refresh_failure_patch(
                 self.integration, reason=reason, response_lost_at=request_started_at if response_lost else None
             )

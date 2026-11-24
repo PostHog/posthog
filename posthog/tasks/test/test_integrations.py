@@ -13,6 +13,9 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from urllib3.connection import HTTPSConnection
+from urllib3.connectionpool import HTTPSConnectionPool
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
@@ -31,6 +34,17 @@ from posthog.tasks.integrations import (
 )
 
 from products.workflows.backend.facade.testing import create_workflow_for_test
+
+READ_TIMEOUT = requests.ReadTimeout("read timed out")
+# Requests raises this shape for a DNS failure or a refused connection.
+CONNECTION_REFUSED = requests.ConnectionError(
+    MaxRetryError(
+        HTTPSConnectionPool("auth.atlassian.com"),
+        "/oauth/token",
+        reason=NewConnectionError(HTTPSConnection("auth.atlassian.com"), "Connection refused"),
+    )
+)
+ATLASSIAN_ROTATES = object()
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -114,27 +128,49 @@ class TestIntegrationsTasks(APIBaseTest):
         [
             (
                 "recovers_the_rotated_token_inside_the_reuse_window",
-                [
-                    requests.ReadTimeout("read timed out"),
-                    (503, {"error": "server_error"}),
-                    requests.ReadTimeout("read timed out"),
-                    (200, {"access_token": "NEW_ACCESS", "refresh_token": "ROTATED", "expires_in": 3600}),
-                ],
+                {},
+                [READ_TIMEOUT, (503, {"error": "server_error"}), READ_TIMEOUT, ATLASSIAN_ROTATES],
                 [0, 1, 2, 3],
                 "",
                 "ROTATED",
             ),
             (
                 "backs_off_once_the_reuse_window_closes",
-                [requests.ReadTimeout("read timed out")] * 11,
+                {},
+                [READ_TIMEOUT] * 11,
                 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13],
                 "TOKEN_REFRESH_FAILED",
                 "REFRESH",
             ),
             (
-                "opens_the_window_only_once_atlassian_can_have_rotated",
-                [requests.ConnectTimeout("connect timed out")] + [requests.ReadTimeout("read timed out")] * 10,
+                "opens_no_window_on_a_connect_timeout",
+                {},
+                [requests.ConnectTimeout("connect timed out")] + [READ_TIMEOUT] * 10,
                 [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                "TOKEN_REFRESH_FAILED",
+                "REFRESH",
+            ),
+            (
+                "opens_no_window_on_a_refused_connection",
+                {},
+                [CONNECTION_REFUSED] + [READ_TIMEOUT] * 10,
+                [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                "TOKEN_REFRESH_FAILED",
+                "REFRESH",
+            ),
+            (
+                "backs_off_on_a_rate_limit_inside_the_window",
+                {},
+                [READ_TIMEOUT, (429, {"error": "rate_limited"})] + [READ_TIMEOUT] * 5,
+                [0, 1, 5, 6, 7, 8, 9],
+                "TOKEN_REFRESH_FAILED",
+                "REFRESH",
+            ),
+            (
+                "ignores_a_window_of_an_earlier_refresh_token",
+                {"refresh_reuse_window_started_at": 1795442400 - 7200},
+                [READ_TIMEOUT] * 11,
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13],
                 "TOKEN_REFRESH_FAILED",
                 "REFRESH",
             ),
@@ -143,17 +179,28 @@ class TestIntegrationsTasks(APIBaseTest):
     def test_jira_refresh_retries_a_lost_rotation_on_every_sweep_inside_the_reuse_window(
         self,
         _name: str,
+        config: dict,
         responses: list,
         expected_attempt_minutes: list[int],
         expected_errors: str,
         expected_refresh_token: str,
     ) -> None:
-        attempt_minutes: list[int] = []
         start = 1795442400  # 2026-11-23T14:00:00Z
+        attempt_minutes: list[int] = []
+        lost_rotation_at: list[float] = []
 
         def atlassian_token_endpoint(*args: Any, **kwargs: Any) -> MagicMock:
             attempt_minutes.append(int(time.time() - start) // 60)
             answer = responses[len(attempt_minutes) - 1]
+            if answer is ATLASSIAN_ROTATES:
+                # Atlassian accepts the old token for 10 minutes after the lost rotation, then rejects it.
+                assert kwargs["data"]["refresh_token"] == "REFRESH"
+                if lost_rotation_at and time.time() >= lost_rotation_at[0] + 600:
+                    answer = (403, {"error": "invalid_grant", "error_description": "Unknown or invalid refresh token."})
+                else:
+                    answer = (200, {"access_token": "NEW_ACCESS", "refresh_token": "ROTATED", "expires_in": 3600})
+            elif answer is READ_TIMEOUT or (isinstance(answer, tuple) and answer[0] >= 500):
+                lost_rotation_at.append(time.time())
             if isinstance(answer, Exception):
                 raise answer
             status_code, body = answer
@@ -166,9 +213,13 @@ class TestIntegrationsTasks(APIBaseTest):
             self.settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="secret"),
             patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
             patch("posthog.models.integration.oauth.requests.post", side_effect=atlassian_token_endpoint),
-            patch("posthog.tasks.integrations.refresh_integration.delay", side_effect=refresh_integration),
+            # Every refresh is queued twice, as a queue backlog does. The copy must not post again.
+            patch(
+                "posthog.tasks.integrations.refresh_integration.delay",
+                side_effect=lambda *args: [refresh_integration(*args) for _ in range(2)],
+            ),
         ):
-            integration = self.create_integration("jira", config={"refreshed_at": int(time.time()) - 3600})
+            integration = self.create_integration("jira", config={"refreshed_at": start - 3600, **config})
             for _ in range(15):
                 refresh_integrations()
                 traveller.shift(timedelta(minutes=1))

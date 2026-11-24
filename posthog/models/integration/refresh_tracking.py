@@ -50,6 +50,10 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 # leaves one sweep interval (60 seconds) of margin, so the last retry starts in time.
 JIRA_REFRESH_REUSE_WINDOW_SECONDS = 9 * 60
 
+# Shorter than the sweep interval, so the next sweep retries. Long enough that refresh tasks for the
+# same row that already wait in the queue skip the backoff check instead of each posting again.
+JIRA_REUSE_WINDOW_RETRY_SECONDS = 30
+
 CONFIG_REUSE_WINDOW_STARTED_AT = "refresh_reuse_window_started_at"
 
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
@@ -148,7 +152,7 @@ def refresh_failure_patch(
 
     `response_lost_at` is the start time of a request that the provider may have answered with a
     rotated token that we never received. For Jira, it opens the reuse window: until the window
-    closes, a transient failure schedules the next attempt for the next sweep, without backoff.
+    closes, a network or 5xx failure schedules the next attempt for the next sweep, without backoff.
 
     Also returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -158,12 +162,18 @@ def refresh_failure_patch(
     count = int(config.get("refresh_failure_count") or 0)
     attempt = "first" if count == 0 else "retry"
     changes: dict[str, object] = {}
-    window_started_at = config.get(CONFIG_REUSE_WINDOW_STARTED_AT) or response_lost_at
+    stored_window_started_at = int(config.get(CONFIG_REUSE_WINDOW_STARTED_AT) or 0)
+    # A window that started before the last successful refresh belongs to an earlier refresh token.
+    # A worker that runs older code stores a success without removing the key.
+    if stored_window_started_at < int(config.get("refreshed_at") or 0):
+        stored_window_started_at = 0
+    window_started_at = stored_window_started_at or response_lost_at
     if integration.kind == "jira" and window_started_at:
-        changes[CONFIG_REUSE_WINDOW_STARTED_AT] = int(window_started_at)
+        changes[CONFIG_REUSE_WINDOW_STARTED_AT] = window_started_at
+        # A 429 keeps the normal backoff, because a faster retry only adds to the throttling.
         in_reuse_window = (
-            reason in TRANSIENT_REFRESH_FAILURE_REASONS
-            and now - int(window_started_at) < JIRA_REFRESH_REUSE_WINDOW_SECONDS
+            reason in (REFRESH_FAILURE_REASON_NETWORK, REFRESH_FAILURE_REASON_HTTP_5XX)
+            and now - window_started_at < JIRA_REFRESH_REUSE_WINDOW_SECONDS
         )
     else:
         in_reuse_window = False
@@ -171,7 +181,7 @@ def refresh_failure_patch(
         # The first failure of the streak is counted and the retries inside the window are not, so
         # the backoff after the window starts from its second step and not from the cap.
         count = max(count, 1)
-        next_attempt_at = now
+        next_attempt_at = now + JIRA_REUSE_WINDOW_RETRY_SECONDS
     else:
         count += 1
         next_attempt_at = now + min(REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS)
