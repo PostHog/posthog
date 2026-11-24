@@ -49,6 +49,7 @@ from products.signals.backend.report_claims import (
     responsible_user,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.transition_credit import TransitionCredit
 from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
@@ -418,18 +419,19 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
-def _pr_work_owner(report: SignalReport, prs: Sequence[ImplementationPr]) -> User | None:
+def _pr_work_credit(report: SignalReport, prs: Sequence[ImplementationPr]) -> TransitionCredit | None:
     """The person behind the pull request work: the claim holder, else who attached a PR, else who started its task."""
     claim = get_active_claim(team_id=report.team_id, report_id=report.id)
     if claim is not None and (user := responsible_user(claim)) is not None:
-        return user
+        return TransitionCredit(user=user, source="claim" if claim.actor_user is not None else "task_creator")
     for pr in prs:
         if pr.attached_by_user is not None:
-            return pr.attached_by_user
+            return TransitionCredit(user=pr.attached_by_user, source="pr_attacher")
     creators = tasks_facade.get_task_creator_ids([pr.task_id for pr in prs if pr.task_id], [report.team_id])
     for pr in prs:
         if pr.task_id and (creator_id := creators.get(pr.task_id)) is not None:
-            return User.objects.filter(id=creator_id).first()
+            creator = User.objects.filter(id=creator_id).first()
+            return TransitionCredit(user=creator, source="task_creator") if creator is not None else None
     return None
 
 
@@ -456,7 +458,7 @@ def _apply_pr_report_state(
     }:
         return
     # The transition stays a system one. The owner is credited only in the status-change analytics.
-    owner = _pr_work_owner(report, prs)
+    credit = _pr_work_credit(report, prs)
     try:
         if target == SignalReport.Status.RESOLVED:
             complete_implementation(
@@ -464,7 +466,7 @@ def _apply_pr_report_state(
                 report_id=report.id,
                 monitoring_started_at=merged_at,
                 attribution=ArtefactAttribution.system(),
-                credited_user=owner,
+                credit=credit,
                 from_pr_merge=True,
             )
             report.refresh_from_db()
@@ -481,7 +483,7 @@ def _apply_pr_report_state(
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
-    report._credited_user = owner  # type: ignore[attr-defined]
+    report._transition_credit = credit  # type: ignore[attr-defined]
     with transaction.atomic():
         report.save(update_fields=updated_fields)
         if target == SignalReport.Status.SUPPRESSED:
