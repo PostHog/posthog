@@ -48,55 +48,24 @@ function serverPolicy(overrides: Record<string, unknown> = {}): string {
 
 describe("run launch", () => {
   describe("readRunLaunch", () => {
-    it.each<[string, string, Record<string, unknown>, boolean]>([
-      ["a run that ends itself", "user_created", {}, true],
-      [
-        "a caller-managed run",
-        "user_created",
-        { caller_ends_run: true },
-        false,
-      ],
-      ["a workflow run", "workflow", {}, false],
-      [
-        "a workflow run with the end-run opt-in",
-        "workflow",
-        { end_run_when_done: true },
-        true,
-      ],
-    ])(
-      "decides the finish tool for %s",
-      (_, originProduct, state, expected) => {
-        const launch = readRunLaunch(
-          sources({
-            task: createTask({ origin_product: originProduct }),
-            taskRun: runWithState(state),
-          }),
-        );
-
-        expect(launch.policy.finishTool).toBe(expected);
-      },
-    );
     it.each<[string, string | undefined, boolean, string]>([
-      ["the server", serverPolicy({ finish_tool: false }), false, "server"],
-      ["the origin without a server policy", undefined, true, "origin"],
+      ["the server", serverPolicy(), true, "server"],
+      ["nowhere without a server policy", undefined, false, "missing_server"],
       [
-        "no source when the server policy is malformed",
+        "nowhere when the server policy is malformed",
         "{",
         false,
         "invalid_server",
       ],
       [
-        "the origin when the server policy is for another run",
-        serverPolicy({ run_id: "run-0", finish_tool: false }),
-        true,
+        "nowhere when the server policy is for another run",
+        serverPolicy({ run_id: "run-0" }),
+        false,
         "stale_server",
       ],
     ])("takes the run policy from %s", (_, policy, finishTool, source) => {
       const launch = readRunLaunch(
-        sources({
-          task: createTask({ origin_product: "user_created" }),
-          env: policy ? { POSTHOG_TASK_RUN_POLICY: policy } : {},
-        }),
+        sources({ env: policy ? { POSTHOG_TASK_RUN_POLICY: policy } : {} }),
       );
 
       expect([launch.policy.finishTool, launch.policySource]).toEqual([
@@ -192,10 +161,11 @@ describe("run launch", () => {
   });
 
   describe("readProductLaunch", () => {
-    it.each<[string, Task, string | undefined]>([
+    it.each<[string, Task, Record<string, unknown>, string | undefined]>([
       [
         "the inbox report",
         createTask({ signal_report: "rep_1" }),
+        {},
         "https://us.posthog.com/project/2/inbox/rep_1",
       ],
       [
@@ -204,91 +174,62 @@ describe("run launch", () => {
           signal_report: "rep_1",
           client_provenance: "posthog_desktop",
         }),
+        {},
         "https://us.posthog.com/project/2/inbox/rep_1",
       ],
-      ["nothing without provenance", createTask(), undefined],
+      ["nothing without provenance", createTask(), {}, undefined],
       [
         "nothing with null provenance",
         createTask({ client_provenance: null }),
+        {},
         undefined,
       ],
       [
         "the web chat for a web task",
         createTask({ client_provenance: "posthog_web" }),
+        {},
         "https://us.posthog.com/project/2/ai?task=task-1",
       ],
       [
-        "the web chat for a browser task without provenance",
-        createTask({ origin_product: "posthog_ai" }),
+        "the web chat when the policy assumes a web client",
+        createTask(),
+        { default_client_provenance: "posthog_web" },
         "https://us.posthog.com/project/2/ai?task=task-1",
       ],
       [
-        "the desktop bridge for a PostHog AI task from desktop",
-        createTask({
-          origin_product: "posthog_ai",
-          client_provenance: "posthog_desktop",
-        }),
+        "the desktop bridge for a desktop task the policy assumes is web",
+        createTask({ client_provenance: "posthog_desktop" }),
+        { default_client_provenance: "posthog_web" },
         "https://us.posthog.com/code/task/task-1",
       ],
       [
         "the web chat for a mobile task",
-        createTask({
-          origin_product: "posthog_ai",
-          client_provenance: "posthog_mobile",
-        }),
+        createTask({ client_provenance: "posthog_mobile" }),
+        {},
         "https://us.posthog.com/project/2/ai?task=task-1",
       ],
       [
         "the desktop bridge for a channel task",
         createTask({ client_provenance: "posthog_desktop", channel: "ch-1" }),
+        {},
         "https://us.posthog.com/code/channel/ch-1/tasks/task-1",
       ],
       [
         "the desktop bridge for a desktop task",
         createTask({ client_provenance: "posthog_desktop" }),
+        {},
         "https://us.posthog.com/code/task/task-1",
       ],
       [
-        "nothing for an automated task",
-        createTask({ origin_product: "review_hog" }),
-        undefined,
-      ],
-    ])("links the product source to %s", (_, task, expected) => {
-      const launch = readProductLaunch(
-        sources({ apiUrl: "https://us.posthog.com/", task }),
-      );
-
-      expect(launch.source?.url).toBe(expected);
-    });
-
-    it.each<[string, Task, Record<string, unknown>, string | undefined]>([
-      [
-        "links a thread the origin would not",
-        createTask({
-          origin_product: "review_hog",
-          client_provenance: "posthog_web",
-        }),
-        { thread_link: true },
-        "https://us.posthog.com/project/2/ai?task=task-1",
-      ],
-      [
-        "drops a thread link the origin would add",
-        createTask({
-          origin_product: "posthog_ai",
-          client_provenance: "posthog_web",
-        }),
+        "nothing when the policy drops the thread link",
+        createTask({ client_provenance: "posthog_web" }),
         { thread_link: false },
         undefined,
       ],
-      [
-        "assumes the client the policy names",
-        createTask({ origin_product: "user_created" }),
-        { thread_link: true, default_client_provenance: "posthog_web" },
-        "https://us.posthog.com/project/2/ai?task=task-1",
-      ],
-    ])("follows the server policy when it %s", (_, task, policy, expected) => {
+    ])("links the product source to %s", (_, task, policy, expected) => {
       const launch = readProductLaunch(
         sources({
+          apiUrl: "https://us.posthog.com/",
           task,
           env: { POSTHOG_TASK_RUN_POLICY: serverPolicy(policy) },
         }),

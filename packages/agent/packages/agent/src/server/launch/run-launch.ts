@@ -9,7 +9,6 @@ import {
   parseServerRunPolicy,
   RESTRICTIVE_RUN_POLICY,
   type RunPolicy,
-  runPolicyFromOrigin,
 } from "./run-policy";
 
 export interface RunLaunchSources {
@@ -22,7 +21,7 @@ export interface RunLaunchSources {
 
 export type RunPolicySource =
   | "server"
-  | "origin"
+  | "missing_server"
   | "invalid_server"
   | "stale_server";
 
@@ -116,26 +115,22 @@ function readInteractionOrigin(
   );
 }
 
-function readRunPolicy({ payload, task, taskRun, env }: RunLaunchSources): {
+function readRunPolicy({ payload, env }: RunLaunchSources): {
   policy: RunPolicy;
   source: RunPolicySource;
 } {
   const raw = env.POSTHOG_TASK_RUN_POLICY;
-  const server = raw ? parseServerRunPolicy(raw) : undefined;
-  if (raw && !server) {
+  if (!raw) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "missing_server" };
+  }
+  const server = parseServerRunPolicy(raw);
+  if (!server) {
     return { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
   }
-  if (server?.runId === payload.run_id) {
-    return { policy: server.policy, source: "server" };
+  if (server.runId !== payload.run_id) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "stale_server" };
   }
-  return {
-    policy: runPolicyFromOrigin({
-      originProduct: task?.origin_product,
-      endRunWhenDone: taskRun?.state?.end_run_when_done === true,
-      callerEndsRun: taskRun?.state?.caller_ends_run === true,
-    }),
-    source: server ? "stale_server" : "origin",
-  };
+  return { policy: server.policy, source: "server" };
 }
 
 function readClientProvenance(sources: RunLaunchSources): string | undefined {
