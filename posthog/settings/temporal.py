@@ -366,6 +366,10 @@ DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
 DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES: int = get_from_env(
     "DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES", 7, type_cast=int
 )
+if DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES <= 0:
+    raise ImproperlyConfigured(
+        "DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES must be a positive integer, or no materialization can query ClickHouse"
+    )
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
