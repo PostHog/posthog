@@ -63,8 +63,10 @@ export const contentWidgetPartsSchema = z.strictObject({
     footer: z.boolean().optional(),
 })
 
-export const contentWidgetAppearanceSchema = z.strictObject({
+/** How a tile looks. A setting that is missing is on. A section has no background to hide. */
+export const tileAppearanceSchema = z.strictObject({
     background: z.boolean().optional(),
+    border: z.boolean().optional(),
 })
 
 /**
@@ -79,7 +81,7 @@ export const contentWidgetSchema = z.strictObject({
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt: z.iso.datetime({ offset: true }).optional(),
     parts: contentWidgetPartsSchema.optional(),
-    appearance: contentWidgetAppearanceSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
     config: z.unknown(),
     /** Set once the widget shows on more than one tile. Its content is then saved once, in the document's `widgets`. */
     ref: z.string().min(1).optional(),
@@ -92,23 +94,18 @@ export const sharedWidgetSchema = contentWidgetSchema.omit({ parts: true, appear
 export const widgetRefSchema = z.strictObject({
     ref: z.string().min(1),
     parts: contentWidgetPartsSchema.optional(),
-    appearance: contentWidgetAppearanceSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
 })
 
 /**
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its
  * own tiles. Its height always fits its tiles, so `place.h` of a section tile is worked out, never chosen.
  */
-/** How a section looks. A setting that is missing is on. */
-export const sectionWidgetAppearanceSchema = z.strictObject({
-    border: z.boolean().optional(),
-})
-
 export const sectionWidgetSchema = z.strictObject({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
-    appearance: sectionWidgetAppearanceSchema.optional(),
+    appearance: tileAppearanceSchema.optional(),
     /** The height a person resized the section to, in rows. It still grows past this when its tiles need more. */
     minRows: z.int().positive().optional(),
     get tiles(): z.ZodArray<typeof tileSchema> {

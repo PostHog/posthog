@@ -15,13 +15,15 @@ export function findTile(dashboard: Dashboard, id: string): Tile | null {
 
 function changeTiles(tiles: Tile[], matches: (tile: Tile) => boolean, change: (tile: Tile) => Tile | null): Tile[] {
     return tiles.flatMap((tile) => {
-        if (matches(tile)) {
-            const next = change(tile)
-            return next ? [next] : []
+        // A matching section's own tiles may match too, so they change first.
+        const inner = isSection(tile)
+            ? { ...tile, widget: { ...tile.widget, tiles: changeTiles(tile.widget.tiles, matches, change) } }
+            : tile
+        if (!matches(tile)) {
+            return [inner]
         }
-        return isSection(tile)
-            ? [{ ...tile, widget: { ...tile.widget, tiles: changeTiles(tile.widget.tiles, matches, change) } }]
-            : [tile]
+        const next = change(inner)
+        return next ? [next] : []
     })
 }
 

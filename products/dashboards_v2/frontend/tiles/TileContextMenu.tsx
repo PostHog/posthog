@@ -22,9 +22,7 @@ import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
-import { sectionAppearanceAction, tileAppearanceAction } from '../presentation/tileAppearance'
-import { tilePartsAction } from '../presentation/tileParts'
-import { widgetSlots } from '../widgets/widgetDefinition'
+import { showAction } from '../presentation/tileAppearance'
 import { findWidget } from '../widgets/widgetSpec'
 import { applyTileActionFilters } from './applyTileActions'
 
@@ -95,19 +93,9 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
             }),
         })
     }
-    const parts = tilePartsAction(id, widget, widgetSlots(definition), disabledReasonFor('setTileParts'), onEdit)
-    if (parts) {
-        actions.push(parts)
-    }
-    const appearance = tileAppearanceAction(
-        id,
-        widget,
-        definition?.appearance ?? {},
-        disabledReasonFor('setTileAppearance'),
-        onEdit
-    )
-    if (appearance) {
-        actions.push(appearance)
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
+    if (show) {
+        actions.push(show)
     }
     if (definition?.menuActions) {
         actions.push(
@@ -134,6 +122,9 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
     )
 }
 
+// pinned: `dashboard-v2-tile-parts` data-attrs shipped before border and background joined this menu.
+const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
+
 const AUTO_LAYOUT_COLUMNS = [1, 2, 3, 4]
 
 function autoLayoutAction(
@@ -159,7 +150,8 @@ function autoLayoutAction(
 }
 
 export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
-    const { disabledReasonFor, onEdit, tileActions } = useDashboardV2()
+    const { widgets, disabledReasonFor, onEdit, tileActions } = useDashboardV2()
+    const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
     const actions: MenuAction[] = [
         {
             key: 'rename',
@@ -169,7 +161,7 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             onSelect: onStartRename,
         },
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
-        sectionAppearanceAction(id, widget, disabledReasonFor('setSectionAppearance'), onEdit),
+        ...(show ? [show] : []),
         {
             key: 'remove',
             label: 'Remove section and its tiles',

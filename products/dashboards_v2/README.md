@@ -118,6 +118,7 @@ A type has two parts, so code outside the browser can use the first without Reac
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
 A tile's `description` shows in a tooltip on an info icon beside its title.
+A tile is dragged by its header, or by its body when it has no header. A widget marks text people should be able to select with the `TileGrid__text` class, and pressing on it selects instead of dragging.
 
 How the dashboard uses them:
 

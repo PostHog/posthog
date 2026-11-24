@@ -31,8 +31,10 @@ const GHOST_ID = '__drop-preview'
 const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's', 'sw', 'se']
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
-// A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
-const DRAG_CANCEL = '.SectionTile__body, .dash-WidgetCard__footer, button, a, input, textarea, [role="menuitem"]'
+// A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
+// `TileGrid__text` selects instead, and the space around it still drags.
+const DRAG_CANCEL =
+    '.SectionTile__body, .dash-WidgetCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
 
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void

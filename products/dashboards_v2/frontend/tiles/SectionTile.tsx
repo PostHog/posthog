@@ -183,7 +183,7 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="truncate">{title}</CardTitle>
+        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
     }
 
     return (

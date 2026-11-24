@@ -20,7 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
 import type { MenuAction } from '../dashboard/menuAction'
-import { showsBackground } from '../presentation/tileAppearance'
+import { showsBackground, showsBorder } from '../presentation/tileAppearance'
 import { isPartShown } from '../presentation/tileParts'
 import { type WidgetDefinition, widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
@@ -74,13 +74,14 @@ export function WidgetCard({
                 className={clsx(
                     'dash-WidgetCard',
                     !showBackground && 'dash-WidgetCard--no-background',
+                    !showsBorder(widget) && 'dash-WidgetCard--no-border',
                     editable && !showHeader && 'TileGrid__handle'
                 )}
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
-                            <span className="truncate">{widget.title}</span>
+                            <span className="TileGrid__text truncate">{widget.title}</span>
                             {widget.description && (
                                 <Tooltip>
                                     <TooltipTrigger
