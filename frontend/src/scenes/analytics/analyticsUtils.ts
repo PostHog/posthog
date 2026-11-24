@@ -197,8 +197,7 @@ export function fileSystemEntryToAnalytics(
 // pane only, so the Products list leaves them out.
 export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 'mcp_analytics'] as const
 
-// The order By PostHog lists its pages in. Each is a page of the Products tab. Product analytics opens the saved
-// insights, which are the person's own work, so it is the Insights row of the Analyze sidebar instead.
+// The order By PostHog lists its pages in. Each is a page of the Products tab.
 const BY_POSTHOG_ICON_TYPES = [
     'web_analytics',
     'marketing_analytics',

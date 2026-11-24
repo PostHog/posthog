@@ -48,7 +48,6 @@ export interface ResolvedSidebarTarget {
     /** The path that marks the target as open. */
     path: string
     explainer?: TodayExplainerPreview
-    /** Shown only while the Products pane lists this product page, which depends on the person's flags. */
     productHref?: string
     /** Hidden while this rail pane is on, because that pane lists the page instead. */
     listedInPane?: TodayRailPane
