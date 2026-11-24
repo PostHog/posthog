@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import datetime as dt
+import zoneinfo
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any
@@ -17,7 +18,13 @@ import pymysql
 import structlog
 from pymysqlreplication import BinLogStreamReader
 from pymysqlreplication.event import QueryEvent, XidEvent
-from pymysqlreplication.row_event import DeleteRowsEvent, RowsEvent, UpdateRowsEvent, WriteRowsEvent
+from pymysqlreplication.row_event import (
+    DeleteRowsEvent,
+    PartialUpdateRowsEvent,
+    RowsEvent,
+    UpdateRowsEvent,
+    WriteRowsEvent,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCStreamNotConfiguredError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -29,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.
     POSITION_KEY,
     MySQLCDCConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import (
+    MySQLUnsupportedBinlogError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.transaction_buffer import (
     TransactionBuffer,
@@ -36,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.values import TableColumns
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     MySQLImplementation,
+    _configured_schema,
     _connect_with_transient_retry,
 )
 
@@ -51,8 +62,38 @@ logger = structlog.get_logger(__name__)
 STREAM_READ_TIMEOUT_SECONDS = 300
 _DUMP_EXCLUDED_KWARGS = ("database", "init_command")
 
-_TRUNCATE = re.compile(r"^\s*TRUNCATE\s+(?:TABLE\s+)?(?P<name>`[^`]+`|[\w$]+)(?:\.(?P<table>`[^`]+`|[\w$]+))?", re.I)
-_TRANSACTION_CONTROL = frozenset({"BEGIN", "XA START", "SAVEPOINT"})
+_IDENTIFIER = r"`(?:[^`]|``)+`|[\w$]+"
+_TRUNCATE = re.compile(rf"^TRUNCATE\s+(?:TABLE\s+)?(?P<name>{_IDENTIFIER})(?:\s*\.\s*(?P<table>{_IDENTIFIER}))?", re.I)
+# Statements inside a transaction. MySQL writes each with its name or id, so they are matched by prefix.
+_IN_TRANSACTION = ("BEGIN", "SAVEPOINT", "ROLLBACK TO", "RELEASE SAVEPOINT")
+
+
+def _without_comments(query: str) -> str:
+    """``query`` with its comments replaced by spaces, leaving quoted identifiers intact."""
+    out: list[str] = []
+    i = 0
+    while i < len(query):
+        char = query[i]
+        if char == "`":
+            end = i + 1
+            while end < len(query):
+                if query[end] == "`" and query[end + 1 : end + 2] != "`":
+                    break
+                end += 2 if query[end] == "`" else 1
+            out.append(query[i : end + 1])
+            i = end + 1
+        elif query.startswith("/*", i):
+            end = query.find("*/", i + 2)
+            i = len(query) if end == -1 else end + 2
+            out.append(" ")
+        elif query.startswith("--", i) or char == "#":
+            end = query.find("\n", i)
+            i = len(query) if end == -1 else end
+            out.append(" ")
+        else:
+            out.append(char)
+            i += 1
+    return "".join(out).strip()
 
 
 def _unquote(identifier: str) -> str:
@@ -61,12 +102,30 @@ def _unquote(identifier: str) -> str:
 
 def truncated_table(query: str, default_database: str) -> str | None:
     """The ``database.table`` a TRUNCATE statement empties, or None for any other statement."""
-    match = _TRUNCATE.match(query)
+    match = _TRUNCATE.match(_without_comments(query))
     if match is None:
         return None
     if match.group("table") is not None:
         return f"{_unquote(match.group('name'))}.{_unquote(match.group('table'))}"
     return f"{default_database}.{_unquote(match.group('name'))}"
+
+
+def server_time_zone(conn: pymysql.Connection) -> dt.tzinfo:
+    """The zone a new session on the server reads TIMESTAMP columns in, which is the one a snapshot uses."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT @@GLOBAL.time_zone, @@system_time_zone, TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW())")
+        name, system_name, offset_seconds = cur.fetchone()
+    name = system_name if str(name).upper() == "SYSTEM" else str(name)
+    if str(name).upper() in ("UTC", "GMT", "+00:00"):
+        return dt.UTC
+    if offset := re.fullmatch(r"([+-])(\d{1,2}):(\d{2})", str(name)):
+        sign = -1 if offset.group(1) == "-" else 1
+        return dt.timezone(sign * dt.timedelta(hours=int(offset.group(2)), minutes=int(offset.group(3))))
+    try:
+        return zoneinfo.ZoneInfo(str(name))
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        # An abbreviation such as CEST names no zone, so the server's current offset stands in for it.
+        return dt.timezone(dt.timedelta(seconds=int(offset_seconds)))
 
 
 class MySQLCDCStreamReader:
@@ -92,6 +151,7 @@ class MySQLCDCStreamReader:
         self._truncated: list[str] = []
         self._last_commit: BinlogPosition | None = None
         self._last_rows_consumed = 0
+        self._time_zone: dt.tzinfo = dt.UTC
 
     def connect(self) -> None:
         if self._position is None or self._cdc_config.server_id is None:
@@ -104,6 +164,7 @@ class MySQLCDCStreamReader:
         self._kwargs = {key: value for key, value in kwargs.items() if key not in _DUMP_EXCLUDED_KWARGS}
         self._conn = self._open_connection(autocommit=True, read_timeout=MANAGEMENT_READ_TIMEOUT_SECONDS)
         binlog.require_readable(self._conn, self._position, self._cdc_config.server_uuid)
+        self._time_zone = server_time_zone(self._conn)
 
     def _open_connection(self, **extra: Any) -> pymysql.Connection:
         assert self._kwargs is not None
@@ -130,7 +191,16 @@ class MySQLCDCStreamReader:
             log_pos=start.offset,
             resume_stream=True,
             blocking=False,
-            only_events=[QueryEvent, XidEvent, WriteRowsEvent, UpdateRowsEvent, DeleteRowsEvent],
+            only_events=[
+                QueryEvent,
+                XidEvent,
+                WriteRowsEvent,
+                UpdateRowsEvent,
+                PartialUpdateRowsEvent,
+                DeleteRowsEvent,
+            ],
+            # Rows of other databases are skipped before decoding, so their transactions cost nothing to buffer.
+            only_schemas=[schema] if (schema := _configured_schema(self._config)) else None,
             pymysql_wrapper=self._dump_connection,
             enable_logging=False,
         )
@@ -140,6 +210,11 @@ class MySQLCDCStreamReader:
 
         try:
             for event in stream:
+                if isinstance(event, PartialUpdateRowsEvent):
+                    raise MySQLUnsupportedBinlogError(
+                        f"A partial JSON update of {event.schema}.{event.table} carries only the changed paths. "
+                        "Set binlog_row_value_options to an empty value."
+                    )
                 if isinstance(event, RowsEvent):
                     for change in self._changes(event):
                         self._last_rows_consumed += 1
@@ -149,10 +224,15 @@ class MySQLCDCStreamReader:
                     continue
 
                 if isinstance(event, QueryEvent):
-                    query = event.query.strip()
-                    if query.upper() in _TRANSACTION_CONTROL:
+                    query = _without_comments(event.query)
+                    statement = query.upper()
+                    if statement.startswith(_IN_TRANSACTION):
                         continue
-                    if query.upper() != "COMMIT":
+                    if statement.startswith("XA "):
+                        # A prepared XA transaction commits later, after other transactions, which one read
+                        # position can't hold.
+                        raise MySQLUnsupportedBinlogError("XA transactions aren't supported by change data capture")
+                    if statement != "COMMIT":
                         # Any other statement is DDL, which MySQL commits on its own.
                         table = truncated_table(query, _decode(event.schema))
                         if table is not None:
@@ -180,8 +260,8 @@ class MySQLCDCStreamReader:
         placeholder = dt.datetime.fromtimestamp(event.timestamp, tz=dt.UTC)
         for row in event.rows:
             if isinstance(event, UpdateRowsEvent):
-                before = columns.normalize(row["before_values"])
-                after = columns.normalize(row["after_values"])
+                before = columns.normalize(row["before_values"], row["before_none_sources"], self._time_zone)
+                after = columns.normalize(row["after_values"], row["after_none_sources"], self._time_zone)
                 previous = None
                 if key_change_columns and any(before.get(c) != after.get(c) for c in key_change_columns):
                     previous = {c: before.get(c) for c in key_change_columns}
@@ -200,7 +280,7 @@ class MySQLCDCStreamReader:
                     table_name=table_name,
                     position_serialized="",
                     timestamp=placeholder,
-                    columns=columns.normalize(row["values"]),
+                    columns=columns.normalize(row["values"], row["none_sources"], self._time_zone),
                     column_types=columns.arrow_types,
                 )
 
@@ -218,11 +298,14 @@ class MySQLCDCStreamReader:
         if self._position is not None and target < self._position:
             logger.info("binlog_position_already_ahead", position=position, stored=self._position.serialize())
             return
-        self._store_position(target)
-        self._position = target
-        logger.info("binlog_position_confirmed", position=position)
+        self._position = self._store_position(target)
+        logger.info("binlog_position_confirmed", position=self._position.serialize())
 
-    def _store_position(self, position: BinlogPosition) -> None:
+    def _store_position(self, position: BinlogPosition) -> BinlogPosition:
+        """Store ``position`` unless the source already holds a later one, and return the position it holds.
+
+        Another capture of the source, such as an attempt still running after its retry started, may have
+        confirmed further already, and moving the stored position back would read its changes again."""
         from django.db import transaction
 
         from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
@@ -233,7 +316,11 @@ class MySQLCDCStreamReader:
             # The manager joins related rows, which Postgres can't lock on their nullable side.
             ExternalDataSource.objects.select_for_update(of=("self",)).filter(pk=self._source.pk).exists()
             self._source.refresh_from_db(fields=["job_inputs"])
+            stored = MySQLCDCConfig.from_source(self._source).position
+            if stored is not None and BinlogPosition.deserialize(stored) >= position:
+                return BinlogPosition.deserialize(stored)
             SourceInputsStore.update_runtime(self._source, {POSITION_KEY: position.serialize()}, extra_update_fields=())
+        return position
 
     def current_position(self) -> str | None:
         if self._conn is None or self._position is None:

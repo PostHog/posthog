@@ -32,10 +32,20 @@ def _event(row_id: int) -> ChangeEvent:
 
 
 class TestTransactionBuffer:
-    @parameterized.expand([("in_memory", 100), ("spilled_whole_chunks", 2), ("spilled_with_a_tail", 3)])
-    def test_commit_returns_every_change_in_order_at_the_commit_position(self, _name, chunk):
+    @parameterized.expand(
+        [
+            ("in_memory", 100, 1024**2),
+            ("spilled_whole_chunks", 2, 1024**2),
+            ("spilled_with_a_tail", 3, 1024**2),
+            ("spilled_by_size", 100, 1),
+        ]
+    )
+    def test_commit_returns_every_change_in_order_at_the_commit_position(self, _name, chunk, chunk_bytes):
         buffer = TransactionBuffer()
-        with patch.object(transaction_buffer, "SPILL_CHUNK_EVENTS", chunk):
+        with (
+            patch.object(transaction_buffer, "SPILL_CHUNK_EVENTS", chunk),
+            patch.object(transaction_buffer, "SPILL_CHUNK_BYTES", chunk_bytes),
+        ):
             for row_id in range(6):
                 buffer.add(_event(row_id))
             committed = list(buffer.commit("0@binlog.000001:900", _COMMITTED_AT))

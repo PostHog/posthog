@@ -14,6 +14,10 @@ ER_TABLEACCESS_DENIED = 1142
 CONNECTION_ERROR_CODES = frozenset({2003, 2006, 2013})
 
 
+class MySQLUnsupportedBinlogError(Exception):
+    """The binlog holds an event capture can't turn into row changes. Non-retryable: rereading meets it again."""
+
+
 def _code(exc: BaseException) -> int | None:
     if isinstance(exc, pymysql.err.MySQLError) and exc.args and isinstance(exc.args[0], int):
         return exc.args[0]
@@ -21,6 +25,8 @@ def _code(exc: BaseException) -> int | None:
 
 
 def classify_mysql_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
+    if isinstance(exc, MySQLUnsupportedBinlogError):
+        return CDCErrorCategory.WAL_DECODE_ERROR
     if isinstance(exc, BaseSSHTunnelForwarderError):
         return CDCErrorCategory.SSH_TUNNEL_FAILED
     if isinstance(exc, HostNotAllowedError):
