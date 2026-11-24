@@ -9,13 +9,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
-from django.core.cache import caches
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
-from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -31,7 +29,7 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.rate_limit import is_rate_limit_enabled
-from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
+from posthog.token_bucket import Budget
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -39,12 +37,12 @@ from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.presentation.views import message_templates
 from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
-    TransactionalEmailBurstThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -860,29 +858,22 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
-        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+        [("lowest_tier", 0, status.HTTP_429_TOO_MANY_REQUESTS), ("top_tier", 7, status.HTTP_202_ACCEPTED)]
     )
-    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
-        self, mock_post, _flag, _capture, _name, listed, third_status
+    def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
+        self, mock_post, _flag, _capture, _name, tier, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
-        other_team = self.team.id + 1
-        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
+        TeamWorkflowsConfig.objects.update_or_create(team_id=self.team.id, defaults={"email_sending_tier": tier})
         with (
-            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
+            override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce"),
             override_instance_config("RATE_LIMIT_ENABLED", True),
-            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
-            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+            patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=2, per_hour=2)),
         ):
-            try:
-                is_rate_limit_enabled.cache_clear()
-                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
-            finally:
-                redis_cache = caches["default"]
-                assert isinstance(redis_cache, RedisCache)
-                redis_cache.delete_pattern("*")
-                is_rate_limit_enabled.cache_clear()
+            is_rate_limit_enabled.cache_clear()
+            self.addCleanup(is_rate_limit_enabled.cache_clear)
+            statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
 

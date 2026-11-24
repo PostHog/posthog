@@ -25,10 +25,6 @@ from products.messaging.backend.presentation.views.attachment_uploads import (
     AttachmentUploadsRequestSerializer,
     AttachmentUploadTeamBurstThrottle,
 )
-from products.messaging.backend.presentation.views.message_templates import (
-    TransactionalEmailBurstThrottle,
-    TransactionalEmailTeamBurstThrottle,
-)
 
 INVOICE = "a" * 64
 LOGO = "b" * 64
@@ -264,8 +260,6 @@ class TestAttachmentUploads(APIBaseTest):
 
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
-            patch.object(TransactionalEmailBurstThrottle, "rate", "0/minute"),
-            patch.object(TransactionalEmailTeamBurstThrottle, "rate", "0/minute"),
             patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
             patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
         ):

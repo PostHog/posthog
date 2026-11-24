@@ -21,17 +21,15 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE
+from posthog.token_bucket import Budget
 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.presentation.views import message_templates
 from products.messaging.backend.presentation.views.message_templates import (
     EMAIL_BATCH_FLAG,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
-    TransactionalEmailBurstThrottle,
-    TransactionalEmailSustainedThrottle,
-    TransactionalEmailTeamBurstThrottle,
-    TransactionalEmailTeamSustainedThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import (
@@ -90,6 +88,10 @@ BATCH_WIRE = {
         {"to", "distinct_id", "idempotency_key"},
     ),
 }
+
+
+def _send_floor(sends: int) -> Any:
+    return patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=sends, per_hour=sends))
 
 
 def _slot_request(forwarded: dict[str, Any], recipient: dict[str, Any]) -> dict[str, Any]:
@@ -582,7 +584,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
     def test_the_rate_limit_is_reserved_before_the_key_is_created(self, mock_post, _flag, _capture):
         mock_post.return_value = self._queued_answer(5)
 
-        with self._enforce_rate_limits(), patch.object(TransactionalEmailTeamBurstThrottle, "rate", "4/minute"):
+        with self._enforce_rate_limits(), _send_floor(4):
             response = self._batch("code", self._recipients(5))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -590,18 +592,8 @@ class TestTransactionalEmailBatch(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("key_burst", TransactionalEmailBurstThrottle),
-            ("key_sustained", TransactionalEmailSustainedThrottle),
-            ("team_burst", TransactionalEmailTeamBurstThrottle),
-            ("team_sustained", TransactionalEmailTeamSustainedThrottle),
-        ]
-    )
-    def test_a_batch_spends_one_send_per_recipient_and_a_refused_one_spends_one(
-        self, mock_post, _flag, _capture, _name, throttle
-    ):
-        with self._enforce_rate_limits(), patch.object(throttle, "rate", "5/minute"):
+    def test_a_batch_spends_one_send_per_recipient_and_a_refused_one_spends_one(self, mock_post, _flag, _capture):
+        with self._enforce_rate_limits(), _send_floor(5):
             mock_post.return_value = self._queued_answer(3)
             spent = self._batch("template", self._recipients(3))
             refused = self._batch("template", self._recipients(3))
@@ -693,7 +685,7 @@ class TestTransactionalEmailBatch(APIBaseTest):
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
         body = json.dumps({**self._email(form), "recipients": self._recipients(2)})
 
-        with self._enforce_rate_limits(), patch.object(TransactionalEmailTeamBurstThrottle, "rate", "1/minute"):
+        with self._enforce_rate_limits(), _send_floor(1):
             responses = [self.psak.post(BATCH_URL, body, content_type=content_type) for _ in range(2)]
 
         assert [response.status_code for response in responses] == [status.HTTP_404_NOT_FOUND] * 2

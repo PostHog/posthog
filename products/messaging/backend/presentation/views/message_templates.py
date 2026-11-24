@@ -9,6 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.core.exceptions import (
     RequestDataTooBig,
     ValidationError as DjangoValidationError,
@@ -35,6 +36,7 @@ from rest_framework.exceptions import ErrorDetail, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
@@ -42,21 +44,20 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
     legacy_scope_object_used,
     scopes_caller_lacks,
 )
-from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
-from posthog.settings.utils import get_list
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -131,7 +132,11 @@ from products.messaging.backend.presentation.views.refusals import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.api import (
+    WorkflowAccessDenied,
+    WorkflowNotFound,
+    get_enforced_email_sending_daily_cap,
+)
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
@@ -1058,30 +1063,54 @@ def unconfirmed_email_send() -> ExplainedRefusal:
     )
 
 
-class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_burst"
-    reads_history_from_primary = True
-    rate = "600/minute"
+# The tier's daily cap divided down, but never below the limits every team had before tiers.
+TRANSACTIONAL_EMAIL_SEND_FLOOR = Budget(burst=600, per_hour=20_000)
 
 
-class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_sustained"
-    reads_history_from_primary = True
-    rate = "20000/hour"
+def transactional_email_send_budget(team_id: int) -> Budget:
+    # The tier lookup reads Postgres, so cache it rather than repeat it on every send.
+    daily_cap: int = (
+        cache.get_or_set(
+            f"transactional_email_send_daily_cap:{team_id}",
+            lambda: get_enforced_email_sending_daily_cap(team_id) or 0,
+            60,
+        )
+        or 0
+    )
+    return Budget(
+        burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
+        per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),
+    )
 
 
-class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    """Per-team aggregate across all of a project's secret API keys."""
+class TransactionalEmailSendThrottle(BaseThrottle):
+    """One bucket per team that both send routes spend from, sized from the team's email sending tier."""
 
-    scope = "transactional_email_psak_team_burst"
-    reads_history_from_primary = True
-    rate = "600/minute"
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+        self.retry_after: int | None = None
 
+    def allow_request(self, request: Request, view: Any) -> bool:
+        # The limit covers API keys only, so sends a signed-in person makes in the app are never refused.
+        if not isinstance(
+            request.successful_authenticator, (ProjectSecretAPIKeyAuthentication, PersonalAPIKeyAuthentication)
+        ):
+            return True
+        return self.allow_units(1)
 
-class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "transactional_email_psak_team_sustained"
-    reads_history_from_primary = True
-    rate = "20000/hour"
+    def allow_units(self, units: int) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        decision = consume(
+            f"transactional_email_send:{self.team_id}", transactional_email_send_budget(self.team_id), cost=units
+        )
+        if isinstance(decision, BucketUnavailable) or decision.allowed:
+            return True
+        self.retry_after = decision.retry_after
+        return False
+
+    def wait(self) -> int | None:
+        return self.retry_after
 
 
 # LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
@@ -1133,20 +1162,6 @@ def _flag_enabled(team: Any, flag: str) -> bool:
             send_feature_flag_events=False,
         )
     )
-
-
-def transactional_email_throttles(
-    team_id: int,
-) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
-    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
-        return []
-    # Both send routes share these scopes, so a caller can't double its rate by using both.
-    return [
-        TransactionalEmailBurstThrottle(),
-        TransactionalEmailSustainedThrottle(),
-        TransactionalEmailTeamBurstThrottle(),
-        TransactionalEmailTeamSustainedThrottle(),
-    ]
 
 
 SEND_RESPONSES: dict[int, ResponseDeclaration] = {
@@ -1491,7 +1506,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action == "send":
-            return transactional_email_throttles(self.team_id)
+            return [TransactionalEmailSendThrottle(self.team_id)]
         return super().get_throttles()
 
     def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
@@ -1830,7 +1845,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        return transactional_email_throttles(self.team_id)
+        return [TransactionalEmailSendThrottle(self.team_id)]
 
     def read_object(self) -> MessageTemplateRow | None:
         # The `email` action names its template in the request body, not in the URL.

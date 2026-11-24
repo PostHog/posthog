@@ -10,11 +10,9 @@ from django.utils.http import parse_header_parameters
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import UnsupportedMediaType
+from rest_framework.exceptions import Throttled, UnsupportedMediaType
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
-
-from posthog.rate_limit import reserve_units
 
 from products.messaging.backend.facade.transactional_email import (
     BatchTooLarge,
@@ -41,11 +39,11 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     MessagingSendViewSet,
     TransactionalEmailRejected,
+    TransactionalEmailSendThrottle,
     code_email,
     code_email_usage_properties,
     require_email_batch_sends,
     require_email_from_code,
-    transactional_email_throttles,
 )
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
 from products.messaging.backend.presentation.views.topic_preferences import TopicPreferencesViewSet
@@ -118,7 +116,10 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
         email = code_email(data) if "template_key" in data else None
         try:
             recipients = check_email_batch(data["recipients"], message_data=data["message_data"], email=email)
-            reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
+            if len(recipients) > 1:
+                throttle = TransactionalEmailSendThrottle(self.team_id)
+                if not throttle.allow_units(len(recipients) - 1):
+                    raise Throttled(wait=throttle.wait())
             if email is not None:
                 self._require_code_email_access(email.key)
                 sent = send_code_email_batch(self.team, email, recipients)

@@ -67,6 +67,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
     max_email_sending_tier,
+    resolve_team_email_sending_tier,
 )
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -82,6 +83,7 @@ __all__ = [
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
+    "get_enforced_email_sending_daily_cap",
     "get_viewable_workflow_ids",
     "get_workflow_access_levels",
     "get_workflow_view_access",
@@ -442,6 +444,12 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
     )
 
     return team_has_active_hog_flows_mentioning_cohorts(team_id)
+
+
+def get_enforced_email_sending_daily_cap(team_id: int) -> int | None:
+    """The team's daily email cap from its trust tier, or None while tiers are not enforced."""
+    resolved = resolve_team_email_sending_tier(team_id)
+    return resolved.limits.per_day if resolved.enforced else None
 
 
 def recompute_email_sending_tier(
