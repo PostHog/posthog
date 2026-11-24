@@ -105,7 +105,7 @@ interface MemberInfo {
     id: string
     first_name: string
     last_name: string
-    email: string
+    email: string | null
 }
 
 interface RoleInfo {
@@ -193,7 +193,7 @@ function MembersTab({
                         <div className="font-semibold">
                             {member.first_name} {member.last_name}
                         </div>
-                        <div className="text-muted text-xs">{member.email}</div>
+                        {member.email && <div className="text-muted text-xs">{member.email}</div>}
                     </div>
                 </div>
             ),
@@ -240,7 +240,9 @@ function RolesTab({
                     people={role.members.map((m) => ({
                         email: m.email,
                         name: `${m.first_name} ${m.last_name}`,
-                        title: `${m.first_name} ${m.last_name} <${m.email}>`,
+                        title: m.email
+                            ? `${m.first_name} ${m.last_name} <${m.email}>`
+                            : `${m.first_name} ${m.last_name}`,
                     }))}
                     limit={4}
                 />

@@ -74,7 +74,7 @@ export function QuillNotificationMemberList({
                                     <Text size="xs" render={<span />} className="m-0 truncate">
                                         {name || member.email}
                                     </Text>
-                                    {!!name && (
+                                    {!!name && !!member.email && (
                                         <Text size="xs" variant="muted" render={<span />} className="m-0 truncate">
                                             {member.email}
                                         </Text>

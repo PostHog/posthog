@@ -83,11 +83,11 @@ class TestWelcomeEndpoint(APIBaseTest):
 
     def test_returns_teammates_excluding_self(self):
         other = User.objects.create_and_join(self.organization, "teammate@example.com", None, "Teammate")
+        User.objects.create_service_account(organization=self.organization, name="Terraform")
         response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
         emails = [m["email"] for m in data["team_members"]]
-        self.assertIn(other.email, emails)
-        self.assertNotIn(self.user.email, emails)
+        self.assertEqual(emails, [other.email])
 
     def test_team_members_respect_member_list_visibility(self):
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")

@@ -5074,8 +5074,8 @@ const api = {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
-        async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {
-            const response: Record<string, { name: string; email: string }> = await new ApiRequest()
+        async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string | null }[]> {
+            const response: Record<string, { name: string; email: string | null }> = await new ApiRequest()
                 .signalReports()
                 .withAction('available_reviewers')
                 .withQueryString(query ? { query } : undefined)

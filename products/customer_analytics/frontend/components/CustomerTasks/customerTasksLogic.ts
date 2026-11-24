@@ -74,9 +74,6 @@ import {
     customerTaskSortingToOrdering,
 } from './customerTaskFilters'
 
-/** The assignee comes from the member picker, where a service account has no email. */
-export type CustomerTaskDraftAssignee = Omit<CustomerTaskUserApi, 'email'> & { email: string | null }
-
 const ACCOUNT_PAGE_SIZE = 20
 const INBOX_PAGE_SIZE = 50
 const ACCOUNT_OPTIONS_LIMIT = 50
@@ -112,7 +109,7 @@ export interface customerTasksLogicValues {
     draftName: string
     draftDescription: string
     draftAccount: CustomerTaskAccountFilter | null
-    draftAssignedTo: CustomerTaskDraftAssignee | null
+    draftAssignedTo: CustomerTaskUserApi | null
     draftDueAt: string | null
     draftTags: string[]
     user: UserType | null
@@ -149,9 +146,7 @@ export interface customerTasksLogicActions {
     setPage: (page: number) => { page: number }
     setSearch: (search: string) => { search: string }
     setDraftAccount: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
-    setDraftAssignedTo: (assignedTo: CustomerTaskDraftAssignee | null) => {
-        assignedTo: CustomerTaskDraftAssignee | null
-    }
+    setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => { assignedTo: CustomerTaskUserApi | null }
     setDraftDescription: (description: string) => { description: string }
     setDraftDueAt: (dueAt: string | null) => { dueAt: string | null }
     setDraftName: (name: string) => { name: string }
@@ -237,7 +232,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setDraftName: (name: string) => ({ name }),
         setDraftDescription: (description: string) => ({ description }),
         setDraftAccount: (account: CustomerTaskAccountFilter | null) => ({ account }),
-        setDraftAssignedTo: (assignedTo: CustomerTaskDraftAssignee | null) => ({ assignedTo }),
+        setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => ({ assignedTo }),
         setDraftDueAt: (dueAt: string | null) => ({ dueAt }),
         setDraftTags: (tags: string[]) => ({ tags }),
         submitModal: () => ({}),
@@ -408,14 +403,13 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 },
             ],
             draftAssignedTo: [
-                null as CustomerTaskDraftAssignee | null,
+                null as CustomerTaskUserApi | null,
                 {
                     openCreateModal: () => null,
-                    openEditModal: (_: CustomerTaskDraftAssignee | null, a: { task: CustomerTaskApi }) =>
-                        a.task.assigned_to,
+                    openEditModal: (_: CustomerTaskUserApi | null, a: { task: CustomerTaskApi }) => a.task.assigned_to,
                     setDraftAssignedTo: (
-                        _: CustomerTaskDraftAssignee | null,
-                        a: { assignedTo: CustomerTaskDraftAssignee | null }
+                        _: CustomerTaskUserApi | null,
+                        a: { assignedTo: CustomerTaskUserApi | null }
                     ) => a.assignedTo,
                     closeModal: () => null,
                 },

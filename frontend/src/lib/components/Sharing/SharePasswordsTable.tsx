@@ -100,9 +100,13 @@ export function SharePasswordsTable({
                                                 {password.note || 'Untitled password'}
                                             </div>
                                             <div className="text-xs text-muted mt-0.5 break-words">
-                                                <span>Created by: </span>
-                                                <span className="break-all">{password.created_by_email}</span>
-                                                <span className="mx-1">•</span>
+                                                {password.created_by_email && (
+                                                    <>
+                                                        <span>Created by: </span>
+                                                        <span className="break-all">{password.created_by_email}</span>
+                                                        <span className="mx-1">•</span>
+                                                    </>
+                                                )}
                                                 <span className="whitespace-nowrap">
                                                     {humanFriendlyDetailedTime(password.created_at)}
                                                 </span>

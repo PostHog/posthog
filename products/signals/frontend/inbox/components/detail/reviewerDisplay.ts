@@ -4,7 +4,7 @@ import { EnrichedReviewer } from '../../types'
 export interface AvailableReviewerOption {
     user_uuid: string
     name: string
-    email: string
+    email: string | null
 }
 
 /** Current user fields needed to pin / label the "Me" entry. Mirrors desktop `CurrentSuggestedReviewerUser`. */
@@ -42,7 +42,7 @@ export function buildAddReviewerOptions(
         byUuid.set(uuid, {
             user_uuid: uuid,
             name: normalizeString(reviewer.name),
-            email: normalizeString(reviewer.email),
+            email: normalizeString(reviewer.email) || null,
         })
     }
 
@@ -53,7 +53,7 @@ export function buildAddReviewerOptions(
         meOption = {
             user_uuid: currentUserUuid,
             name: buildCurrentUserName(currentUser) || existing?.name || '',
-            email: normalizeString(currentUser?.email) || existing?.email || '',
+            email: normalizeString(currentUser?.email) || existing?.email || null,
         }
         byUuid.set(currentUserUuid, meOption)
     }
@@ -63,7 +63,7 @@ export function buildAddReviewerOptions(
         .sort(
             (a, b) =>
                 a.name.toLowerCase().localeCompare(b.name.toLowerCase()) ||
-                a.email.toLowerCase().localeCompare(b.email.toLowerCase()) ||
+                (a.email ?? '').toLowerCase().localeCompare((b.email ?? '').toLowerCase()) ||
                 a.user_uuid.localeCompare(b.user_uuid)
         )
 

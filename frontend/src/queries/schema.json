@@ -63860,7 +63860,8 @@
                     "type": "string"
                 },
                 "email": {
-                    "type": "string"
+                    "description": "Null for a service account without a contact email.",
+                    "type": ["string", "null"]
                 },
                 "first_name": {
                     "type": "string"

@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import UserKind
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -384,6 +385,7 @@ def _get_team_members(organization: Organization) -> list[dict[str, Any]]:
     # Fetch one extra to account for filtering out the current user downstream.
     memberships = (
         OrganizationMembership.objects.filter(organization=organization, user__is_active=True)
+        .exclude(user__kind=UserKind.SERVICE_ACCOUNT)
         .select_related("user")
         .order_by(F("user__last_login").desc(nulls_last=True), "-joined_at")[: _TEAM_MEMBERS_MAX_ITEMS + 1]
     )

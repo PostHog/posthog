@@ -119,7 +119,7 @@ export interface FeatureFlag {
   active: boolean;
   filters: Record<string, unknown>;
   created_at: string;
-  created_by: { email: string; first_name: string } | null;
+  created_by: { email: string | null; first_name: string } | null;
   deleted: boolean;
 }
 
@@ -131,7 +131,7 @@ export interface Experiment {
   end_date: string | null;
   feature_flag_key: string;
   created_at: string;
-  created_by: { email: string; first_name: string } | null;
+  created_by: { email: string | null; first_name: string } | null;
   metrics?: ExperimentMetric[];
   metrics_secondary?: ExperimentMetric[];
   parameters?: {

@@ -303,7 +303,9 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
                     const needle = view.query.trim().toLowerCase()
                     const matching = needle
                         ? all.filter((member) =>
-                              `${member.first_name} ${member.last_name} ${member.email}`.toLowerCase().includes(needle)
+                              `${member.first_name} ${member.last_name} ${member.email ?? ''}`
+                                  .toLowerCase()
+                                  .includes(needle)
                           )
                         : all
                     const pages = Math.max(1, Math.ceil(matching.length / MEMBERS_PER_PAGE))

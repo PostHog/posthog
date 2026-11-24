@@ -556,7 +556,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         record_id=str(obj.pk),
         panel=panel.key,
         operation=operation.key,
-        triggered_by=cast(User, request.user).email,
+        triggered_by=str(cast(User, request.user)),
     )
     _require_gate(request, operation, panel.owner, audit)
     if request.method == "GET" and operation.form_class is None:
@@ -708,7 +708,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         tool=tool.key,
         operation=operation.key,
         query=_audit_query(request),
-        triggered_by=cast(User, request.user).email,
+        triggered_by=str(cast(User, request.user)),
     )
     _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:

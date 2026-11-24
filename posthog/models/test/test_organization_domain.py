@@ -7,7 +7,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationDomain
+from posthog.models import Organization, OrganizationDomain, User
 
 
 class TestOrganizationDomainEnforcement(BaseTest):
@@ -31,6 +31,21 @@ class TestOrganizationDomainEnforcement(BaseTest):
     def test_is_email_blocked_by_domain_enforcement(self, _name, enforce, email, expect_blocked):
         org = self._org_with_domain(enforce=enforce)
         self.assertEqual(OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, org), expect_blocked)
+
+    @parameterized.expand(
+        [
+            ("person_outside_the_verified_domains", False, True),
+            ("service_account_without_an_email", True, False),
+        ]
+    )
+    def test_is_user_blocked_by_domain_enforcement(self, _name, is_service_account, expect_blocked):
+        org = self._org_with_domain()
+        if is_service_account:
+            user = User.objects.create_service_account(organization=org, name="Terraform")
+        else:
+            user = User.objects.create_user("outsider@gmail.com", None, "Outsider")
+
+        self.assertEqual(OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, org), expect_blocked)
 
     def test_email_on_any_verified_domain_is_allowed(self):
         # The allow-list is all of the org's verified domains — multi-domain orgs must accept

@@ -1487,7 +1487,7 @@ def _add_owners(organization_id: UUID | str, credentials: list[dict[str, Any]]) 
     for c in credentials:
         if (user := members.get(str(c.get("owner_user_uuid")))) is not None:
             c["owner_email"] = user.email
-            c["owner_name"] = user.first_name or user.email
+            c["owner_name"] = user.first_name or str(user)
 
 
 def list_hoglake_credentials(organization_id: UUID | str) -> Response:

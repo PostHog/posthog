@@ -83,7 +83,9 @@ function MemberHeader({ member }: { member: AccessControlMemberEntry }): JSX.Ele
                 <div className="font-medium text-sm truncate">
                     {member.user.first_name ? fullName(member.user) : member.user.email}
                 </div>
-                {member.user.first_name && <div className="text-secondary text-sm truncate">{member.user.email}</div>}
+                {member.user.first_name && member.user.email && (
+                    <div className="text-secondary text-sm truncate">{member.user.email}</div>
+                )}
                 {/* Reserves the height of the LemonInput the tags turn into, with the tags at the
                     top of it, so clicking Edit roles moves nothing above or below. A couple of
                     pixels over --lemon-input-height, which the input's borders push past */}

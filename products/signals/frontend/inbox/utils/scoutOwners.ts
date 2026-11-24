@@ -24,7 +24,7 @@ export function scoutOwnerBubbles(
     return owners.map((owner) => {
         const name = scoutOwnerName(owner)
         return {
-            email: owner.email ?? null,
+            email: owner.email,
             name,
             title: !owner.email || name === owner.email ? name : `${name} (${owner.email})`,
         }
@@ -61,7 +61,7 @@ export function listScoutOwnerOptions(configs: SignalScoutConfigApi[]): ScoutOwn
             options.set(owner.uuid, {
                 uuid: owner.uuid,
                 name: scoutOwnerName(owner),
-                email: owner.email ?? null,
+                email: owner.email,
                 count: 1,
             })
         }

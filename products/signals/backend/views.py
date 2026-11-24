@@ -4206,7 +4206,11 @@ class SignalReportViewSet(
                         "type": "object",
                         "properties": {
                             "name": {"type": "string", "description": "Member's full name."},
-                            "email": {"type": "string", "description": "Member's email address."},
+                            "email": {
+                                "type": "string",
+                                "nullable": True,
+                                "description": "Member's email address. Null for a service account without a contact email.",
+                            },
                         },
                         "required": ["name", "email"],
                     },
@@ -4233,7 +4237,7 @@ class SignalReportViewSet(
             reviewers = {
                 user_uuid: {
                     "name": f"{user.first_name} {user.last_name}".strip(),
-                    "email": user.email or "",
+                    "email": user.email,
                 }
                 for user_uuid, user in users_by_uuid.items()
             }

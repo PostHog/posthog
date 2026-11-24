@@ -39,7 +39,7 @@ export type ExperimentsListWidgetRow = {
     created_by: {
         id: number
         first_name: string
-        email: string
+        email: string | null
     } | null
 }
 

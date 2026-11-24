@@ -480,6 +480,18 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert "groups" in data
         assert any(g.get("display") == "Engineers" for g in data["groups"])
 
+    def test_service_account_is_not_exposed_as_a_scim_user(self):
+        service_account = User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        list_response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
+        detail_response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users/{service_account.id}")
+
+        assert list_response.status_code == status.HTTP_200_OK
+        listed_ids = {str(resource["id"]) for resource in list_response.json()["Resources"]}
+        assert str(self.user.id) in listed_ids
+        assert str(service_account.id) not in listed_ids
+        assert detail_response.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand(
         [
             ("replace_without_path", {"op": "replace", "value": {"active": False}}),

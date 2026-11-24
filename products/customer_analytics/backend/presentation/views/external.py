@@ -432,7 +432,10 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
 
 class ExternalAccountListAssignmentSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
-    email = serializers.CharField(help_text="Current email address of the assigned user.")
+    email = serializers.CharField(
+        allow_null=True,
+        help_text="Current email address of the assigned user. Null for a service account without a contact email.",
+    )
     name = serializers.CharField(
         allow_null=True,
         help_text="Current display name of the assigned user, or null when the user has no name set.",

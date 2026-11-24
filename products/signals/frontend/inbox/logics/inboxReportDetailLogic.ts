@@ -547,7 +547,7 @@ export interface inboxReportDetailLogicActions {
     }
     loadAvailableReviewersSuccess: (
         availableReviewers: {
-            email: string
+            email: string | null
             name: string
             user_uuid: string
         }[],
@@ -556,7 +556,7 @@ export interface inboxReportDetailLogicActions {
         }
     ) => {
         availableReviewers: {
-            email: string
+            email: string | null
             name: string
             user_uuid: string
         }[]

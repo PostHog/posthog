@@ -606,6 +606,26 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(members_by_uuid[str(service_account.uuid)]["email"], None)
         self.assertEqual(members_by_uuid[str(service_account.uuid)]["first_name"], "Terraform")
 
+    @parameterized.expand(
+        [
+            ("to_admin", OrganizationMembership.Level.ADMIN),
+            ("to_owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    def test_cannot_raise_a_service_account_above_member(self, _name, new_level):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        service_account = User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        response = self.client.patch(
+            f"/api/organizations/@current/members/{service_account.uuid}/", {"level": new_level}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "A service account can only have the member access level.")
+        membership = OrganizationMembership.objects.get(user=service_account, organization=self.organization)
+        self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+
     def test_list_organization_members_filter_by_email(self):
         # Create additional users
         user1 = User.objects.create_and_join(self.organization, "specific@posthog.com", None)

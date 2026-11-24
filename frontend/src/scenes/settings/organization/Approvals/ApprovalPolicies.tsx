@@ -306,7 +306,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             labelComponent: (
                 <div className="flex items-center gap-2">
                     <span>{member.user.first_name}</span>
-                    <span className="text-muted text-xs">({member.user.email})</span>
+                    {member.user.email && <span className="text-muted text-xs">({member.user.email})</span>}
                 </div>
             ),
         })) || []

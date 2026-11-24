@@ -18,6 +18,8 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { pullRequestStateMeta } from './TaskPullRequestChip'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 import { TodayHoverCardFact } from './TodayHoverCardFact'
@@ -27,7 +29,7 @@ import { TodaySessionActionItems } from './TodaySessionActionItems'
 import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
-import { TodayWorkItemAuthor, activityDetail } from './todayWorkItems'
+import { activityDetail } from './todayWorkItems'
 
 function BranchLine({ branch }: { branch: string }): JSX.Element {
     const { copyBranchName } = useActions(todaySessionMenuLogic)
@@ -58,7 +60,7 @@ function BranchLine({ branch }: { branch: string }): JSX.Element {
     )
 }
 
-function AuthorFace({ author }: { author: TodayWorkItemAuthor }): JSX.Element {
+function AuthorFace({ author }: { author: TaskUserBasicInfoApi }): JSX.Element {
     const label = `Created by ${taskUserName(author)}`
     return (
         <Tooltip disableHoverablePopup>

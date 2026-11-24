@@ -66,7 +66,8 @@ export interface UserBasic {
   distinct_id?: string | null;
   first_name?: string;
   last_name?: string;
-  email: string;
+  /** Null for a service account without a contact email. */
+  email: string | null;
   is_email_verified?: boolean | null;
 }
 

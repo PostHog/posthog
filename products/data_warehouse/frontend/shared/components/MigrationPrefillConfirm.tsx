@@ -28,14 +28,16 @@ export function MigrationPrefillConfirm({
     newSetupUrl,
     className,
 }: MigrationPrefillConfirmProps): JSX.Element {
+    const creatorLabel =
+        creator?.first_name && creator.email
+            ? `${creator.first_name} (${creator.email})`
+            : creator?.first_name || creator?.email
     return (
         // The banner shows the vendor host and user, so replay and autocapture leave it out.
         <LemonBanner type="warning" className={cn('ph-no-capture', className)}>
             <p className="font-semibold mb-1">Check where your credentials go</p>
             <p className="m-0 mb-2 text-sm">
-                {creator
-                    ? `${creator.first_name ? `${creator.first_name} (${creator.email})` : creator.email} prepared this connection.`
-                    : 'A migration prepared this connection.'}{' '}
+                {creatorLabel ? `${creatorLabel} prepared this connection.` : 'A migration prepared this connection.'}{' '}
                 {trustNote}
             </p>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 m-0 mb-2 text-sm">

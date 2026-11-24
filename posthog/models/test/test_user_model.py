@@ -54,6 +54,13 @@ class TestUser(BaseTest):
         self.assertIsNone(EmailLookupHandler.get_user_by_email("engineering@posthog.com"))
         self.assertTrue(EmailLookupHandler.users_matching_email("engineering@posthog.com").exists())
 
+    def test_require_email_raises_for_a_service_account_without_one(self):
+        service_account = User.objects.create_service_account(organization=self.organization, name="CI")
+
+        self.assertEqual(self.user.require_email(), self.user.email)
+        with self.assertRaises(ValueError):
+            service_account.require_email()
+
     def test_analytics_metadata(self):
         self.maxDiff = None
         # One org, one team, anonymized

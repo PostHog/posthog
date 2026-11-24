@@ -142,8 +142,8 @@ def _clickhouse_team_members() -> Table:
         rows=tuple(
             Row(
                 cells=(
-                    Cell(text=member.get_full_name() or member.email, href=RECORD_TYPES["user"].url(member)),
-                    Cell(text=member.email, mono=True),
+                    Cell(text=member.get_full_name() or str(member), href=RECORD_TYPES["user"].url(member)),
+                    Cell(text=member.email or "-", mono=True),
                 )
             )
             for member in members

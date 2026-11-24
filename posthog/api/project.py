@@ -1687,7 +1687,7 @@ class ProjectViewSet(
                 .values_list("user_id", flat=True)
             )
 
-            creator = user.first_name or user.email
+            creator = user.first_name or str(user)
             for admin_user_id in admin_user_ids:
                 create_notification(
                     NotificationData(

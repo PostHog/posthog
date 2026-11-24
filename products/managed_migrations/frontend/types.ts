@@ -47,7 +47,7 @@ export interface BaseManagedMigration {
         uuid: string
         distinct_id: string
         first_name: string
-        email: string
+        email: string | null
     }
     created_at: string
     status_message: string | null

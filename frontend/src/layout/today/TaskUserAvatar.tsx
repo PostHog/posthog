@@ -6,8 +6,7 @@ import { gravatarUrl } from 'lib/utils/gravatar'
 
 import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export type TaskAvatarUser = Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name'> & {
-    email?: string | null
+export type TaskAvatarUser = Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name' | 'email'> & {
     uuid?: string | null
 }
 

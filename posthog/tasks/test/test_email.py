@@ -1160,6 +1160,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_members_to_notify_for_pipeline_error(self, MockEmailMessage: MagicMock) -> None:
         user2 = self._create_user("test2@posthog.com")
+        User.objects.create_service_account(organization=self.organization, name="Terraform")
 
         # Default threshold is 1% - failure rate 0.5 exceeds it, so both users notified
         memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)

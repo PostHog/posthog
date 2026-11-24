@@ -52,4 +52,4 @@ class ProxyRecordAdmin(admin.ModelAdmin):
         if not obj.created_by:
             return "-"
         url = reverse("admin:posthog_user_change", args=[obj.created_by_id])
-        return format_html('<a href="{}">{}</a>', url, obj.created_by.email)
+        return format_html('<a href="{}">{}</a>', url, str(obj.created_by))

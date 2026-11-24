@@ -22,7 +22,7 @@ def organization_members_table(organization_id) -> str:
         (
             (
                 reverse("admin:posthog_user_change", args=[membership.user_id]),
-                membership.user.email,
+                str(membership.user),
                 membership.get_level_display(),
                 membership.joined_at.strftime("%Y-%m-%d %H:%M UTC"),
             )

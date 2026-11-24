@@ -84,7 +84,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                     <ItemTitle className="w-full">
                         <span className="truncate">{member?.user.uuid == user.uuid ? `${name} (you)` : name}</span>
                     </ItemTitle>
-                    <ItemDescription className="truncate">{member?.user.email}</ItemDescription>
+                    {member?.user.email && <ItemDescription className="truncate">{member.user.email}</ItemDescription>}
                 </ItemContent>
                 <ItemActions>
                     <QuillAccessLevelSelect

@@ -68,7 +68,9 @@ export function NotificationMemberList({
                             <div key={member.user_id} className="flex items-center gap-2">
                                 <span className="flex-1 flex items-center gap-2 min-w-0">
                                     <span className="truncate">{name || member.email}</span>
-                                    {!!name && <span className="text-muted text-xs truncate">{member.email}</span>}
+                                    {!!name && !!member.email && (
+                                        <span className="text-muted text-xs truncate">{member.email}</span>
+                                    )}
                                     <LemonTag type="muted">
                                         {membershipLevelToName.get(member.organization_membership_level)}
                                     </LemonTag>

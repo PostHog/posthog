@@ -193,7 +193,7 @@ export function Members(): JSX.Element | null {
                             ? `${fullNameOrEmail(member.user)} (you)`
                             : fullNameOrEmail(member.user)}
                     </span>
-                    {fullName(member.user) && (
+                    {fullName(member.user) && member.user.email && (
                         <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
                     )}
                     {!member.user.is_email_verified &&

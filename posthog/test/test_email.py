@@ -200,6 +200,28 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="capture_down").sent_at)
 
+    @parameterized.expand(
+        [
+            ("only_a_service_account", False, []),
+            ("a_service_account_and_a_person", True, [["test@posthog.com"]]),
+        ]
+    )
+    def test_send_skips_a_user_without_an_email(
+        self, name: str, include_person: bool, expected_recipients: list[list[str]]
+    ) -> None:
+        service_account = User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key=f"no_email_{name}", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_user_recipient(service_account)
+            if include_person:
+                message.add_user_recipient(self.user)
+            message.send(send_async=False)
+
+        self.assertEqual([sent.to for sent in mail.outbox], expected_recipients)
+
     def test_smtp_send_captures_the_send_with_the_instance_region(self) -> None:
         events: list[dict[str, Any]] = []
 

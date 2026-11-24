@@ -270,7 +270,11 @@ class HoglakeCredentialSerializer(serializers.Serializer):
         "projects in team_ids that its owner can still see.",
     )
     owner_user_uuid = serializers.UUIDField(required=False, help_text="A personal credential's owner")
-    owner_email = serializers.CharField(required=False, help_text="The owner's email, while they are a member")
+    owner_email = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The owner's email, while they are a member. Null for a service account without a contact email.",
+    )
     owner_name = serializers.CharField(required=False, help_text="The owner's name, while they are a member")
     team_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, help_text="A personal credential's projects"

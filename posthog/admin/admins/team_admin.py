@@ -520,7 +520,7 @@ class TeamAdmin(admin.ModelAdmin):
                 (
                     e.created_at.strftime("%Y-%m-%d %H:%M UTC"),
                     format_html(
-                        "{}{}", e.user.email if e.user else "—", " (impersonated)" if e.was_impersonated else ""
+                        "{}{}", str(e.user) if e.user else "—", " (impersonated)" if e.was_impersonated else ""
                     ),
                     (e.detail or {}).get("context", {}).get("amount_usd", ""),
                     (e.detail or {}).get("context", {}).get("reason", ""),

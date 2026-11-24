@@ -78,9 +78,11 @@ function MemberPicker({
                                         size="xs"
                                     />
                                     <span className="truncate">{fullName(member?.user)}</span>
-                                    <Text size="xs" variant="muted" render={<span className="truncate" />}>
-                                        {member?.user.email}
-                                    </Text>
+                                    {member?.user.email && (
+                                        <Text size="xs" variant="muted" render={<span className="truncate" />}>
+                                            {member.user.email}
+                                        </Text>
+                                    )}
                                 </span>
                             </ComboboxItem>
                         )

@@ -17,7 +17,7 @@ export interface SharePasswordsLogicProps {
 export interface sharePasswordsLogicValues {
     createdPasswordResult: {
         created_at: string
-        created_by_email: string
+        created_by_email: string | null
         id: string
         note: string
         password: string
@@ -140,7 +140,13 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
             },
         ],
         createdPasswordResult: [
-            null as { id: string; password: string; note: string; created_at: string; created_by_email: string } | null,
+            null as {
+                id: string
+                password: string
+                note: string
+                created_at: string
+                created_by_email: string | null
+            } | null,
             {
                 createPasswordSuccess: (_, { response }) => response,
                 createPassword: () => null,

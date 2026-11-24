@@ -54,7 +54,7 @@ class ProjectSecretAPIKeyAdmin(admin.ModelAdmin):
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_user_change", args=[key.created_by.pk]),
-            key.created_by.email,
+            str(key.created_by),
         )
 
     @admin.display(description="Roll key")

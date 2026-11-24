@@ -99,7 +99,7 @@ export function QuillMembers(): JSX.Element | null {
                                 ? `${fullNameOrEmail(member.user)} (you)`
                                 : fullNameOrEmail(member.user)}
                         </Text>
-                        {fullName(member.user) && (
+                        {fullName(member.user) && member.user.email && (
                             <Text size="xs" variant="muted" render={<span />} className="m-0 ph-no-capture">
                                 {member.user.email}
                             </Text>

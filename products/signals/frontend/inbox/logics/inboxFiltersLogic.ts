@@ -40,7 +40,7 @@ import {
 export interface InboxReviewerOption {
     user_uuid: string
     name: string
-    email: string
+    email: string | null
 }
 
 export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fix'
@@ -410,7 +410,7 @@ export interface inboxFiltersLogicActions {
     }
     loadAvailableReviewersSuccess: (
         availableReviewers: {
-            email: string
+            email: string | null
             name: string
             user_uuid: string
         }[],
@@ -419,7 +419,7 @@ export interface inboxFiltersLogicActions {
         }
     ) => {
         availableReviewers: {
-            email: string
+            email: string | null
             name: string
             user_uuid: string
         }[]
@@ -691,8 +691,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         const rememberSelectedTeammate = (): void => {
             const uuid = parseTeammateInboxScope(values.scope)
             const reviewer = values.availableReviewers.find((reviewer) => reviewer.user_uuid === uuid)
-            if (uuid && reviewer) {
-                actions.setKnownTeammate(uuid, reviewer.name || reviewer.email)
+            const label = reviewer?.name || reviewer?.email
+            if (uuid && label) {
+                actions.setKnownTeammate(uuid, label)
             }
         }
 

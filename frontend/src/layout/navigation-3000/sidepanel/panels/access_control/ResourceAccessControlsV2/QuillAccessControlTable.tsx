@@ -60,9 +60,11 @@ function scopeColumnsForTab(activeTab: AccessControlsTab): ColumnDef<AccessContr
                                             <Text size="xs" weight="medium" render={<span className="truncate" />}>
                                                 {fullName(user)}
                                             </Text>
-                                            <Text size="xs" variant="muted" render={<span className="truncate" />}>
-                                                {user.email}
-                                            </Text>
+                                            {user.email && (
+                                                <Text size="xs" variant="muted" render={<span className="truncate" />}>
+                                                    {user.email}
+                                                </Text>
+                                            )}
                                         </>
                                     ) : (
                                         <Text size="xs" variant="muted" render={<span className="truncate" />}>

@@ -1702,6 +1702,14 @@ class TestOrganizationSerializer(APIBaseTest):
         assert spy.call_count == 1
         assert first == second == 1
 
+    def test_member_count_leaves_out_service_accounts(self):
+        User.objects.create_service_account(organization=self.organization, name="Terraform")
+
+        response = self.client.get("/api/organizations/@current")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["member_count"] == 1
+
     @parameterized.expand(
         [
             (

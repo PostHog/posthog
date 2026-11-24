@@ -849,7 +849,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                                           distinct_id: integration.created_by.distinct_id ?? '',
                                           first_name: integration.created_by.first_name ?? '',
                                           last_name: integration.created_by.last_name,
-                                          email: integration.created_by.email ?? null,
+                                          email: integration.created_by.email,
                                           is_email_verified: integration.created_by.is_email_verified,
                                           role_at_organization: integration.created_by.role_at_organization,
                                       }

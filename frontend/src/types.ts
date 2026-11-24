@@ -5823,7 +5823,7 @@ export interface SharePasswordType {
     id: string
     created_at: string
     note: string
-    created_by_email: string
+    created_by_email: string | null
     is_active: boolean
     password?: string
 }

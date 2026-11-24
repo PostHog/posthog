@@ -50,9 +50,11 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                                     {entry.user.first_name ? (
                                         <>
                                             <p className="font-medium mb-0 truncate">{fullName(entry.user)}</p>
-                                            <p className="text-secondary font-light mb-0 truncate text-xs">
-                                                {entry.user.email}
-                                            </p>
+                                            {entry.user.email && (
+                                                <p className="text-secondary font-light mb-0 truncate text-xs">
+                                                    {entry.user.email}
+                                                </p>
+                                            )}
                                         </>
                                     ) : (
                                         <p className="text-secondary mb-0 truncate">{entry.user.email}</p>

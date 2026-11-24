@@ -117,17 +117,21 @@ export function QuillAPIKeyTable<T extends APIKeyTableRow>({
                       id: 'created_by',
                       header: 'Created by',
                       enableSorting: false,
-                      cell: ({ row }) =>
-                          row.original.created_by ? (
+                      cell: ({ row }) => {
+                          const createdBy = row.original.created_by
+                          if (!createdBy) {
+                              return 'Unknown'
+                          }
+                          if (!createdBy.email) {
+                              return formatCreatedBy(createdBy)
+                          }
+                          return (
                               <Tooltip>
-                                  <TooltipTrigger render={<span />}>
-                                      {formatCreatedBy(row.original.created_by)}
-                                  </TooltipTrigger>
-                                  <TooltipContent>{row.original.created_by.email}</TooltipContent>
+                                  <TooltipTrigger render={<span />}>{formatCreatedBy(createdBy)}</TooltipTrigger>
+                                  <TooltipContent>{createdBy.email}</TooltipContent>
                               </Tooltip>
-                          ) : (
-                              'Unknown'
-                          ),
+                          )
+                      },
                   } satisfies ColumnDef<T>,
               ]
             : []),

@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from posthog.models import OrganizationInvite
+from rest_framework.exceptions import ValidationError
+
+from posthog.models import Organization, OrganizationInvite
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -30,6 +32,19 @@ class TestOrganizationInvite(BaseTest):
         OrganizationInvite.objects.filter(id=expired_invite.id).update(created_at=timezone.now() - timedelta(hours=73))
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
+
+    def test_invite_cannot_be_used_by_a_service_account(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        service_account = User.objects.create_service_account(organization=other_organization, name="Terraform")
+        invite = OrganizationInvite.objects.create(organization=self.organization, target_email="person@posthog.com")
+
+        with self.assertRaises(ValidationError):
+            invite.use(service_account)
+
+        self.assertFalse(
+            OrganizationMembership.objects.filter(organization=self.organization, user=service_account).exists()
+        )
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     def test_invite_use_with_new_access_control_admin(self):
         """Test using an invite with the new access control system for admin level"""

@@ -279,6 +279,21 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["user_email"], "testmember@example.com")
         self.assertEqual(context["organization_name"], "Test Membership Org")
 
+    def test_service_account_membership_log_names_the_account_without_an_email(self):
+        org_response = self.create_organization("Service Account Org")
+        org = Organization.objects.get(id=org_response["id"])
+        service_account = User.objects.create_service_account(organization=org, name="Terraform")
+        membership = OrganizationMembership.objects.get(user=service_account, organization=org)
+
+        log = ActivityLog.objects.filter(
+            organization_id=org.id, scope="OrganizationMembership", activity="created", item_id=str(membership.id)
+        ).first()
+
+        assert log is not None
+        assert log.detail is not None
+        self.assertEqual(log.detail["name"], "Terraform joined Service Account Org")
+        self.assertIsNone(log.detail["context"]["user_email"])
+
     def test_organization_membership_deletion_activity_logging(self):
         org_response = self.create_organization("Test Delete Membership Org")
         org = Organization.objects.get(id=org_response["id"])

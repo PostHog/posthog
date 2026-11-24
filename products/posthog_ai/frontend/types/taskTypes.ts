@@ -102,7 +102,7 @@ export interface Task {
         uuid: string
         distinct_id: string
         first_name: string
-        email: string
+        email: string | null
     } | null
 }
 

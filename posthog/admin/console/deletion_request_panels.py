@@ -128,7 +128,7 @@ class DeletionRequestOverviewPanel(Panel):
         if obj.approved_automatically:
             approved = f"Automatically, {_when(obj.approved_at)}"
         elif obj.approved:
-            approver = obj.approved_by.email if obj.approved_by else "a deleted user"
+            approver = str(obj.approved_by) if obj.approved_by else "a deleted user"
             approved = f"By {approver}, {_when(obj.approved_at)}"
         else:
             approved = "Not yet"
@@ -769,7 +769,7 @@ class DeletionRequestCriteriaPanel(Panel):
             if criterion.label not in ("Type", "Team")
         ]
         if obj.criteria_updated_at is not None:
-            editor = obj.criteria_updated_by.email if obj.criteria_updated_by else "a deleted user"
+            editor = str(obj.criteria_updated_by) if obj.criteria_updated_by else "a deleted user"
             facts.append(Fact(label="Last changed", value=f"By {editor}, {_when(obj.criteria_updated_at)}"))
         return facts[:MAX_FACTS_PER_PANEL]
 

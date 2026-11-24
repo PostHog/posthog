@@ -119,7 +119,7 @@ export interface LLMProviderKey extends Partial<
         distinct_id: string
         first_name: string
         last_name: string
-        email: string
+        email: string | null
     } | null
     last_used_at: string | null
 }

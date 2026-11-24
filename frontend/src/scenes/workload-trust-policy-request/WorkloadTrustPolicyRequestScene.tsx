@@ -42,7 +42,7 @@ function RequesterLine({ policyRequest }: { policyRequest: WorkloadTrustPolicyRe
     return (
         <>
             Requested by <strong>{requester ? fullNameOrEmail(requester) : 'a former member'}</strong>
-            {requester ? ` (${requester.email})` : ''}
+            {requester?.email ? ` (${requester.email})` : ''}
             {policyRequest.requested_via ? ` through ${policyRequest.requested_via}` : ''}{' '}
             {policyRequest.requested_via_verified === true ? (
                 <Tooltip title="This application has been verified by PostHog.">

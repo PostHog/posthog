@@ -931,6 +931,12 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
         if membership_being_updated.effective_level == OrganizationMembership.Level.OWNER and not can_manage_owners:
             raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+        if (
+            new_level is not None
+            and new_level > OrganizationMembership.Level.MEMBER
+            and membership_being_updated.user.is_service_account
+        ):
+            raise exceptions.ValidationError({"level": "A service account can only have the member access level."})
 
     def get_scoped_api_keys(self):
         """

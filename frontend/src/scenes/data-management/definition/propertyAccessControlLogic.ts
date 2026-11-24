@@ -35,7 +35,7 @@ export interface LocalAccessControlState {
 export interface propertyAccessControlLogicValues {
     activeTab: string
     allMembers: {
-        email: string
+        email: string | null
         first_name: string
         id: string
         last_name: string
@@ -107,7 +107,7 @@ export interface propertyAccessControlLogicMeta {
         memberOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
         roleOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
         allMembers: (members: OrganizationMemberType[] | null) => {
-            email: string
+            email: string | null
             first_name: string
             id: string
             last_name: string
@@ -217,12 +217,12 @@ export const propertyAccessControlLogic = kea<propertyAccessControlLogicType>([
             () => [membersLogic.selectors.members],
             (
                 members: import('../../../types').OrganizationMemberType[] | null
-            ): { id: string; first_name: string; last_name: string; email: string }[] =>
+            ): { id: string; first_name: string; last_name: string; email: string | null }[] =>
                 (members ?? []).map((member: any) => ({
                     id: member.id,
                     first_name: member.user?.first_name ?? '',
                     last_name: member.user?.last_name ?? '',
-                    email: member.user?.email ?? '',
+                    email: member.user?.email ?? null,
                 })),
         ],
         allRoles: [
@@ -235,7 +235,7 @@ export const propertyAccessControlLogic = kea<propertyAccessControlLogicType>([
                         id: m.id,
                         first_name: m.user?.first_name ?? '',
                         last_name: m.user?.last_name ?? '',
-                        email: m.user?.email ?? '',
+                        email: m.user?.email ?? null,
                     })),
                 })),
         ],

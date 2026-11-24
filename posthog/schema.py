@@ -3797,7 +3797,7 @@ class UserBasicType(BaseModel):
         extra="forbid",
     )
     distinct_id: str
-    email: str
+    email: str | None = Field(..., description="Null for a service account without a contact email.")
     first_name: str
     hedgehog_config: MinimalHedgehogConfig | None = None
     id: float

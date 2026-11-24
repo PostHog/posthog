@@ -316,11 +316,16 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
 
 
 class SharePasswordSerializer(serializers.ModelSerializer):
-    created_by_email = serializers.SerializerMethodField()
+    created_by_email = serializers.SerializerMethodField(
+        help_text=(
+            'Email address of the user who created the password, or "deleted user" when that user no longer '
+            "exists. Null for a service account without a contact email."
+        )
+    )
 
-    @extend_schema_field(serializers.CharField())
-    def get_created_by_email(self, obj):
-        return str(obj.created_by) if obj.created_by else "deleted user"
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_created_by_email(self, obj: SharePassword) -> str | None:
+        return obj.created_by.email if obj.created_by else "deleted user"
 
     class Meta:
         model = SharePassword
@@ -757,7 +762,7 @@ class SharingConfigurationViewSet(
                 "password": raw_password,  # Only returned once on creation
                 "note": share_password.note,
                 "created_at": share_password.created_at,
-                "created_by_email": str(share_password.created_by) if share_password.created_by else "deleted user",
+                "created_by_email": share_password.created_by.email if share_password.created_by else "deleted user",
             },
             status=status.HTTP_201_CREATED,
         )
