@@ -268,8 +268,10 @@ class HandlebarsToLiquid:
     def _literal(self, source: str, *, noted: bool = True) -> str:
         if noted:
             self.unsupported.append(source)
+        # A quote in the source ends the attribute in Mailgun or SendGrid too, so only the converter's own are encoded.
+        literal = liquid_literal(source) if '"' in source else self._attribute_safe(liquid_literal(source))
         self._feed(source)
-        return self._attribute_safe(liquid_literal(source))
+        return literal
 
     # Blocks -----------------------------------------------------------------------------------------------------------
 
@@ -294,6 +296,7 @@ class HandlebarsToLiquid:
         keyword = "if"
         # A comparison may first assign a value as text, and Liquid only allows that before the whole chain.
         setup: list[str] = []
+        in_double_quotes = self._html is not None and self._html.state == "dq"
         while current is not None:
             condition = self._condition(current, frames, setup)
             body = current.body
@@ -316,7 +319,10 @@ class HandlebarsToLiquid:
             else:
                 ends.append(start)
         self._merge(ends)
-        return _joined([self._spend("".join(setup)), *parts, self._spend("{% endif %}")])
+        assigns = "".join(setup)
+        if in_double_quotes:
+            assigns = assigns.replace('"', "&quot;")
+        return _joined([self._spend(assigns, literal=True), *parts, self._spend("{% endif %}")])
 
     def _dry_condition(self, block: _Block, frames: tuple[_Frame, ...]) -> None:
         """Raises when the block has no condition, without using up assignment names."""

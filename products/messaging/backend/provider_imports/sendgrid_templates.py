@@ -195,7 +195,11 @@ _LIQUID_TAG = re.compile(
     r"|\{%(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{%).){0,2000}?%\}",
     re.DOTALL,
 )
-_ATTRIBUTE_LIQUID = re.compile(r"\{\{[^{}]{0,2000}(?:\{\{&quot;\s)?\}\}|\{%[^{}]{0,2000}%\}")
+# A string is one piece here too. Entities make a tag up to six times longer than what `_LIQUID_TAG` reads after them.
+_ATTRIBUTE_LIQUID = re.compile(
+    r"\{\{(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}\}\}|\{%(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}%\}",
+    re.DOTALL,
+)
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
 _LIQUID_SLOT_SPLIT = re.compile("(\x01\\d+\x01)")
 _RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")

@@ -368,6 +368,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "with_a_brace_in_a_default",
+                '{{{body}}}<a href="{{insert url "default={x"}}">Go</a>',
+                'Go ({{ variables.url | default: "{x" | join: "," }})',
+            ),
             ("after_raw_html", '{{{body}}}<a href="{{url}}">Go</a>', 'Go ({{ variables.url | join: "," }})'),
             (
                 "next_to_a_tag_kept_as_text",
