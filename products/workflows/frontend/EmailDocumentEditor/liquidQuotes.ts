@@ -8,10 +8,7 @@ function liquidAt(html: string, position: number): string | null {
     return LIQUID_TAG.exec(html)?.[0] ?? null
 }
 
-/**
- * Writes `"` as `&quot;` in the Liquid inside a double-quoted attribute, because an HTML parser reads it as the end of
- * the attribute. A send decodes the entity before it renders the tag.
- */
+/** An HTML parser reads a `"` in Liquid as the end of a double-quoted attribute. A send decodes the entity. */
 export function encodeLiquidQuotes(html: string): string {
     const out: string[] = []
     let inTag = false
