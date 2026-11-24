@@ -129,12 +129,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         access = patch("products.autoresearch.backend.temporal.workflows.has_autoresearch_access", return_value=True)
         self.mock_access = access.start()
         self.addCleanup(access.stop)
-        desktop = patch("products.autoresearch.backend.temporal.workflows.get_desktop_access_decision")
-        desktop.start().return_value.allowed = True
-        self.addCleanup(desktop.stop)
-        usage = patch("products.autoresearch.backend.temporal.workflows.task_run_usage_limited", return_value=False)
-        self.mock_usage_limited = usage.start()
-        self.addCleanup(usage.stop)
+        gate_access = patch("products.autoresearch.backend.access.has_autoresearch_access", self.mock_access)
+        gate_access.start()
+        self.addCleanup(gate_access.stop)
 
     def _create_pipeline(self, **overrides: Any) -> AutoresearchPipeline:
         params: dict[str, Any] = {
@@ -602,11 +599,10 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, "already_running"),
-            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, True, "already_ran_today"),
-            ("tasks_usage_limited", None, True, True, True, "tasks_gated"),
-            ("rollout_withdrawn_since_discovery", None, False, False, True, "tasks_gated"),
-            ("organization_deactivated_since_discovery", None, False, True, False, "tasks_gated"),
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, True, True, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, True, True, "already_ran_today"),
+            ("rollout_withdrawn_since_discovery", None, False, True, "access_refused"),
+            ("organization_deactivated_since_discovery", None, True, False, "access_refused"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -614,7 +610,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         self,
         _name: str,
         run_status: Optional[str],
-        usage_limited: bool,
         in_rollout: bool,
         organization_active: bool,
         expected_reason: str,
@@ -623,7 +618,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         pipeline = self._create_pipeline()
         if run_status:
             AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
-        self.mock_usage_limited.return_value = usage_limited
         self.mock_access.return_value = in_rollout
         self.organization.is_active = organization_active
         self.organization.save()
@@ -632,6 +626,20 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
+
+    @parameterized.expand([("startup_program", "Startup", "none"), ("prepaid_credits", None, "active")])
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_ignores_desktop_funding_rules(
+        self, _name: str, startup_program_label: Optional[str], prepaid_credit_state: str, mock_run_training: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        funding = MagicMock(startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state)
+
+        with patch("ee.billing.billing_manager.BillingManager.get_funding_status", return_value=funding):
+            result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert (result.kicked_off, result.reason) == (True, "explore")
+        mock_run_training.assert_called_once()
 
     @parameterized.expand(
         [
@@ -684,7 +692,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         [
             ("no_champion_comes_first", 1, "no_champion", None, ["team_daily_cap", "scheduled"]),
             ("longest_wait_comes_first", 1, "waited_longer", None, ["team_daily_cap", "scheduled"]),
-            ("gated_creator_holds_no_slot", 1, "no_champion", "tasks_usage_limited", ["scheduled", "tasks_gated"]),
+            ("gated_creator_holds_no_slot", 1, "no_champion", "outside_the_rollout", ["scheduled", "access_refused"]),
             ("departed_creator_holds_no_slot", 1, "no_champion", "left_the_team", ["scheduled", "team_daily_cap"]),
             ("free_slot_for_every_due_pipeline", 2, "no_champion", None, ["scheduled", "scheduled"]),
         ]
@@ -713,9 +721,9 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         mock_run_training.side_effect = launch
         ahead_creator = self.user
-        if ahead_blocked == "tasks_usage_limited":
-            ahead_creator = User.objects.create_and_join(self.organization, "limited@example.com", None)
-            self.mock_usage_limited.side_effect = lambda creator, _team_id: creator.pk == ahead_creator.pk
+        if ahead_blocked == "outside_the_rollout":
+            ahead_creator = User.objects.create_and_join(self.organization, "outside@example.com", None)
+            self.mock_access.side_effect = lambda user, **_kwargs: user.pk != ahead_creator.pk
         elif ahead_blocked == "left_the_team":
             ahead_creator = User.objects.create(email="departed@example.com")
 

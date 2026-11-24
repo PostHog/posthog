@@ -11,6 +11,7 @@ import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
@@ -19,6 +20,7 @@ import * as intakeMessage from '~/cdp/intake/message'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { decodeJobState } from '~/cdp/services/cyclotron-v2/job-codec'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
@@ -2875,62 +2877,6 @@ describe('CDP API', () => {
             jest.restoreAllMocks()
         })
 
-        describe('with its team in intake shadow mode', () => {
-            const intakeMessages = (): { key: unknown; value: Buffer }[] =>
-                produceOutput.mock.calls
-                    .filter(([output]) => output === 'cdp_intake_msk_transactional_email')
-                    .map(([, message]) => message)
-
-            beforeEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-            })
-
-            afterEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = ''
-            })
-
-            it('answers from its own insert and produces the run to the intake topic, keyed by its run id', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([expect.objectContaining({ key: res.body.invocation_id })])
-                expect(parseJSON(intakeMessages()[0].value.toString())).toMatchObject({
-                    kind: 'transactional-email',
-                    job: { id: res.body.invocation_id, state: { state: { event: { event: '$transactional_email' } } } },
-                })
-            })
-
-            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toHaveLength(1)
-            })
-
-            it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(await api['hogflowQueue'].findIdempotencyKey(res.body.invocation_id)).toEqual({
-                    fingerprint: res.body.invocation_id,
-                })
-            })
-
-            it('keeps its answer when the broker refuses the run', async () => {
-                produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_msk_transactional_email'
-                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-                        : Promise.resolve()
-                )
-
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            })
-        })
-
         describe('with its team in intake async mode', () => {
             const authorized = () => ({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
             const producedTo = (prefix: string) =>
@@ -5302,7 +5248,14 @@ describe('CDP API', () => {
                 Object.fromEntries(
                     records.map((value) => {
                         const { job } = parseJSON(value.toString())
-                        return [job.id, job.state.state.variables]
+                        const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
+                        const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
+                        const variables = decodeJobState(row, opener).state?.variables ?? {}
+                        for (const variable of Object.values(variables)) {
+                            const plaintext = typeof variable === 'string' ? variable : JSON.stringify(variable)
+                            expect(value.toString()).not.toContain(plaintext)
+                        }
+                        return [job.id, variables]
                     })
                 )
             let releaseStalledReads = () => {}
@@ -5329,9 +5282,9 @@ describe('CDP API', () => {
                 const pass = () => (holding = false)
                 return { reached, release, pass }
             }
-            const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
+            const setIntakeModes = ({ async = '', sealing = true }: { async?: string; sealing?: boolean }) => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
             }
             let intakeRecords: () => Buffer[]
 
@@ -5342,7 +5295,7 @@ describe('CDP API', () => {
             })
 
             afterEach(() => {
-                setIntakeModes({})
+                setIntakeModes({ sealing: false })
                 releaseStalledReads()
                 api['refusalDeadline'] = undefined
                 // The team outlives each test, so its cached workflows config would carry a suspension into the next one.
@@ -5352,7 +5305,7 @@ describe('CDP API', () => {
             it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
                 const { suppressed, unreachable } = await refusableRecipients()
                 const recipients = [
-                    recipient('ada@example.com', { variables: { name: 'Ada' } }),
+                    recipient('ada@example.com', { variables: { name: 'Ada Lovelace' } }),
                     recipient('not-an-address'),
                     recipient('cy@example.com', { distinct_id: null }),
                     recipient('bo@example.com'),
@@ -5360,7 +5313,7 @@ describe('CDP API', () => {
                     unreachable,
                 ]
 
-                const res = await sendBatch(TEMPLATE, { variables: { name: 'there' }, recipients })
+                const res = await sendBatch(TEMPLATE, { variables: { name: 'you there' }, recipients })
 
                 expect(res.status).toEqual(200)
                 expect(res.body.results).toEqual([
@@ -5389,8 +5342,8 @@ describe('CDP API', () => {
                 )
                 expect(intakeRecords()).toHaveLength(2)
                 expect(variablesOf(intakeRecords())).toEqual({
-                    [runIdOf(recipients[0])]: { name: 'Ada' },
-                    [runIdOf(recipients[3])]: { name: 'there' },
+                    [runIdOf(recipients[0])]: { name: 'Ada Lovelace' },
+                    [runIdOf(recipients[3])]: { name: 'you there' },
                 })
                 expect(await storedRuns()).toEqual([])
                 const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
@@ -5628,22 +5581,44 @@ describe('CDP API', () => {
                 }
             })
 
+            const batchRequestsCounted = async (outcome: string): Promise<number> => {
+                const exported = await register.getSingleMetricAsString('cdp_transactional_email_batch_requests_total')
+                const sample = exported
+                    .split('\n')
+                    .find((line) =>
+                        line.startsWith(`cdp_transactional_email_batch_requests_total{outcome="${outcome}"} `)
+                    )
+                return sample ? Number(sample.split(' ').pop()) : 0
+            }
+
             it.each([
-                ['off', false],
-                ['shadow', true],
-            ])('refuses a batch with 409 for a team in intake mode %s, and sends nothing', async (_mode, shadow) => {
-                setIntakeModes({ shadow: shadow ? String(team.id) : '' })
+                ['in intake mode off', false, true, 409, 'batch_unavailable', 'batch_unavailable'],
+                [
+                    'in intake mode async, on a pod that does not seal',
+                    true,
+                    false,
+                    503,
+                    expect.any(String),
+                    'not_sealing',
+                ],
+            ])(
+                'refuses a whole batch for a team %s, and sends nothing',
+                async (_name, onAsync, sealing, status, error, outcome) => {
+                    setIntakeModes({ async: onAsync ? String(team.id) : '', sealing })
+                    const countedBefore = await batchRequestsCounted(outcome)
 
-                const res = await sendBatch(TEMPLATE, {
-                    variables: body.variables,
-                    recipients: [recipient('ada@example.com')],
-                })
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com')],
+                    })
 
-                expect(res.status).toEqual(409)
-                expect(res.body).toEqual({ error: 'batch_unavailable' })
-                expect(intakeRecords()).toEqual([])
-                expect(await storedRuns()).toEqual([])
-            })
+                    expect(res.status).toEqual(status)
+                    expect(res.body).toEqual({ error })
+                    expect(await batchRequestsCounted(outcome)).toEqual(countedBefore + 1)
+                    expect(intakeRecords()).toEqual([])
+                    expect(await storedRuns()).toEqual([])
+                }
+            )
 
             it.each([
                 [
@@ -5824,7 +5799,12 @@ describe('CDP API', () => {
                     const ownQueue = new CyclotronJobQueuePostgresV2(100, hub)
                     await ownQueue.startAsProducer()
                     const cdpApi = new CdpApi(
-                        { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id), ...settings },
+                        {
+                            ...hub,
+                            CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id),
+                            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+                            ...settings,
+                        },
                         cdpDeps,
                         { hogQueue: createMockJobQueue(), hogflowQueue: ownQueue }
                     )

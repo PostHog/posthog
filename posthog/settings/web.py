@@ -42,7 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # Application definition
 
 # TODO: Automatically generate these like we do for the frontend
-# NOTE: Add these definitions here and on `tach.toml`
+# NOTE: `hogli product:bootstrap` adds a new product here; hoglint needs no per-product entry
 PRODUCTS_APPS = [
     "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
@@ -889,7 +889,7 @@ SPECTACULAR_SETTINGS = {
             "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
-            # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
+            # products/dashboards/scripts/build_widget_types.py checks these against WIDGET_SPECS.
             "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
             "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
             "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
@@ -1081,7 +1081,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
     "API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR", 20_000_000_000, type_cast=int
 )
-API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
+API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 100.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
 API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
     "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float

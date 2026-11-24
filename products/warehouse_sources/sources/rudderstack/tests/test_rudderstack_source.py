@@ -6,15 +6,17 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scr
 
 
 @pytest.mark.parametrize(
-    ("schema_name", "status", "expected", "path", "token"),
+    ("schema_name", "status", "expected", "path", "token", "granularity"),
     [
-        (None, 200, True, "/v2/workspace", "test-workspace-token"),
-        (None, 403, True, "/v2/workspace", "test-workspace-token"),
-        (None, 401, False, "/v2/workspace", "test-workspace-token"),
-        ("sources", 403, False, "/v2/sources", "test-workspace-token"),
-        ("audit_logs", 200, True, "/v2/audit-logs", "test-organization-token"),
-        ("retl_syncs", 200, True, "/v2/retl-connections", "test-workspace-token"),
-        (None, 400, False, "/v2/workspace", "test-workspace-token"),
+        (None, 200, True, "/v2/workspace", "test-workspace-token", None),
+        (None, 403, True, "/v2/workspace", "test-workspace-token", None),
+        (None, 401, False, "/v2/workspace", "test-workspace-token", None),
+        ("sources", 403, False, "/v2/sources", "test-workspace-token", None),
+        ("audit_logs", 200, True, "/v2/audit-logs", "test-organization-token", None),
+        ("retl_syncs", 200, True, "/v2/retl-connections", "test-workspace-token", None),
+        ("tracking_plan_events", 200, True, "/v2/catalog/tracking-plans", "test-workspace-token", None),
+        ("event_metrics_usage", 200, True, "/v2/organizations/usage/event-metrics", "test-organization-token", "day"),
+        (None, 400, False, "/v2/workspace", "test-workspace-token", None),
     ],
 )
 def test_credential_probes_select_token_and_allow_missing_scope_only_at_creation(
@@ -23,6 +25,7 @@ def test_credential_probes_select_token_and_allow_missing_scope_only_at_creation
     expected: bool,
     path: str,
     token: str,
+    granularity: str | None,
 ) -> None:
     config = RudderStackSourceConfig(
         access_token="test-workspace-token",
@@ -39,6 +42,7 @@ def test_credential_probes_select_token_and_allow_missing_scope_only_at_creation
     assert request.path == path
     assert request.origin == "https://api.eu.rudderstack.com"
     assert request.headers["authorization"] == f"Bearer {token}"
+    assert request.param("granularity") == granularity
 
 
 @pytest.mark.parametrize(
@@ -49,6 +53,7 @@ def test_credential_probes_select_token_and_allow_missing_scope_only_at_creation
         ("tökén", None, "Enter a valid"),
         ("test-token", "unknown", "not supported"),
         ("test-token", "audit_logs", "organization Service Access Token"),
+        ("test-token", "event_metrics_usage", "organization Service Access Token"),
     ],
 )
 def test_invalid_configuration_fails_without_sending_a_request(
@@ -66,3 +71,25 @@ def test_invalid_configuration_fails_without_sending_a_request(
     assert not valid
     assert message is not None and expected_message in message
     assert network.requests_log == []
+
+
+@pytest.mark.parametrize(
+    ("organization_access_token", "expected"),
+    [
+        (
+            None,
+            {
+                "audit_logs": "Add an organization Service Access Token to sync the audit_logs table.",
+                "event_metrics_usage": "Add an organization Service Access Token to sync the event_metrics_usage table.",
+                "regulations": None,
+            },
+        ),
+        ("test-organization-token", {"audit_logs": None, "event_metrics_usage": None, "regulations": None}),
+    ],
+)
+def test_endpoint_permissions_flag_tables_that_need_the_organization_token(
+    organization_access_token: str | None, expected: dict[str, str | None]
+) -> None:
+    config = RudderStackSourceConfig(access_token="test-token", organization_access_token=organization_access_token)
+
+    assert RudderStackSource().get_endpoint_permissions(config, team_id=1, endpoints=list(expected)) == expected

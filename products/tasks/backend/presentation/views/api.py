@@ -2873,6 +2873,41 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=None,
         responses={
+            204: OpenApiResponse(description="Heartbeat recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run cannot take heartbeats"),
+        },
+        summary="Record a local run heartbeat",
+        description=(
+            "Tell the server that a local run is still alive. The client that drives a local run calls "
+            "this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that "
+            "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
+            "them, along with failed and cancelled runs and runs of a finished task."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="heartbeat",
+        required_scopes=["task:write"],
+    )
+    def heartbeat(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome = tasks_facade.record_local_task_run_heartbeat(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_live_local":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run can no longer take heartbeats. Start a new run to keep working."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=None,
+        responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with the boundary recorded"),
             404: OpenApiResponse(description="Run not found"),
             409: OpenApiResponse(

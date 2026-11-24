@@ -21,7 +21,10 @@
                 "backend/scopes.py",
                 "backend/apps.py",
                 "backend/platform_alerts/registration.py",
-                "backend/platform_alerts/wording.py"
+                "backend/platform_alerts/wording.py",
+                "backend/logic/__init__.py",
+                "backend/logic/alerts.py",
+                "backend/remote_config.py"
             ],
             "outputs": [],
             "cache": true
