@@ -64,13 +64,20 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
     if (!hash) {
         return 'Every time the trigger fires'
     }
-    const label = option?.label ?? 'Limited by a custom rule'
+    const label = option ? (option.shortLabel ?? option.label) : 'Limited by a custom rule'
     const ttlSeconds = workflow.trigger_masking?.ttl ?? null
     const ttlLabel =
         ttlSeconds === null
             ? null
             : (TTL_OPTIONS.find((o) => o.value === ttlSeconds)?.label ?? humanFriendlyDuration(ttlSeconds))
-    const base = option?.fixedTtl || !ttlLabel ? label : `${label} per ${ttlLabel}`
+    let base = label
+    if (!option?.fixedTtl) {
+        if (ttlLabel) {
+            base = `${label} per ${ttlLabel}`
+        } else if (option) {
+            base = `${label} ever`
+        }
+    }
     // With a threshold of N, the 1st, (N + 1)th, (2N + 1)th... matching events start a run.
     const threshold = workflow.trigger_masking?.threshold ?? null
     return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base
