@@ -4,9 +4,11 @@ Customer.io stores action conditions as a flat array, double encoded: JSON, then
 Entry filters and exit conditions use a nested `and`/`or` tree instead. Both read the same leaf operators.
 """
 
+import sys
 import json
 import base64
 import binascii
+import functools
 from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
@@ -36,6 +38,7 @@ _NEGATED = {
 }
 _UNARY = {"is_set", "is_not_set"}
 _SECONDS_PER_DAY = 86400
+_REGEX_SYNTAX = set("\\.^$|?*+()[]{}")
 
 
 @frozen
@@ -143,7 +146,7 @@ def property_filters(leaf: dict[str, Any], property_type: str, *, negate: bool =
         result: dict[str, Any] = {"key": field, "operator": posthog_operator, "type": property_type}
         if posthog_operator not in _UNARY:
             result["value"] = posthog_value
-        return result
+        return _ignoring_case(result) if property_type == "person" else result
 
     if negate and operator in ("bw", "timestamp_bw", "timestamp_gt", "timestamp_lt", "timestamp_gta", "timestamp_lta"):
         # A negated range is an OR of two filters, which a flat AND list cannot hold.
@@ -171,6 +174,40 @@ def property_filters(leaf: dict[str, Any], property_type: str, *, negate: bool =
             return None
         return [build("is_date_after", start), build("is_date_before", end)]
     return None
+
+
+def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
+    # Customer.io compares attribute values without case, and saves "DE" as "de".
+    if item["operator"] not in ("exact", "is_not") or not isinstance(item.get("value"), str):
+        return item
+    if item["value"].lower() == item["value"].upper() or item["value"].lower() in ("true", "false"):
+        # A number or a boolean compares as its type, which a pattern would not.
+        return item
+    pattern = "".join(_any_case(character) for character in item["value"])
+    return {**item, "operator": "regex" if item["operator"] == "exact" else "not_regex", "value": f"^{pattern}$"}
+
+
+def _any_case(character: str) -> str:
+    # A character class rather than an (?i) flag, which the JavaScript HogVM can't read.
+    lower = character.lower()
+    variants = _case_variants().get(lower) if len(lower) == 1 else None
+    if variants:
+        return f"[{lower}{variants}]"
+    # Only the characters every engine reads as syntax: Rust's regex rejects some escapes Python's re.escape adds.
+    return f"\\{character}" if character in _REGEX_SYNTAX else character
+
+
+@functools.cache
+def _case_variants() -> dict[str, str]:
+    """Each lowercase character to the other characters that lowercase to it, such as "ß" to "ẞ"."""
+    # Built from lower() rather than upper(), which turns "ß" into the two characters "SS".
+    variants: dict[str, set[str]] = {}
+    for code_point in range(sys.maxunicode + 1):
+        character = chr(code_point)
+        lower = character.lower()
+        if len(lower) == 1 and lower != character:
+            variants.setdefault(lower, set()).add(character)
+    return {lower: "".join(sorted(characters)) for lower, characters in variants.items()}
 
 
 def describe(condition: Any) -> str:

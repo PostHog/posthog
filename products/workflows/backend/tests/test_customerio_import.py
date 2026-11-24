@@ -439,12 +439,22 @@ class TestCustomerioConditions(SimpleTestCase):
             (
                 "eq",
                 {"type": "attribute", "field": "plan", "operator": "eq", "value": "pro"},
-                [{"key": "plan", "operator": "exact", "type": "person", "value": "pro"}],
+                [{"key": "plan", "operator": "regex", "type": "person", "value": "^[pP][rR][oO]$"}],
+            ),
+            (
+                "number",
+                {"type": "attribute", "field": "seats", "operator": "eq", "value": "5"},
+                [{"key": "seats", "operator": "exact", "type": "person", "value": "5"}],
+            ),
+            (
+                "boolean",
+                {"type": "attribute", "field": "beta", "operator": "eq", "value": "true"},
+                [{"key": "beta", "operator": "exact", "type": "person", "value": "true"}],
             ),
             (
                 "negated",
                 {"type": "attribute", "field": "plan", "operator": "!eq", "value": "pro"},
-                [{"key": "plan", "operator": "is_not", "type": "person", "value": "pro"}],
+                [{"key": "plan", "operator": "not_regex", "type": "person", "value": "^[pP][rR][oO]$"}],
             ),
             (
                 "between",
