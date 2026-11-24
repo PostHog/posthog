@@ -419,7 +419,7 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("query", "mode", "settings", "refused"),
+    ("query", "mode", "overrides", "refused"),
     [
         pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.EVENTS, {}, False, id="mode-0-events"),
         pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, {}, False, id="mode-1-events"),
@@ -447,7 +447,7 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
             id="flag-evaluations-only-joined",
         ),
         pytest.param(
-            "SELECT uuid FROM events UNION ALL SELECT flag_evaluation_person_id FROM posthog.flag_evaluations",
+            "SELECT uuid FROM events UNION ALL SELECT flag_evaluation_person_id AS uuid FROM posthog.flag_evaluations",
             FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
             {},
             True,
@@ -478,6 +478,34 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
             id="explicit-union",
         ),
         pytest.param(
+            f"{_EVENTS_ONLY} UNION ALL SELECT uuid FROM posthog.flag_evaluations WHERE false",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="flag-calls-opted-out",
+        ),
+        pytest.param(
+            f"{_EVENTS_ONLY} UNION ALL SELECT toUUID(toString(uuid)) FROM posthog.flag_evaluations",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-uuid-computed",
+        ),
+        pytest.param(
+            f"{_EVENTS_ONLY} INTERSECT SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = 'x'",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-intersected",
+        ),
+        pytest.param(
+            f"SELECT uuid FROM ({_EVENTS_ONLY} EXCEPT SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = 'x')",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-excepted-in-subquery",
+        ),
+        pytest.param(
             "WITH f AS (SELECT uuid AS u FROM posthog.flag_evaluations) "
             "SELECT uuid FROM events UNION ALL SELECT u FROM (SELECT u FROM f)",
             FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
@@ -495,13 +523,13 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
     ],
 )
 def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_only_in_flag_evaluations(
-    team, user, query, mode, settings, refused
+    team, user, query, mode, overrides, refused
 ):
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=team.organization,
         defaults={
             "flag_evaluations_mode": mode,
-            "keep_writing_flag_calls_to_events": settings.get("keep_events_writes", False),
+            "keep_writing_flag_calls_to_events": overrides.get("keep_events_writes", False),
         },
     )
     deletion_request = HogQLEventRemovalContext(
@@ -509,9 +537,9 @@ def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_on
     )
 
     with (
-        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", settings.get("union_disabled", False)),
-        override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", settings.get("force_events_reads", False)),
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=settings.get("native_events", False)),
+        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", overrides.get("union_disabled", False)),
+        override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", overrides.get("force_events_reads", False)),
+        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=overrides.get("native_events", False)),
         patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=False),
         patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
         patch("posthog.dags.data_deletion_requests.sync_execute", return_value=1) as execute,

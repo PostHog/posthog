@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
 from posthog.hogql.team_first_prewhere import reads_events_table
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -101,13 +102,13 @@ def compile_event_uuid_query(
 MISSES_FLAG_CALLS_ERROR = (
     "Some of this project's $feature_flag_called events are stored only in posthog.flag_evaluations, so this "
     "query can't select them. To delete them too, add UNION ALL SELECT uuid FROM posthog.flag_evaluations "
-    "WHERE … with the same conditions. To delete none of them, use WHERE false."
+    "WHERE … with the same conditions. To delete none of them, add that branch with WHERE false."
 )
 
 
 def _misses_flag_calls_only_in_flag_evaluations(
     prepared_ast: ast.SelectQuery | ast.SelectSetQuery,
-    output_type: ast.SelectQueryType | ast.SelectSetQueryType,
+    query_type: ast.SelectQueryType | ast.SelectSetQueryType,
     context: HogQLContext,
     team: Team,
 ) -> bool:
@@ -123,14 +124,30 @@ def _misses_flag_calls_only_in_flag_evaluations(
         or get_organization_flag_evaluations_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
     ):
         return False
-    sources = _column_sources(output_type, _column_names(output_type)[0])
+    if _uses_non_union_set_operator(prepared_ast):
+        return True
+    sources = _column_sources(query_type, next(iter(query_type.columns)))
     return not any(isinstance(table, FlagEvaluationsTable) and field == "uuid" for table, field in sources)
 
 
-def _column_names(source: ast.SelectQueryType | ast.SelectSetQueryType) -> list[str]:
-    if isinstance(source, ast.SelectSetQueryType):
-        return _column_names(source.types[0])
-    return list(source.columns)
+class _NonUnionSetOperatorFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = self.found or any(
+            not set_node.set_operator.startswith("UNION") for set_node in node.subsequent_select_queries
+        )
+        super().visit_select_set_query(node)
+
+
+def _uses_non_union_set_operator(prepared_ast: ast.AST) -> bool:
+    """`SelectSetQueryType` does not record the set operator. `_column_sources` therefore follows INTERSECT and EXCEPT
+    branches as if they were UNION branches. An INTERSECT or EXCEPT output can lack the flag_evaluations rows that a
+    branch selects. The guard refuses any query that uses one."""
+    finder = _NonUnionSetOperatorFinder()
+    finder.visit(prepared_ast)
+    return finder.found
 
 
 def _column_sources(source: ast.Type, name: str) -> Iterator[tuple[Table, str]]:
@@ -155,12 +172,12 @@ def _column_sources(source: ast.Type, name: str) -> Iterator[tuple[Table, str]]:
                 yield from _column_sources(column.table_type, column.name)
         case ast.SelectSetQueryType():
             # A set query matches its branches' columns by position, not by name.
-            names = _column_names(source)
+            names = list(source.columns)
             if name not in names:
                 return
             position = names.index(name)
             for branch in source.types:
-                branch_names = _column_names(branch)
+                branch_names = list(branch.columns)
                 if position < len(branch_names):
                     yield from _column_sources(branch, branch_names[position])
 
