@@ -313,6 +313,19 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(lines, [{"i": i, "refId": "$pageview", **too_large} for i in range(7)])
         self.assertEqual(reads.call_count, 1)
 
+    @parameterized.expand([("result", 1), ("frames", 2)])
+    def test_panels_differing_only_in_legend_share_a_raw_hit(self, result_format: str, expected_reads: int) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        panels = [_insight("$pageview", cacheOnly=True) for _ in range(2)]
+        for panel, legend in zip(panels, ("a", "b")):
+            panel["target"]["legend"] = legend
+
+        with patch("products.dashboards.backend.v2.query_batch.run_planned_query", wraps=run_planned_query) as reads:
+            lines = self._lines(panels, format=result_format)
+
+        self.assertEqual([line["legend"] for line in lines], ["a", "b"])
+        self.assertEqual(reads.call_count, expected_reads)
+
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
     def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()

@@ -525,19 +525,23 @@ class _ServedKey:
     swr: bool
     cache_only: bool
     query: str
-    # Frames are named by the legend and pivoted by the format, so panels that differ in either render apart.
+    # The body carries the query text the panel sent, which differs between a PromQL target and its resolved node.
+    canonical: str
+    # Frames are named by the legend and pivoted by the format, so panels that differ in either render apart. A raw
+    # result ignores both, so those panels still share it.
     legend: Optional[str]
     target_format: Optional[QueryBatchTargetFormat]
 
 
-def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
+def _served_key(planned: PlannedQuery, item: QueryBatchInput, shape: _LineShape) -> _ServedKey:
     return _ServedKey(
         cache_key=planned.cache_key,
         swr=item.swr,
         cache_only=item.cache_only,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
-        legend=item.target.legend,
-        target_format=item.target.format,
+        canonical=shape.canonical,
+        legend=shape.legend if shape.frames else None,
+        target_format=shape.target_format if shape.frames else None,
     )
 
 
@@ -808,7 +812,7 @@ class QueryBatch:
             # A panel repeating an entry an earlier chunk served is left unplanned, so its blob is not fetched again.
             planned = plan(index)
             if planned is not None:
-                body = served.get(_served_key(planned, inputs[index]))
+                body = served.get(_served_key(planned, inputs[index], self._shapes[index]))
                 if body is not None:
                     duplicates[index] = body
                     return None
@@ -838,7 +842,7 @@ class QueryBatch:
                     else:
                         to_run.append(index)
                     continue
-                same_entry = _served_key(planned, item)
+                same_entry = _served_key(planned, item, self._shapes[index])
                 if same_entry in served:
                     if served[same_entry] == _RUN_FRESH:
                         to_run.append(index)

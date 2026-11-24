@@ -14,6 +14,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
 from products.dashboards.backend.v2.frames import (
+    MAX_PIVOT_LABEL_BYTES,
+    MAX_PIVOT_SERIES,
     Frame,
     FrameField,
     FrameMeta,
@@ -180,10 +182,10 @@ class TestFrameConverters(SimpleTestCase):
             name=None,
             labels={},
             fields=[
-                FrameField(name="t", type="time", values=[1, 1, 2, 2]),
-                FrameField(name="client", type="string", values=["codex", "claude", "codex", None]),
-                FrameField(name="region", type="string", values=["us", "eu", "us", "us"]),
-                FrameField(name="n", type="number", values=[5, 3, 6, 4]),
+                FrameField(name="t", type="time", values=[1, 1, 2, 2, 2]),
+                FrameField(name="client", type="string", values=["codex", "claude", "codex", None, "(none)"]),
+                FrameField(name="region", type="string", values=["us", "eu", "us", "us", "us"]),
+                FrameField(name="n", type="number", values=[5, 3, 6, 4, 7]),
             ],
             meta=FrameMeta(),
         )
@@ -194,7 +196,30 @@ class TestFrameConverters(SimpleTestCase):
             ("codex / us", {"client": "codex", "region": "us"}, [5, 6]),
             ("claude / eu", {"client": "claude", "region": "eu"}, [3]),
             ("(none) / us", {"client": "(none)", "region": "us"}, [4]),
+            ("(none) / us", {"client": "(none)", "region": "us"}, [7]),
         ]
+
+    @parameterized.expand(
+        [
+            ("too_many_series", [f"client-{n}" for n in range(MAX_PIVOT_SERIES + 1)], 1),
+            ("labels_too_large", ["x" * (MAX_PIVOT_LABEL_BYTES // 2)], 2),
+        ]
+    )
+    def test_pivot_keeps_a_table_that_would_grow_too_large(
+        self, _name: str, clients: list[str], number_columns: int
+    ) -> None:
+        frame = Frame(
+            name=None,
+            labels={},
+            fields=[
+                FrameField(name="t", type="time", values=[1] * len(clients)),
+                FrameField(name="client", type="string", values=clients),
+                *(FrameField(name=f"n{i}", type="number", values=[1] * len(clients)) for i in range(number_columns)),
+            ],
+            meta=FrameMeta(),
+        )
+
+        assert pivot_long(frame) == [frame]
 
     @parameterized.expand(
         [
@@ -247,8 +272,9 @@ class TestFrameConverters(SimpleTestCase):
             )
         ]
 
-    def test_hogql_html_tags_become_text_and_a_link_column(self) -> None:
-        link = ["__hx_tag", "a", "href", "https://example.com/x", "children", ["f", "Jul ", "2026"]]
+    @parameterized.expand([("cached", list), ("fresh", tuple)])
+    def test_hogql_html_tags_become_text_and_a_link_column(self, _name: str, sequence: type) -> None:
+        link = sequence(["__hx_tag", "a", "href", "https://example.com/x", "children", sequence(["f", "Jul ", "2026"])])
         result = {
             "columns": ["month", "n"],
             "types": [["month", "String"], ["n", "UInt64"]],
@@ -258,6 +284,20 @@ class TestFrameConverters(SimpleTestCase):
         frames = frames_for(QueryBatchLanguage.HOGQL, {"kind": "HogQLQuery"}, result)
 
         assert _shape(frames) == [(None, {}, [["Jul 2026"], ["https://example.com/x"], [1]])]
+
+    def test_hogql_array_columns_keep_the_table(self) -> None:
+        result = {
+            "columns": ["t", "ids", "browser", "n"],
+            "types": [["t", "DateTime"], ["ids", "Array(UInt64)"], ["browser", "String"], ["n", "UInt64"]],
+            "results": [["2026-09-18T00:00:00", [1, 2], "Chrome", 3]],
+        }
+
+        frames = frames_for(QueryBatchLanguage.HOGQL, {"kind": "HogQLQuery"}, result)
+
+        assert frames is not None
+        assert [[field["type"] for field in frame["fields"]] for frame in frames] == [
+            ["time", "other", "string", "number"]
+        ]
 
     def test_kinds_without_frames_return_none(self) -> None:
         assert frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery", "series": []}, {"results": []}) is None

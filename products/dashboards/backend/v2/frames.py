@@ -43,7 +43,12 @@ _LEGEND_LABEL = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
 _TIME_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
+_COMPOUND_TYPE = re.compile(r"^(Nullable\()?(Array|Map|Tuple|Nested)\(")
 _NO_LABEL = "(none)"
+# Above this many series, or this many label bytes repeated across the series' fields, a long table stays a table.
+# Pivoting copies every label onto every number field, so a few large labels can grow a small result many times over.
+MAX_PIVOT_SERIES = 1000
+MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
 
 
 @frozen
@@ -391,7 +396,9 @@ def hogql_frames(result: Mapping[str, Any], *, pivot: bool = True) -> Optional[l
         type_name = str(raw[1] if isinstance(raw, list | tuple) and len(raw) > 1 else (raw or ""))
         sample = next((row[index] for row in rows if row[index] is not None), None)
         field_type: FrameFieldType
-        if _TIME_TYPE.search(type_name):
+        if _COMPOUND_TYPE.match(type_name) or isinstance(sample, list | tuple | dict):
+            field_type = "other"
+        elif _TIME_TYPE.search(type_name):
             field_type = "time"
         elif _NUMBER_TYPE.search(type_name) or (isinstance(sample, int | float) and not isinstance(sample, bool)):
             field_type = "number"
@@ -425,16 +432,28 @@ def pivot_long(frame: Frame) -> list[Frame]:
     if len(times) != 1 or not strings or not numbers or len(times) + len(strings) + len(numbers) != len(frame.fields):
         return [frame]
     [time] = times
-    groups: dict[tuple[str, ...], list[int]] = {}
+    groups: dict[tuple[Optional[str], ...], list[int]] = {}
+    label_names = [field.name for field in strings]
+    label_bytes = 0
     for row in range(len(time.values)):
-        key = tuple(_label_value(field.values[row]) for field in strings)
-        groups.setdefault(key, []).append(row)
+        key = tuple(None if field.values[row] is None else str(field.values[row]) for field in strings)
+        if key not in groups:
+            if len(groups) >= MAX_PIVOT_SERIES:
+                return [frame]
+            label_bytes += sum(len(name) + len(value or _NO_LABEL) for name, value in zip(label_names, key)) * (
+                len(numbers) + 1
+            )
+            if label_bytes > MAX_PIVOT_LABEL_BYTES:
+                return [frame]
+            groups[key] = []
+        groups[key].append(row)
     frames: list[Frame] = []
     for key, rows in groups.items():
-        labels = {field.name: value for field, value in zip(strings, key)}
+        values = [_label_value(value) for value in key]
+        labels = {field.name: value for field, value in zip(strings, values)}
         frames.append(
             Frame(
-                name=" / ".join(key),
+                name=" / ".join(values),
                 labels=labels,
                 fields=[
                     FrameField(name=time.name, type="time", values=[time.values[row] for row in rows], unit=time.unit),
@@ -494,7 +513,8 @@ def unwrap_html_tags(table: HogQLTable) -> HogQLTable:
 
 
 def _is_tag(value: Any) -> bool:
-    return isinstance(value, list) and bool(value) and value[0] == "__hx_tag"
+    # A fresh result holds tags as tuples, and a cached one, read back from JSON, as lists.
+    return isinstance(value, list | tuple) and bool(value) and value[0] == "__hx_tag"
 
 
 def _tag_text(value: Any) -> Optional[str]:
@@ -508,7 +528,7 @@ def _tag_text(value: Any) -> Optional[str]:
 
 def _children_text(children: Any) -> str:
     # Children are a tag, a list of parts, or HogQL's f-string `["f", part...]`, whose parts are joined.
-    if isinstance(children, list):
+    if isinstance(children, list | tuple):
         if _is_tag(children):
             return _tag_text(children) or ""
         parts = children[1:] if children and children[0] == "f" else children
