@@ -2,8 +2,7 @@ import type { SoundName } from 'button-sounds'
 
 import type { UiSound } from './uiSoundForTarget'
 
-// The build copies these files from the button-sounds package to /static/button-sounds, so the
-// browser loads them from our own origin instead of the package's default CDN.
+// The build copies the samples here, so the browser never calls the package's default CDN.
 const SOUNDS_PATH = '/static/button-sounds'
 
 const SOUND_NAMES: Record<UiSound, SoundName> = {
@@ -31,7 +30,6 @@ export function preloadUiSounds(): void {
     void loadButtonSounds().then(({ load }) => Object.values(SOUND_NAMES).forEach(load))
 }
 
-/** Plays the press sample now and the release sample on the next pointerup anywhere in the window. */
 export function playUiSound(sound: UiSound): void {
     const name = SOUND_NAMES[sound]
     // A pointerup outside the component still releases it, so the release listens on the window.

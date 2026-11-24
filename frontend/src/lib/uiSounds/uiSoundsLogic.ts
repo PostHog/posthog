@@ -38,14 +38,12 @@ function listenForPresses(disposables: DisposablesManager, enabled: boolean): vo
     }
     preloadUiSounds()
     disposables.add(() => {
-        // The capture phase runs before a component handles the press. A toggle still shows its old
-        // state there, and a component that stops propagation cannot hide the press.
+        // Capture runs before the component toggles its state, and before any stopPropagation can hide the press.
         document.addEventListener('pointerdown', handlePointerDown, true)
         return () => document.removeEventListener('pointerdown', handlePointerDown, true)
     }, POINTER_LISTENER_KEY)
 }
 
-/** Plays a click when someone presses a button, switch, checkbox, tab or menu item, if they turn sounds on. */
 export const uiSoundsLogic = kea<uiSoundsLogicType>([
     // pinned: the path and reducer name form the localStorage key. Renaming either turns sounds off for everyone.
     path(['lib', 'uiSounds', 'uiSoundsLogic']),

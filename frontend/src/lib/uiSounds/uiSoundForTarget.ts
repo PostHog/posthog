@@ -1,7 +1,6 @@
 export type UiSound = 'click' | 'toggle-on' | 'toggle-off'
 
-// These selectors match the class names and quill `data-slot` values that the components render.
-// Renaming one of them silently stops the sound for that component.
+// Renaming a class name or quill `data-slot` value below silently stops that component's sound.
 const CLICK_SELECTORS = [
     '.LemonButton',
     '.LemonTabs__tab',
@@ -32,7 +31,6 @@ const CHECKED_SELECTOR = [
     '.LemonCheckbox--checked',
 ].join(', ')
 
-/** Picks the sound for a press on `target`, from the innermost component that makes one. */
 export function uiSoundForTarget(target: EventTarget | null): UiSound | null {
     if (!(target instanceof Element)) {
         return null

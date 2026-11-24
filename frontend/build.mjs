@@ -371,9 +371,7 @@ function copyEmojibaseData() {
     }
 }
 
-// uiSoundsLogic plays these button-sounds samples from /static/button-sounds rather than from the package's
-// default CDN. The names must match the sounds in playUiSound.ts. The Vite public-assets plugin copies the
-// same files in development.
+// uiSoundsLogic loads these from /static/button-sounds, so keep them in sync with playUiSound.ts and the Vite plugin.
 const BUTTON_SOUND_FILES = ['hi75-soft.mp3', 'tonal-on.mp3', 'tonal-off.mp3']
 
 function copyButtonSounds() {

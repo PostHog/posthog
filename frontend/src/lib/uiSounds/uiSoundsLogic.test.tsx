@@ -1,5 +1,4 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { press } from 'button-sounds'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -8,7 +7,14 @@ import { initKeaTests } from '~/test/init'
 
 import { uiSoundsLogic } from './uiSoundsLogic'
 
-jest.mock('button-sounds', () => ({ setPath: jest.fn(), load: jest.fn(), press: jest.fn(), release: jest.fn() }))
+const mockPlayedSounds: string[] = []
+
+jest.mock('button-sounds', () => ({
+    setPath: () => {},
+    load: () => {},
+    press: (name: string) => mockPlayedSounds.push(name),
+    release: () => {},
+}))
 
 describe('uiSoundsLogic', () => {
     let logic: ReturnType<typeof uiSoundsLogic.build>
@@ -22,7 +28,7 @@ describe('uiSoundsLogic', () => {
     afterEach(() => {
         logic.unmount()
         cleanup()
-        jest.clearAllMocks()
+        mockPlayedSounds.length = 0
     })
 
     it('plays sounds only while the setting is on', async () => {
@@ -43,15 +49,13 @@ describe('uiSoundsLogic', () => {
         pressButton()
 
         // Every press waits on the same lazy import, so a sound from the first press would land before this one.
-        await waitFor(() => expect(press).toHaveBeenCalledWith('hi75-soft', expect.anything()))
-        expect(press).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft']))
 
         logic.actions.setUiSoundsEnabled(false)
         pressSwitch()
         logic.actions.setUiSoundsEnabled(true)
         pressSwitch()
 
-        await waitFor(() => expect(press).toHaveBeenCalledWith('tonal-on', expect.anything()))
-        expect(press).toHaveBeenCalledTimes(2)
+        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft', 'tonal-on']))
     })
 })
