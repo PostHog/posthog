@@ -696,6 +696,24 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
 
         assert self._lists(self._run_contacts()).keys() == cohorts
 
+    def test_a_member_deleted_while_their_list_is_read_does_not_stop_the_import(self) -> None:
+        devs = self.mailgun.data["us"]["lists"][""][0]
+        run = self._start(CONTACT_RUN, "us")
+        for step in CONTACT_RUN[:4]:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        handle = self.mailgun.handle
+
+        def delete_then_handle(base_url: str, path: str, *args: Any) -> Any:
+            if path.endswith("/members/pages") and "devs" in path and len(self.members[devs["address"]]) == 3:
+                self.members[devs["address"]].pop()
+                self.mailgun.data["us"]["lists"][""][0] = {**devs, "members_count": 2}
+            return handle(base_url, path, *args)
+
+        with patch.object(self.mailgun, "handle", delete_then_handle):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self.people.stored
+
     def test_another_account_keeps_the_first_accounts_cohort(self) -> None:
         first = self._run_contacts()
         runs.finish_run(self.team.id, first.id)
@@ -755,12 +773,13 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
             ("empty_answer", "members/pages", None),
             ("full_page_without_a_next", "members/pages", 100),
             ("too_few_members", "members/pages", 20),
+            ("too_few_members_and_no_count", "members/pages", 20),
             ("lists_without_a_next", "lists/pages", 100),
             ("unsubscribes_without_a_next", "/unsubscribes", 1000),
             ("domains_before_their_total", "/v4/domains", None),
         ]
     )
-    def test_a_cut_short_read_changes_no_cohort(self, _name: str, cut_path: str, kept: int | None) -> None:
+    def test_a_cut_short_read_changes_no_cohort(self, name: str, cut_path: str, kept: int | None) -> None:
         self.mailgun.data["us"]["lists"][""] += [
             {"address": f"list-{n:03}@mg.example.com", "name": "", "members_count": 0} for n in range(120)
         ]
@@ -776,6 +795,8 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
             cut = "devs" in path or "members" not in path
             if path.endswith(cut_path) and cut and "subscribed" not in query and query.get("limit") != "1":
                 body = {**body, "items": body["items"][:kept] if kept else None, "paging": {}}
+            if name == "too_few_members_and_no_count" and path.endswith("/lists/devs%40mg.example.com"):
+                body = {}
             return status, body, headers
 
         with patch.object(self.mailgun, "handle", cut), self.assertRaises(ImportProviderUnavailable):

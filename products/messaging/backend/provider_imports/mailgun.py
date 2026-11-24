@@ -858,8 +858,14 @@ def _member_pages(client: MailgunClient, target: _Target) -> Iterator[list[dict[
         if page.next_after is None:
             break
         after = page.next_after
-    if len(page.items) >= TEMPLATE_PAGE_SIZE or read < int(target.details.get("members_count") or 0):
+    if len(page.items) >= TEMPLATE_PAGE_SIZE:
         raise ImportProviderUnavailable(incomplete)
+    if read < int(target.details.get("members_count") or 0):
+        # Members can be deleted while the list is read, so the count is read again before the list counts as cut short.
+        body = client.get(f"/v3/lists/{quoted(target.name)}", None, target.on_behalf_of)
+        members = _as_dict(body.get("list")).get("members_count")
+        if not isinstance(members, int) or read < members:
+            raise ImportProviderUnavailable(incomplete)
 
 
 def _member_properties(member: Mapping[str, Any]) -> dict[str, Any]:
