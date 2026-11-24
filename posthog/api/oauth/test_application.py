@@ -11,10 +11,17 @@ from posthog.api.oauth.provisioning_review import (
     MAX_RUN_LOG_ENTRIES,
     PARTNER_NOTE_STEP,
     _with_partner_note,
+    decide_partner,
+    send_partner_note,
+    settle_review,
 )
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
-from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
+from posthog.models.oauth_provisioning_review import (
+    CIMDProvisioningReview,
+    ProvisioningReviewStage,
+    ProvisioningReviewStatus,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 
 
@@ -184,7 +191,8 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             self.assertIsNone(result["provisioning_review"])
         else:
             self.assertEqual(
-                set(result["provisioning_review"]), {"status", "opened_at", "decided_at", "partner_message"}
+                set(result["provisioning_review"]),
+                {"status", "opened_at", "decided_at", "partner_message", "timeline"},
             )
             self.assertEqual(result["provisioning_review"]["status"], review_status)
             self.assertNotIn("legitimate", str(result))
@@ -228,6 +236,43 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
         app.refresh_from_db()
         self.assertEqual((app.provisioning.active, app.provisioning.disabled), (False, disabled))
 
+    def test_timeline_shows_decisions_messages_and_notes_without_internal_reasons(self):
+        app = self._create_app(self.organization, is_provisioning_partner=True)
+        CIMDProvisioningReview.objects.create(
+            application=app,
+            domain="example.com",
+            run_log=[{"at": "2026-01-01T00:00:00+00:00", "step": "settled", "message": "Rejected: written before"}],
+        )
+        settle_review(
+            str(app.pk),
+            status=ProvisioningReviewStatus.NEEDS_HUMAN,
+            stage=ProvisioningReviewStage.RESEARCH,
+            reason="Research: malicious 0.81",
+        )
+        decide_partner(
+            app,
+            decision=ProvisioningReviewStatus.CHANGES_REQUESTED,
+            reason="Staff: internal only",
+            partner_message="Add a homepage.",
+            actor="reviewer@example.com",
+        )
+        send_partner_note(app, user=self.user, note="We added one.")
+
+        response = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/")
+
+        timeline = response.json()["provisioning_review"]["timeline"]
+        self.assertEqual(
+            [(event["kind"], event["status"], event["message"], event["author"]) for event in timeline],
+            [
+                ("registered", None, "", ""),
+                ("automated_review", "needs_human", "", ""),
+                ("staff_decision", "changes_requested", "Add a homepage.", ""),
+                ("partner_note", None, "We added one.", self.user.email),
+            ],
+        )
+        for internal in ("malicious", "internal only", "reviewer@example.com", "written before"):
+            self.assertNotIn(internal, response.content.decode())
+
     def test_review_note_answers_a_decision_at_once_and_waits_between_notes_to_staff(self):
         app = self._create_app(self.organization, is_provisioning_partner=True)
         CIMDProvisioningReview.objects.create(
@@ -245,14 +290,14 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
 
 
 class TestPartnerNotesInRunLog(SimpleTestCase):
-    def test_partner_notes_cannot_push_staff_decisions_out_of_the_run_log(self):
-        verdicts = [{"step": "settled", "message": f"Decision {index}"} for index in range(5)]
+    def test_partner_notes_cannot_push_staff_decisions_out_of_a_full_run_log(self):
+        verdicts = [{"step": "settled", "message": f"Decision {index}"} for index in range(MAX_RUN_LOG_ENTRIES)]
         run_log: list[dict] = list(verdicts)
 
         for index in range(MAX_RUN_LOG_ENTRIES):
             run_log = _with_partner_note(run_log, {"step": PARTNER_NOTE_STEP, "message": f"Note {index}"})
 
         notes = [entry for entry in run_log if entry["step"] == PARTNER_NOTE_STEP]
-        self.assertEqual(run_log[:5], verdicts)
+        self.assertEqual([entry for entry in run_log if entry["step"] != PARTNER_NOTE_STEP], verdicts)
         self.assertEqual(len(notes), MAX_PARTNER_NOTES_IN_RUN_LOG)
         self.assertEqual(notes[-1]["message"], f"Note {MAX_RUN_LOG_ENTRIES - 1}")

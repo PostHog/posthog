@@ -78,12 +78,12 @@ class TestOAuthApplicationsTool(BaseTest):
                 "blocked",
                 ProvisioningReviewStatus.REJECTED,
                 {"disabled": True},
-                ["accept", "request-changes", "decline"],
+                ["accept", "decline"],
                 False,
             ),
         ]
     )
-    def test_both_pages_lead_with_the_decisions_on_offer(self, _name, status, config, offered, waiting) -> None:
+    def test_both_pages_offer_the_decisions_after_the_timeline(self, _name, status, config, offered, waiting) -> None:
         self.app._provisioning_config = ProvisioningConfig(**config).model_dump(mode="json")
         self.app.save()
         review = self._review(status)
@@ -91,9 +91,10 @@ class TestOAuthApplicationsTool(BaseTest):
         content = self.client.get(f"{TOOL_URL}?review={review.pk}").content.decode()
 
         for key in DECISION_OPERATION_KEYS:
-            assert (f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/" in content) == (
-                key in offered
-            )
+            url = f"/admin/console/oauth-applications/{self.app.pk}/provisioning/{key}/"
+            assert (url in content) == (key in offered)
+            if key in offered:
+                assert content.index("Timeline") < content.index(url)
         assert ("is waiting for a staff decision" in content) == waiting
         app_page = self.client.get(f"/admin/console/oauth-applications/{self.app.pk}/").content.decode()
         assert (

@@ -36,6 +36,7 @@ const MOCK_APPS = [
             opened_at: '2026-01-10T10:00:00Z',
             decided_at: '2026-01-10T10:05:00Z',
             partner_message: '',
+            timeline: [],
         },
         created: '2026-01-10T10:00:00Z',
         updated: '2026-01-10T10:00:00Z',

@@ -51,6 +51,16 @@ class PartnerProvisioningStatus(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
 
 
+class PartnerReviewEventKind(models.TextChoices):
+    """What happened on a review, as its partner's organization admins see it in its timeline."""
+
+    REGISTERED = "registered", "Registered"
+    AUTOMATED_REVIEW = "automated_review", "Automated review"
+    STAFF_DECISION = "staff_decision", "PostHog staff decision"
+    STAFF_MESSAGE = "staff_message", "Message from PostHog staff"
+    PARTNER_NOTE = "partner_note", "Note from the partner"
+
+
 class CIMDProvisioningReview(UUIDModel):
     application = models.OneToOneField(
         "posthog.OAuthApplication", on_delete=models.CASCADE, related_name="provisioning_review"

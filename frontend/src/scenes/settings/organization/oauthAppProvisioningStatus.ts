@@ -1,6 +1,14 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { OrganizationOAuthApplicationApi, PartnerProvisioningStatusEnumApi } from '~/generated/core/api.schemas'
+import type { GuidedWizardStep } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+
+import {
+    OrganizationOAuthApplicationApi,
+    PartnerProvisioningStatusEnumApi,
+    PartnerReviewApi,
+    PartnerReviewEventApi,
+    ProvisioningReviewStatusEnumApi,
+} from '~/generated/core/api.schemas'
 
 export const PROVISIONING_STATUS_LABELS: Record<PartnerProvisioningStatusEnumApi, string> = {
     not_a_partner: 'Not a partner',
@@ -68,5 +76,74 @@ export function oauthAppActions(app: OrganizationOAuthApplicationApi): OAuthAppA
         takesANote: !!app.provisioning_review && PROVISIONING_STATUSES_TAKING_A_NOTE.has(app.provisioning_status),
         needsSupport: PROVISIONING_STATUSES_NEEDING_SUPPORT.has(app.provisioning_status),
         canRequestVerification: !!app.is_cimd_client && !app.is_verified,
+    }
+}
+
+export type ReviewStep = 'registered' | 'automated_review' | 'staff_review' | 'decision'
+// Every step is done, as for an accepted app, which has nothing left to wait for.
+export const REVIEW_COMPLETE = 'complete'
+
+const DECISION_STEP_LABELS: Partial<Record<ProvisioningReviewStatusEnumApi, string>> = {
+    accepted: 'Approved',
+    declined: 'Declined',
+    changes_requested: 'Changes requested',
+    rejected: 'Blocked',
+}
+
+export interface ReviewProgress {
+    steps: GuidedWizardStep<ReviewStep>[]
+    currentStep: ReviewStep | typeof REVIEW_COMPLETE
+}
+
+export function reviewProgress(review: PartnerReviewApi): ReviewProgress {
+    const reachedStaff =
+        review.status === 'needs_human' ||
+        review.timeline.some(
+            (event) =>
+                event.kind !== 'registered' && (event.kind !== 'automated_review' || event.status === 'needs_human')
+        )
+    const steps: GuidedWizardStep<ReviewStep>[] = [
+        { step: 'registered', label: 'Registered' },
+        { step: 'automated_review', label: 'Automated review' },
+        ...(reachedStaff ? [{ step: 'staff_review' as const, label: 'PostHog staff review' }] : []),
+        { step: 'decision', label: DECISION_STEP_LABELS[review.status] ?? 'Decision' },
+    ]
+    const currentStep =
+        review.status === 'pending'
+            ? 'automated_review'
+            : review.status === 'needs_human'
+              ? 'staff_review'
+              : review.status === 'accepted'
+                ? REVIEW_COMPLETE
+                : 'decision'
+    return { steps, currentStep }
+}
+
+const AUTOMATED_REVIEW_TITLES: Partial<Record<ProvisioningReviewStatusEnumApi, string>> = {
+    accepted: 'The automated review approved the application',
+    declined: 'The automated review declined the application',
+    needs_human: 'The automated review sent the application to PostHog staff',
+}
+
+const STAFF_DECISION_TITLES: Partial<Record<ProvisioningReviewStatusEnumApi, string>> = {
+    accepted: 'PostHog staff approved the application',
+    declined: 'PostHog staff declined the application',
+    changes_requested: 'PostHog staff asked for changes',
+    rejected: 'PostHog staff blocked the application',
+    needs_human: 'PostHog staff reopened the review',
+}
+
+export function reviewEventTitle(event: PartnerReviewEventApi): string {
+    switch (event.kind) {
+        case 'registered':
+            return 'The application registered for provisioning'
+        case 'automated_review':
+            return (event.status && AUTOMATED_REVIEW_TITLES[event.status]) || 'The automated review finished'
+        case 'staff_decision':
+            return (event.status && STAFF_DECISION_TITLES[event.status]) || 'PostHog staff made a decision'
+        case 'staff_message':
+            return 'PostHog staff changed their message'
+        case 'partner_note':
+            return event.author ? `Note from ${event.author}` : 'Note from your organization'
     }
 }

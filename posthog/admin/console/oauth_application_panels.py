@@ -214,6 +214,7 @@ def _decision_handler(decision: ProvisioningReviewStatus) -> OperationHandler:
             decision=decision,
             reason=f"Staff: {form.cleaned_data['reason']}",
             partner_message=form.cleaned_data["partner_message"],
+            actor=str(getattr(request.user, "email", "")),
         )
         messages.success(request, DECISION_SUCCESS_MESSAGES[decision].format(name=obj.name))
 
@@ -397,7 +398,8 @@ class OAuthApplicationProvisioningPanel(Panel):
         # The partner reads these two decisions on its review and answers them there, so only an app with a review
         # gets them.
         if obj.is_provisioning_partner and review_status is not None:
-            if review_status != ProvisioningReviewStatus.CHANGES_REQUESTED:
+            # A blocked partner was told that nothing but staff lifts the block, so it isn't asked for changes.
+            if review_status != ProvisioningReviewStatus.CHANGES_REQUESTED and not config.disabled:
                 operations.append(
                     Operation(
                         key="request-changes",

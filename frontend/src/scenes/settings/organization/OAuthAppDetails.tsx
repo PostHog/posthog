@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { TZLabel } from 'lib/components/TZLabel'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
@@ -14,6 +13,8 @@ import {
     oauthAppActions,
 } from './oauthAppProvisioningStatus'
 import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
+import { OAuthAppReviewProgress } from './OAuthAppReviewProgress'
+import { OAuthAppReviewTimeline } from './OAuthAppReviewTimeline'
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
@@ -47,26 +48,8 @@ export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi 
                     <p className="m-0 text-secondary">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
                 </>
             )}
-            {review && (
-                <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                    <span>
-                        <span className="text-secondary">Registered </span>
-                        <TZLabel time={review.opened_at} />
-                    </span>
-                    {review.decided_at && (
-                        <span>
-                            <span className="text-secondary">Decided </span>
-                            <TZLabel time={review.decided_at} />
-                        </span>
-                    )}
-                </div>
-            )}
-            {review?.partner_message && (
-                <div className="border rounded p-3 bg-surface-secondary">
-                    <div className="text-xs font-semibold text-secondary mb-1">Message from PostHog</div>
-                    <p className="m-0 whitespace-pre-wrap">{review.partner_message}</p>
-                </div>
-            )}
+            {review && <OAuthAppReviewProgress review={review} />}
+            {review && <OAuthAppReviewTimeline events={review.timeline} />}
             {takesANote && <OAuthAppReviewNoteForm app={app} />}
             {(needsSupport || canRequestVerification) && (
                 <div className="flex flex-wrap gap-2">

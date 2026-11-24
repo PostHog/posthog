@@ -26,6 +26,7 @@ from celery import shared_task
 
 from posthog.api.oauth.provisioning_review_slack import queue_review_slack_thread
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.helpers.email_utils import sanitize_display_name
 from posthog.llm.system_one_client import system_one_configured
@@ -33,6 +34,7 @@ from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
     PartnerProvisioningStatus,
+    PartnerReviewEventKind,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
@@ -63,6 +65,9 @@ MAX_PARTNER_NOTES_IN_RUN_LOG = 20
 # has to happen between two answers.
 PARTNER_NOTE_COOLDOWN_SECONDS = 10 * 60
 PARTNER_NOTE_STEP = "partner_note"
+SETTLED_STEP = "settled"
+STAFF_MESSAGE_STEP = "partner_message"
+REGISTERED_STEP = "registered"
 # A partner already waiting for staff can add to what it told them.
 PARTNER_NOTE_STATUSES = frozenset(
     {
@@ -102,7 +107,7 @@ def open_review(
         defaults={
             "domain": domain,
             "metadata_document": dict(metadata_document) if metadata_document is not None else None,
-            "run_log": [_log_entry("registered", f"{app.name} registered for provisioning from {app.client_id}")],
+            "run_log": [_log_entry(REGISTERED_STEP, f"{app.name} registered for provisioning from {app.client_id}")],
         },
     )
     return review
@@ -221,8 +226,10 @@ def _write_verdict(
     status: ProvisioningReviewStatus,
     stage: ProvisioningReviewStage,
     reason: str,
+    actor: str = "",
 ) -> str:
-    """Save the verdict on a review locked by the caller, and return the status it replaced."""
+    """Save the verdict on a review locked by the caller, and return the status it replaced. The log entry keeps
+    the status and the message the partner was shown, so the partner's timeline can be rebuilt from it."""
     previous = review.status
     message = _settled_message(previous, status, reason)
     review.status = status
@@ -231,7 +238,15 @@ def _write_verdict(
     review.decided_at = timezone.now()
     review.run_log = [
         *review.run_log,
-        _log_entry("settled", message, level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning"),
+        _log_entry(
+            SETTLED_STEP,
+            message,
+            level="info" if status == ProvisioningReviewStatus.ACCEPTED else "warning",
+            status=str(status),
+            stage=str(stage),
+            actor=actor,
+            partner_message=review.partner_message,
+        ),
     ][-MAX_RUN_LOG_ENTRIES:]
     review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log", "partner_message"])
     return previous
@@ -415,7 +430,12 @@ DECISIONS_WITHOUT_REVIEW = frozenset({ProvisioningReviewStatus.ACCEPTED, Provisi
 
 
 def decide_partner(
-    app: OAuthApplication, *, decision: ProvisioningReviewStatus, reason: str, partner_message: str = ""
+    app: OAuthApplication,
+    *,
+    decision: ProvisioningReviewStatus,
+    reason: str,
+    partner_message: str = "",
+    actor: str = "",
 ) -> None:
     """Staff accept a provisioning partner, decline it, ask it for changes, or block it. Any decision
     can be reversed later, and the app's review, when it has one, records each one in its run log.
@@ -436,11 +456,24 @@ def decide_partner(
         if review is None and decision not in DECISIONS_WITHOUT_REVIEW:
             raise ValueError(f"{app.name} has no review, so it can only be accepted or blocked")
         if review is not None:
+            message_changed = review.partner_message != partner_message
             review.partner_message = partner_message
-            if review.status == decision:
-                review.save(update_fields=["partner_message"])
-            else:
-                previous = _write_verdict(review, status=decision, stage=ProvisioningReviewStage.STAFF, reason=reason)
+            if review.status != decision:
+                previous = _write_verdict(
+                    review, status=decision, stage=ProvisioningReviewStage.STAFF, reason=reason, actor=actor
+                )
+            elif message_changed:
+                review.run_log = [
+                    *review.run_log,
+                    _log_entry(
+                        STAFF_MESSAGE_STEP,
+                        f"Message to the partner changed: {partner_message or '(none)'}",
+                        status=str(decision),
+                        actor=actor,
+                        partner_message=partner_message,
+                    ),
+                ][-MAX_RUN_LOG_ENTRIES:]
+                review.save(update_fields=["partner_message", "run_log"])
         if decision == ProvisioningReviewStatus.ACCEPTED:
             app.update_provisioning(active=True, disabled=False)
         elif decision == ProvisioningReviewStatus.REJECTED:
@@ -503,7 +536,10 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
         review.decided_stage = None
         review.decided_at = None
         review.run_log = _with_partner_note(
-            review.run_log, _log_entry(PARTNER_NOTE_STEP, message, user_id=user.pk, previous_status=previous)
+            review.run_log,
+            _log_entry(
+                PARTNER_NOTE_STEP, message, user_id=user.pk, previous_status=previous, author=user.email, note=note
+            ),
         )
         review.save(update_fields=["status", "decided_stage", "decided_at", "run_log"])
 
@@ -524,10 +560,10 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
 
 
 def _with_partner_note(run_log: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Add a note, dropping only older notes, so a note never pushes a staff or pipeline entry out of the log."""
     notes = [index for index, logged in enumerate(run_log) if logged.get("step") == PARTNER_NOTE_STEP]
     dropped = set(notes[: max(0, len(notes) + 1 - MAX_PARTNER_NOTES_IN_RUN_LOG)])
-    kept = [logged for index, logged in enumerate(run_log) if index not in dropped]
-    return [*kept, entry][-MAX_RUN_LOG_ENTRIES:]
+    return [*(logged for index, logged in enumerate(run_log) if index not in dropped), entry]
 
 
 def partner_provisioning_status(
@@ -551,3 +587,65 @@ def partner_provisioning_status(
     if review is not None and review.status == ProvisioningReviewStatus.DECLINED:
         return PartnerProvisioningStatus.DECLINED
     return PartnerProvisioningStatus.OFF
+
+
+@frozen
+class PartnerReviewEvent:
+    at: str
+    kind: PartnerReviewEventKind
+    status: ProvisioningReviewStatus | None = None
+    message: str = ""
+    author: str = ""
+
+
+AUTOMATED_STAGES = frozenset(
+    {
+        ProvisioningReviewStage.RESEARCH,
+        ProvisioningReviewStage.HOST_ALREADY_ACCEPTED,
+        ProvisioningReviewStage.PIPELINE_FAILED,
+    }
+)
+
+
+def partner_timeline(review: CIMDProvisioningReview) -> list[PartnerReviewEvent]:
+    """What happened on the review, oldest first, as the partner's organization admins may see it. The internal
+    reason, the research and the staff member's name stay out, because they describe what the review checks."""
+    events = [PartnerReviewEvent(at=review.created_at.isoformat(), kind=PartnerReviewEventKind.REGISTERED)]
+    for entry in review.run_log:
+        event = _partner_event(entry)
+        if event is not None:
+            events.append(event)
+    return events
+
+
+def _partner_event(entry: Mapping[str, Any]) -> PartnerReviewEvent | None:
+    step, at, status = entry.get("step"), str(entry.get("at", "")), entry.get("status")
+    if step == PARTNER_NOTE_STEP and entry.get("note"):
+        return PartnerReviewEvent(
+            at=at,
+            kind=PartnerReviewEventKind.PARTNER_NOTE,
+            message=str(entry["note"]),
+            author=str(entry.get("author", "")),
+        )
+    # Entries written before the log kept a status can't be shown without their internal reason.
+    if status not in ProvisioningReviewStatus.values:
+        return None
+    if step == SETTLED_STEP and entry.get("stage") in AUTOMATED_STAGES:
+        return PartnerReviewEvent(
+            at=at, kind=PartnerReviewEventKind.AUTOMATED_REVIEW, status=ProvisioningReviewStatus(status)
+        )
+    if step == SETTLED_STEP:
+        return PartnerReviewEvent(
+            at=at,
+            kind=PartnerReviewEventKind.STAFF_DECISION,
+            status=ProvisioningReviewStatus(status),
+            message=str(entry.get("partner_message", "")),
+        )
+    if step == STAFF_MESSAGE_STEP:
+        return PartnerReviewEvent(
+            at=at,
+            kind=PartnerReviewEventKind.STAFF_MESSAGE,
+            status=ProvisioningReviewStatus(status),
+            message=str(entry.get("partner_message", "")),
+        )
+    return None

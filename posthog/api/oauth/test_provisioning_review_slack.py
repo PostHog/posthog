@@ -139,8 +139,29 @@ class TestProvisioningReviewSlack(APIBaseTest):
             )
 
         sync_task.delay.assert_called_once_with(
-            str(self.review.pk), ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.PENDING, "Not sure"
+            str(self.review.pk),
+            ProvisioningReviewStatus.NEEDS_HUMAN,
+            ProvisioningReviewStatus.PENDING,
+            "Not sure",
+            always_reply=False,
         )
+
+    def test_a_reopening_note_replies_even_when_it_starts_the_thread(self, _send_email) -> None:
+        client = _slack_client()
+
+        with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
+            _sync_review_slack_thread(
+                str(self.review.pk),
+                status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                previous_status=ProvisioningReviewStatus.DECLINED,
+                reason="admin@example.com asked for another review: We added a homepage.",
+                always_reply=True,
+            )
+
+        replies = [c.kwargs["text"] for c in client.chat_postMessage.call_args_list if "thread_ts" in c.kwargs]
+        assert replies == [
+            "Declined → Needs staff review: admin@example.com asked for another review: We added a homepage."
+        ]
 
     @parameterized.expand(
         [

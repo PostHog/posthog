@@ -1,8 +1,7 @@
 import { useActions } from 'kea'
 
-import { Button, Item, ItemContent, ItemTitle, Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
@@ -11,6 +10,8 @@ import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from './oauthAppProvi
 import { oauthAppsLogic } from './oauthAppsLogic'
 import { QuillCopyableCode } from './QuillCopyableCode'
 import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
+import { QuillOAuthAppReviewProgress } from './QuillOAuthAppReviewProgress'
+import { QuillOAuthAppReviewTimeline } from './QuillOAuthAppReviewTimeline'
 import { QuillProvisioningStatusBadge } from './QuillProvisioningStatusBadge'
 
 export function QuillOAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
@@ -56,31 +57,9 @@ export function QuillOAuthAppDetails({ app }: { app: OrganizationOAuthApplicatio
                 </div>
             )}
 
-            {review && (
-                <div className="flex flex-wrap gap-x-6 gap-y-1">
-                    <Text size="xs" render={<span />}>
-                        <span className="text-muted-foreground">Registered </span>
-                        <TZLabel time={review.opened_at} />
-                    </Text>
-                    {review.decided_at && (
-                        <Text size="xs" render={<span />}>
-                            <span className="text-muted-foreground">Decided </span>
-                            <TZLabel time={review.decided_at} />
-                        </Text>
-                    )}
-                </div>
-            )}
+            {review && <QuillOAuthAppReviewProgress review={review} />}
 
-            {review?.partner_message && (
-                <Item variant="muted" size="sm">
-                    <ItemContent>
-                        <ItemTitle>Message from PostHog</ItemTitle>
-                        <Text size="xs" render={<p className="m-0 whitespace-pre-wrap" />}>
-                            {review.partner_message}
-                        </Text>
-                    </ItemContent>
-                </Item>
-            )}
+            {review && <QuillOAuthAppReviewTimeline events={review.timeline} />}
 
             {takesANote && <QuillOAuthAppReviewNoteForm app={app} />}
 

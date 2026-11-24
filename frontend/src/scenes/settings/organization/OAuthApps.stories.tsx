@@ -44,6 +44,10 @@ const PARTNER_WAITING_FOR_STAFF = {
         opened_at: '2025-12-15T14:00:00Z',
         decided_at: '2025-12-15T14:04:00Z',
         partner_message: "We couldn't find a homepage for this application. Add client_uri to your metadata document.",
+        timeline: [
+            { at: '2025-12-15T14:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-15T14:04:00Z', kind: 'automated_review', status: 'needs_human', message: '', author: '' },
+        ],
     },
     created: '2025-12-15T14:00:00Z',
     updated: '2025-12-15T14:04:00Z',
@@ -62,6 +66,10 @@ const PARTNER_ON = {
         opened_at: '2025-12-01T09:00:00Z',
         decided_at: '2025-12-01T09:02:00Z',
         partner_message: '',
+        timeline: [
+            { at: '2025-12-01T09:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-01T09:02:00Z', kind: 'automated_review', status: 'accepted', message: '', author: '' },
+        ],
     },
     created: '2025-12-01T09:00:00Z',
     updated: '2025-12-01T09:02:00Z',
@@ -81,6 +89,18 @@ const PARTNER_DECLINED = {
         decided_at: '2025-12-11T16:20:00Z',
         partner_message:
             "We couldn't tell what the application does with the accounts it creates. Add a homepage that describes it, then ask for another review.",
+        timeline: [
+            { at: '2025-12-10T11:00:00Z', kind: 'registered', status: null, message: '', author: '' },
+            { at: '2025-12-10T11:03:00Z', kind: 'automated_review', status: 'needs_human', message: '', author: '' },
+            {
+                at: '2025-12-11T16:20:00Z',
+                kind: 'staff_decision',
+                status: 'declined',
+                message:
+                    "We couldn't tell what the application does with the accounts it creates. Add a homepage that describes it, then ask for another review.",
+                author: '',
+            },
+        ],
     },
     created: '2025-12-10T11:00:00Z',
     updated: '2025-12-11T16:20:00Z',
