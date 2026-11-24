@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+import temporalio.workflow
 from asgiref.sync import async_to_sync
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -29,9 +30,11 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     ScheduledRecalculationDiscovery,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+    CALC_BUDGET_PATCH,
     RUN_START_WINDOW,
     RUN_WAIT_TIMEOUT,
     SCHEDULE_INTERVAL,
+    SCHEDULED_CALC_BUDGET,
     START_ACTIVITY_MAX_ATTEMPTS,
     START_ACTIVITY_TIMEOUT,
     ScheduledExperimentRecalculationWorkflow,
@@ -41,9 +44,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation_workflow"
 
 
-def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
+def _candidates(*experiment_ids: int, metric_count: int | None = 1) -> list[ScheduledRecalculationCandidate]:
     return [
-        ScheduledRecalculationCandidate(experiment_id=eid, team_id=1, organization_id="org") for eid in experiment_ids
+        ScheduledRecalculationCandidate(experiment_id=eid, team_id=1, organization_id="org", metric_count=metric_count)
+        for eid in experiment_ids
     ]
 
 
@@ -57,15 +61,33 @@ def _started(experiment_id: int) -> ScheduledRecalculationStartResult:
     )
 
 
-async def _run(discover, exposures, start, hour: int = 2, wait=_no_wait, replay_legacy=False) -> dict:
+async def _run(
+    discover, exposures, start, hour: int = 2, wait=_no_wait, replay_legacy=False, missing_patch: str | None = None
+) -> dict:
     @activity.defn(name="discover_scheduled_recalculation_candidates")
     async def discover_activity() -> ScheduledRecalculationDiscovery:
         return ScheduledRecalculationDiscovery(hour=hour, candidates=discover(hour))
 
-    return await _execute(discover_activity, exposures, start, wait, replay_legacy=replay_legacy)
+    return await _execute(
+        discover_activity, exposures, start, wait, replay_legacy=replay_legacy, missing_patch=missing_patch
+    )
 
 
-async def _execute(discover_activity, exposures, start, wait=_no_wait, replay_legacy=False) -> dict:
+def _patches(replay_legacy: bool, missing_patch: str | None):
+    if replay_legacy:
+        return patch(f"{WORKFLOW_MODULE}.temporalio.workflow.patched", return_value=False)
+    if missing_patch is not None:
+        patched = temporalio.workflow.patched
+        return patch(
+            f"{WORKFLOW_MODULE}.temporalio.workflow.patched",
+            side_effect=lambda patch_id: patch_id != missing_patch and patched(patch_id),
+        )
+    return nullcontext()
+
+
+async def _execute(
+    discover_activity, exposures, start, wait=_no_wait, replay_legacy=False, missing_patch: str | None = None
+) -> dict:
     @activity.defn(name="check_experiment_exposures")
     async def exposures_activity(experiment_id: int, hour: int) -> bool:
         return exposures(experiment_id)
@@ -89,11 +111,7 @@ async def _execute(discover_activity, exposures, start, wait=_no_wait, replay_le
             activities=[discover_activity, exposures_activity, start_activity, wait_activity],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with (
-                patch(f"{WORKFLOW_MODULE}.temporalio.workflow.patched", return_value=False)
-                if replay_legacy
-                else nullcontext(),
-            ):
+            with _patches(replay_legacy, missing_patch):
                 handle = await env.client.start_workflow(
                     ScheduledExperimentRecalculationWorkflow.run,
                     id=str(uuid.uuid4()),
@@ -102,8 +120,9 @@ async def _execute(discover_activity, exposures, start, wait=_no_wait, replay_le
                 )
                 result = await handle.result()
                 history = await handle.fetch_history()
-    if replay_legacy:
-        assert not any(event.HasField("marker_recorded_event_attributes") for event in history.events)
+    if replay_legacy or missing_patch is not None:
+        markers = sum(1 for event in history.events if event.HasField("marker_recorded_event_attributes"))
+        assert markers == (0 if replay_legacy else 1)
         await Replayer(
             workflows=[ScheduledExperimentRecalculationWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
         ).replay_workflow(history)
@@ -135,26 +154,72 @@ async def test_every_candidate_starts(replay_legacy):
 
 
 @pytest.mark.asyncio
-async def test_runs_in_flight_never_exceed_the_cap():
-    running = 0
-    peak = 0
+@pytest.mark.parametrize(
+    "metric_counts, missing_patch, peak_runs, peak_calcs",
+    [
+        pytest.param([3] * 6, None, 2, 6, id="calc_budget_binds"),
+        pytest.param([1] * 6, None, 3, 3, id="run_cap_binds"),
+        pytest.param([1, 9, 1], None, 1, 6, id="run_over_the_budget_starts_alone"),
+        pytest.param([1, None, 1], None, 1, 6, id="unknown_count_starts_alone"),
+        pytest.param([3] * 6, CALC_BUDGET_PATCH, 6, 18, id="history_before_the_calc_budget"),
+    ],
+)
+async def test_admission_limits_runs_and_calcs_in_flight(metric_counts, missing_patch, peak_runs, peak_calcs):
+    candidates = [
+        ScheduledRecalculationCandidate(experiment_id=eid, team_id=1, organization_id="org", metric_count=count)
+        for eid, count in enumerate(metric_counts, start=1)
+    ]
+    weights = {c.experiment_id: min(c.metric_count or SCHEDULED_CALC_BUDGET, SCHEDULED_CALC_BUDGET) for c in candidates}
+    in_flight: dict[str, int] = {}
+    peaks = {"runs": 0, "calcs": 0}
+    peak_reached = asyncio.Event()
 
     def start(experiment_id: int) -> ScheduledRecalculationStartResult:
-        nonlocal running, peak
-        running += 1
-        peak = max(peak, running)
-        return _started(experiment_id)
+        result = _started(experiment_id)
+        assert result.recalculation_id is not None
+        in_flight[result.recalculation_id] = weights[experiment_id]
+        peaks["runs"] = max(peaks["runs"], len(in_flight))
+        peaks["calcs"] = max(peaks["calcs"], sum(in_flight.values()))
+        # A peak of one never sets the event, so each run holds for the whole timeout and a second
+        # admission beside it would raise the peak.
+        if peak_runs > 1 and len(in_flight) == peak_runs:
+            peak_reached.set()
+        return result
 
     async def wait(recalculation_id: str) -> None:
-        nonlocal running
-        await asyncio.sleep(0.01)
-        running -= 1
+        try:
+            await asyncio.wait_for(peak_reached.wait(), timeout=5 if peak_runs > 1 else 1)
+        except TimeoutError:
+            pass
+        del in_flight[recalculation_id]
 
-    with patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 3):
-        result = await _run(lambda hour: _candidates(*range(1, 13)), lambda eid: True, start, wait=wait)
+    result = await _run(lambda hour: candidates, lambda eid: True, start, wait=wait, missing_patch=missing_patch)
 
-    assert result["started"] == 12
-    assert peak <= 3
+    assert result["started"] == len(candidates)
+    assert peaks == {"runs": peak_runs, "calcs": peak_calcs}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["no_exposures", "exposure_error", "not_started"])
+async def test_a_candidate_that_does_not_start_frees_its_admission(outcome):
+    started: list[int] = []
+
+    def exposures(experiment_id: int) -> bool:
+        if experiment_id == 1 and outcome == "exposure_error":
+            raise RuntimeError("boom")
+        return not (experiment_id == 1 and outcome == "no_exposures")
+
+    def start(experiment_id: int) -> ScheduledRecalculationStartResult:
+        if experiment_id == 1:
+            return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
+        started.append(experiment_id)
+        return _started(experiment_id)
+
+    with patch(f"{WORKFLOW_MODULE}.SCHEDULED_RUN_CAP", 1):
+        result = await _run(lambda hour: _candidates(1, 2, metric_count=6), exposures, start)
+
+    assert started == [2]
+    assert result["started"] == 1
 
 
 @pytest.mark.asyncio
@@ -189,7 +254,7 @@ async def test_experiments_left_after_the_start_window_are_deferred(failure):
         now += RUN_START_WINDOW
 
     with (
-        patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 1),
+        patch(f"{WORKFLOW_MODULE}.SCHEDULED_RUN_CAP", 1),
         patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", lambda: now),
     ):
         result = await _run(lambda hour: _candidates(1, 2, 3), exposures, start, wait=wait)

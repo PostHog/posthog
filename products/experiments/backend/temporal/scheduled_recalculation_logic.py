@@ -78,6 +78,8 @@ class ScheduledRecalculationCandidate:
     experiment_id: int
     team_id: int
     organization_id: str
+    # None when discovery could not resolve the metrics, and on payloads written before the field existed.
+    metric_count: int | None = None
 
 
 @frozen
@@ -135,7 +137,7 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     Reads the hour itself rather than taking it as a parameter, so one hourly schedule serves
     every team. An activity may read a clock; a workflow body may not.
 
-    Skips, before any exposure query, every experiment that `_discovery_skip` rejects: a flag that
+    Skips, before any exposure query, every experiment that `_discovery_check` rejects: a flag that
     can serve nobody, no metric that the recalculation would compute, an active run, a recent run,
     or an exposure back-off. The query count does not grow with the number of candidates.
 
@@ -193,23 +195,27 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     candidates: list[ScheduledRecalculationCandidate] = []
     skips: list[DiscoverySkip] = []
     for experiment in experiments:
+        metric_count: int | None
         try:
-            decision = _discovery_skip(
+            check = _discovery_check(
                 experiment, active_runs=active_runs, recent_runs=recent_runs, exposure_backoffs=exposure_backoffs
             )
         except Exception:
             # One malformed flag or metric must not stop discovery for every team in this hour. The
             # experiment stays a candidate, and the exposure gate decides.
             logger.warning("scheduled_recalculation_skip_check_failed", experiment_id=experiment.id, exc_info=True)
-            decision = None
-        if decision is not None:
-            skips.append(DiscoverySkip(experiment=experiment, decision=decision))
-            continue
+            metric_count = None
+        else:
+            if isinstance(check, SkipDecision):
+                skips.append(DiscoverySkip(experiment=experiment, decision=check))
+                continue
+            metric_count = check
         candidates.append(
             ScheduledRecalculationCandidate(
                 experiment_id=experiment.id,
                 team_id=experiment.team_id,
                 organization_id=str(experiment.team.organization_id),
+                metric_count=metric_count,
             )
         )
 
@@ -222,19 +228,26 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     )
 
 
-def _discovery_skip(
+def _discovery_check(
     experiment: Experiment,
     *,
     active_runs: dict[int, SkipDecision],
     recent_runs: dict[int, SkipDecision],
     exposure_backoffs: dict[int, SkipDecision],
-) -> SkipDecision | None:
+) -> SkipDecision | int:
+    """The skip decision, or the number of metrics the run will compute when nothing skips the experiment."""
     if not _flag_can_serve_anyone(experiment.feature_flag):
         return SkipDecision(reason=SKIP_ZERO_ROLLOUT, detail={})
     # The same rule the recalculation discovery applies, so a run started here never completes empty.
-    if not get_metrics_for_calculation(experiment):
+    metrics = get_metrics_for_calculation(experiment)
+    if not metrics:
         return SkipDecision(reason=SKIP_NO_METRICS, detail={})
-    return active_runs.get(experiment.id) or recent_runs.get(experiment.id) or exposure_backoffs.get(experiment.id)
+    return (
+        active_runs.get(experiment.id)
+        or recent_runs.get(experiment.id)
+        or exposure_backoffs.get(experiment.id)
+        or len(metrics)
+    )
 
 
 def _flag_can_serve_anyone(flag: "FeatureFlag") -> bool:

@@ -228,21 +228,52 @@ class TestScheduledRecalculationLogic(BaseTest):
 
     @parameterized.expand(
         [
-            ("inline_metric", [_metric()], False, None),
-            ("no_metrics", [], False, SKIP_NO_METRICS),
+            ("inline_metric", [_metric()], False, None, 1),
+            ("no_metrics", [], False, SKIP_NO_METRICS, None),
             # Legacy metrics carry no metric_type, so the recalculation computes none of them.
-            ("legacy_metric_only", [{"kind": "ExperimentTrendsQuery", "uuid": str(uuid4())}], False, SKIP_NO_METRICS),
-            ("saved_metric_only", [], True, None),
+            (
+                "legacy_metric_only",
+                [{"kind": "ExperimentTrendsQuery", "uuid": str(uuid4())}],
+                False,
+                SKIP_NO_METRICS,
+                None,
+            ),
+            ("saved_metric_only", [], True, None, 1),
+            (
+                "inline_legacy_and_saved",
+                [_metric(), {"kind": "ExperimentTrendsQuery", "uuid": str(uuid4())}],
+                True,
+                None,
+                2,
+            ),
         ]
     )
     def test_discovery_skips_an_experiment_with_no_computable_metric(
-        self, _name: str, metrics: list[dict[str, Any]], with_saved_metric: bool, expected_reason: str | None
+        self,
+        _name: str,
+        metrics: list[dict[str, Any]],
+        with_saved_metric: bool,
+        expected_reason: str | None,
+        expected_metric_count: int | None,
     ):
         experiment = self._experiment(metrics=metrics)
         if with_saved_metric:
             saved = ExperimentSavedMetric.objects.create(team=self.team, name="saved", query=_metric())
             ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved)
         assert self._discovery_skip_reason(experiment) == expected_reason
+        with patch(FLAG_PATH, return_value=True):
+            candidates = find_scheduled_recalculation_candidates().discovery.candidates
+        metric_counts = {c.experiment_id: c.metric_count for c in candidates}
+        assert metric_counts.get(experiment.id) == expected_metric_count
+
+    def test_a_failed_skip_check_keeps_the_candidate_with_an_unknown_metric_count(self):
+        experiment = self._experiment()
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(f"{LOGIC}.get_metrics_for_calculation", side_effect=ValueError("malformed metric")),
+        ):
+            candidates = find_scheduled_recalculation_candidates().discovery.candidates
+        assert [(c.experiment_id, c.metric_count) for c in candidates] == [(experiment.id, None)]
 
     @parameterized.expand(
         [
