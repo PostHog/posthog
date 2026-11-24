@@ -64,7 +64,8 @@ Suppressed reports remain suppressed when another PR is attached.
 A report merged into another report cannot be restored, resolved, or marked Monitoring from the archive; act on the surviving report instead.
 
 A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
-When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
+When every live step of a plan is finished, the plan takes their verdict: resolved if at least one step is resolved or Closed, suppressed if they all were.
+A Closed step counts as finished work, because its pull request landed and nothing moves it again. The step keeps its own Closed outcome.
 A plan with any step still open is left alone, and a deleted step counts neither way.
 Reopening a step does not reopen a completed plan.
 Deleting a step also checks the plan again.
@@ -74,6 +75,7 @@ It continues through an already closed plan to check that plan's parent.
 An archived step never undoes a resolved plan.
 The roll-up runs on the step's own status change, so a merged PR, a manual resolve, a bulk state change, and an MCP state write all reach it.
 A `part_of` link written on a step that already closed runs the check as well, because that write changes no status.
+`manage.py repair_plan_rollups` runs the check again from every Closed step, for plans left open before Closed steps counted. It is safe to rerun.
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
@@ -169,7 +171,7 @@ Final results feed report-level aggregation for the current frozen attempt. A su
 
 Each sufficient final verdict updates its check row and publishes its explanation immediately, even while other members are waiting or the report needs assessment. Repeated aggregation does not duplicate these entries.
 
-The **Closed** report state (`closed`) means an implementation attempt ended without proving resolution. It is distinct from processing failure and from Resolved. It preserves the original Monitoring timestamp and attempt evidence. Closed reports remain readable, manually resolvable, reopenable, and archivable, but have no dedicated section in the inbox UI. Restoring an archived Closed report returns it to Closed. A Closed child does not count as successful completion of its parent plan, and child updates do not overwrite a parent's Closed outcome.
+The **Closed** report state (`closed`) means an implementation attempt ended without proving resolution. It is distinct from processing failure and from Resolved. It preserves the original Monitoring timestamp and attempt evidence. Closed reports remain readable, manually resolvable, reopenable, and archivable, but have no dedicated section in the inbox UI. Restoring an archived Closed report returns it to Closed. A Closed child counts as finished work for its parent plan, so a plan whose steps are all finished resolves (see the plan roll-up above). Child updates do not overwrite a parent's Closed outcome.
 
 Closed reports still count as acted-on work for scout engagement and organization adoption. A new matching signal follows the existing recurrence path into a fresh linked report; the Closed attempt stays unchanged and supplies context for that report's research. That context preserves the unproven Closed outcome rather than describing the attempt as fixed. Closed reports are excluded from unclaimed-work selection, and child rollup preserves an archived parent's saved Closed outcome.
 

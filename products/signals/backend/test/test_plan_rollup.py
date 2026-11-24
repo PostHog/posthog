@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.db import OperationalError, connection, transaction
 from django.utils import timezone
 
@@ -44,6 +45,8 @@ class TestPlanRollup(BaseTest):
         )
 
     def _close(self, report: SignalReport, status: str) -> None:
+        if status == SignalReport.Status.CLOSED and report.status != SignalReport.Status.MONITORING:
+            self._close(report, SignalReport.Status.MONITORING)
         with self.captureOnCommitCallbacks(execute=True):
             report.save(
                 update_fields=report.transition_to(
@@ -75,6 +78,9 @@ class TestPlanRollup(BaseTest):
             ("both_resolved", ["resolved", "resolved"], SignalReport.Status.RESOLVED),
             ("mixed_with_a_resolve", ["resolved", "suppressed"], SignalReport.Status.RESOLVED),
             ("all_suppressed", ["suppressed", "suppressed"], SignalReport.Status.SUPPRESSED),
+            ("closed_step_completes_the_plan", ["closed"], SignalReport.Status.RESOLVED),
+            ("closed_with_a_resolve", ["closed", "resolved"], SignalReport.Status.RESOLVED),
+            ("closed_with_an_archive", ["closed", "suppressed"], SignalReport.Status.RESOLVED),
             (
                 "closed_parent_keeps_failed_attempt",
                 ["resolved"],
@@ -148,14 +154,15 @@ class TestPlanRollup(BaseTest):
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
 
-    @parameterized.expand([("ready",), ("closed",)])
-    def test_a_plan_stays_open_while_a_step_has_not_resolved(self, child_status: str) -> None:
+    @parameterized.expand([("resolved",), ("closed",)])
+    def test_a_plan_stays_open_while_a_step_has_not_finished(self, done_status: str) -> None:
         parent = self._report("plan")
-        done, still_open = self._report("done"), self._report("unfinished", status=child_status)
+        done, still_open = self._report("done"), self._report("unfinished")
         self._part_of(done, parent)
         self._part_of(still_open, parent)
 
-        self._close(done, SignalReport.Status.RESOLVED)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            self._close(done, done_status)
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
@@ -281,10 +288,12 @@ class TestPlanRollup(BaseTest):
         assert parent.status == SignalReport.Status.RESOLVED
         assert grandparent.status == SignalReport.Status.RESOLVED
 
-    def test_a_step_linked_into_a_plan_after_it_closed_still_closes_the_plan(self):
+    @parameterized.expand([("resolved",), ("closed",)])
+    def test_a_step_linked_into_a_plan_after_it_closed_still_closes_the_plan(self, step_status: str):
         parent = self._report("plan")
         child = self._report("step")
-        self._close(child, SignalReport.Status.RESOLVED)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            self._close(child, step_status)
 
         with self.captureOnCommitCallbacks(execute=True):
             self._part_of(child, parent)
@@ -322,6 +331,22 @@ class TestPlanRollup(BaseTest):
 
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.READY
+
+    @parameterized.expand([("only_closed_steps", False, SignalReport.Status.RESOLVED), ("an_open_step", True, "ready")])
+    def test_repair_completes_plans_left_open_by_steps_that_closed_earlier(
+        self, _name: str, with_open_step: bool, expected: str
+    ) -> None:
+        parent = self._report("plan")
+        steps = [self._report("closed step", status=SignalReport.Status.CLOSED)]
+        if with_open_step:
+            steps.append(self._report("open step"))
+        for step in steps:
+            self._part_of(step, parent)
+
+        call_command("repair_plan_rollups", "--team-id", str(self.team.id), "--batch-size", "1")
+
+        parent.refresh_from_db()
+        assert parent.status == expected
 
     def test_a_report_with_no_plan_rolls_up_nothing(self):
         report = self._report("standalone")
