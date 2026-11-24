@@ -3,7 +3,7 @@ import net, { AddressInfo } from 'net'
 
 import { defaultConfig } from '~/common/config/config'
 
-import { Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
+import { PROBE_TIMEOUT_MS, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
@@ -114,6 +114,36 @@ describe('dependency watch', () => {
         },
         30_000
     )
+
+    const withCode = (code: string): Error => Object.assign(new Error(code), { code })
+
+    it.each<[string, boolean, number, Error]>([
+        ['an untyped error that its timer fired a little early', true, PROBE_TIMEOUT_MS - 5, new Error('timeout')],
+        ['an untyped error well inside its timeout', false, PROBE_TIMEOUT_MS - 50, new Error('not started')],
+        ['a refusal past its timeout', false, PROBE_TIMEOUT_MS, withCode('ECONNREFUSED')],
+        ['a reset past its timeout', false, PROBE_TIMEOUT_MS, withCode('ECONNRESET')],
+        ['an unknown host past its timeout', false, PROBE_TIMEOUT_MS, withCode('ENOTFOUND')],
+        ['an unreachable host past its timeout', false, PROBE_TIMEOUT_MS, withCode('EHOSTUNREACH')],
+        [
+            'an error caused by a reset past its timeout',
+            false,
+            PROBE_TIMEOUT_MS,
+            new Error('fetch failed', { cause: withCode('ECONNRESET') }),
+        ],
+    ])('counts %s as unanswered: %s', async (_error, unanswered, failsAfterMs, error) => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        try {
+            const failing = (): Promise<unknown> =>
+                new Promise((_resolve, reject) => setTimeout(() => reject(error), failsAfterMs))
+
+            const checked = failedProbes({ dependency: failing })
+            await jest.advanceTimersByTimeAsync(failsAfterMs)
+
+            expect((await checked).map((failure) => failure.unanswered)).toEqual([unanswered])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 
     it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
         const silentPostgres = edgeAndPostgres(`postgres://posthog:posthog@127.0.0.1:${silentPort}/posthog`).postgres

@@ -14,7 +14,7 @@ import { PluginsServerConfig } from '~/types'
 import { signal as sendSignal } from './processes'
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
-const PROBE_TIMEOUT_MS = 2000
+export const PROBE_TIMEOUT_MS = 2000
 
 export const SES_RATE_LIMIT_KEY = '@posthog/ses/global'
 

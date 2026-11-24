@@ -312,7 +312,7 @@ An error that carries a refusal, reset or unknown-host code, an HTTP status or a
 An untyped error past the budget, such as ioredis's `Connection is closed.`, is not: on a busy loop it reads as unheard, with its error kept in `probes.json`.
 The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
-`probes.json` keeps one entry for each dependency each confirmation checked: its kind, the time of its first failed check, the reason from its last failed check, and the busier check's share of loop time.
+`probes.json` keeps one entry for each confirmed failed check: the dependency, its kind, the time of its first failed check, the reason from its last failed check, and the busier check's share of loop time.
 It reads `Environment.exits()` from `Judge.open` on, to tell an exit a valve caused from an unexplained one.
 `Valves.releaseAll` also runs in a `finally`, so no valve outlives its card.
 
