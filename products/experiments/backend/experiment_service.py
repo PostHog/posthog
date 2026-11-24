@@ -126,7 +126,6 @@ from products.experiments.backend.models.experiment import (
     experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.presentation.saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
@@ -172,6 +171,19 @@ from products.notifications.backend.facade.api import (
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
+
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    # The experiment serializers import this module, so a module-level import of them would be circular.
+    from products.experiments.backend.presentation.serializers import ExperimentToSavedMetricSerializer  # noqa: PLC0415
+
+    serializer = ExperimentToSavedMetricSerializer(
+        data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
+        context=context,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -2055,16 +2067,12 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data["id"],
-                    "metadata": saved_metric_data.get("metadata"),
-                },
+            _create_saved_metric_link(
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric_data["id"],
+                metadata=saved_metric_data.get("metadata"),
                 context=context,
             )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
 
     # ------------------------------------------------------------------
     # Launch
@@ -4038,16 +4046,12 @@ class ExperimentService:
                             existing_link.metadata = new_metadata
                             existing_link.save(update_fields=["metadata", "updated_at"])
                     else:
-                        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                            data={
-                                "experiment": experiment.id,
-                                "saved_metric": saved_metric_id,
-                                "metadata": new_metadata,
-                            },
+                        _create_saved_metric_link(
+                            experiment_id=experiment.id,
+                            saved_metric_id=saved_metric_id,
+                            metadata=new_metadata,
                             context=context,
                         )
-                        saved_metric_serializer.is_valid(raise_exception=True)
-                        saved_metric_serializer.save()
 
             # (stats_config / excluded_variants / duplicate-metric-uuid validation
             # runs before the flag write above so a 400 can't leave a committed flag

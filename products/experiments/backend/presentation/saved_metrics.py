@@ -1,51 +1,61 @@
-from django.db.models import QuerySet
-from django.db.models.functions import Lower
+from typing import Any, Literal, cast
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import filters, serializers, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from rest_framework import filters, request, serializers, status, viewsets
+from rest_framework.exceptions import NotFound
+from rest_framework.response import Response
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models import User
+from posthog.paging import Page, PageRequest
+from posthog.permissions import is_service_auth
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.facade import saved_metrics as saved_metrics_facade
+from products.experiments.backend.facade.contracts import (
+    ListAccess,
+    SavedMetric,
+    SavedMetricListFilters,
+    SavedMetricNotFound,
+    SavedMetricWrite,
+    SavedMetricWriteField,
+)
 
 
-class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
-    query = serializers.JSONField(source="saved_metric.query", read_only=True)
-    name = serializers.CharField(source="saved_metric.name", read_only=True)
+def _saved_metric_access_ref(saved_metric: SavedMetric, team_id: int) -> ObjectAccessRef:
+    # The request's team, so a project's environment checks the metric against its own access rules.
+    return ObjectAccessRef(
+        resource="experiment_saved_metric",
+        id=str(saved_metric.id),
+        team_id=team_id,
+        created_by_id=saved_metric.created_by_id,
+    )
 
-    class Meta:
-        model = ExperimentToSavedMetric
-        fields = [
-            "id",
-            "experiment",
-            "saved_metric",
-            "metadata",
-            "created_at",
-            "query",
-            "name",
-        ]
-        read_only_fields = [
-            "id",
-            "created_at",
-        ]
 
-    def to_representation(self, instance: ExperimentToSavedMetric):
-        data = super().to_representation(instance)
-        # Refresh action names to show current names instead of stale cached values.
-        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
-        # parent serializer context); None when used standalone, falling back to a per-call query.
-        team = instance.experiment.team
-        actions_by_id = self.context.get("actions_by_id")
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
-        return data
+def _list_access(
+    user_access_control: UserAccessControl,
+    resource: Literal["experiment", "experiment_saved_metric"],
+    *,
+    viewer_id: int,
+    include_all_if_admin: bool = False,
+) -> ListAccess | None:
+    access = user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
+    if access is None:
+        return None
+    return ListAccess(
+        viewer_id=viewer_id,
+        only_allowed=access.only_allowed,
+        allowed_ids=access.allowed_ids,
+        blocked_ids=access.blocked_ids,
+    )
 
 
 class ExperimentSavedMetricLinkedExperimentSerializer(serializers.Serializer):
@@ -54,10 +64,10 @@ class ExperimentSavedMetricLinkedExperimentSerializer(serializers.Serializer):
     is_running = serializers.BooleanField(help_text="True when the experiment is launched and not yet stopped.")
 
 
-class ExperimentSavedMetricSerializer(
-    UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
-):
-    created_by = UserBasicSerializer(read_only=True)
+# drf-spectacular publishes the docstring of the first base class as the schema description, so a docstring
+# here would change the published API.
+class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(
         max_length=400,
         help_text="Name of the shared metric. Must be unique within the project (case-insensitive).",
@@ -81,13 +91,23 @@ class ExperimentSavedMetricSerializer(
             "Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
         ),
     )
+    created_by = UserBasicSerializer(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+    # No help_text, because a description would change the published schema of the field.
+    tags = serializers.ListField(required=False)
+    user_access_level = serializers.SerializerMethodField(
+        method_name="get_saved_metric_access_level",
+        read_only=True,
+        help_text="The effective access level the user has for this object",
+    )
     linked_experiments = serializers.SerializerMethodField(
         help_text="Experiments using this shared metric (soft-deleted experiments excluded). "
         "Populated only on single-metric retrieve; always an empty list in list responses."
     )
 
+    # A plain serializer ignores Meta; `get_fields` orders the fields by it.
     class Meta:
-        model = ExperimentSavedMetric
         fields = [
             "id",
             "name",
@@ -100,81 +120,93 @@ class ExperimentSavedMetricSerializer(
             "user_access_level",
             "linked_experiments",
         ]
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "user_access_level",
-            "linked_experiments",
-        ]
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # DRF puts base-class fields such as `user_access_level` first; the published schema uses Meta's order.
+        fields = super().get_fields()
+        return {name: fields[name] for name in self.Meta.fields}
+
+    def get_saved_metric_access_level(self, saved_metric: SavedMetric) -> str | None:
+        if self.user_access_control is None:
+            return None
+        return self.get_user_access_level(_saved_metric_access_ref(saved_metric, team_id=self.context["get_team"]().id))
 
     @extend_schema_field(ExperimentSavedMetricLinkedExperimentSerializer(many=True))
-    def get_linked_experiments(self, instance: ExperimentSavedMetric) -> list[dict]:
+    def get_linked_experiments(self, saved_metric: SavedMetric) -> list[dict]:
         # Retrieve-only: the list endpoint serves paginated pages (and the metric modal eagerly
         # loads all of them), so resolving links there would add a query per metric.
         view = self.context.get("view")
         if view is None or getattr(view, "action", None) != "retrieve":
             return []
-        experiments = (
-            Experiment.objects.filter(experimenttosavedmetric__saved_metric=instance, deleted=False)
-            .distinct()
-            .order_by("-created_at")
-        )
         # Experiments carry object-level access controls; drop the ones this user cannot view
-        if self.user_access_control:
-            experiments = self.user_access_control.filter_queryset_by_access_level(experiments, resource="experiment")
+        user_access_control = self.user_access_control
+        access = (
+            _list_access(user_access_control, "experiment", viewer_id=self.context["request"].user.id)
+            if user_access_control
+            else None
+        )
+        experiments = saved_metrics_facade.list_linked_experiments(
+            team_id=saved_metric.team_id, saved_metric_id=saved_metric.id, access=access
+        )
         return [
             {"id": experiment.id, "name": experiment.name, "is_running": experiment.is_running}
             for experiment in experiments
         ]
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The mixin's field-level access check reads the model fields of `self.instance`, which is a contract
+        # here, so it would raise. No field of the shared metric model declares a field-level access rule.
+        return attrs
+
     def validate_name(self, value: str) -> str:
-        team = self.context["get_team"]()
-        qs = ExperimentSavedMetric.objects.filter(team=team, name__iexact=value)
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
+        instance = cast(SavedMetric | None, self.instance)
+        colliding_id = saved_metrics_facade.find_saved_metric_id_by_name(
+            team_id=self.context["get_team"]().id,
+            name=value,
+            exclude_saved_metric_id=instance.id if instance else None,
+        )
+        if colliding_id is not None:
             raise serializers.ValidationError("A shared metric with this name already exists.")
         return value
 
-    def to_representation(self, instance: ExperimentSavedMetric):
-        data = super().to_representation(instance)
-        # Refresh action names to show current names instead of stale cached values
-        team = self.context["get_team"]()
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team)
-        return data
-
-    def create(self, validated_data):
-        tags = validated_data.pop("tags", None)
-        name = validated_data.pop("name")
-        query = validated_data.pop("query")
-        description = validated_data.pop("description", None)
-
-        if validated_data:
-            raise serializers.ValidationError(
-                f"Can't create keys: {', '.join(sorted(validated_data))} on ExperimentSavedMetric"
-            )
-
-        service = self._build_service()
-        instance = service.create_saved_metric(name=name, query=query, description=description)
-        self._attempt_set_tags(tags, instance)
-        return instance
-
-    def update(self, instance: ExperimentSavedMetric, validated_data):
-        tags = validated_data.pop("tags", None)
-        service = self._build_service()
-        instance = service.update_saved_metric(instance, validated_data)
-        self._attempt_set_tags(tags, instance)
-        return instance
-
-    def _build_service(self) -> ExperimentSavedMetricService:
-        request = self.context["request"]
-        return ExperimentSavedMetricService(team=self.context["get_team"](), user=request.user)
+    def to_write(self) -> SavedMetricWrite:
+        data = self.validated_data
+        return SavedMetricWrite(
+            fields_set=frozenset(cast(SavedMetricWriteField, name) for name in data),
+            name=data.get("name"),
+            description=data.get("description"),
+            query=data.get("query"),
+            tags=tuple(data.get("tags") or ()),
+        )
 
 
-@extend_schema_view(
-    list=extend_schema(
+@extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
+class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "experiment_saved_metric"
+    serializer_class = ExperimentSavedMetricSerializer
+    pagination_class = FacadeLimitOffsetPagination
+    path_parameters = {
+        "pk": PathParameter(type=int, description="A unique integer value identifying this experiment saved metric."),
+    }
+
+    def read_object(self) -> SavedMetric | None:
+        return saved_metrics_facade.get_saved_metric(team=self.team, saved_metric_id=self.kwargs["pk"])
+
+    def object_access_ref(self, record: SavedMetric) -> ObjectAccessRef:
+        return _saved_metric_access_ref(record, team_id=self.team.id)
+
+    def _list_access(self) -> ListAccess | None:
+        """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
+        if is_service_auth(self.request):
+            return None
+        return _list_access(
+            self.user_access_control,
+            "experiment_saved_metric",
+            viewer_id=cast(User, self.request.user).id,
+            include_all_if_admin=self.request.GET.get("admin_include_all") == "true",
+        )
+
+    @extend_schema(
         parameters=[
             OpenApiParameter(
                 name="event",
@@ -186,37 +218,64 @@ class ExperimentSavedMetricSerializer(
                 "Use this for reuse discovery (find a metric by what it measures); distinct from 'search', "
                 "which matches the metric's own name/description/tags.",
             ),
+            OpenApiParameter(name="search", type=OpenApiTypes.STR, required=False, description="A search term."),
         ],
-    ),
-)
-@extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
-class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment_saved_metric"
-    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).distinct()
-    serializer_class = ExperimentSavedMetricSerializer
-    filter_backends = [filters.SearchFilter]
-    # `search` matches the metric's own name/description/tags, while `event` looks in metrics
-    search_fields = ["name", "description", "tagged_items__tag__name"]
+    )
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        list_filters = SavedMetricListFilters(
+            # DRF's SearchFilter splits the terms, so `search` keeps the syntax of the other search endpoints.
+            search_terms=tuple(filters.SearchFilter().get_search_terms(request)),
+            event=request.query_params.get("event") or None,
+        )
+        access = self._list_access()
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # `?event=` matches metrics whose query references the event directly (EventsNode) or via an action's
-        # step events (ActionsNode resolved live) — mirrors the experiments-list filter. Scoped to `list` so it
-        # never narrows a detail/update/destroy lookup. Rows are read team-scoped (safely_get_queryset runs
-        # before the mixin's team filter), then matched in Python since event references live deep in the JSON.
-        if self.action != "list":
-            return queryset
-        event = self.request.query_params.get("event")
-        if event:
-            # One group per saved metric: (pk, [its query]). `.order_by()` drops the class-level
-            # ordering for this internal fetch — the result is matched in Python, so ordering is
-            # irrelevant, and it avoids a needless sort (and the DISTINCT+ORDER BY column injection).
-            groups = [
-                (pk, [query] if query else [])
-                for pk, query in queryset.filter(team_id=self.team.pk).order_by().values_list("pk", "query")
-            ]
-            queryset = queryset.filter(pk__in=filter_metric_group_ids_by_event(groups, event, self.team))
-        return queryset
+        def fetch(page: PageRequest) -> Page[SavedMetric]:
+            return saved_metrics_facade.list_saved_metrics(
+                team=self.team, filters=list_filters, access=access, page=page
+            )
 
-    def perform_destroy(self, instance: ExperimentSavedMetric) -> None:
-        service = ExperimentSavedMetricService(team=self.team, user=self.request.user)
-        service.delete_saved_metric(instance)
+        return facade_page_response(self, fetch)
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = ExperimentSavedMetricSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        saved_metric = saved_metrics_facade.create_saved_metric(
+            team=self.team, user=cast(User, request.user), write=serializer.to_write()
+        )
+        return Response(self.get_serializer(saved_metric).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=False)
+
+    def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: request.Request, *, partial: bool) -> Response:
+        saved_metric = self.get_object()
+        serializer = ExperimentSavedMetricSerializer(
+            saved_metric, data=request.data, partial=partial, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            saved_metric = saved_metrics_facade.update_saved_metric(
+                team=self.team,
+                user=cast(User, request.user),
+                saved_metric_id=saved_metric.id,
+                write=serializer.to_write(),
+            )
+        except SavedMetricNotFound:
+            raise NotFound()
+        return Response(self.get_serializer(saved_metric).data)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        saved_metric = self.get_object()
+        try:
+            saved_metrics_facade.delete_saved_metric(
+                team=self.team, user=cast(User, request.user), saved_metric_id=saved_metric.id
+            )
+        except SavedMetricNotFound:
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)

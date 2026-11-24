@@ -77,10 +77,10 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
     get_experiment_rule,
 )
-from products.experiments.backend.presentation.saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import (
     MAX_BUCKET_SCAN_DAYS,
@@ -821,6 +821,37 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
     if value is None:
         return None
     return list(dict.fromkeys(value))
+
+
+class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
+    query = serializers.JSONField(source="saved_metric.query", read_only=True)
+    name = serializers.CharField(source="saved_metric.name", read_only=True)
+
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = [
+            "id",
+            "experiment",
+            "saved_metric",
+            "metadata",
+            "created_at",
+            "query",
+            "name",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+        ]
+
+    def to_representation(self, instance: ExperimentToSavedMetric):
+        data = super().to_representation(instance)
+        # Refresh action names to show current names instead of stale cached values.
+        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
+        # parent serializer context); None when used standalone, falling back to a per-call query.
+        team = instance.experiment.team
+        actions_by_id = self.context.get("actions_by_id")
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
+        return data
 
 
 @extend_schema_serializer(component_name="ExperimentToSavedMetric")
