@@ -104550,6 +104550,12 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** The project's monthly training budget, in whole US dollars. A training run is refused once training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off. */
+      max_training_spend_usd_per_month: number;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, a run in progress included. A run whose cost is not recorded yet counts as 0. */
+      training_spend_usd: number;
+      /** When training_spend_usd resets to 0: the start of the next UTC calendar month. */
+      training_spend_resets_at: string;
       /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
        *
        * * `project` - Project
@@ -104568,6 +104574,12 @@ export namespace Schemas {
        * * `default` - Default
        * * `code` - Code */
       max_live_pipelines_source: LimitSourceEnum;
+      /** Where max_training_spend_usd_per_month comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_spend_usd_per_month_source: LimitSourceEnum;
     }
 
     /**
@@ -114278,7 +114290,7 @@ export namespace Schemas {
       readonly review_drafts: boolean;
       /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False gives each pull request its reviews only when it opens or is marked ready. */
       readonly review_pushes: boolean;
-      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
       readonly deep_review_gated_prs: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
@@ -114391,7 +114403,7 @@ export namespace Schemas {
       review_drafts: boolean;
       /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. */
       review_pushes: boolean;
-      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      /** Whether a pull request gets one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. */
       deep_review_gated_prs: boolean;
       /** Whether auto-approval reviews this repository in this project. Only then can its size, restricted-path and tier rules make an automatic review a Deep review. */
       auto_approval: boolean;
@@ -114478,7 +114490,7 @@ export namespace Schemas {
       flash_for?: AutomaticFlashForEnum | null;
       /** True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value. */
       review_drafts?: boolean;
-      /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+      /** True gives a pull request one Deep automatic review: instead of the Standard review when auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds a must-fix issue. The first case works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
       deep_review_gated_prs?: boolean;
       /** True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value. */
       review_pushes?: boolean;
@@ -122487,6 +122499,35 @@ export namespace Schemas {
       settings?: StartProviderImportSettings;
     }
 
+    export interface TrainingRunCapReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
+      used: number;
+      /** The project's daily limit of sandbox training runs. */
+      limit: number;
+      /**
+         * When the next training run can start. Null when training runs are turned off for the project.
+         * @nullable
+         */
+      next_slot_at: string | null;
+    }
+
+    export interface TrainingBudgetReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code. */
+      code: string;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, across all its pipelines. A run whose cost is not recorded yet counts as 0. */
+      spent_usd: number;
+      /** The project's monthly training budget, in whole US dollars. 0 means training is turned off. */
+      limit_usd: number;
+      /** When the budget resets: the start of the next UTC calendar month. */
+      resets_at: string;
+    }
+
+    export type StartTrainingRefused = TrainingRunCapReached | TrainingBudgetReached;
+
     export interface StartTrainingRequest {
       /**
          * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
@@ -127991,20 +128032,6 @@ export namespace Schemas {
     export interface TraceSummaryRequest {
       /** Replace a ready summary with a new one. A pending summary is never replaced. */
       regenerate?: boolean;
-    }
-
-    export interface TrainingRunCapReached {
-      /** Why the run did not start. */
-      detail: string;
-      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
-      used: number;
-      /** The project's daily limit of sandbox training runs. */
-      limit: number;
-      /**
-         * When the next training run can start. Null when training runs are turned off for the project.
-         * @nullable
-         */
-      next_slot_at: string | null;
     }
 
     /**
