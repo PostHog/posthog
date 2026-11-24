@@ -10,7 +10,6 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
-    COHORT_BACKFILL_REDIS_TTL_SECONDS,
     COHORT_BACKFILL_TRIGGER_COUNTER,
     COHORT_REALTIME_STATE_ORPHANED_COUNTER,
 )
@@ -375,20 +374,22 @@ class TestBehavioralBackfillDependencies(BaseTest):
             {(trigger, CohortBackfillKind.BEHAVIORAL), (trigger, CohortBackfillKind.PERSON_PROPERTY)},
         )
         self.assertEqual(
-            {call.kwargs["countdown"] for call in enqueue.call_args_list}, {COHORT_BACKFILL_DEBOUNCE_SECONDS}
-        )
-        self.assertEqual(
-            {call.args[0] for call in redis.set.call_args_list},
-            {
-                f"cohort_backfill_behavioral_pending:{cohort.id}",
-                f"cohort_backfill_person_property_pending:{cohort.id}",
-            },
+            {(call.kwargs["args"][3], call.kwargs["countdown"]) for call in enqueue.call_args_list},
+            {(kind, COHORT_BACKFILL_DEBOUNCE_SECONDS[kind]) for kind in CohortBackfillKind},
         )
         # Without nx every save enqueues a replay. Without ex the key never expires and swallows every
         # later save, and an ex longer than the countdown swallows a save that lands after the task read
         # its state. Both are the debounce design's whole contract.
-        for call in redis.set.call_args_list:
-            self.assertEqual(call.kwargs, {"nx": True, "ex": COHORT_BACKFILL_REDIS_TTL_SECONDS})
+        self.assertEqual(
+            {call.args[0]: call.kwargs for call in redis.set.call_args_list},
+            {
+                f"cohort_backfill_{kind.value}_pending:{cohort.id}": {
+                    "nx": True,
+                    "ex": COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
+                }
+                for kind in CohortBackfillKind
+            },
+        )
 
     @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
     def test_create_enqueues_one_debounced_task_per_leaf_kind(self) -> None:
@@ -448,7 +449,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
     def _assert_one_debounced_task(self, enqueue, redis, cohort: Cohort, kind: CohortBackfillKind) -> None:
         enqueue.assert_called_once_with(
             args=[self.team.id, cohort.id, "cohort_edited", kind],
-            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
         # The value is the pending task's trigger kind, which the cohort API reads to show a build
         # as queued during the countdown, before any run row exists.
@@ -456,7 +457,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             f"cohort_backfill_{kind.value}_pending:{cohort.id}",
             "cohort_edited",
             nx=True,
-            ex=COHORT_BACKFILL_REDIS_TTL_SECONDS,
+            ex=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
 
     @parameterized.expand(
@@ -683,7 +684,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         enqueue.assert_called_once_with(
             args=[self.team.id, cohort.id, "cohort_edited", kind],
-            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
         )
         # The value is the pending task's trigger kind, which the cohort API reads to show a build
         # as queued during the countdown, before any run row exists.
@@ -694,7 +695,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
                     f"cohort_backfill_{kind.value}_pending:{cohort.id}",
                     "cohort_edited",
                     nx=True,
-                    ex=COHORT_BACKFILL_REDIS_TTL_SECONDS,
+                    ex=COHORT_BACKFILL_DEBOUNCE_SECONDS[kind],
                 )
             ]
             * 2,
