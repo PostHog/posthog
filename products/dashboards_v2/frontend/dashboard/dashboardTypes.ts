@@ -97,19 +97,6 @@ export function activeGridTab(dashboard: Dashboard, activeTabId: string | null):
     return tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
 }
 
-/** The dashboard without the tabs `visible` rejects, keeping at least the first tab with tiles. */
-export function withVisibleTabs(
-    dashboard: Dashboard,
-    visible: ((tab: DashboardTab) => boolean) | undefined
-): Dashboard {
-    if (!visible) {
-        return dashboard
-    }
-    const fallback = gridTabs(dashboard)[0]
-    const tabs = dashboard.tabs.filter((tab) => visible(tab))
-    return { ...dashboard, tabs: tabs.some(isGridTab) ? tabs : [fallback, ...tabs] }
-}
-
 export type Dashboard = z.infer<typeof dashboardSchema>
 
 export type SectionTile = Tile & { widget: SectionWidget }
