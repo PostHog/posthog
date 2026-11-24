@@ -67,7 +67,7 @@ from products.autoresearch.backend.temporal.workflows import (
     daily_sweep_key,
     evaluate_pipeline_outcome,
 )
-from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
 from products.autoresearch.backend.training.artifacts import scored_persons_key
 
 
@@ -687,6 +687,67 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == expected_reason
         assert result.error is None
         assert mock_run_training.called is (expected_reason == "explore")
+
+    @parameterized.expand(
+        [
+            ("this_months_spend_reaches_the_budget", 0, (60_000_000, 40_000_000), None, "team_monthly_budget"),
+            ("under_the_budget", 0, (99_000_000, 990_000), None, "explore"),
+            ("last_months_spend_does_not_count", 20, (500_000_000, 0), None, "explore"),
+            ("unrecorded_token_cost_counts_as_zero", 0, (None, 1_000_000), None, "explore"),
+            ("team_override_raises_the_budget", 0, (60_000_000, 40_000_000), "this_team", "explore"),
+            ("budget_of_zero_stops_training", None, None, "turned_off", "team_monthly_budget"),
+            ("a_deleted_models_spend_still_counts", 0, (100_000_000, 0), "delete_the_model", "team_monthly_budget"),
+        ]
+    )
+    @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_monthly_budget_counts_this_months_spend(
+        self,
+        _name: str,
+        days_ago: Optional[int],
+        cost: Optional[tuple[Optional[int], int]],
+        override: Optional[str],
+        expected_reason: str,
+        mock_run_training: MagicMock,
+        mock_payload: MagicMock,
+    ) -> None:
+        budget = {"this_team": 200, "turned_off": 0}.get(override or "")
+        mock_payload.return_value = (
+            {"team_configs": {str(self.team.id): {"max_training_spend_usd_per_month": budget}}}
+            if budget is not None
+            else None
+        )
+        now = datetime(2026, 11, 10, 12, tzinfo=UTC)
+        runs: dict[uuid.UUID, tuple[datetime, Optional[int], int]] = {}
+        with time_machine.travel(now, tick=False):
+            if days_ago is not None and cost is not None:
+                started_at = now - timedelta(days=days_ago)
+                other_pipeline = self._create_pipeline(name="other pipeline", status=AutoresearchPipeline.Status.PAUSED)
+                with time_machine.travel(started_at, tick=False):
+                    run = AutoresearchTrainingRun.objects.create(
+                        pipeline=other_pipeline,
+                        status=AutoresearchTrainingRun.Status.COMPLETED,
+                        kickoff_reason="explore",
+                        iteration_budget=3,
+                        task_id=uuid.uuid4(),
+                        task_run_id=uuid.uuid4(),
+                        agent_runtime_adapter="claude",
+                    )
+                assert run.task_run_id is not None
+                runs[run.task_run_id] = (started_at, *cost)
+                if override == "delete_the_model":
+                    other_pipeline.delete()
+            pipeline = self._create_pipeline()
+            with fake_task_run_spend(runs):
+                result = activity_kickoff_training(
+                    KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+                )
+
+        assert result.reason == expected_reason
+        assert result.error is None
+        assert mock_run_training.called is (expected_reason == "explore")
+        if expected_reason == "team_monthly_budget":
+            assert result.detail is not None and "resets at 2026-12-01T00:00:00+00:00" in result.detail
 
     @parameterized.expand(
         [
