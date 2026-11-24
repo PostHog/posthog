@@ -6,12 +6,18 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 const {
     decideJsonTargets,
     decideProductChange,
     decideSelection,
     decideSelectionWithShadow,
+    deletedProductPythonFiles,
     isDagsterOnlyLegacyEdit,
+    listChangedFiles,
     narrowedProducts,
     parseWatchedAnswer,
     productCascadePhase,
@@ -586,5 +592,45 @@ test('a missing answer, a failed level or a change to hoglint itself widens to e
     for (const [overrides, reason] of cases) {
         const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
         assert.deepEqual({ products, runLegacy, runLegacyReason }, { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: reason }, reason)
+    }
+})
+
+// git quotes a non-ASCII path in plain output ("products/canvas/backend/facade/pol\303\255cy.py").
+// That string matches no watched file, so a change there would skip Django.
+test('the diff lists a non-ASCII path as written, so it can match a watched file', () => {
+    const changed = 'products/canvas/backend/facade/polícy.py'
+    const deleted = 'products/canvas/backend/logic/cafés.py'
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'non-ascii-diff-'))
+    const origCwd = process.cwd()
+    const origBase = process.env.TURBO_SCM_BASE
+    try {
+        process.chdir(root)
+        const git = (...args) => execFileSync('git', args, { encoding: 'utf-8' }).trim()
+        git('init', '-q')
+        git('config', 'user.email', 'test@example.com')
+        git('config', 'user.name', 'test')
+        git('config', 'commit.gpgsign', 'false')
+        for (const file of [changed, deleted]) {
+            fs.mkdirSync(path.dirname(file), { recursive: true })
+            fs.writeFileSync(file, 'x = 1\n')
+        }
+        git('add', '.')
+        git('commit', '-q', '-m', 'base')
+        const base = git('rev-parse', 'HEAD')
+        fs.writeFileSync(changed, 'x = 2\n')
+        fs.rmSync(deleted)
+        git('commit', '-q', '-am', 'head')
+
+        assert.deepEqual(listChangedFiles(base, 'HEAD'), [changed, deleted])
+        process.env.TURBO_SCM_BASE = base
+        assert.deepEqual(deletedProductPythonFiles(), [deleted])
+    } finally {
+        process.chdir(origCwd)
+        if (origBase === undefined) {
+            delete process.env.TURBO_SCM_BASE
+        } else {
+            process.env.TURBO_SCM_BASE = origBase
+        }
+        fs.rmSync(root, { recursive: true, force: true })
     }
 })

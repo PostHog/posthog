@@ -414,9 +414,11 @@ function productsWithUndeclaredInputChanges(changedFiles, allProductSet) {
     return [...products].sort()
 }
 
+// `-z` keeps each path as written. Without it git quotes a non-ASCII path ("products/x/caf\303\251.py"),
+// which matches no watched file.
 function listChangedFiles(base, head) {
-    return execFileSync('git', ['diff', '--name-only', '--no-renames', base, head], TURBO_EXEC_OPTS)
-        .split('\n')
+    return execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', base, head], TURBO_EXEC_OPTS)
+        .split('\0')
         .filter(Boolean)
 }
 
@@ -641,10 +643,10 @@ function deletedProductPythonFiles() {
     try {
         return execFileSync(
             'git',
-            ['diff', '--name-only', '--no-renames', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
+            ['diff', '--name-only', '--no-renames', '-z', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
             TURBO_EXEC_OPTS
         )
-            .split('\n')
+            .split('\0')
             .filter((file) => file.endsWith('.py') && productOfFile(file) !== null)
     } catch (e) {
         console.error(`::warning::Could not list deleted files against ${base} (${e.message}) — the dependent cascade widens to every product`)
@@ -1931,6 +1933,8 @@ module.exports = {
     watchedPolicyChanges,
     productsWithWatchedChanges,
     decideProductChange,
+    listChangedFiles,
+    deletedProductPythonFiles,
     testlessProducts,
     collectTestFiles,
     checkProductStaleness,
