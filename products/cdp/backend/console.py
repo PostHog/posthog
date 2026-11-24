@@ -108,8 +108,9 @@ def _count(value: int, singular: str, plural: str | None = None) -> str:
 
 def _delivery_progress(counts: dict[OutcomeStatus, int], *, planned: int, sending: bool, waiting: bool) -> Progress:
     queued = sum(counts.values())
-    # The counts hold only the runs of requests that went out, so until the last one they would read as complete.
-    total = max(planned, queued) if sending else queued
+    # The counts hold only the runs of requests that went out, so on their own they read as complete too early.
+    total = max(planned, queued)
+    unsent = total - queued if sending else 0
     delivered = counts.get("succeeded", 0)
     failed = counts.get("failed", 0)
     text = f"{delivered:,} of {_count(total, 'run')} delivered"
@@ -120,7 +121,7 @@ def _delivery_progress(counts: dict[OutcomeStatus, int], *, planned: int, sendin
             ProgressPart(count=delivered, tone=Tone.SUCCESS),
             ProgressPart(count=failed, tone=Tone.DESTRUCTIVE),
         ),
-        moving=counts.get("running", 0) + counts.get("waiting", 0) + total - queued if waiting else 0,
+        moving=counts.get("running", 0) + counts.get("waiting", 0) + unsent if waiting else 0,
     )
 
 

@@ -761,9 +761,7 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         assert b"Requests sent" in response.content
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_delivery_bar_counts_unsent_runs_while_sending_and_pulses_only_while_the_page_waits(
-        self, rerun: MagicMock
-    ) -> None:
+    def test_delivery_bar_counts_unsent_runs_and_pulses_only_while_the_page_waits(self, rerun: MagicMock) -> None:
         rerun.return_value = MagicMock(status_code=200, text="{}")
         _insert(self.function, [_row(suffix, "failed", 10) for suffix in ("a3", "a4")])
         plan = plan_replay(_criteria())
@@ -780,11 +778,16 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         waiting = self.staff_client.get(status_url).content.decode()
         with patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)):
             stopped = self.staff_client.get(status_url).content.decode()
-        with patch(
-            "products.cdp.backend.console.get_replay_state",
-            return_value={**state, "status": "running", "invocation_count": 8},
-        ):
-            sending = self.staff_client.get(status_url).content.decode()
+        partly_sent = []
+        for status in ("running", "done"):
+            with (
+                patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)),
+                patch(
+                    "products.cdp.backend.console.get_replay_state",
+                    return_value={**state, "status": status, "invocation_count": 8},
+                ),
+            ):
+                partly_sent.append(self.staff_client.get(status_url).content.decode())
 
         bars = r'data-variant="(\w+)"\s+style="width: ([\d.]+)%"'
         for page in (waiting, stopped):
@@ -792,8 +795,10 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
             assert re.findall(bars, page) == [("success", "50.000"), ("destructive", "25.000")]
         assert "animate-pulse" in waiting
         assert "animate-pulse" not in stopped
-        assert "2 of 8 runs delivered, 1 failed again" in sending
-        assert re.findall(bars, sending) == [("success", "25.000"), ("destructive", "12.500")]
+        for page, pulses in zip(partly_sent, (True, False)):
+            assert "2 of 8 runs delivered, 1 failed again" in page
+            assert re.findall(bars, page) == [("success", "25.000"), ("destructive", "12.500")]
+            assert ("animate-pulse" in page) == pulses
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:
