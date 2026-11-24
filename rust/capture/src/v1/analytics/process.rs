@@ -1160,7 +1160,7 @@ async fn apply_global_rate_limit(
             // the main/overflow lanes, via `WrappedEvent::ordering`.
             event.force_disable_person_processing = true;
             event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
-            // Reroute to overflow to spread a hot token:distinct_id across
+            // Reroute to overflow to spread a hot key across
             // partitions. Gated to AnalyticsMain only. Other lanes (exceptions,
             // heatmaps, etc.) keep their own destination.
             if event.destination == Destination::AnalyticsMain {

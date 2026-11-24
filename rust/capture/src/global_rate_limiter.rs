@@ -467,8 +467,8 @@ impl GlobalRateLimiter {
         self.limiter.is_custom_key(key)
     }
 
-    /// Clients for the per-(token, distinct_id) limiter, one per shard in shard order. Without
-    /// `GLOBAL_RATE_LIMIT_REDIS_URL` the limiter shares the main client.
+    /// Clients for one event limiter (per-(token, distinct_id) or per-token), one per shard in
+    /// shard order. Without `GLOBAL_RATE_LIMIT_REDIS_URL` the limiter shares the main client.
     pub async fn build_redis_shards(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,

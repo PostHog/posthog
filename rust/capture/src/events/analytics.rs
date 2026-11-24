@@ -250,7 +250,7 @@ pub fn process_single_event(
 /// All routing policy lives here: token dropping, AI lane assignment
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
-/// limiting (per `token:distinct_id`), historical rerouting, and per-key
+/// limiting (per `token:distinct_id`, then per token), historical rerouting, and per-key
 /// overflow rerouting via [`OverflowLimiter`]. Overflow stamping goes through
 /// [`stamp_overflow_reason`], shared with the AI and OTEL handlers. The sink
 /// maps the stamped metadata to an address through [`crate::pipeline::resolve`].
@@ -613,6 +613,9 @@ fn legacy_rate_limit_metrics(kind: GlobalRateLimitKind) -> LegacyRateLimitMetric
     }
 }
 
+/// The v1 copy is `v1::analytics::process::apply_global_rate_limit`. Both
+/// copies must charge the same events, or one token's count differs between
+/// the v0 and v1 paths.
 async fn apply_global_rate_limit(
     limiter: &GlobalRateLimiter,
     kind: GlobalRateLimitKind,
@@ -3027,9 +3030,13 @@ mod tests {
         assert!(collector.emitted().is_empty());
     }
 
-    /// Counter value for the already-disabled GRL metric at the given `over_budget` label.
+    const DISTINCT_ID_ALREADY_DISABLED: &str = "capture_global_rate_limiter_already_disabled";
+    const TOKEN_ALREADY_DISABLED: &str = "capture_global_rate_limiter_token_already_disabled";
+
+    /// Counter value for an already-disabled GRL metric at the given `over_budget` label.
     fn already_disabled_count(
         snapshotter: &metrics_util::debugging::Snapshotter,
+        metric: &str,
         over_budget: &str,
     ) -> Option<u64> {
         use metrics_util::debugging::DebugValue;
@@ -3039,7 +3046,7 @@ mod tests {
             .into_vec()
             .into_iter()
             .find_map(|(key, _, _, value)| {
-                if key.key().name() != "capture_global_rate_limiter_already_disabled" {
+                if key.key().name() != metric {
                     return None;
                 }
                 let labels: std::collections::HashMap<&str, &str> =
@@ -3112,12 +3119,12 @@ mod tests {
             "an already-disabled event is not rerouted to overflow"
         );
         assert_eq!(
-            already_disabled_count(&snapshotter, "true"),
+            already_disabled_count(&snapshotter, DISTINCT_ID_ALREADY_DISABLED, "true"),
             Some(1),
             "an over-budget event with person processing already off belongs in the over_budget arm"
         );
         assert_eq!(
-            already_disabled_count(&snapshotter, "false"),
+            already_disabled_count(&snapshotter, DISTINCT_ID_ALREADY_DISABLED, "false"),
             None,
             "nothing under budget was already disabled in this batch"
         );
@@ -3171,11 +3178,59 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            already_disabled_count(&snapshotter, "false"),
+            already_disabled_count(&snapshotter, DISTINCT_ID_ALREADY_DISABLED, "false"),
             Some(1),
             "an under-budget event with person processing already off belongs in the other arm"
         );
-        assert_eq!(already_disabled_count(&snapshotter, "true"), None);
+        assert_eq!(
+            already_disabled_count(&snapshotter, DISTINCT_ID_ALREADY_DISABLED, "true"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn per_token_limit_reports_already_disabled_events_on_its_own_counter() {
+        // The per-distinct_id limiter turns person processing off for both
+        // events first, so the per-token pass sees them as already disabled.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = (0..2)
+            .map(|_| create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None))
+            .collect();
+
+        let sink = MockSink::new();
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            events,
+            &context,
+            PipelineOptions {
+                global_rate_limiter: Some(Arc::new(GlobalRateLimiter::mock_limiting(&[
+                    "test_token:test_user",
+                ]))),
+                global_rate_limiter_token: Some(Arc::new(GlobalRateLimiter::mock_budget(1_000))),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            already_disabled_count(&snapshotter, TOKEN_ALREADY_DISABLED, "false"),
+            Some(2)
+        );
+        for over_budget in ["true", "false"] {
+            assert_eq!(
+                already_disabled_count(&snapshotter, DISTINCT_ID_ALREADY_DISABLED, over_budget),
+                None,
+                "per-token counts must stay out of the counter enforcement alerting reads"
+            );
+        }
     }
 
     #[tokio::test]
