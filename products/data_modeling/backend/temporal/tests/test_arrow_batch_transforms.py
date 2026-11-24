@@ -201,6 +201,14 @@ def _strings(values: Sequence[bytes | None], *, large: bool = False) -> pa.Array
 
 INVALID = [b"ok", b"caf\xc3", None, b"\xff\xfe ok"]
 REPLACED = ["ok", "caf\ufffd", None, "\ufffd\ufffd ok"]
+# ClickHouse stores a Decimal(18, x) in 64 bits, so it can send a value with 19 digits. Arrow's
+# full validation refuses that value, but Delta stores it unchanged.
+OVERFLOWING = [Decimal("900000000.0000000001"), None, Decimal("-900000000.0000000001"), Decimal("1.5")]
+
+
+def _overflowing_decimals() -> pa.Array:
+    values = pa.array(OVERFLOWING, pa.decimal128(38, 10))
+    return pa.Array.from_buffers(pa.decimal128(18, 10), len(values), values.buffers())
 
 
 @pytest.mark.parametrize(
@@ -231,6 +239,12 @@ REPLACED = ["ok", "caf\ufffd", None, "\ufffd\ufffd ok"]
             id="map_key_and_value",
         ),
         pytest.param(_strings([b"caf\xc3\xa9", None]), ["café", None], id="valid_utf8_is_untouched"),
+        pytest.param(_overflowing_decimals(), OVERFLOWING, id="decimal_wider_than_its_precision_is_untouched"),
+        pytest.param(
+            pa.StructArray.from_arrays([_overflowing_decimals(), _strings(INVALID)], names=["amount", "label"]),
+            [{"amount": amount, "label": label} for amount, label in zip(OVERFLOWING, REPLACED)],
+            id="struct_field_next_to_a_decimal_wider_than_its_precision",
+        ),
     ],
 )
 def test_strings_that_are_not_valid_utf8_become_readable(tmp_path: Path, column: pa.Array, expected: list) -> None:
