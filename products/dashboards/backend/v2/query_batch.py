@@ -192,6 +192,16 @@ def _miss_line(index: int, cache_key: Optional[str]) -> dict[str, Any]:
     }
 
 
+def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> tuple[str, bool, bool, str]:
+    # The cache key leaves out series names, which a hit patches per query, so the query is part of the key.
+    return (
+        planned.cache_key,
+        item.swr,
+        item.cache_only,
+        json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+    )
+
+
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
     if isinstance(error, (*_EXPOSED_ERRORS, InvalidTarget)):
         message = str(error)
@@ -202,6 +212,32 @@ def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
         capture_exception(error)
         message = _FAILED
     return {"i": index, "error": message}
+
+
+def _refresh_all(
+    *, team: Team, user: User, dashboard_id: Optional[int], is_query_service: bool, queries: list[ResolvedQuery]
+) -> None:
+    # The stale results are already in the response. The async path recomputes them for the next read.
+    try:
+        for query in queries:
+            try:
+                with tags_context(api_queries_budgeted=True) if is_query_service else nullcontext():
+                    process_query_dict(
+                        team,
+                        query.query,
+                        dashboard_filters_json=query.filters,
+                        variables_override_json=query.variables,
+                        limit_context=None if is_query_service else _limit_context(query.query),
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                        user=user,
+                        dashboard_id=dashboard_id,
+                        is_query_service=is_query_service,
+                    )
+            except Exception:
+                logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
+    finally:
+        connections.close_all()
+        _refresh_slots.release()
 
 
 type _Job = Callable[[], dict[str, Any]]
@@ -296,11 +332,26 @@ class QueryBatch:
         to_refresh: list[int],
         served: dict[tuple[str, bool, bool, str], bytes],
     ) -> None:
+        duplicates: dict[int, bytes] = {}
+
+        def plan_unserved(index: int) -> PlannedQuery | None:
+            # A panel repeating an entry an earlier chunk served is left unplanned, so its blob is not fetched again.
+            planned = plan(index)
+            if planned is not None:
+                body = served.get(_served_key(planned, inputs[index]))
+                if body is not None:
+                    duplicates[index] = body
+                    return None
+            return planned
+
         with planned_cache_reads(
-            team=self._team, distinct_id=str(self._user.distinct_id), keys=chunk, plan=plan
+            team=self._team, distinct_id=str(self._user.distinct_id), keys=chunk, plan=plan_unserved
         ) as planned_queries:
             for index in chunk:
                 item = inputs[index]
+                if index in duplicates:
+                    self.ready.append((index, duplicates[index]))
+                    continue
                 planned = planned_queries.get(index)
                 if planned is None:
                     if item.cache_only:
@@ -312,13 +363,7 @@ class QueryBatch:
                 if not item.cache_only and planned.query_runner.requires_fresh_calculation():
                     to_run.append(index)
                     continue
-                # The cache key leaves out series names, which a hit patches per query, so the query is part of the key.
-                same_entry = (
-                    planned.cache_key,
-                    item.swr,
-                    item.cache_only,
-                    json.dumps(planned.upgraded_query, sort_keys=True, default=str),
-                )
+                same_entry = _served_key(planned, item)
                 if same_entry in served:
                     self.ready.append((index, served[same_entry]))
                     continue
@@ -375,36 +420,19 @@ class QueryBatch:
         if not _refresh_slots.acquire(blocking=False):
             return
 
-        def refresh_all() -> None:
-            try:
-                for query in queries:
-                    self._refresh_in_background(query)
-            finally:
-                connections.close_all()
-                _refresh_slots.release()
-
+        # Only what a refresh needs, so a queued refresh does not keep this batch's buffered results alive.
+        refresh_all = partial(
+            _refresh_all,
+            team=self._team,
+            user=self._user,
+            dashboard_id=self._dashboard_id,
+            is_query_service=self._is_query_service,
+            queries=queries,
+        )
         try:
             _refresh_pool.submit(self._context.copy().run, refresh_all)
         except RuntimeError:
             _refresh_slots.release()
-
-    def _refresh_in_background(self, query: ResolvedQuery) -> None:
-        # The stale result is already in the response. The async path recomputes it for the next read.
-        try:
-            with tags_context(api_queries_budgeted=True) if self._is_query_service else nullcontext():
-                process_query_dict(
-                    self._team,
-                    query.query,
-                    dashboard_filters_json=query.filters,
-                    variables_override_json=query.variables,
-                    limit_context=self._limit_context(query.query),
-                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                    user=self._user,
-                    dashboard_id=self._dashboard_id,
-                    is_query_service=self._is_query_service,
-                )
-        except Exception:
-            logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=self._team.pk, exc_info=True)
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         if self._cancelled:
