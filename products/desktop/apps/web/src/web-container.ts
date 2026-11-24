@@ -798,15 +798,13 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
         url,
         init,
       ),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
     legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
 // The Go gateway sends no CORS headers and the web host has no loopback
-// proxy, so helper prompts stay on the legacy gateway here.
+// proxy.
 container
   .bind(GATEWAY_TOKEN_HOST)
   .toConstantValue({ goEnabled: false, override: null });

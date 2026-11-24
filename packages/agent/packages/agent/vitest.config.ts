@@ -18,7 +18,10 @@ export default defineConfig({
     isolate: true,
     fileParallelism: false,
     // Session options write a settings file under the Claude config dir.
-    env: { CLAUDE_CONFIG_DIR: resolve(tmpdir(), "posthog-agent-test-claude") },
+    env: {
+      CLAUDE_CONFIG_DIR: resolve(tmpdir(), "posthog-agent-test-claude"),
+      LLM_GATEWAY_URL: "http://llm-gateway.internal:8080",
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

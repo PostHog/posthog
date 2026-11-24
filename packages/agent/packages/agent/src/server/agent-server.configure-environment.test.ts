@@ -49,6 +49,7 @@ describe("AgentServer.configureEnvironment", () => {
       originalEnv[key] = process.env[key];
       delete process.env[key];
     }
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
   });
 
   afterEach(() => {
@@ -80,10 +81,10 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/background_agents",
+      "http://llm-gateway.internal:8080/background_agents",
     );
     expect(env.openaiBaseUrl).toBe(
-      "https://gateway.us.posthog.com/background_agents/v1",
+      "http://llm-gateway.internal:8080/background_agents/v1",
     );
   });
 
@@ -93,7 +94,7 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
   });
 
@@ -118,7 +119,7 @@ describe("AgentServer.configureEnvironment", () => {
     const env = buildServer("background").configureEnvironment();
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
   });
 
@@ -134,7 +135,7 @@ describe("AgentServer.configureEnvironment", () => {
       fromInteractive.anthropicBaseUrl,
     );
     expect(fromBackground.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
   });
 
@@ -462,6 +463,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       originalEnv[key] = process.env[key];
       delete process.env[key];
     }
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
     process.env.AI_GATEWAY_URL = GO_GATEWAY;
     process.env.AI_GATEWAY_PRODUCTS = [
       "signals_scout",
@@ -533,7 +535,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
     expect(env.anthropicCustomHeaders).toContain(
       "x-posthog-property-task_internal",
@@ -744,7 +746,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       aiStage: null,
     });
 
-    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
     expect(env.anthropicAuthToken).toBe("test-api-key");
   });
 
@@ -766,7 +770,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       aiStage: "scout",
     });
 
-    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
     expect(env.anthropicAuthToken).toBe("test-api-key");
     expect(env.openaiApiKey).toBe("test-api-key");
   });
@@ -790,7 +796,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     const env = buildServer().configureEnvironment({ isInternal: false });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
     expect(env.anthropicAuthToken).toBe("test-api-key");
     expect(env.openaiApiKey).toBe("test-api-key");

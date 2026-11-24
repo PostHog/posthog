@@ -51,7 +51,6 @@ function createService(
   };
 
   const endpoints: LlmGatewayEndpoints = {
-    messagesUrl: (host) => `${host}/gateway/v1/messages`,
     usageUrl: (host, projectId) =>
       `${host}/api/projects/${projectId}/desktop/usage/`,
     legacyUsageUrl: (host) => `${host}/gateway/usage`,

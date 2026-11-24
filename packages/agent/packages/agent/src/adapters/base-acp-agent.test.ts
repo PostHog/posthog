@@ -62,7 +62,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "deepseek-ai/deepseek-v4-flash-0731",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -105,7 +105,7 @@ describe("BaseAcpAgent", () => {
       const agent = new TestAcpAgent({} as AgentSideConnection);
       const result = await agent.getModelConfigOptions(
         requestedModel,
-        "https://gateway.us.posthog.com/posthog_code",
+        "https://ai-gateway.us.posthog.com",
         "token",
       );
 
@@ -144,7 +144,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "zai-org/glm-5.3",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -179,7 +179,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "claude-sonnet-5",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -204,7 +204,7 @@ describe("BaseAcpAgent", () => {
     const agent = new TestAcpAgent({} as AgentSideConnection);
     const result = await agent.getModelConfigOptions(
       "anthropic/claude-sonnet-5",
-      "https://gateway.us.posthog.com/posthog_code",
+      "https://ai-gateway.us.posthog.com",
       "token",
     );
 
@@ -241,7 +241,7 @@ describe("BaseAcpAgent", () => {
       const warn = vi.spyOn(agent.logger, "warn");
       const result = await agent.getModelConfigOptions(
         savedModel,
-        "https://gateway.us.posthog.com/posthog_code",
+        "https://ai-gateway.us.posthog.com",
         "token",
       );
 

@@ -580,8 +580,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     authenticatedFetch: (url: string, init?: RequestInit) =>
       auth().authenticatedFetch(fetch, url, init),
     fetch: (url: string, init?: RequestInit) => fetch(url, init),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
     legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
