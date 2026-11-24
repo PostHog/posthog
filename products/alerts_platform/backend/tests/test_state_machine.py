@@ -455,14 +455,25 @@ class TestFiringEpisode:
                 AlertState.NOT_FIRING,
                 episode(STARTED, ended=True),
             ),
+            # An error moves no firing, so the check that recovers the alert ends or continues it.
+            ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, episode(STARTED)),
             (
-                "errored",
+                "recovered_after_an_error",
                 LOGS_ALERT_POLICY,
-                AlertState.FIRING,
-                STARTED,
                 AlertState.ERRORED,
+                STARTED,
+                AlertState.NOT_FIRING,
                 episode(STARTED, ended=True),
             ),
+            (
+                "breached_after_an_error",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            ("errored_while_clear", LOGS_ALERT_POLICY, AlertState.ERRORED, None, AlertState.FIRING, episode(NOW)),
             ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
             (
                 "firing_without_a_start",
@@ -533,19 +544,38 @@ class TestFiringEpisode:
 class TestIncidentAction:
     @parameterized.expand(
         [
-            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.FIRING, IncidentAction.TRIGGER),
-            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.FIRING, None),
-            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.NOT_FIRING, IncidentAction.RESOLVE),
-            ("broken", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.BROKEN, IncidentAction.RESOLVE),
-            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.NOT_FIRING, None),
-            ("broken_while_clear", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.BROKEN, None),
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, IncidentAction.TRIGGER),
+            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.FIRING, None),
+            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.NOT_FIRING, IncidentAction.RESOLVE),
+            ("broken", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.BROKEN, IncidentAction.RESOLVE),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
+            ("broken_while_clear", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.BROKEN, None),
             # A firing parked in SNOOZED under clear_check_ends_snooze is still the same firing.
-            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, AlertState.SNOOZED, None),
-            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, AlertState.FIRING, None),
-            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.SNOOZED, IncidentAction.RESOLVE),
-            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, AlertState.SNOOZED, None),
-            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.PENDING_RESOLVE, None),
-            ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, AlertState.FIRING, None),
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, None, AlertState.SNOOZED, None),
+            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, None, AlertState.FIRING, None),
+            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.SNOOZED, IncidentAction.RESOLVE),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
+            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.PENDING_RESOLVE, None),
+            ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, None, AlertState.FIRING, None),
+            # An error keeps the firing and its incident, so the check that recovers the alert closes it.
+            ("errored_while_firing", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, None),
+            (
+                "recovered_after_an_error",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                STARTED,
+                AlertState.NOT_FIRING,
+                IncidentAction.RESOLVE,
+            ),
+            ("breached_after_an_error", LOGS_ALERT_POLICY, AlertState.ERRORED, STARTED, AlertState.FIRING, None),
+            (
+                "errored_while_clear",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                None,
+                AlertState.FIRING,
+                IncidentAction.TRIGGER,
+            ),
         ]
     )
     def test_which_transitions_open_or_close_an_incident(
@@ -553,7 +583,8 @@ class TestIncidentAction:
         _name: str,
         policy: AlertPolicy,
         state: AlertState,
+        started_at: datetime | None,
         new_state: AlertState,
         expected: IncidentAction | None,
     ) -> None:
-        assert decide_incident_action(state, new_state, policy=policy) == expected
+        assert decide_incident_action(state, new_state, policy=policy, firing_started_at=started_at) == expected
