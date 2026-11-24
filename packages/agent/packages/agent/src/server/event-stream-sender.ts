@@ -111,19 +111,17 @@ function omitToolAppData(
   };
 }
 
-function truncateStrings(
+function serializeWithTruncatedStrings(
   event: Record<string, unknown>,
   maxStringChars: number,
-): Record<string, unknown> {
-  return JSON.parse(
-    JSON.stringify(event, (_key, value: unknown) => {
-      if (typeof value !== "string" || value.length <= maxStringChars) {
-        return value;
-      }
-      const omittedChars = value.length - maxStringChars;
-      return `${value.slice(0, maxStringChars)}\n[truncated: ${omittedChars} characters omitted]`;
-    }),
-  );
+): string {
+  return JSON.stringify(event, (_key, value: unknown) => {
+    if (typeof value !== "string" || value.length <= maxStringChars) {
+      return value;
+    }
+    const omittedChars = value.length - maxStringChars;
+    return `${value.slice(0, maxStringChars)}\n[truncated: ${omittedChars} characters omitted]`;
+  });
 }
 
 export class TaskRunEventStreamSender {
@@ -292,12 +290,12 @@ export class TaskRunEventStreamSender {
         this.bufferedEvents.length < previousLength ||
         this.bufferRevision !== previousRevision;
       if (!madeProgress && !(await this.waitBeforeStopRetry(deadlineAtMs))) {
-        this.warnStopDeadlineReached(startedAtMs);
+        this.reportStopDeadlineReached(startedAtMs);
         return;
       }
 
       if (Date.now() >= deadlineAtMs && !this.transportCompleted) {
-        this.warnStopDeadlineReached(startedAtMs);
+        this.reportStopDeadlineReached(startedAtMs);
         return;
       }
     }
@@ -626,7 +624,7 @@ export class TaskRunEventStreamSender {
     return Date.now() < deadlineAtMs;
   }
 
-  private warnStopDeadlineReached(startedAtMs: number): void {
+  private reportStopDeadlineReached(startedAtMs: number): void {
     const lostEventCount = this.bufferedEvents.length;
     this.config.logger.error(
       "Task run event ingest stop deadline reached before fully completing transport",
@@ -797,12 +795,14 @@ export class TaskRunEventStreamSender {
   private prepareEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    if (this.envelopeBytes(event) <= this.maxEventBytes) {
+    const eventBytes = this.envelopeBytes(event);
+    if (eventBytes <= this.maxEventBytes) {
       return event;
     }
 
     const trimmedEvent = omitToolAppData(event);
-    const trimmedEventBytes = this.envelopeBytes(trimmedEvent);
+    const trimmedEventBytes =
+      trimmedEvent === event ? eventBytes : this.envelopeBytes(trimmedEvent);
     if (trimmedEventBytes <= this.maxEventBytes) {
       return trimmedEvent;
     }
@@ -828,14 +828,17 @@ export class TaskRunEventStreamSender {
   private truncateOversizedEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
+    const envelopeOverheadBytes = this.envelopeBytes({}) - "{}".length;
     for (
       let maxStringChars = Math.floor(this.maxEventBytes / 2);
       maxStringChars >= TRUNCATED_STRING_CHARS_MIN;
       maxStringChars = Math.floor(maxStringChars / 2)
     ) {
-      const truncatedEvent = truncateStrings(event, maxStringChars);
-      if (this.envelopeBytes(truncatedEvent) <= this.maxEventBytes) {
-        return truncatedEvent;
+      const serialized = serializeWithTruncatedStrings(event, maxStringChars);
+      const truncatedBytes =
+        envelopeOverheadBytes + Buffer.byteLength(serialized, "utf8");
+      if (truncatedBytes <= this.maxEventBytes) {
+        return JSON.parse(serialized);
       }
     }
     return null;
@@ -864,14 +867,15 @@ export class TaskRunEventStreamSender {
     this.config.logger.warn("Task run event ingest emitting gap after drops", {
       dropped: droppedCount,
     });
-    this.config.onEventLoss?.({ reason: "dropped", count: droppedCount });
+    const loss: EventStreamLoss = { reason: "dropped", count: droppedCount };
+    this.config.onEventLoss?.(loss);
     this.bufferEvent({
       type: "notification",
       timestamp: new Date().toISOString(),
       notification: {
         jsonrpc: "2.0",
-        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_GAP,
-        params: { droppedCount },
+        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_LOSS,
+        params: { ...loss },
       },
     });
   }

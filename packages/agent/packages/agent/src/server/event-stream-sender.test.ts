@@ -8,10 +8,6 @@ import type { StreamingUpload } from "./streaming-upload";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
 
-interface EventLine {
-  notification: { method: string; params?: { droppedCount?: number } };
-}
-
 async function readRequestBody(init?: RequestInit): Promise<string> {
   const body = init?.body;
   if (!body) {
@@ -113,6 +109,34 @@ function createFetchStreamingUpload({
     },
     responsePromise: fetch(url, requestInit),
   };
+}
+
+function lossLine(seq: number, count: number): Record<string, unknown> {
+  return {
+    seq,
+    event: {
+      type: "notification",
+      timestamp: expect.any(String),
+      notification: {
+        jsonrpc: "2.0",
+        method: "_posthog/event_stream_loss",
+        params: { reason: "dropped", count },
+      },
+    },
+  };
+}
+
+function stubRecordingFetch(): string[] {
+  const requestBodies: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = await readRequestBody(init);
+      requestBodies.push(body);
+      return responseForBody(body);
+    }),
+  );
+  return requestBodies;
 }
 
 function createSender(
@@ -441,8 +465,14 @@ describe("TaskRunEventStreamSender", () => {
         { type: "notification", notification: { method: "second" } },
         { type: "notification", notification: { method: "third" } },
       ],
-      expectedMethods: ["first", "_posthog/event_stream_gap"],
-      droppedCount: 2,
+      expectedLines: [
+        {
+          seq: 1,
+          event: { type: "notification", notification: { method: "first" } },
+        },
+        lossLine(2, 2),
+      ],
+      count: 2,
     },
     {
       name: "when an event cannot be truncated to fit",
@@ -457,23 +487,20 @@ describe("TaskRunEventStreamSender", () => {
         },
         { type: "notification", notification: { method: "small" } },
       ],
-      expectedMethods: ["_posthog/event_stream_gap", "small"],
-      droppedCount: 1,
+      expectedLines: [
+        lossLine(1, 1),
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "small" } },
+        },
+      ],
+      count: 1,
     },
   ])(
-    "replaces events dropped $name with a sequenced gap event",
-    async ({ senderOptions, events, expectedMethods, droppedCount }) => {
-      const requestBodies: string[] = [];
-      const fetchMock = vi.fn(
-        async (_url: string | URL | Request, init?: RequestInit) => {
-          const body = await readRequestBody(init);
-          requestBodies.push(body);
-          return responseForBody(body);
-        },
-      );
-      vi.stubGlobal("fetch", fetchMock);
+    "replaces events dropped $name with a sequenced loss event",
+    async ({ senderOptions, events, expectedLines, count }) => {
+      const requestBodies = stubRecordingFetch();
       const losses: EventStreamLoss[] = [];
-
       const sender = createSender({
         ...senderOptions,
         onEventLoss: (loss) => losses.push(loss),
@@ -484,33 +511,16 @@ describe("TaskRunEventStreamSender", () => {
       }
       await sender.stop();
 
-      const lines = parseLines(requestBodies[1]);
-      expect(eventSequences(requestBodies[1])).toEqual([1, 2]);
-      expect(completionSequences(requestBodies[1])).toEqual([2]);
-      expect(
-        lines
-          .filter((line) => "seq" in line)
-          .map((line) => (line.event as EventLine).notification.method),
-      ).toEqual(expectedMethods);
-      expect(
-        lines
-          .map((line) => (line.event as EventLine | undefined)?.notification)
-          .find((notification) => notification?.params?.droppedCount),
-      ).toMatchObject({ jsonrpc: "2.0", params: { droppedCount } });
-      expect(losses).toEqual([{ reason: "dropped", count: droppedCount }]);
+      expect(parseLines(requestBodies[1])).toEqual([
+        ...expectedLines,
+        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
+      ]);
+      expect(losses).toEqual([{ reason: "dropped", count }]);
     },
   );
 
   it("truncates large fields of an oversized event instead of dropping it", async () => {
-    const requestBodies: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-        const body = await readRequestBody(init);
-        requestBodies.push(body);
-        return responseForBody(body);
-      }),
-    );
+    const requestBodies = stubRecordingFetch();
     const losses: EventStreamLoss[] = [];
     const maxEventBytes = 600;
     const sender = createSender({

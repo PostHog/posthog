@@ -765,8 +765,8 @@ export class AgentServer {
       timestamp: new Date().toISOString(),
       notification: {
         jsonrpc: "2.0",
-        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_GAP,
-        params: { reason: loss.reason, count: loss.count },
+        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_LOSS,
+        params: { ...loss },
       },
     });
   }
