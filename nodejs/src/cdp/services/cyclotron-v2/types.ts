@@ -279,6 +279,9 @@ export type CyclotronV2SendsWithFiles = {
     room: () => number
     // True once every slot stays taken far past any send, so the pod fails health instead of leaving files unpolled.
     stalled: () => boolean
+    // A send due longer ago than this is overdue. When no slot is free, the second poll still takes overdue sends,
+    // because the consumer fails them without a slot.
+    overdueAfterMs: number
 }
 
 export type CyclotronV2JanitorConfig = {

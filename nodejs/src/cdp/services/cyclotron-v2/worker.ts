@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { ANY_ROW_POLL_SQL, PollSql, filesRowPollSql, plainRowPollSql } from './due-rows-sql'
+import { ANY_ROW_POLL_SQL, PollSql, filesRowPollSql, overdueFilesRowsSql, plainRowPollSql } from './due-rows-sql'
 import { SqlRunner, allocateEmailDequeueSeqs, batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
@@ -346,6 +346,7 @@ export class CyclotronV2Worker {
     private readonly releaseRetrySlots: ReleaseRetrySlots
     private readonly pollSql: PollSql
     private readonly filesPollSql: PollSql
+    private readonly overdueFilesSql: string
     protected readonly sendsWithFiles: CyclotronV2SendsWithFiles | undefined
 
     constructor(private config: CyclotronV2WorkerConfig) {
@@ -382,6 +383,7 @@ export class CyclotronV2Worker {
         this.sendsWithFiles = config.sendsWithFiles
         this.pollSql = config.sendsWithFiles ? plainRowPollSql(config.queueName) : ANY_ROW_POLL_SQL
         this.filesPollSql = filesRowPollSql(config.queueName)
+        this.overdueFilesSql = overdueFilesRowsSql(config.queueName)
     }
 
     private assertBackOffFitsHeartbeat(): void {
@@ -413,8 +415,14 @@ export class CyclotronV2Worker {
                 if (!sendsWithFiles.stalled()) {
                     this.lastFilesPollTime = new Date()
                 }
-                const decision = await this.filesBatchLimit(Math.min(sendsWithFiles.room(), this.batchMaxSize))
-                const rows = decision.limit > 0 ? await this.dequeueFiles(decision.limit) : []
+                const room = Math.min(sendsWithFiles.room(), this.batchMaxSize)
+                const decision = room > 0 ? await this.filesBatchLimit(room) : { limit: 0 }
+                const rows =
+                    room === 0
+                        ? await this.dequeueOverdueFiles(sendsWithFiles.overdueAfterMs)
+                        : decision.limit > 0
+                          ? await this.dequeueFiles(decision.limit)
+                          : []
                 if (rows.length === 0) {
                     await this.sleepUntilStopped(decision.sleepMs ?? this.pollDelayMaxMs)
                     continue
@@ -435,6 +443,17 @@ export class CyclotronV2Worker {
     protected async countFilesWork(limit: number): Promise<number> {
         const result = await this.pool.query<{ n: number }>(this.filesPollSql.countWork, [this.config.queueName, limit])
         return result.rows[0].n
+    }
+
+    // An overdue send needs no slot and no SES token, because the consumer fails it without loading its files.
+    private async dequeueOverdueFiles(overdueAfterMs: number): Promise<RawJobRow[]> {
+        const result = await this.pool.query<RawJobRow>(this.overdueFilesSql, [
+            this.config.queueName,
+            this.batchMaxSize,
+            uuidv7(),
+            overdueAfterMs,
+        ])
+        return result.rows
     }
 
     private async dequeueFiles(limit: number): Promise<RawJobRow[]> {
@@ -778,7 +797,9 @@ export class CyclotronV2Worker {
                 }
                 if (options?.fileBytes !== undefined) {
                     params.push(options.fileBytes ?? null)
-                    setClauses.push(`file_bytes = $${params.length}`)
+                    setClauses.push(
+                        `file_bytes = CASE WHEN cancel_requested_at IS NOT NULL THEN NULL ELSE $${params.length}::bigint END`
+                    )
                 }
                 if (options?.distinctId !== undefined) {
                     params.push(options.distinctId ?? null)
@@ -832,7 +853,7 @@ export class CyclotronV2Worker {
                          scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
                          dequeue_seq = COALESCE($4, dequeue_seq),
                          state = COALESCE($5, state),
-                         file_bytes = CASE WHEN $7 THEN $6::bigint ELSE file_bytes END
+                         file_bytes = CASE WHEN cancel_requested_at IS NOT NULL THEN NULL WHEN $7 THEN $6::bigint ELSE file_bytes END
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId, scheduledAt, dequeueSeq, state ?? null, fileBytes ?? null, fileBytes !== undefined]
                 )

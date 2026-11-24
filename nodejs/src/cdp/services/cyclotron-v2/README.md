@@ -12,6 +12,7 @@ An interrupted `CREATE INDEX CONCURRENTLY` leaves its index INVALID, and a rerun
 Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).
 `file_bytes` holds the total size of an email job's attachment files, or NULL without files, so the email worker can dequeue sends with files apart from plain sends.
+A cancel sets it to NULL, and later release writes keep it NULL, so the main poll settles a canceled send without waiting for a slot.
 
 ## Keep rows small: no file or blob storage
 
@@ -63,6 +64,8 @@ Each dequeued job exposes an ack interface:
 With `sendsWithFiles` set, as the email worker does when `CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL` is on, the worker runs a second poll.
 The main poll then skips rows with `file_bytes` set, and the second poll dequeues them in the same fair order, no more at a time than the worker has room for.
 A worker with no room spends no SES tokens on them, and a plain send never waits behind them.
+Without a free slot, the second poll takes only sends that were due longer ago than the email worker waits for room, and the worker fails them unsent.
+A deferred send keeps its first due time in its state, which the poll cannot read, so the worker fails it once it dequeues it with room.
 When every slot stays taken for five minutes, far longer than any send can take, the worker reports itself unhealthy, so a send stuck past its deadline restarts the pod instead of leaving its sends with files unpolled.
 The second poll always reads with the bounded due scan. The main poll does so only with `CDP_CYCLOTRON_BOUNDED_POLLS` and `CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE` on, so turn both on before the gate.
 Each poll has its own email indexes, `idx_cyclotron_jobs_email_plain_due` and `idx_cyclotron_jobs_email_plain_fair_dequeue` for plain sends and `idx_cyclotron_jobs_email_files_due` and `idx_cyclotron_jobs_email_files_fair_dequeue` for sends with files, so a backlog of one kind of send does not slow the poll for the other.

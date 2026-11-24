@@ -840,6 +840,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             status: 'failed',
             emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
         },
+        {
+            send: 'a send with files that waited too long, on a worker with room that polls them apart',
+            room: 1,
+            overrides: waitedTooLong,
+            cancel: false,
+            separatePoll: true,
+            status: 'failed',
+            emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
+        },
         ...(['archived', 'draft'] as const).map((workflowStatus) => ({
             send: `a send with files of a workflow set to ${workflowStatus} while the room is taken`,
             room: 0,
@@ -1045,6 +1054,42 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await Promise.all(withFiles.map((id) => ended(id, 20_000)))).toEqual(['completed', 'completed'])
         expect(delivered()).toEqual([[], ['invoice.pdf'], ['invoice.pdf']])
         expect(await metric('cdp_email_attachments_deferral_tokens_total')).toBe(deferredBefore)
+    })
+
+    it('ends a canceled and an overdue send with files while every slot stays taken, when it polls them apart', async () => {
+        bucket.answer = 'hold'
+        const [holder] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker({ ...roomFor(2), maxInFlight: 1 }, undefined, undefined, {
+            CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: true,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+
+        const [canceled, overdue] = await enqueue(
+            transactionalSend([invoice.metadata], { queueScheduledAt: DateTime.now().plus({ hours: 1 }) }),
+            transactionalSend([invoice.metadata], {
+                queueScheduledAt: DateTime.now().minus({ milliseconds: LONGEST_WAIT_FOR_ROOM_MS + 60_000 }),
+            })
+        )
+        const manager = new CyclotronV2Manager({ pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! } })
+        await manager.connect()
+        await manager.cancelJobs({ teamId: team.id, functionId: hogFlow.id, jobIds: [canceled] })
+        await manager.disconnect()
+
+        expect(await ended(canceled)).toBe('canceled')
+        expect(await ended(overdue)).toBe('failed')
+        await waitForExpect(() =>
+            expect({ canceled: emailStatusOf(canceled), overdue: emailStatusOf(overdue) }).toEqual({
+                canceled: { status: 'failed', reason: 'canceled', sendingDomain: '' },
+                overdue: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
+            })
+        )
+        expect({ holder: (await jobRow(holder)).status, delivered: delivered() }).toEqual({
+            holder: 'running',
+            delivered: [],
+        })
+
+        bucket.release()
+        expect(await ended(holder)).toBe('completed')
     })
 
     it('fails its health check once every slot for sends with files stays taken past the stall bound, and recovers once one frees', async () => {

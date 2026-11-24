@@ -40,6 +40,7 @@ import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
+const DAY_MS = 24 * 60 * 60 * 1000
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -2881,7 +2882,7 @@ describe('Cyclotron V2', () => {
                             queueName: 'email',
                             boundedFairDequeue: true,
                             batchMaxSize,
-                            sendsWithFiles: { room: () => 2, stalled: () => false },
+                            sendsWithFiles: { room: () => 2, stalled: () => false, overdueAfterMs: DAY_MS },
                         }),
                         bucket
                     )
@@ -2898,7 +2899,7 @@ describe('Cyclotron V2', () => {
             const [withFiles] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', fileBytes: 1000 }])
             const worker = createWorker('email', {
                 heartbeatTimeoutMs: 300,
-                sendsWithFiles: { room: () => room, stalled: () => stalled },
+                sendsWithFiles: { room: () => room, stalled: () => stalled, overdueAfterMs: DAY_MS },
             })
             const stuck = createPromise()
             const filesPollBlocked = createPromise()
@@ -3466,7 +3467,7 @@ describe('Cyclotron V2', () => {
                 {
                     pool: { dbUrl },
                     queueName: 'email',
-                    sendsWithFiles: { room: () => 1, stalled: () => false },
+                    sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
                 },
                 (requested) => Promise.resolve({ limit: requested })
             )
@@ -3623,7 +3624,7 @@ describe('Cyclotron V2', () => {
             const { polled, markPolled } = pollSignal()
             const worker = createWorker('email', {
                 pool: { dbUrl },
-                sendsWithFiles: { room: () => 1, stalled: () => false },
+                sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
             })
             await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
         }
@@ -3979,7 +3980,7 @@ describe('Cyclotron V2', () => {
                         ])
                         return plain
                     },
-                    overrides: { sendsWithFiles: { room: () => 0, stalled: () => false } },
+                    overrides: { sendsWithFiles: { room: () => 0, stalled: () => false, overdueAfterMs: DAY_MS } },
                 },
                 {
                     label: 'the poll for sends with files passes a parked lower-sequence row with files, a lower-sequence plain row and an earlier-scheduled row with files',
@@ -4008,7 +4009,7 @@ describe('Cyclotron V2', () => {
                         ])
                         return due
                     },
-                    overrides: { sendsWithFiles: { room: () => 1, stalled: () => false } },
+                    overrides: { sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS } },
                     Worker: FilesPollOnly,
                 },
             ])('claims the lowest-sequence due row when $label', async ({ seed, overrides, Worker }) => {

@@ -230,6 +230,14 @@ const pollSql = (only: RowFilter, recheck: RowFilter = only): PollSql => ({
     legacyFairDequeueJobs: legacyFairDequeueJobsSql(only),
 })
 
+// Takes $4, the age in milliseconds past which a due send with files is overdue. A deferred send keeps its first due
+// time in its state, which this query cannot read, so the consumer finds that it is overdue at its next dequeue.
+export const overdueFilesRowsSql = (queueName: string): string =>
+    dequeueJobsSql(
+        (alias) =>
+            `${emailRows(queueName, 'IS NOT NULL')(alias)} AND ${alias}scheduled <= NOW() - $4::float8 * INTERVAL '1 millisecond'`
+    )
+
 export const ANY_ROW_POLL_SQL = pollSql(anyRow)
 export const plainRowPollSql = (queueName: string): PollSql =>
     pollSql(emailRows(queueName, 'IS NULL'), fileRows('IS NULL'))

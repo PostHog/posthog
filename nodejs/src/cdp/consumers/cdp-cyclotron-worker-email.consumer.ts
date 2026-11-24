@@ -96,10 +96,18 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 plain.push(invocation)
                 continue
             }
+            const overdue = Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS
+            // Fail an overdue send before admission, so it ends the same way whether the files poll took it with a slot
+            // free or with every slot taken.
+            if (overdue && this.pollsFilesApart()) {
+                waitedTooLongForRoom.add(invocation)
+                plain.push(invocation)
+                continue
+            }
             const admission = this.sendsWithFiles.tryStart(fileBytes, () => this.runSendWithFiles(invocation))
             if ('started' in admission) {
                 sends.push(admission.started)
-            } else if (Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS) {
+            } else if (overdue) {
                 waitedTooLongForRoom.add(invocation)
                 plain.push(invocation)
             } else {
@@ -173,11 +181,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         return { ...(await super.hogFlowsFor(unchecked)), ...checked }
     }
 
+    private pollsFilesApart(): boolean {
+        return this.config.CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL && this.sendsWithFiles.admitsFiles()
+    }
+
     protected override consumerOptions(): ConsumerOptions {
         const options = super.consumerOptions()
         // A worker that refuses files keeps them in its main poll, so it still defers each one and fails it once it
         // waited too long, rather than leave it unpolled.
-        if (!this.config.CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL || !this.sendsWithFiles.admitsFiles()) {
+        if (!this.pollsFilesApart()) {
             return options
         }
         return {
@@ -185,6 +197,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             sendsWithFiles: {
                 room: () => this.sendsWithFiles.room(),
                 stalled: () => this.sendsWithFiles.fullForMs() > SLOTS_STALLED_AFTER_MS,
+                overdueAfterMs: LONGEST_WAIT_FOR_ROOM_MS,
             },
         }
     }

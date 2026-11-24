@@ -1000,7 +1000,7 @@ export class CyclotronV2Manager {
                     FOR UPDATE SKIP LOCKED
                 )
                 UPDATE cyclotron_jobs j
-                SET cancel_requested_at = NOW(), scheduled = LEAST(j.scheduled, NOW())
+                SET cancel_requested_at = NOW(), scheduled = LEAST(j.scheduled, NOW()), file_bytes = NULL
                 FROM candidates c
                 WHERE j.id = c.id`,
                 [...params, this.reschedule.chunkSize]
@@ -1017,7 +1017,7 @@ export class CyclotronV2Manager {
         // no chunking or wake write needed.
         const runningResult = await this.pool.query(
             `UPDATE cyclotron_jobs
-             SET cancel_requested_at = NOW()
+             SET cancel_requested_at = NOW(), file_bytes = NULL
              WHERE team_id = $1 AND function_id = $2 AND status = 'running'
                AND cancel_requested_at IS NULL
                ${selectorClause}`,
