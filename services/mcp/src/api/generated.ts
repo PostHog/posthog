@@ -79531,6 +79531,18 @@ export namespace Schemas {
       action?: OrganizationMemberNoticeAction | null;
     }
 
+    /**
+     * * `full` - Full access
+     * * `metadata_only` - No data access
+     */
+    export type OrganizationAIDataAccessEnum = typeof OrganizationAIDataAccessEnum[keyof typeof OrganizationAIDataAccessEnum];
+
+
+    export const OrganizationAIDataAccessEnum = {
+      Full: 'full',
+      MetadataOnly: 'metadata_only',
+    } as const;
+
     export interface OrganizationExternalProjectLink {
       readonly id: string;
       /** Name shown for the project in the project switcher. */
@@ -79601,6 +79613,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_ai_data_processing_locked: boolean | null;
+      /** What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.
+       *
+       * * `full` - Full access
+       * * `metadata_only` - No data access */
+      ai_data_access?: OrganizationAIDataAccessEnum;
       /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable
@@ -95608,6 +95625,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_ai_data_processing_locked?: boolean | null;
+      /** What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.
+       *
+       * * `full` - Full access
+       * * `metadata_only` - No data access */
+      ai_data_access?: OrganizationAIDataAccessEnum;
       /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable

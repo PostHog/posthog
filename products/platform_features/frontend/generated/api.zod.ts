@@ -83,6 +83,13 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    ai_data_access: zod
+        .enum(['full', 'metadata_only'])
+        .describe('\* `full` - Full access\n\* `metadata_only` - No data access')
+        .optional()
+        .describe(
+            'What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.\n\n\* `full` - Full access\n\* `metadata_only` - No data access'
+        ),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
@@ -180,6 +187,13 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    ai_data_access: zod
+        .enum(['full', 'metadata_only'])
+        .describe('\* `full` - Full access\n\* `metadata_only` - No data access')
+        .optional()
+        .describe(
+            'What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.\n\n\* `full` - Full access\n\* `metadata_only` - No data access'
+        ),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
@@ -277,6 +291,13 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
+    ai_data_access: zod
+        .enum(['full', 'metadata_only'])
+        .describe('\* `full` - Full access\n\* `metadata_only` - No data access')
+        .optional()
+        .describe(
+            'What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.\n\n\* `full` - Full access\n\* `metadata_only` - No data access'
+        ),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()

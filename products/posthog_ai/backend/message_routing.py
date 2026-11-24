@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from rest_framework import exceptions
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.data_access_policy import team_requires_metadata_only
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 
@@ -139,6 +140,8 @@ class SandboxSession(BaseSandboxService):
 
         trace_id = data.get("trace_id")
         attached_context = self._validate_attached_context(data.get("attached_context"))
+        if team_requires_metadata_only(self.team.pk):
+            attached_context = [item for item in attached_context if item["type"] != "text"]
 
         if self.conversation.task_id is None:
             # `repository` is the auto-routed repo for this first message — followups/resumes reuse
@@ -207,7 +210,9 @@ class SandboxSession(BaseSandboxService):
             )
             return None
 
-        system_prompt = PromptService(self.team, self.user).build()
+        system_prompt = PromptService(self.team, self.user).build(
+            metadata_only=team_requires_metadata_only(self.team.pk)
+        )
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             task_id = locked.task_id
@@ -281,7 +286,9 @@ class SandboxSession(BaseSandboxService):
         deduped = context_service.prune_repeated_entity_refs(attached_context, prior=[])
         wrapped = context_service.wrap_user_message(content, deduped)
 
-        system_prompt = PromptService(self.team, self.user).build()
+        system_prompt = PromptService(self.team, self.user).build(
+            metadata_only=team_requires_metadata_only(self.team.pk)
+        )
 
         created = tasks_facade.create_and_run_task(
             team=self.team,
@@ -344,7 +351,7 @@ class SandboxSession(BaseSandboxService):
                 team_id=self.team.id,
                 user_id=self.user.pk,
                 create_pr=False,
-                posthog_mcp_scopes="full",
+                posthog_mcp_scopes="metadata_only" if team_requires_metadata_only(self.team.pk) else "full",
             )
         except Exception:
             self.conversation.task_id = None
@@ -455,7 +462,9 @@ class SandboxSession(BaseSandboxService):
         if task is None:
             raise exceptions.ValidationError("This conversation has no backing task to resume.")
 
-        system_prompt = PromptService(self.team, self.user).build()
+        system_prompt = PromptService(self.team, self.user).build(
+            metadata_only=team_requires_metadata_only(self.team.pk)
+        )
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             current = locked.current_run
@@ -491,7 +500,7 @@ class SandboxSession(BaseSandboxService):
             team_id=self.team.id,
             user_id=self.user.pk,
             create_pr=False,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes="metadata_only" if team_requires_metadata_only(self.team.pk) else "full",
         )
 
         return SandboxRouteResult(

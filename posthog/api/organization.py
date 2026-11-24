@@ -23,6 +23,7 @@ from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
+from posthog.auth import SessionAuthentication
 from posthog.caching.organization_serializer_cache import (
     ORG_SERIALIZER_CACHE_TTL_SECONDS,
     _org_serializer_cache_version,
@@ -339,6 +340,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "is_ai_data_processing_locked",
+            "ai_data_access",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
@@ -715,6 +717,28 @@ class OrganizationSerializer(
     def validate_ip_restrictions_enabled(self, value: bool) -> bool:
         if value and self.instance and self.instance.ip_restrictions_enabled != value:
             self._validate_ip_restrictions_entitlement()
+        return value
+
+    def validate_ai_data_access(self, value: str) -> str:
+        from products.tasks.backend.facade.access import get_cached_posthog_ai_access_decision
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if (
+            self.instance
+            and self.instance.ai_data_access != value
+            and not isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
+        ):
+            raise serializers.ValidationError("Only a person signed in to PostHog can change PostHog AI data access.")
+        if (
+            value == Organization.AIDataAccess.METADATA_ONLY
+            and self.instance
+            and self.instance.ai_data_access != value
+            and not (user and get_cached_posthog_ai_access_decision(user, self.instance).allowed)
+        ):
+            raise serializers.ValidationError(
+                "No data access needs PostHog AI 2.0, which this organization can't use yet."
+            )
         return value
 
     def validate_read_only_mcp_access(self, value: bool) -> bool:

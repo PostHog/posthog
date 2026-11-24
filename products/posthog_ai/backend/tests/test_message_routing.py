@@ -112,6 +112,29 @@ class TestOpenSandboxMessage(APIBaseTest):
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
 
+    def test_first_message_without_data_access_dispatches_metadata_only(self):
+        self.organization.ai_data_access = "metadata_only"
+        self.organization.save(update_fields=["ai_data_access"])
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow as m_workflow, sysprompt as m_sysprompt:
+            self._service().open(
+                {
+                    "content": "Show weekly signups",
+                    "trace_id": "trace-1",
+                    "attached_context": [
+                        {"type": "dashboard", "id": 123, "name": "Funnel"},
+                        {"type": "text", "value": "person cnry@example.com"},
+                    ],
+                }
+            )
+
+        assert m_workflow.call_args.kwargs["posthog_mcp_scopes"] == "metadata_only"
+        assert m_sysprompt.call_args.kwargs == {"metadata_only": True}
+        run.refresh_from_db()
+        assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
+        assert "cnry@example.com" not in run.state["pending_user_message"]
+
     def test_system_prompt_written_on_open_reaches_the_sandbox(self):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)

@@ -37,6 +37,7 @@ import { ComposerAttachments, useComposerAttachmentPaste } from '../../../compon
 import { ComposerBillingIndicator } from '../../../components/composer/ComposerBillingIndicator'
 import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
+import { ComposerDataAccessIndicator } from '../../../components/composer/ComposerDataAccessIndicator'
 import {
     ComposerModelEffortPickers,
     type ComposerModelEffortPickersProps,
@@ -340,6 +341,7 @@ export function TaskComposer({
                                                     className="hidden @4xl/task-composer:inline-flex"
                                                 />
                                             )}
+                                            <ComposerDataAccessIndicator />
                                             {codexBillingEnabled && composerAdapter === RuntimeAdapterEnumApi.Codex ? (
                                                 <ComposerCodexBillingIndicator />
                                             ) : (
@@ -360,6 +362,7 @@ export function TaskComposer({
                                         <AttachedContextPicker />
                                         {modelPicker}
                                         {modePicker}
+                                        <ComposerDataAccessIndicator />
                                     </Composer.Footer>
                                 </Composer.Frame>
                             )}

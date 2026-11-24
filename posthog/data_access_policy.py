@@ -146,14 +146,11 @@ def _resolve_view(request: HttpRequest) -> tuple[str | None, str | None, str | N
     return scope_object, action, match.url_name, getattr(view_class, "__name__", None)
 
 
-def decide(request: HttpRequest) -> Decision:
-    if not request.path_info.startswith("/api/"):
-        return Decision(allowed=False, reason="Only the API is available to metadata-only tokens.")
-    scope_object, action, url_name, view_name = _resolve_view(request)
+def _decide_view(scope_object: str | None, action: str | None, url_name: str | None, view_name: str | None) -> Decision:
     if url_name in ALLOWED_NON_SCOPED_URL_NAMES:
         return Decision(allowed=True)
     if scope_object is None or scope_object == "INTERNAL":
-        return Decision(allowed=False, reason=f"Route {url_name or request.path_info} has no data access policy.")
+        return Decision(allowed=False, reason=f"Route {url_name} has no data access policy.")
     if view_name in BLOCKED_VIEW_CLASSES:
         return Decision(allowed=False, reason=f"{view_name} returns project data.")
     policy = SCOPE_OBJECT_POLICIES.get(scope_object)
@@ -162,6 +159,36 @@ def decide(request: HttpRequest) -> Decision:
     if not policy.allows(action):
         return Decision(allowed=False, reason=f"{scope_object}.{action} is not on the metadata-only allowlist.")
     return Decision(allowed=True, redact_keys=policy.redact_keys)
+
+
+def decide(request: HttpRequest) -> Decision:
+    if not request.path_info.startswith("/api/"):
+        return Decision(allowed=False, reason="Only the API is available to metadata-only tokens.")
+    scope_object, action, url_name, view_name = _resolve_view(request)
+    return _decide_view(scope_object, action, url_name or request.path_info, view_name)
+
+
+def allowed_view_actions() -> list[str]:
+    from django.urls import get_resolver
+
+    allowed: set[str] = set()
+
+    def walk(patterns: Iterable[Any]) -> None:
+        for pattern in patterns:
+            if hasattr(pattern, "url_patterns"):
+                walk(pattern.url_patterns)
+                continue
+            view_class = getattr(pattern.callback, "cls", None) or getattr(pattern.callback, "view_class", None)
+            if view_class is None:
+                continue
+            scope_object = getattr(view_class, "scope_object", None)
+            actions = getattr(pattern.callback, "actions", None) or {}
+            for action in actions.values():
+                if _decide_view(scope_object, action, pattern.name, view_class.__name__).allowed:
+                    allowed.add(f"{view_class.__module__}.{view_class.__name__}.{action}")
+
+    walk(get_resolver().url_patterns)
+    return sorted(allowed)
 
 
 def redact(value: Any, keys: frozenset[str]) -> Any:
@@ -258,6 +285,13 @@ def _token_scopes(request: HttpRequest) -> list[str] | None:
         except Exception:
             continue
     return None
+
+
+def team_requires_metadata_only(team_id: int) -> bool:
+    from posthog.models import Organization, Team
+
+    data_access = Team.objects.filter(id=team_id).values_list("organization__ai_data_access", flat=True).first()
+    return data_access != Organization.AIDataAccess.FULL
 
 
 def is_metadata_only_request(request: Any) -> bool:

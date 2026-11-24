@@ -9,6 +9,7 @@ import {
     getLineCount,
     getReadToolContent,
     getResultCount,
+    isDataAccessBlock,
     resolveToolCallStatus,
     stripAnsi,
     stripCodeFences,
@@ -16,6 +17,32 @@ import {
 } from './toolContentUtils'
 
 describe('toolContentUtils', () => {
+    describe('isDataAccessBlock', () => {
+        test.each([
+            [
+                'an API refusal in the error',
+                {
+                    error: { message: 'Not available in metadata-only mode. person.list returns project data.' },
+                    content: [],
+                },
+                true,
+            ],
+            [
+                'a refusal code in the output',
+                { content: [{ type: 'content', content: { type: 'text', text: '{"code": "metadata_only"}' } }] },
+                true,
+            ],
+            [
+                'a refusal in a raw string output',
+                { rawOutput: 'The execute_sql tool is not available in metadata-only mode.', content: [] },
+                true,
+            ],
+            ['an unrelated failure', { error: { message: 'Request timed out' }, content: [] }, false],
+        ])('detects %s', (_name, message, expected) => {
+            expect(isDataAccessBlock(message as Parameters<typeof isDataAccessBlock>[0])).toBe(expected)
+        })
+    })
+
     describe('resolveToolCallStatus', () => {
         it('treats an in-progress tool as loading while the turn is live', () => {
             expect(resolveToolCallStatus('in_progress', false, false)).toEqual({

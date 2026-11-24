@@ -19,6 +19,7 @@ from typing_extensions import TypedDict
 
 from products.posthog_ai.backend.helpers import BaseSandboxService
 from products.posthog_ai.backend.services.system_prompt.prompt import (
+    METADATA_ONLY_SYSTEM_PROMPT,
     POSTHOG_AI_SYSTEM_PROMPT,
     governed_metrics_catalog_prompt,
 )
@@ -40,7 +41,7 @@ class PromptService(BaseSandboxService):
     """Provide the systemPrompt suffix for a PostHog AI sandbox Run."""
 
     @staticmethod
-    def build() -> ClaudeCodeSystemPrompt:
+    def build(*, metadata_only: bool = False) -> ClaudeCodeSystemPrompt:
         """Return the PostHog AI systemPrompt as a Claude Code preset-plus-append suffix.
 
         Called once at Run creation. The returned object goes into
@@ -48,4 +49,6 @@ class PromptService(BaseSandboxService):
         after Claude Code's own system prompt rather than replacing it.
         """
         prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt()
+        if metadata_only:
+            prompt += METADATA_ONLY_SYSTEM_PROMPT
         return {"type": "preset", "preset": "claude_code", "append": prompt}

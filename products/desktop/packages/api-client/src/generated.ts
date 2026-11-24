@@ -15306,6 +15306,11 @@ export namespace Schemas {
         message: string;
         action?: (OrganizationMemberNoticeAction | null) | undefined;
     };
+    /**
+     * * `full` - Full access
+     * * `metadata_only` - No data access
+     */
+    export type OrganizationAIDataAccessEnum = "full" | "metadata_only";
     export type OrganizationExternalProjectLink = {
         id: string;
         /**
@@ -15357,6 +15362,7 @@ export namespace Schemas {
          * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
          */
         is_ai_data_processing_locked: boolean | null;
+        ai_data_access?: OrganizationAIDataAccessEnum | undefined;
         is_ai_training_opted_in?: (boolean | null) | undefined;
         /**
          * When True, the AI training opt-out setting cannot be modified through the UI or API.

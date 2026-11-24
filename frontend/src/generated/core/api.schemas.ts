@@ -6504,6 +6504,18 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
+/**
+ * * `full` - Full access
+ * * `metadata_only` - No data access
+ */
+export type OrganizationAIDataAccessEnumApi =
+    (typeof OrganizationAIDataAccessEnumApi)[keyof typeof OrganizationAIDataAccessEnumApi]
+
+export const OrganizationAIDataAccessEnumApi = {
+    Full: 'full',
+    MetadataOnly: 'metadata_only',
+} as const
+
 export interface OrganizationExternalProjectLinkApi {
     readonly id: string
     /** Name shown for the project in the project switcher. */
@@ -6578,6 +6590,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_data_processing_locked: boolean | null
+    /** What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.
+     *
+     * * `full` - Full access
+     * * `metadata_only` - No data access */
+    ai_data_access?: OrganizationAIDataAccessEnumApi
     /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable

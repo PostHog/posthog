@@ -277,6 +277,18 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.",
     )
+
+    class AIDataAccess(models.TextChoices):
+        FULL = "full", "Full access"
+        METADATA_ONLY = "metadata_only", "No data access"
+
+    ai_data_access = models.CharField(
+        max_length=20,
+        choices=AIDataAccess.choices,
+        default=AIDataAccess.FULL,
+        db_default=AIDataAccess.FULL,
+        help_text="What PostHog AI can read. With metadata_only, PostHog AI can manage the project but no project data reaches the LLM.",
+    )
     is_ai_training_opted_in = models.BooleanField(
         default=True,
         null=True,

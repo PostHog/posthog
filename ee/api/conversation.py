@@ -28,6 +28,7 @@ from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBilling
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
+from posthog.data_access_policy import team_requires_metadata_only
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -539,6 +540,11 @@ class ConversationViewSet(
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
         ):
             raise exceptions.ValidationError("Sandbox conversations must be opened via the open endpoint.")
+
+        if team_requires_metadata_only(self.team.pk):
+            raise exceptions.PermissionDenied(
+                "Your organization turned off data access for PostHog AI, and this chat can read project data. Start a new chat to continue."
+            )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:

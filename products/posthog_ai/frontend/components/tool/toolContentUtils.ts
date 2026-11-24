@@ -204,3 +204,13 @@ export function compactInput(input: unknown, max = INPUT_PREVIEW_MAX_LENGTH): st
         return ''
     }
 }
+
+const DATA_ACCESS_BLOCK_PATTERN = /metadata-only mode|"code":\s*"metadata_only"/
+
+export function isDataAccessBlock(message: Pick<ToolCallMessage, 'error' | 'content' | 'rawOutput'>): boolean {
+    const texts = [message.error?.message ?? '', getContentText(message.content)]
+    if (typeof message.rawOutput === 'string') {
+        texts.push(message.rawOutput)
+    }
+    return texts.some((text) => DATA_ACCESS_BLOCK_PATTERN.test(text))
+}

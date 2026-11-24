@@ -1,13 +1,13 @@
 import { type ReactNode } from 'react'
 
-import { IconWarning, IconWrench } from '@posthog/icons'
+import { IconLock, IconWarning, IconWrench } from '@posthog/icons'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { Activity } from '../ActivityPrimitives'
 import type { ActivityStatus } from '../activityTypes'
 import { VirtualizedThread } from '../VirtualizedThread'
-import { resolveToolCallStatus } from './toolContentUtils'
+import { isDataAccessBlock, resolveToolCallStatus } from './toolContentUtils'
 
 export interface ToolActivityProps {
     message: ToolCallMessage
@@ -44,23 +44,31 @@ export function ToolActivity({
 }: ToolActivityProps): JSX.Element {
     const pauseFollowing = VirtualizedThread.usePauseFollowing()
     const { isLoading, isFailed, wasCancelled } = resolveToolCallStatus(message.status, !!turnCancelled, !!turnComplete)
-    const status: ActivityStatus = isFailed ? 'failed' : isLoading ? 'in_progress' : 'completed'
+    const blockedByDataAccess = !isLoading && isDataAccessBlock(message)
+    const status: ActivityStatus = isFailed || blockedByDataAccess ? 'failed' : isLoading ? 'in_progress' : 'completed'
     // A finished call is the common case, so it carries no label; only exceptions get a word.
-    const statusLabel = isFailed
-        ? 'Failed'
-        : wasCancelled
-          ? 'Canceled'
-          : isLoading
-            ? message.status === 'pending'
-                ? 'Pending'
-                : 'Running'
-            : message.status === 'completed'
-              ? null
-              : 'Incomplete'
+    const statusLabel = blockedByDataAccess
+        ? 'Blocked: project data'
+        : isFailed
+          ? 'Failed'
+          : wasCancelled
+            ? 'Canceled'
+            : isLoading
+              ? message.status === 'pending'
+                  ? 'Pending'
+                  : 'Running'
+              : message.status === 'completed'
+                ? null
+                : 'Incomplete'
 
     // Failures remain readable without opening the raw input/output.
-    const errorLine =
-        isFailed && message.error?.message ? <div className="text-danger">{message.error.message}</div> : null
+    const errorLine = blockedByDataAccess ? (
+        <div className="text-muted">
+            PostHog AI can't see project data in this organization, so this request was blocked.
+        </div>
+    ) : isFailed && message.error?.message ? (
+        <div className="text-danger">{message.error.message}</div>
+    ) : null
     const alwaysVisible = errorLine ? (
         <div className="flex flex-col gap-2">
             {errorLine}
@@ -77,7 +85,9 @@ export function ToolActivity({
                 <span className="flex items-center gap-2 min-w-0">
                     <span className="truncate">{title}</span>
                     {statusLabel && (
-                        <span className={`${isFailed ? 'text-danger' : 'text-muted'} shrink-0 font-normal`}>
+                        <span
+                            className={`${isFailed && !blockedByDataAccess ? 'text-danger' : 'text-muted'} shrink-0 font-normal`}
+                        >
                             {statusLabel}
                         </span>
                     )}
@@ -87,7 +97,13 @@ export function ToolActivity({
             icon={icon ?? <IconWrench />}
             showProgressIcon
             showCompletionIcon={!wasCancelled}
-            failedIcon={<IconWarning className="text-danger size-3" />}
+            failedIcon={
+                blockedByDataAccess ? (
+                    <IconLock className="text-muted size-3" />
+                ) : (
+                    <IconWarning className="text-danger size-3" />
+                )
+            }
             animate={false}
             autoExpand={false}
             onToggleDetails={(expanded) => {
