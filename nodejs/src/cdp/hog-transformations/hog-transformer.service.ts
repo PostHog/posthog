@@ -422,7 +422,7 @@ export type HogTransformerServiceConfig = Pick<
     | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
     | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
     | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
-    | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
+    | 'TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS'
 > &
     TransformationsMonitoringConfig
 
@@ -449,7 +449,7 @@ export function createHogTransformerService(
         deps.postgres,
         deps.pubSub,
         deps.encryptedFields,
-        config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
+        config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS
     )
     const hogInputsService = new HogInputsService(deps.integrationManager, undefined, deps.encryptedFields)
     const hogExecutor = new HogExecutorService(

@@ -71,7 +71,7 @@ export type IngestionLogsServerConfig = BaseServerConfig &
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'ENCRYPTION_SALT_KEYS'
         | 'SITE_URL'
-        | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
+        | 'TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS'
     >
 
 export class IngestionLogsServer implements NodeServer {
@@ -149,7 +149,7 @@ export class IngestionLogsServer implements NodeServer {
             this.postgres,
             this.pubsub,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
-            this.config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
+            this.config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS
         )
         const hogFunctionMonitoring = createTransformationsMonitoringService(outputs, this.config, teamManager)
 

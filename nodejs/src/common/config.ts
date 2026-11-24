@@ -286,8 +286,8 @@ export type CommonConfig = BaseServerConfig & {
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
     TRANSFORMATIONS_HOG_TIMEOUT_MS: number
 
-    /** Stops loading the transformations, destinations and workflows of organizations that staff deactivated. */
-    CDP_SKIP_DEACTIVATED_ORGANIZATIONS: boolean
+    /** Stops loading the transformations of organizations that staff deactivated, at ingestion and in the logs server. */
+    TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS: boolean
 
     // Event loop yield helper (yieldEventLoopIfNeeded)
     EVENT_LOOP_YIELD_THRESHOLD_MS: number
@@ -548,7 +548,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // audience query before this client gives up and a retry never overlaps a query that still runs.
         CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
-        CDP_SKIP_DEACTIVATED_ORGANIZATIONS: false,
+        TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS: false,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,

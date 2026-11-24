@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 const counterDeactivatedOrganizationNotLoaded = new Counter({
     name: 'cdp_deactivated_organization_not_loaded',
-    help: 'A hog function or hog flow the CDP did not load, because staff deactivated its organization',
+    help: 'A hog function or hog flow left out of a load, because staff deactivated its organization',
     labelNames: ['kind'],
 })
 

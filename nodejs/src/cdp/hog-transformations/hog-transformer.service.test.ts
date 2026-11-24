@@ -81,7 +81,7 @@ describe('HogTransformer', () => {
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
-            CDP_SKIP_DEACTIVATED_ORGANIZATIONS: false,
+            TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS: false,
             CDP_INTERNAL_LOGS_SOURCES: '',
             LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
             LOGS_INTERNAL_PRODUCER_URL: '',
@@ -125,7 +125,7 @@ describe('HogTransformer', () => {
                 'deactivateOrganization'
             )
             const transformer = createHogTransformerService(
-                { ...hub, CDP_SKIP_DEACTIVATED_ORGANIZATIONS: skip },
+                { ...hub, TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS: skip },
                 { ...hub, monitoringOutputs: createTestMonitoringOutputs(mockProducer) }
             )
 
