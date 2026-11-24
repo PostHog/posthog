@@ -1019,7 +1019,7 @@ OUTCOME_LABELS: dict[OutcomeStatus, str] = {
 # Invocation IDs go into the query text, so a chunk keeps the query well under ClickHouse's maximum query size.
 _OUTCOME_ID_CHUNK = 1000
 # The outcome reads one query per chunk on every refresh, so a larger replay is not tracked.
-OUTCOME_MAX_RUNS = 50_000
+OUTCOME_MAX_RUNS = 10_000
 # A run the rerun skipped never gets a new attempt, so after this the status page stops waiting for one.
 OUTCOME_WAIT = timedelta(minutes=30)
 # The status page waits for these queries, and it must render when ClickHouse accepts a connection and then stalls.
