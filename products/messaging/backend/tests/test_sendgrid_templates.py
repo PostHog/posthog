@@ -21,7 +21,8 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             assert convert_version({"subject": case["source"]}).subject == case["liquid"]
         else:
             converted = convert_version(
-                {"html_content": case["source"], "generate_plain_content": False, "plain_content": "p"}
+                {"html_content": case["source"], "generate_plain_content": False, "plain_content": "p"},
+                generation=case.get("generation", "dynamic"),
             )
             assert converted.html == case["liquid"]
 
