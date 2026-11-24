@@ -4,7 +4,7 @@
 //! team's count across the fleet. A slot is taken before the wait for a pool connection and is
 //! released with the connection, so the count includes calls that wait for the pool.
 //!
-//! In `log` mode the count is only measured. A team whose count goes over its limit is marked hot
+//! In `shadow` mode the count is only measured. A team whose count goes over its limit is marked hot
 //! for a short window, and the events that arrive for it in that window are counted.
 
 use std::{
@@ -79,8 +79,7 @@ impl DerefMut for TeamConnection {
     }
 }
 
-/// Checks out a pool connection that holds one of the team's slots. With `slots` off, it is a
-/// plain pool checkout.
+/// Checks out a pool connection that holds a team slot. With `slots` off, it is a plain checkout.
 pub async fn acquire_connection(
     slots: Option<&TeamDbSlots>,
     pool: &PgPool,
@@ -95,10 +94,10 @@ impl TeamDbSlots {
     pub fn from_config(config: &ProcessingConfig) -> Result<Option<Arc<Self>>, UnhandledError> {
         match config.team_db_slots_mode.as_str() {
             "off" => return Ok(None),
-            "log" => {}
+            "shadow" => {}
             other => {
                 return Err(UnhandledError::Other(format!(
-                    "invalid CYMBAL_TEAM_DB_SLOTS_MODE: {other} (expected off or log)"
+                    "invalid CYMBAL_TEAM_DB_SLOTS_MODE: {other} (expected off or shadow)"
                 )))
             }
         }
@@ -131,7 +130,6 @@ impl TeamDbSlots {
         self.is_hot_at(team_id, Instant::now())
     }
 
-    /// Counts the events whose team is hot.
     pub fn record_hot_arrivals(&self, team_ids: impl IntoIterator<Item = TeamId>) {
         self.record_hot_arrivals_at(team_ids, Instant::now());
     }

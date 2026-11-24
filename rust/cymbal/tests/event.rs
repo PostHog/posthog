@@ -775,7 +775,7 @@ async fn a_batch_takes_one_team_db_slot_per_new_fingerprint(db: PgPool) {
             STORAGE_BUCKET.to_string(),
             Arc::new(TestHarness::create_s3_mock()),
             |config| {
-                config.team_db_slots_mode = "log".to_string();
+                config.team_db_slots_mode = "shadow".to_string();
                 config.team_db_slots = 1;
                 config.team_hot_window_secs = 3600;
             },
@@ -794,7 +794,7 @@ async fn a_batch_takes_one_team_db_slot_per_new_fingerprint(db: PgPool) {
         let slots = ctx
             .team_db_slots
             .as_ref()
-            .expect("log mode builds the slots");
+            .expect("shadow mode builds the slots");
         assert_eq!(slots.is_hot(1), expected_hot, "{message}");
     }
 }
