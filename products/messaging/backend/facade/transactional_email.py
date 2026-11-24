@@ -56,6 +56,7 @@ from products.messaging.backend.services.transactional_email import (
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status, keyed_message_id
 from products.messaging.backend.services.transactional_push import (
+    check_push_batch,
     send_transactional_push,
     send_transactional_push_batch,
 )
@@ -96,6 +97,7 @@ __all__ = [
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "check_email_batch",
+    "check_push_batch",
     "check_transactional_update",
     "get_email_status",
     "is_idempotency_key",
