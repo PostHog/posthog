@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
 
-# In stream order: offsets within a file, the next file, then a failover to a server with lower file numbers.
 _FIRST = BinlogPosition.at(0, "binlog.000003", 157)
 # In stream order: offsets within a file, later files, a server whose file numbers passed six digits, then a
 # failover to a server with lower file numbers.

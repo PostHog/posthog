@@ -7,11 +7,13 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.binlog import BinlogDisabledError
 
 ER_ACCESS_DENIED = 1045
 ER_SPECIFIC_ACCESS_DENIED = 1227
 ER_TABLEACCESS_DENIED = 1142
-CONNECTION_ERROR_CODES = frozenset({2003, 2006, 2013})
+# Can't connect, unknown host, server gone away, lost connection, TLS handshake failed.
+CONNECTION_ERROR_CODES = frozenset({2003, 2005, 2006, 2013, 2026})
 
 
 def _code(exc: BaseException) -> int | None:
@@ -36,10 +38,18 @@ def classify_mysql_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
 
 
 def is_connection_error(exc: BaseException) -> bool:
-    return isinstance(exc, pymysql.err.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
+    # pymysql raises OperationalError for most server errors, our own SQL bugs included, so match the code.
+    if isinstance(exc, pymysql.err.InterfaceError | BaseSSHTunnelForwarderError | HostNotAllowedError):
+        return True
+    return _code(exc) in CONNECTION_ERROR_CODES | {ER_ACCESS_DENIED}
 
 
 def customer_fixable_error_message(exc: BaseException) -> str | None:
+    if isinstance(exc, BinlogDisabledError):
+        return (
+            "Binary logging is off on the source database. Turn it back on (log_bin, with binlog_format=ROW), "
+            "then resume CDC. On RDS and Aurora, turn on automated backups."
+        )
     if _code(exc) == ER_SPECIFIC_ACCESS_DENIED:
         return (
             f"The database user can't read the binary log: {exc} Run GRANT REPLICATION SLAVE, REPLICATION "

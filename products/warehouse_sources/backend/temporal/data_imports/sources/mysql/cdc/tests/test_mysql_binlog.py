@@ -2,7 +2,10 @@ import threading
 
 import pytest
 
+import pymysql
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc import binlog
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import is_connection_error
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.tests.conftest import DATABASE, connect
 
@@ -102,3 +105,41 @@ class TestLagBytes:
         assert lag == sizes[position.file] - position.offset + current_offset
         assert lag > 10_000
         assert current_file != position.file
+
+
+class TestErrorClassification:
+    @pytest.mark.parametrize(
+        "exc,lost",
+        [
+            (pymysql.err.OperationalError(1236, "Could not find first log file name in binary log index file"), True),
+            (
+                pymysql.err.OperationalError(
+                    1236, "Client requested master to start replication from position > file size"
+                ),
+                True,
+            ),
+            (
+                pymysql.err.OperationalError(
+                    1236, "A slave with the same server_uuid/server_id as this slave has connected to the master"
+                ),
+                False,
+            ),
+            (pymysql.err.OperationalError(1236, "log event entry exceeded max_allowed_packet"), False),
+            (binlog.BinlogDisabledError("Binary logging is off on the source database"), False),
+        ],
+    )
+    def test_only_a_gone_position_is_a_lost_stream(self, exc, lost):
+        assert binlog.is_stream_lost_error(exc) is lost
+
+    @pytest.mark.parametrize(
+        "exc,connection",
+        [
+            (pymysql.err.OperationalError(2003, "Can't connect to MySQL server"), True),
+            (pymysql.err.OperationalError(1045, "Access denied for user"), True),
+            (pymysql.err.InterfaceError(0, ""), True),
+            (pymysql.err.OperationalError(1054, "Unknown column 'x' in 'field list'"), False),
+            (pymysql.err.OperationalError(1205, "Lock wait timeout exceeded"), False),
+        ],
+    )
+    def test_only_reaching_the_server_is_a_connection_error(self, exc, connection):
+        assert is_connection_error(exc) is connection

@@ -190,8 +190,10 @@ def is_rds(conn: pymysql.Connection) -> bool:
 
 def retention_hours(conn: pymysql.Connection) -> float | None:
     """How long the server keeps binlog files, in hours. None when it never purges them on a timer."""
-    if is_rds(conn):
-        return _rds_retention_hours(conn)
+    return _rds_retention_hours(conn) if is_rds(conn) else _server_retention_hours(conn)
+
+
+def _server_retention_hours(conn: pymysql.Connection) -> float | None:
     seconds = int(_variables(conn, ["binlog_expire_logs_seconds"]).get("binlog_expire_logs_seconds") or 0)
     return seconds / 3600 if seconds else None
 
@@ -213,7 +215,7 @@ def _rds_retention_hours(conn: pymysql.Connection) -> float:
 def _check_retention(conn: pymysql.Connection) -> list[str]:
     rds = is_rds(conn)
     try:
-        hours = _rds_retention_hours(conn) if rds else retention_hours(conn)
+        hours = _rds_retention_hours(conn) if rds else _server_retention_hours(conn)
     except pymysql.err.MySQLError as e:
         if e.args and e.args[0] in CONNECTION_ERROR_CODES:
             raise

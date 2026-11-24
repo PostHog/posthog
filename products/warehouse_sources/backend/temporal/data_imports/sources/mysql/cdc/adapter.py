@@ -79,6 +79,7 @@ class MySQLCDCAdapter:
     ) -> Iterator[MySQLManagementConnection]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
+        # `connect_timeout` is part of the protocol; the MySQL implementation sets its own connect timeout.
         source_impl = MySQLSource()
         config = source_impl.parse_config(SourceInputsStore.load(source))
         stored = self.parse_cdc_config(source).position
@@ -96,12 +97,13 @@ class MySQLCDCAdapter:
         schema: str,
         setup: Mapping[str, Any],
     ) -> list[str]:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.prerequisite_validator import (
-            validate_cdc_prerequisites,
-        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
 
-        with self.management_connection(source) as management:
-            return validate_cdc_prerequisites(management.conn, tables=tables, database=schema or None)
+        # `schema` is the shared view's hint, which defaults to Postgres's "public". The source's own setting
+        # names the database, and a blank one means every database.
+        source_impl = MySQLSource()
+        config = source_impl.parse_config(SourceInputsStore.load(source))
+        return source_impl.check_cdc_prerequisites(config, management_mode, tables, setup, team_id=source.team_id)
 
     def drop_stream(self, conn: MySQLManagementConnection, source: ExternalDataSource) -> None:
         # Nothing on the server belongs to PostHog: the position lives in `job_inputs`.
@@ -172,7 +174,7 @@ class MySQLCDCAdapter:
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
         config = self.parse_cdc_config(source)
         position = BinlogPosition.deserialize(config.position) if config.position else None
-        with self.management_connection(source, connect_timeout=10) as management:
+        with self.management_connection(source) as management:
             current_uuid = binlog.server_uuid(management.conn)
             files = {file.name for file in binlog.binary_logs(management.conn)}
             lag = binlog.lag_bytes(management.conn, position) if position else None
