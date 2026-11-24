@@ -207,10 +207,10 @@ def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
 
 class TestAvailableModelChoices:
     def test_narrows_the_catalog_to_the_product_pin(self) -> None:
-        pin = set(PRODUCT_ALLOWED_MODELS["onboarding"])
+        pin = set(PRODUCT_ALLOWED_MODELS["conversations"])
         catalog_ids = {entry.id for entry in model_catalog.MODELS}
 
-        assert {c.model for c in available_model_choices("onboarding")} == pin & catalog_ids
+        assert {c.model for c in available_model_choices("conversations")} == pin & catalog_ids
 
 
 def test_every_model_resolves_to_its_catalog_flag() -> None:
