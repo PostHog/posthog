@@ -24,6 +24,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services.transactional_email_status import keyed_run_id
+from products.messaging.backend.services.transactional_push import TRANSACTIONAL_PUSH_RUN_SCOPE
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 # Runs, stored pushes and run logs are all kept this long.
@@ -37,7 +38,6 @@ _RETRY_MARGIN = timedelta(days=1)
 _MAX_MESSAGES = 10
 # The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
 _ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)?")
-TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
 # A finished run's stored push and log lines land a few seconds after the run row, so until then its outcome is unknown.
 _OUTCOME_LAG = timedelta(minutes=1)
 
