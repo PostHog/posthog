@@ -131,7 +131,7 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByText('Started a session')).not.toBeInTheDocument()
     })
 
-    it('sends one save while it is pending, and keeps the result of another project save', async () => {
+    it('sends one save while it is pending, and keeps the result of another project save that answers first', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         const team = teamWithLinkTagging(false)
         const linkTrackingSaves: Partial<TeamType>[] = []
@@ -165,7 +165,10 @@ describe('ImpactFunnelCard', () => {
 
         fireEvent.click(await screen.findByText('Turn on for project'))
         await waitFor(() => expect(linkTrackingSaves).toHaveLength(1))
-        teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
+        teamLogic.actions.updateCurrentTeam({
+            timezone: 'Europe/Berlin',
+            workflows_config: { ...team.workflows_config, email_tracking_consent_mode: 'opt_in' },
+        })
         fireEvent.click(screen.getByText('Turn on for project'))
         expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'true')
 
@@ -177,6 +180,11 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(linkTrackingSaves).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
         expect(teamLogic.values.currentTeam?.timezone).toBe('Europe/Berlin')
+        expect(teamLogic.values.currentTeam?.workflows_config).toEqual({
+            ...team.workflows_config,
+            email_tracking_consent_mode: 'opt_in',
+            email_workflow_run_link_tag_enabled: true,
+        })
         expect(
             capture.mock.calls.filter(([name]) => name === 'transactional email impact link tracking turned on')
         ).toHaveLength(1)
@@ -234,7 +242,18 @@ describe('ImpactFunnelCard', () => {
         ).toHaveLength(turnedOn ? 1 : 0)
     })
 
-    it("keeps link tracking off for someone who can't change project settings", async () => {
+    it.each([
+        [
+            "someone who can't change project settings",
+            { ...teamWithLinkTagging(false), effective_membership_level: OrganizationMembershipLevel.Member },
+            'This area is restricted to project admins and up. Your level is member.',
+        ],
+        [
+            "an environment that is not its project's main one",
+            { ...teamWithLinkTagging(false), id: 1001, project_id: 1000 },
+            "Switch to this project's main environment to turn on link tracking.",
+        ],
+    ])('keeps link tracking off and says why, for %s', async (_, team, reason) => {
         const patches: string[] = []
         useMocks({
             patch: {
@@ -244,10 +263,7 @@ describe('ImpactFunnelCard', () => {
                 },
             },
         })
-        initKeaTests(true, {
-            ...teamWithLinkTagging(false),
-            effective_membership_level: OrganizationMembershipLevel.Member,
-        })
+        initKeaTests(true, team)
         answer = [200, IMPACT]
         renderCard()
 
@@ -255,44 +271,10 @@ describe('ImpactFunnelCard', () => {
         expect(button).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(button as HTMLButtonElement)
 
-        expect(
-            await screen.findByText('This area is restricted to project admins and up. Your level is member.')
-        ).toBeInTheDocument()
+        expect(await screen.findByText(reason)).toBeInTheDocument()
         expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
         expect(screen.queryByText(/admin access/)).not.toBeInTheDocument()
         expect(patches).toEqual([])
-    })
-
-    it("saves to an environment's own id, never its project's, and shows the save error and keeps the prompt when that id is not a project", async () => {
-        const savedUrls: string[] = []
-        const environment = { ...teamWithLinkTagging(false), id: 1001, project_id: 1000 }
-        useMocks({
-            patch: {
-                // The real endpoint looks the id up as a project id, so an environment's own id is not found.
-                '/api/organizations/:organization_id/projects/:id/': async ({ request, params }) => {
-                    savedUrls.push(new URL(request.url).pathname)
-                    if (Number(params.id) !== environment.project_id) {
-                        return [404, { detail: 'Not found.' }]
-                    }
-                    const { workflows_config } = (await request.json()) as Partial<TeamType>
-                    return [
-                        200,
-                        { ...environment, workflows_config: { ...environment.workflows_config, ...workflows_config } },
-                    ]
-                },
-            },
-        })
-        initKeaTests(true, environment)
-        answer = [200, IMPACT]
-        renderCard()
-
-        fireEvent.click(await screen.findByText('Turn on for project'))
-
-        expect((await screen.findAllByText('Turn on link tracking failed: Not found.'))[0]).toBeInTheDocument()
-        expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
-        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'false')
-        expect(screen.queryByText('Converted')).not.toBeInTheDocument()
-        expect(savedUrls).toEqual([`/api/organizations/${environment.organization}/projects/1001/`])
     })
 
     it('finishes turning on link tracking after the Impact tab closes mid-save', async () => {

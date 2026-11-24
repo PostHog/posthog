@@ -9,7 +9,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { emailImpactLogic } from './emailImpactLogic'
 
 export function LinkTrackingPrompt({ spansConversion }: { spansConversion: boolean }): JSX.Element {
-    const { linkTrackingSaveLoading } = useValues(emailImpactLogic)
+    const { linkTrackingSaveLoading, linkTrackingDisabledReason } = useValues(emailImpactLogic)
     const { turnOnLinkTracking } = useActions(emailImpactLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -32,7 +32,7 @@ export function LinkTrackingPrompt({ spansConversion }: { spansConversion: boole
                 className="max-w-full [&_.LemonButton\_\_chrome]:flex-wrap [&_.LemonButton\_\_chrome]:justify-center [&_.LemonButton\_\_chrome]:px-1"
                 center
                 loading={linkTrackingSaveLoading}
-                disabledReason={restrictedReason}
+                disabledReason={restrictedReason ?? linkTrackingDisabledReason}
                 onClick={() => turnOnLinkTracking()}
                 data-attr="email-impact-turn-on-link-tracking"
             >

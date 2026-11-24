@@ -64,6 +64,7 @@ export interface emailImpactLogicValues {
     impactLoading: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
+    linkTrackingDisabledReason: string | null
     linkTrackingSave: TeamWorkflowsConfigApi | null
     linkTrackingSaveLoading: boolean
     replayEnabled: boolean
@@ -139,6 +140,7 @@ export interface emailImpactLogicMeta {
             impactError: string | null
         ) => ImpactFunnelState
         linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        linkTrackingDisabledReason: (currentTeam: TeamPublicType | TeamType | null) => string | null
         steps: (
             impact: TransactionalEmailImpactApi | null,
             event: string | null,
@@ -228,8 +230,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     if (!team?.organization) {
                         throw new Error('The project has not loaded yet.')
                     }
-                    // The team's own id, as teamLogic.updateCurrentTeam sends it, so the save never lands on
-                    // another team of the project.
+                    if (values.linkTrackingDisabledReason) {
+                        throw new Error(values.linkTrackingDisabledReason)
+                    }
                     const project = await organizationsProjectsPartialUpdate(team.organization, team.id, {
                         workflows_config: { email_workflow_run_link_tag_enabled: true },
                     })
@@ -237,11 +240,17 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     posthog.capture('transactional email impact link tracking turned on')
                     // Leaving the Impact tab unmounts this logic mid-save, and its success listeners with it, so
                     // the save hands its result to the always-mounted teamLogic here.
+                    // Only the saved field is merged, into the team as it is when the save answers, so a workflows
+                    // setting that changed while the save was in flight keeps its newer value.
                     const currentTeam = teamLogic.values.currentTeam
                     if (project.workflows_config && currentTeam) {
                         teamLogic.actions.loadCurrentTeamSuccess({
                             ...currentTeam,
-                            workflows_config: project.workflows_config,
+                            workflows_config: {
+                                ...currentTeam.workflows_config,
+                                email_workflow_run_link_tag_enabled:
+                                    project.workflows_config.email_workflow_run_link_tag_enabled,
+                            },
                         })
                     }
                     return project.workflows_config ?? null
@@ -303,6 +312,15 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
                       ? 'on'
                       : 'off',
+        ],
+        linkTrackingDisabledReason: [
+            (s) => [s.currentTeam],
+            // The projects endpoint looks the id up as a project id. Only the main environment has the same id
+            // as its project, so a save from any other environment cannot find the project and fails.
+            (currentTeam: TeamPublicType | TeamType | null): string | null =>
+                currentTeam?.project_id && currentTeam.id !== currentTeam.project_id
+                    ? "Switch to this project's main environment to turn on link tracking."
+                    : null,
         ],
         steps: [
             (s) => [s.impact, s.event, s.linkTagging],
