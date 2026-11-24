@@ -1,8 +1,6 @@
 /**
- * Hooks for the generated `experiment-launch` tool. An agent that launches through the MCP doesn't see the health panel
- * of the experiment page, so the launch result carries the draft's configuration findings. beforeRequest reads them and
- * afterResponse adds them to the result. The read never stops the launch: a flag that is off, a failed read and a late
- * read all let it go ahead.
+ * Puts the draft's configuration findings in the `experiment-launch` result, because an agent that launches through the
+ * MCP doesn't see the health panel of the experiment page. No outcome of the read stops the launch.
  */
 import { collectHealth, preLaunchHealth } from '@/schema/experiments'
 import type { ToolHooks } from '@/tools/tool-hooks'
@@ -13,10 +11,10 @@ import { type ConfigHealthRead, configHealthNotRun, readConfigHealth, trackHealt
 // beforeRequest hands its read to afterResponse in the params. The launch request sends only the id.
 type LaunchParams = { id: number; draftHealth?: ConfigHealthRead }
 
-// The launch waits for this read, so a slow read must not hold it. The limit covers the flag check and the retries too.
+// The launch waits for this read.
 const DRAFT_HEALTH_TIMEOUT_MS = 10_000
 
-// The read comes before the launch because some checks run only on a draft, such as the one for a flag without calls.
+// Some checks run only on a draft, such as the one for a flag without calls, so the read comes before the launch.
 async function beforeRequest<T extends LaunchParams>(context: Context, params: T): Promise<T> {
     const projectId = await context.stateManager.getProjectId()
     return { ...params, draftHealth: await readConfigHealth(context, projectId, params.id, DRAFT_HEALTH_TIMEOUT_MS) }
@@ -35,7 +33,6 @@ function afterResponse(context: Context, params: LaunchParams, result: unknown):
         configOutcome: read.outcome,
         exposureOutcome: 'not_started',
     })
-    // Without the flag the customer can't see the findings in the app, so their agent gets none either.
     if (read.outcome === 'flag_off') {
         return result
     }

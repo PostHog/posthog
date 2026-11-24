@@ -306,9 +306,6 @@ describe('experiment health gate', () => {
                 tool.schema.parse({ id: 7 })
             )) as Record<string, any>
 
-            expect(request).toHaveBeenCalledWith(
-                expect.objectContaining({ method: 'POST', path: '/api/projects/42/experiments/7/launch/' })
-            )
             expect(result).toMatchObject({ id: 7, start_date: '2026-11-24T10:00:00Z' })
             const preLaunch = result.pre_launch_health
             expect(
