@@ -155,6 +155,14 @@ const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_
     ...overrides,
 }))
 
+const FILLER_CONFIGURATIONS: PlatformAlertConfigurationApi[] = Array.from({ length: 47 }, (_, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-${String(700 + index).padStart(12, '0')}`,
+    name: `Service ${index + 1} errors above 100`,
+    legacy_configuration_id: null,
+    alerts: [],
+}))
+
 const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000004',
@@ -292,6 +300,38 @@ export const ListTypeTooltipOpen: Story = {
         const type = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'Warehouse destination' })
         await userEvent.hover(type)
         await within(document.body).findByText('Warehouse destination')
+    },
+}
+
+export const ListGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+    },
+}
+
+export const ListPaginatedGroupsExpanded: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 51,
+                    next: 'http://localhost/api/projects/1/platform_alerts/?limit=50&offset=50',
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, GROUPED_CONFIGURATION, ...FILLER_CONFIGURATIONS],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Errors per service above 100')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
+        await within(canvasElement).findByText('service_name=checkout severity_text=error')
+        await within(canvasElement).findByText('1-50 of 51 alerts')
     },
 }
 
