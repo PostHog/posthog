@@ -5,6 +5,8 @@ from parameterized import param, parameterized
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql.database.database import Database
+
 from posthog.models.event.new_events_schema import (
     EVENTS_TABLE_ROLLOUT_FLAG,
     EVENTS_TABLE_SELF_SERVE_FLAG,
@@ -303,13 +305,46 @@ class TestReadConfigOfAnOrganizationOnTheNewEventsTable(BaseTest):
 
     @parameterized.expand(
         [
-            param("a_staff_cookie", lambda: new_events_schema_for_request(True)),
-            param("a_query_route", lambda: events_route_scope(HogQLQueryModifiers(useNewEventsSchema=True))),
+            param("a_staff_cookie", lambda: new_events_schema_for_request(True), every_team_moved=False),
+            param(
+                "a_query_route",
+                lambda: events_route_scope(HogQLQueryModifiers(useNewEventsSchema=True)),
+                every_team_moved=False,
+            ),
+            param("a_legacy_staff_cookie", lambda: new_events_schema_for_request(False), every_team_moved=True),
+            param(
+                "a_legacy_query_route",
+                lambda: events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)),
+                every_team_moved=True,
+            ),
         ]
     )
-    def test_a_per_request_override_does_not_move_the_organization(self, _name, override) -> None:
-        with self.is_cloud(True), override():
+    def test_a_per_request_override_keeps_the_stored_mode(self, _name, override, *, every_team_moved: bool) -> None:
+        listed = self._listed(self.team, self.other_team) if every_team_moved else ""
+
+        with (
+            self.is_cloud(True),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", listed),
+            override(),
+        ):
             self.assertEqual(get_flag_evaluations_read_config(self.organization.id).mode, FlagEvaluationsMode.EVENTS)
+
+    def test_a_legacy_query_on_a_moved_organization_reads_the_events_copy(self) -> None:
+        legacy = HogQLQueryModifiers(useNewEventsSchema=False)
+
+        with (
+            self.is_cloud(True),
+            override_instance_config(
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", self._listed(self.team, self.other_team)
+            ),
+        ):
+            database = Database.create_for(team=self.team, modifiers=legacy)
+            reads_flag_evaluations = reads_flag_calls_from_flag_evaluations(self.team, legacy)
+            native_reads_flag_evaluations_only = reads_flag_calls_without_events_fallback(self.team)
+
+        self.assertFalse(database.organization_reads_flag_calls_from_flag_evaluations)
+        self.assertFalse(reads_flag_evaluations)
+        self.assertTrue(native_reads_flag_evaluations_only)
 
     @parameterized.expand(
         [
