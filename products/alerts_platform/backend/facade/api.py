@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyRowSwitchOffRun,
     NativeConfigurationMatch,
     NewAlertDestination,
+    OrganizationAlertSettings,
     OwnedCopyKey,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -73,6 +74,7 @@ from products.alerts_platform.backend.logic import (
     destination_sends,
     legacy_history_copy,
     legacy_row_switch_off,
+    organization_alerts,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -754,6 +756,89 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     """
     return platform_writes.delete_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+    )
+
+
+def create_organization_configuration(
+    *,
+    organization_id: UUID,
+    team_id: int,
+    source_kind: SourceKind,
+    settings: OrganizationAlertSettings,
+    created_by_id: int | None,
+) -> PlatformAlertConfigurationView:
+    """Creates an alert that belongs to an organization, with `team_id` as its home team. The caller
+    checks that its user may write the organization's alerts.
+
+    Raises `PlatformAlertNotEditable` for a kind not in `ORGANIZATION_SOURCE_KINDS` or with no native
+    lifecycle, `InvalidPlatformAlertEdit` for a team outside the organization or settings the kind
+    rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    return organization_alerts.create_configuration(
+        organization_id=organization_id,
+        team_id=team_id,
+        source_kind=source_kind,
+        settings=settings,
+        created_by_id=created_by_id,
+    )
+
+
+def list_organization_configurations(
+    *, organization_id: UUID, source_kind: SourceKind, limit: int, offset: int
+) -> PlatformAlertConfigurationPage:
+    """One page of an organization's alerts of `source_kind`, newest first, with the total behind it."""
+    return organization_alerts.list_configurations(
+        organization_id=organization_id, source_kind=source_kind, limit=limit, offset=offset
+    )
+
+
+def get_organization_configuration(
+    *, organization_id: UUID, source_kind: SourceKind, configuration_id: UUID
+) -> PlatformAlertConfigurationView | None:
+    """One of an organization's alerts, or None when the organization has no such alert."""
+    return organization_alerts.get_configuration(
+        organization_id=organization_id, source_kind=source_kind, configuration_id=configuration_id
+    )
+
+
+def update_organization_configuration(
+    *,
+    organization_id: UUID,
+    source_kind: SourceKind,
+    configuration_id: UUID,
+    change: Callable[[OrganizationAlertSettings], OrganizationAlertSettings],
+) -> PlatformAlertConfigurationView | None:
+    """Applies `change` to one of an organization's alerts under its row lock, or None when the
+    organization has no such alert.
+
+    Raises `InvalidPlatformAlertEdit` for settings the kind rejects.
+    """
+    return organization_alerts.update_configuration(
+        organization_id=organization_id, source_kind=source_kind, configuration_id=configuration_id, change=change
+    )
+
+
+def mute_organization_configuration(
+    *, organization_id: UUID, source_kind: SourceKind, configuration_id: UUID, until: datetime | None
+) -> PlatformAlertConfigurationView | None:
+    """Mutes one of an organization's alerts until `until`, or clears the mute when it is None. The
+    alert keeps being checked, and its notifications are held. None when the organization has no
+    such alert.
+
+    Raises `InvalidPlatformAlertEdit` for an `until` in the past or more than 30 days ahead.
+    """
+    return organization_alerts.mute_configuration(
+        organization_id=organization_id, source_kind=source_kind, configuration_id=configuration_id, until=until
+    )
+
+
+def delete_organization_configuration(
+    *, organization_id: UUID, source_kind: SourceKind, configuration_id: UUID
+) -> bool:
+    """Deletes one of an organization's alerts after sending the resolves of its open firings. False
+    when the organization has no such alert. Call it outside any transaction."""
+    return organization_alerts.delete_configuration(
+        organization_id=organization_id, source_kind=source_kind, configuration_id=configuration_id
     )
 
 

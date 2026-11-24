@@ -1342,6 +1342,26 @@ class PlatformAlertConfigurationEdit:
     check_interval_minutes: int | None = None
 
 
+# Kinds whose alerts belong to an organization, not to one of its projects. Each row keeps a home
+# team, which runs its checks, but callers address it by organization. The platform read API checks
+# a project's `alert` scope, so it does not serve these kinds.
+ORGANIZATION_SOURCE_KINDS: Final[frozenset[SourceKind]] = frozenset({SourceKind.BILLING})
+
+
+@frozen
+class OrganizationAlertSettings:
+    """The settings of an organization alert that its source's API exposes.
+
+    The platform fixes the rest. An alert has one instance, no quiet hours and no labels, and fires
+    on one breaching check. Its cooldown is 0, so a cooldown never holds back a resolve. Its cadence
+    is the `check_interval_minutes` of its kind's native lifecycle.
+    """
+
+    name: str
+    enabled: bool
+    source_config: dict[str, Any]
+
+
 class InvalidPlatformAlertEdit(ValueError):
     """An edit the configuration's source kind rejects, naming the field at fault."""
 
