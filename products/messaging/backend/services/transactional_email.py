@@ -943,12 +943,15 @@ def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> Non
         raise CopiesNotAllowed(COPIES_NOT_ALLOWED)
 
 
+UNSUBSCRIBE_FOOTER = "Unsubscribe: {{ unsubscribe_url }}"
+
+
 def _accepted_send(
     team: Team, email: CodeEmail, kind: MessageCategoryKind = "transactional"
 ) -> tuple[dict[str, Any], SendWarning | None]:
     sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
-        "content": _accepted_content(email, keep_unsubscribe_link=kind == "marketing"),
+        "content": _accepted_content(email, append_unsubscribe_footer=kind == "marketing"),
         "from": _without_empty(sender),
         "tracking": _accepted_tracking(email.tracking),
     }
@@ -965,12 +968,17 @@ def _accepted_send(
     return accepted, sandbox_warning
 
 
-def _accepted_content(email: CodeEmail, *, keep_unsubscribe_link: bool = False) -> dict[str, str]:
+def _accepted_content(email: CodeEmail, *, append_unsubscribe_footer: bool = False) -> dict[str, str]:
+    text = email.text
+    if not text and email.html:
+        text = text_from_html(email.html)
+        if append_unsubscribe_footer:
+            text = f"{text}\n\n{UNSUBSCRIBE_FOOTER}" if text else UNSUBSCRIBE_FOOTER
     return _without_empty(
         {
             "subject": email.subject,
             "html": email.html,
-            "text": email.text or text_from_html(email.html, keep_unsubscribe_link=keep_unsubscribe_link),
+            "text": text,
         }
     )
 

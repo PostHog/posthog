@@ -1024,18 +1024,37 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("left_out", {}, None),
-            ("null", {"category": None}, None),
-            ("transactional", {"category": "transactional", "html": UNSUBSCRIBE_HTML}, None),
-            ("marketing", {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML}, "marketing"),
+            ("left_out", {}, None, "Hi Jane"),
+            ("null", {"category": None}, None, "Hi Jane"),
+            (
+                "transactional",
+                {"category": "transactional", "html": '<a href="{{ unsubscribe_url }}?utm=x">Unsubscribe</a>'},
+                None,
+                "Unsubscribe",
+            ),
+            (
+                "marketing",
+                {"category": NEWSLETTER, "html": '<a href="{{ unsubscribe_url }}?utm=x">Unsubscribe</a>'},
+                "marketing",
+                "Unsubscribe\n\nUnsubscribe: {{ unsubscribe_url }}",
+            ),
+            (
+                "marketing_with_explicit_text",
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "text": "Plain {{ unsubscribe_url }}"},
+                "marketing",
+                "Plain {{ unsubscribe_url }}",
+            ),
             (
                 "transactional_category_needs_no_link",
                 {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
                 "transactional",
+                "Hi Jane",
             ),
         ]
     )
-    def test_a_code_sends_category_decides_how_it_goes_out(self, cdp_post, _flag, capture, _name, fields, kind):
+    def test_a_code_sends_category_decides_how_it_goes_out(
+        self, cdp_post, _flag, capture, _name, fields, kind, expected_text
+    ):
         self._use_fakes(cdp_post, capture)
 
         response = self._psak_client(["transactional_email:write"]).post(
@@ -1051,7 +1070,9 @@ class TestTransactionalEmail(APIBaseTest):
             assert self.cdp.categories() == [{"id": str(category.id), "type": kind}]
             assert category.category_type == kind
         [email] = self.cdp.emails()
-        assert ("{{ unsubscribe_url }}" in email["text"]) == (kind == "marketing")
+        assert email["text"] == expected_text
+        if "html" in fields:
+            assert email["html"] == fields["html"]
         assert [send["category_type"] for send in self.events.properties("transactional email api send")] == [
             kind or "transactional"
         ]
@@ -3803,6 +3824,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             scopes=["transactional_email:write"],
             mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
         )
+        self._raw_token = raw_token
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
 
@@ -3812,17 +3834,9 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         write: Callable[[], Any],
         written: threading.Event,
         send_done: threading.Event,
-        *,
-        under_the_send_lock: bool,
     ) -> Any:
         try:
             with transaction.atomic():
-                if under_the_send_lock:
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                            [f"{send_categories.SEND_CATEGORY_LOCK}:{self.team.id}"],
-                        )
                 result = write()
                 written.set()
                 wait_until(
@@ -3859,6 +3873,25 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             format="json",
         )
 
+    def _post_in_thread(self, barrier: threading.Barrier, *, template_key: str, category_key: str) -> Any:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._raw_token}")
+        try:
+            barrier.wait(timeout=30)
+            return client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {
+                    "to": "user@example.com",
+                    "template_key": template_key,
+                    "subject": "Welcome",
+                    "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    "category": {"key": category_key, "type": "marketing", "name": category_key.title()},
+                },
+                format="json",
+            )
+        finally:
+            connection.close()
+
     def _seed_categories(self, count: int) -> None:
         MessageCategory.objects.bulk_create(
             [
@@ -3876,43 +3909,28 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
     def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
-        if archived:
-            category = MessageCategory.objects.create(
+        existing = (
+            MessageCategory.objects.create(
                 team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
             )
+            if archived
+            else None
+        )
+        barrier = threading.Barrier(2)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(self._post_in_thread, barrier, template_key="welcome-a", category_key="newsletter")
+            second = pool.submit(self._post_in_thread, barrier, template_key="welcome-b", category_key="newsletter")
+            responses = [first.result(timeout=30), second.result(timeout=30)]
 
-            def write() -> Any:
-                MessageCategory.objects.filter(id=category.id).update(deleted=False)
-                return category.id
-
-        else:
-
-            def write() -> Any:
-                return MessageCategory.objects.create(
-                    team=self.team, key="newsletter", name="Newsletter", category_type="marketing"
-                ).id
-
-        written = threading.Event()
-        send_done = threading.Event()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            other_send = pool.submit(
-                self._commit_once_the_send_waits,
-                self._send_pid(),
-                write,
-                written,
-                send_done,
-                under_the_send_lock=True,
-            )
-            assert written.wait(timeout=30)
-            try:
-                response = self._send_newsletter()
-            finally:
-                send_done.set()
-            category_id = other_send.result(timeout=30)
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert not MessageCategory.objects.get(id=category_id).deleted
-        assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
+        assert [response.status_code for response in responses] == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED]
+        category = MessageCategory.objects.get(team=self.team, key="newsletter")
+        if existing is not None:
+            assert category.id == existing.id
+        assert not category.deleted
+        assert (
+            MessageCategory.objects.filter(team=self.team, deleted=False).count() == send_categories.SEND_CATEGORY_LIMIT
+        )
+        assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}] * 2
 
     def test_a_category_restored_in_the_app_at_the_limit_is_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
@@ -3929,7 +3947,6 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 lambda: MessageCategory.objects.filter(id=category.id).update(deleted=False),
                 written,
                 send_done,
-                under_the_send_lock=False,
             )
             assert written.wait(timeout=30)
             try:
@@ -3951,32 +3968,25 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             )
             for key in ("promos", "newsletter")
         )
-        restored = threading.Event()
-        send_done = threading.Event()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            other_send = pool.submit(
-                self._commit_once_the_send_waits,
-                self._send_pid(),
-                lambda: MessageCategory.objects.filter(id=promos.id).update(deleted=False),
-                restored,
-                send_done,
-                under_the_send_lock=True,
+        barrier = threading.Barrier(2)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(self._post_in_thread, barrier, template_key="promos-send", category_key="promos")
+            second = pool.submit(
+                self._post_in_thread, barrier, template_key="newsletter-send", category_key="newsletter"
             )
-            assert restored.wait(timeout=30)
-            try:
-                response = self._send_newsletter()
-            finally:
-                send_done.set()
-            other_send.result(timeout=30)
+            responses = [first.result(timeout=30), second.result(timeout=30)]
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "too_many_categories"
-        assert cdp.received == []
+        accepted = [response for response in responses if response.status_code == status.HTTP_202_ACCEPTED]
+        refused = [response for response in responses if response.status_code == status.HTTP_400_BAD_REQUEST]
+        assert len(accepted) == 1 and len(refused) == 1, [(r.status_code, r.json()) for r in responses]
+        assert refused[0].json()["code"] == "too_many_categories"
         assert (
             MessageCategory.objects.filter(team=self.team, deleted=False).count() == send_categories.SEND_CATEGORY_LIMIT
         )
-        assert not MessageCategory.objects.get(id=promos.id).deleted
-        assert MessageCategory.objects.get(id=newsletter.id).deleted
+        live = list(MessageCategory.objects.filter(id__in=[promos.id, newsletter.id], deleted=False))
+        archived = list(MessageCategory.objects.filter(id__in=[promos.id, newsletter.id], deleted=True))
+        assert len(live) == 1 and len(archived) == 1
+        assert cdp.categories() == [{"id": str(live[0].id), "type": "marketing"}]
 
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
@@ -3993,7 +4003,6 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 ),
                 inserted,
                 send_done,
-                under_the_send_lock=False,
             )
             assert inserted.wait(timeout=30)
             try:
