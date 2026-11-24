@@ -72,6 +72,17 @@ class TestNewFlagNoTraffic(BaseTest):
                 Status.NOT_CHECKED,
             ),
             (
+                "calls_kept_in_events_while_flag_evaluations_is_the_only_read",
+                None,
+                False,
+                True,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                "events",
+                Status.FINDING,
+                FULL_ACCESS,
+                True,
+            ),
+            (
                 "calls_kept_out_of_events_with_the_sync_reading_flag_evaluations",
                 None,
                 False,
@@ -112,9 +123,14 @@ class TestNewFlagNoTraffic(BaseTest):
         sync_source: str,
         expected: ExperimentHealthCheckStatus,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
+        keep_writing_flag_calls_to_events: bool = False,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={
+                "flag_evaluations_mode": mode,
+                "keep_writing_flag_calls_to_events": keep_writing_flag_calls_to_events,
+            },
         )
         if another_active_flag:
             FeatureFlag.objects.create(team=self.team, key="live-flag", created_by=self.user, active=True)

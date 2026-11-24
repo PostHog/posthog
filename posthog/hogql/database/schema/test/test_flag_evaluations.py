@@ -59,6 +59,7 @@ from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.property_groups import PropertyGroupDefinition
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import Team
@@ -408,7 +409,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 (
                     str(row_uuid),
                     "$feature_flag_called",
-                    json.dumps({"quote": 'a"b', "nulled": None, "$lib": "web", "token": "t", "keep": "yes"}),
+                    json.dumps(
+                        {
+                            "quote": 'a"b',
+                            "nulled": None,
+                            "$lib": "web",
+                            "token": "t",
+                            "keep": "yes",
+                            "$feature_flag": "beta",
+                            "$feature_flag_response": "true",
+                            "$feature/beta": True,
+                            "$feature/variant": 'a"b',
+                            "$feature/nulled": None,
+                        }
+                    ),
                     json.dumps({"email": "a@example.com", "$creator_event_uuid": "x"}),
                     self.occurred_at,
                     self.team.pk,
@@ -418,11 +432,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         rows = sync_execute(
-            "SELECT properties_group_custom, person_properties_map_custom FROM flag_evaluations WHERE uuid = %(uuid)s",
+            "SELECT properties_group_custom, properties_group_feature_flags, person_properties_map_custom "
+            "FROM flag_evaluations WHERE uuid = %(uuid)s",
             {"uuid": str(row_uuid)},
         )
 
-        assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+        assert rows == [
+            (
+                {"quote": 'a"b', "keep": "yes"},
+                {"$feature/beta": "true", "$feature/variant": 'a"b'},
+                {"email": "a@example.com"},
+            )
+        ]
 
     def test_custom_property_filter_reads_the_property_group_map_for_an_ordinary_value(self):
         where = f" AND properties.probe = '{EVENT_PROBE}'"
@@ -438,6 +459,87 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "equals(flag_evaluations.properties_group_custom[" in (map_read.clickhouse or "")
         assert "properties_group_custom" not in (json_read.clickhouse or "")
         assert map_read.results == json_read.results == [(EVENT_PROBE,)]
+
+    def test_feature_flag_property_filter_reads_the_json_while_the_group_is_hidden(self):
+        read = self._execute(
+            "properties.`$feature/beta`",
+            " AND properties.`$feature/beta` = 'true'",
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+        )
+
+        assert "properties_group_feature_flags" not in (read.clickhouse or "")
+
+    @parameterized.expand(
+        [
+            ("equals", "properties.`$feature/beta` = 'true'", 1),
+            ("not_equals", "properties.`$feature/beta` != 'true'", 2),
+            ("in", "properties.`$feature/variant` IN ('control', 'test')", 2),
+            ("like", "properties.`$feature/variant` LIKE 'cont%'", 1),
+            ("missing_key", "properties.`$feature/absent` = 'true'", 0),
+            ("is_null", "properties.`$feature/beta` IS NULL", 1),
+            ("is_not_null", "properties.`$feature/beta` IS NOT NULL", 2),
+        ]
+    )
+    def test_feature_flag_property_filter_returns_the_same_rows_from_the_map_as_from_the_json(
+        self, _name: str, predicate: str, matches: int
+    ):
+        rows: dict[uuid.UUID, dict[str, str | int | None]] = {
+            uuid.uuid4(): {"$feature/beta": True, "$feature/variant": "control"},
+            uuid.uuid4(): {"$feature/beta": False, "$feature/variant": "test"},
+            uuid.uuid4(): {"$feature/beta": None, "$feature/variant": "other"},
+        }
+        for row_uuid, properties in rows.items():
+            self._insert_row(row_uuid, properties)
+        columns = "uuid, properties.`$feature/beta`, properties.`$feature/variant`"
+        where = f" AND {predicate} ORDER BY uuid"
+
+        json_read = self._execute(
+            columns,
+            where,
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED),
+            row_uuids=tuple(rows),
+        )
+        # The query reads only flag_evaluations, where feature_flags is the one hidden group.
+        with patch.object(PropertyGroupDefinition, "contains", lambda group, key: group.key_filter_function(key)):
+            map_read = self._execute(
+                columns,
+                where,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+                row_uuids=tuple(rows),
+            )
+
+        assert "properties_group_feature_flags" in (map_read.clickhouse or "")
+        assert len(json_read.results) == matches
+        assert map_read.results == json_read.results
+
+    @parameterized.expand(
+        [
+            ("flag", "$feature_flag", "probe-flag", "flag_key"),
+            ("response", "$feature_flag_response", "variant-x", "response"),
+            ("session", "$session_id", SESSION_ID, "session_id"),
+        ]
+    )
+    def test_property_with_a_typed_column_reads_the_column_not_the_json(
+        self, _name: str, property_name: str, value: str, column: str
+    ):
+        read = self._execute(f"properties.`{property_name}`", f" AND properties.`{property_name}` = '{value}'")
+
+        sql = read.clickhouse or ""
+        assert read.results == [(value,)]
+        assert "JSONExtractRaw" not in sql
+        assert f"equals(flag_evaluations.{column}, " in sql
+
+    def test_property_with_a_typed_column_reads_the_json_when_materialization_is_disabled(self):
+        read = self._execute("properties.$feature_flag", modifiers=HogQLQueryModifiers(materializationMode="disabled"))
+
+        assert read.results == [("probe-flag",)]
+        assert "JSONExtractRaw(flag_evaluations.properties," in (read.clickhouse or "")
+
+    def test_property_response_reads_null_for_an_empty_string(self):
+        row_uuid = uuid.uuid4()
+        self._insert_row(row_uuid, {"$feature_flag": "probe-flag", "$feature_flag_response": ""})
+
+        assert self._select("properties.$feature_flag_response", row_uuids=(row_uuid,)) == [(None,)]
 
     @parameterized.expand(
         [
@@ -1352,6 +1454,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 ["probe-distinct-id"],
             ),
             (
+                "mode_2_persons_join_filter_over_a_persons_column",
+                {
+                    "calls": "SELECT e.distinct_id FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                    "AND p.id IN JSONExtract(properties, 'allowed_ids', 'Array(UUID)') "
+                    "WHERE e.event = '$feature_flag_called' AND e.timestamp >= now() - INTERVAL 7 DAY"
+                },
+                "SELECT distinct_id FROM calls",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                [],
+            ),
+            (
                 "mode_2_under_an_enclosing_cte_named_events",
                 {"calls": "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"},
                 "WITH events AS (SELECT distinct_id, event FROM posthog.flag_evaluations) SELECT distinct_id FROM calls",
@@ -2156,19 +2269,19 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            (f"{value_name}_{join}", field, source, response)
-            for value_name, response in (
-                ("escaped_characters", 'say "hi" \\ bye'),
-                ("number_as_string", "100"),
-                ("empty_string", ""),
-                ("null_as_string", "null"),
+            (f"{value_name}_{join}", field, source, response, reads_as_null)
+            for value_name, response, reads_as_null in (
+                ("escaped_characters", 'say "hi" \\ bye', False),
+                ("number_as_string", "100", False),
+                ("empty_string", "", True),
+                ("null_as_string", "null", True),
             )
             for join, source, field in LAZY_JOINS_TO_EVENTS
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_lazy_join_pushes_a_pin_that_selects_what_events_selects(
-        self, _name: str, field: str, source: str, response: str
+        self, _name: str, field: str, source: str, response: str, reads_as_null: bool
     ):
         self._create_lazy_join_sources()
         row_uuid = uuid.uuid4()
@@ -2198,7 +2311,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert [row[0] for row in from_events] == ["probe-distinct-id"]
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
-        assert swapped.results == from_events
+        # The test events table has no materialized column, so it returns the JSON text where production reads NULL.
+        expected = [(distinct_id, None if reads_as_null else read) for distinct_id, read in from_events]
+        assert swapped.results == expected
 
     @parameterized.expand(
         [

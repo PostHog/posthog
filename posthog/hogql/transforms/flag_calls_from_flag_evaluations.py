@@ -404,7 +404,7 @@ def _event_property_metadata(context: HogQLContext, names: set[str]) -> Property
 def flag_calls_only_in_flag_evaluations_error(reason: str, scope: FlagCallScope | None = None) -> QueryError:
     subject, part = (scope.subject, scope.part) if scope is not None else ("this query", "query")
     return QueryError(
-        f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and {subject} "
+        f"Your organization reads {FLAG_CALLED_EVENT} events only from posthog.flag_evaluations, and {subject} "
         f"can't read them there because {reason}. Change that part of the {part}, or query "
         "posthog.flag_evaluations directly."
     )
@@ -1435,10 +1435,12 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
 def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: HogQLContext) -> bool:
     """Whether each property that the swapped query reads comes from the same kind of column as in the original.
 
-    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads the
-    same property from the JSON blob, which returns those strings. A property-group map has the same definition on
-    both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or "null", so a
-    read of it agrees whatever column backs it.
+    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads a
+    property that has no typed column from the JSON blob, which returns those strings. A property with a typed column
+    on `flag_evaluations` compares by column name, so it agrees only with an `events` column of the same name, and
+    a read that `events` backs with another column or none keeps reading `events`. A property-group map has the same
+    definition on both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or
+    "null", so a read of it agrees whatever column backs it.
     """
     original_reads = _property_reads(original, context)
     swapped_reads = _property_reads(swapped, context)

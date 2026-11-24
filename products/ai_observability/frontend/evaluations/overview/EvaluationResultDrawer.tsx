@@ -11,7 +11,8 @@ import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 export function EvaluationResultDrawer(): JSX.Element {
     const { openRow } = useValues(evaluationResultDrawerLogic)
     const { closeDrawer } = useActions(evaluationResultDrawerLogic)
-    const { evaluationUrl } = useValues(evaluationsOverviewLogic)
+    const { evaluationUrl, configById } = useValues(evaluationsOverviewLogic)
+    const description = openRow ? configById.get(openRow.id)?.description : null
 
     return (
         <LemonDrawer
@@ -23,18 +24,21 @@ export function EvaluationResultDrawer(): JSX.Element {
             data-attr="evaluation-overview-drawer"
             description={
                 openRow ? (
-                    // The drawer's close button sits at the top right, so this sits just left of it.
-                    <div className="absolute top-3 right-14">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            sideIcon={<IconArrowRight />}
-                            to={evaluationUrl(openRow.id)}
-                            data-attr="evaluation-overview-drawer-open"
-                        >
-                            Open evaluation
-                        </LemonButton>
-                    </div>
+                    <>
+                        {description && <p className="m-0 whitespace-pre-wrap">{description}</p>}
+                        {/* The drawer's close button sits at the top right, so this sits just left of it. */}
+                        <div className="absolute top-3 right-14">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                sideIcon={<IconArrowRight />}
+                                to={evaluationUrl(openRow.id)}
+                                data-attr="evaluation-overview-drawer-open"
+                            >
+                                Open evaluation
+                            </LemonButton>
+                        </div>
+                    </>
                 ) : null
             }
         >

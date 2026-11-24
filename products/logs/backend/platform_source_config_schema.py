@@ -75,7 +75,9 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     # For a logs alert with no logs row. `admit_platform_write` holds the cap, so the platform keeps none,
     # and the destinations stay HogFunctions, which the logs API and Terraform manage.
     native=NativeAlertLifecycle(
-        check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=remove_alert_destinations
+        check_interval_minutes=CHECK_INTERVAL_MINUTES,
+        platform_destinations=False,
+        remove_destinations=remove_alert_destinations,
     ),
     native_create=creates_native_alert,
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,

@@ -640,8 +640,11 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert media_location is not None
         return media_id, media_location
 
-    @parameterized.expand([("email",), ("experiment",)])
-    def test_complete_upload_verifies_and_activates_the_pending_upload(self, purpose: str) -> None:
+    @parameterized.expand([("email", True), ("experiment", True), ("conversations", False)])
+    @patch("posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=True)
+    def test_complete_upload_verifies_and_activates_the_pending_upload(
+        self, purpose: str, listed: bool, _flag: object
+    ) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             media_id, media_location = self._start_upload(purpose=purpose)
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
@@ -660,12 +663,27 @@ class TestMediaLibraryAPI(APIBaseTest):
             assert media.pending is False
 
             list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose={purpose}")
-            assert [item["id"] for item in list_response.json()["results"]] == [media_id]
+            if listed:
+                assert [item["id"] for item in list_response.json()["results"]] == [media_id]
+            else:
+                assert list_response.status_code == status.HTTP_400_BAD_REQUEST
 
             self.client.logout()
             download_response = self.client.get(f"/uploaded_media/{media_id}")
             assert download_response.status_code == status.HTTP_200_OK
             assert download_response.headers["Content-Type"] == "image/gif"
+
+    @patch("posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=False)
+    def test_conversations_purpose_waits_for_the_flag(self, _flag: object) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+                {"name": "screenshot.png", "purpose": "conversations"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "purpose"
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
 
     def test_completing_moves_the_object_off_the_presigned_key(self) -> None:
         """The presigned POST's signature is only checked by S3 at upload time and stays
