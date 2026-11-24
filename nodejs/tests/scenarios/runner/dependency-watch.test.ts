@@ -185,14 +185,30 @@ describe('dependency watch', () => {
                 sockets: undefined,
             },
         },
+        {
+            title: 'the busy timeout, never a loss, when the probe process failed on a quiet confirming check',
+            attempts: [[timedOut], exited, []],
+            expected: {
+                reason: expect.stringMatching(
+                    /^the runner's event loop was too busy to check provider-edge in the 320x step \(busy \d+% of the check\)/
+                ),
+                sockets: undefined,
+            },
+        },
     ])('quotes $title', async ({ attempts, expected }) => {
         const scripted: (ProbeFailure[] | Error)[] = [...attempts]
-        const next = (): Promise<ProbeFailure[]> => {
+        // A probe check keeps the runner busy, and a failed probe process leaves it idle until the failure arrives.
+        const next = async (): Promise<ProbeFailure[]> => {
             const attempt = scripted.shift() ?? []
-            return attempt instanceof Error ? Promise.reject(attempt) : Promise.resolve(attempt)
+            if (attempt instanceof Error) {
+                await new Promise((resolve) => setTimeout(resolve, 50))
+                throw attempt
+            }
+            busyFor(200)
+            return attempt
         }
 
-        const { losses, reason } = await watching(next, 200)
+        const { losses, reason } = await watching(next)
 
         expect({ reason, sockets: losses.find(({ name }) => name === 'provider-edge')?.sockets }).toEqual(expected)
     })
@@ -216,23 +232,34 @@ describe('dependency watch', () => {
         }
     }, 30_000)
 
-    it('answers from a fresh probe process after the last one stopped answering', async () => {
-        const probes = startProbeProcess(
-            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
-            8_000
-        )
-        try {
-            await expect(probes.check()).resolves.toEqual([])
-            const stuck = probes.pid!
-            process.kill(stuck, 'SIGSTOP')
+    it.each([
+        ['stopped answering', false, 'the probe process did not answer within 8000 ms'],
+        ['exited during a check', true, 'the probe process exited with SIGKILL'],
+    ])(
+        'answers from a fresh probe process after the last one %s',
+        async (_how, exits, failure) => {
+            const probes = startProbeProcess(
+                { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+                8_000
+            )
+            try {
+                await expect(probes.check()).resolves.toEqual([])
+                const stuck = probes.pid!
+                process.kill(stuck, 'SIGSTOP')
+                const checking = probes.check()
+                if (exits) {
+                    process.kill(stuck, 'SIGKILL')
+                }
 
-            await expect(probes.check()).rejects.toThrow('the probe process did not answer within 8000 ms')
-            await expect(probes.check()).resolves.toEqual([])
-            expect(probes.pid).not.toEqual(stuck)
-        } finally {
-            probes.close()
-        }
-    }, 40_000)
+                await expect(checking).rejects.toThrow(failure)
+                await expect(probes.check()).resolves.toEqual([])
+                expect(probes.pid).not.toEqual(stuck)
+            } finally {
+                probes.close()
+            }
+        },
+        40_000
+    )
 
     it('names a harness limit when a busy Redis check runs out its budget without an answer', async () => {
         const silentValkey = dependencyProbes(edge.url, POSTGRES, { host: '127.0.0.1', port: silentPort })[

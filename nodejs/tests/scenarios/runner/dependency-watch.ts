@@ -77,11 +77,13 @@ function evidenceOf(
 }
 
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
+    // A confirming check that failed as a whole heard nothing, so the first check decides each verdict alone. It can
+    // show neither that a dependency recovered nor that a busy check's timeout was a loss.
+    const confirming = second.unchecked ? first : second
     return first.failures.map((failure) => {
-        // A confirming check that failed as a whole heard nothing, so it cannot show that a dependency recovered.
         const again = second.unchecked ? failure : second.failures.find(({ name }) => name === failure.name)
-        const kind = kindOf(failure, again, first, second)
-        const evidence = evidenceOf(kind, failure, again, second)
+        const kind = kindOf(failure, again, first, confirming)
+        const evidence = evidenceOf(kind, failure, again, confirming)
         const { reason, hostLimit } = evidence
         const sockets = evidence.sockets ?? again?.sockets ?? failure.sockets
         return {
