@@ -2060,6 +2060,7 @@ class TrinoPrinter(PostgresPrinter):
             ast.ArithmeticOperationOp.Add,
             ast.ArithmeticOperationOp.Sub,
             ast.ArithmeticOperationOp.Mult,
+            ast.ArithmeticOperationOp.Mod,
         }:
             return self._is_integer_operand(node.left) and self._is_integer_operand(node.right)
         return False
