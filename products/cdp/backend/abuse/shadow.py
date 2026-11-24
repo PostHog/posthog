@@ -76,7 +76,6 @@ class ScoredHogFunction:
     outbound_call: bool
     account: Account
     account_tier: AccountTier
-    # The questions whose score alone cannot alert, and why.
     set_aside: dict[str, SetAsideReason]
 
     @property

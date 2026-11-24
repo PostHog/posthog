@@ -709,6 +709,7 @@ class TestAbuseRules(SimpleTestCase):
                 content(hog="let q := (select event from events limit 1)"),
                 True,
             ),
+            ("inline_union_query", content(hog="let q := (select 1 union all select 2)", inputs={}), True),
             (
                 "closure_called_through_the_for_in_iterable_temporary",
                 content(hog="for (let x in [inputs.sender, <__H_expr_H__ url={inputs.url} />]) {\n  print(x)\n}"),
@@ -833,6 +834,12 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("lookalike_host", post_to("https://slack.com.example.net/api/x"), None),
             ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
+            ("port_out_of_range", post_to("https://hooks.slack.com:99999/services/x"), None),
+            (
+                "computed_option_key",
+                content(hog="fetch('https://slack.com/api/chat.postMessage', {inputs.key: 'x'})"),
+                None,
+            ),
             ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
             ("no_request", content(hog="return event", function_type="transformation", inputs={}), None),
             (
@@ -875,6 +882,30 @@ class TestAbuseRules(SimpleTestCase):
             ("hex_address_in_the_host_name", post_to("http://7f000001.c0a80001.example.net/x"), False),
             ("address_in_the_host_name", post_to("https://10-0-0-1.example.com/x"), False),
             ("public_address_host", post_to("https://203.0.113.7/x"), False),
+            ("code_that_does_not_parse", content(hog="fetch('https://api.example.com/x'", inputs={}), False),
+            (
+                "helper_function_beside_a_literal_fetch",
+                content(
+                    hog="fun body(x) {\n  return {'text': x}\n}\nfetch('https://api.example.com/x', {'body': body(event.event)})"
+                ),
+                True,
+            ),
+            (
+                "helper_after_a_write_into_an_array",
+                content(
+                    hog="let a := [1]\na[1] := 2\nfun body(x) {\n  return x\n}\n"
+                    "fetch('https://api.example.com/x', {'body': body(a)})"
+                ),
+                False,
+            ),
+            (
+                "helper_beside_a_dict_field_write",
+                content(
+                    hog="let d := {}\nd.x := 1\nfun body(x) {\n  return x\n}\n"
+                    "fetch('https://api.example.com/x', {'body': body(d)})"
+                ),
+                True,
+            ),
             ("userinfo_before_the_host", post_to("https://169.254.169.254@api.example.com/x"), False),
             ("backslash_in_the_authority", post_to("https://api.example.com\\\\@127.0.0.1/x"), False),
             (

@@ -186,7 +186,6 @@ _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?
 # The bundled public suffix list, so no lookup goes out and no cache file is written. A `.localhost` name or a cluster
 # short name such as `redis.posthog` has no public suffix, but one whose namespace is also a top-level domain does.
 _DOMAIN_PARTS = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
-# A URL part that could name a host on its own, such as a redirect target in the query string.
 _URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
 _BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
 
@@ -256,7 +255,6 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
 @frozen
 class _Requests:
     calls_out: bool
-    # Every call that can send a request is a `fetch` of a literal URL.
     only_literal_fetches: bool
     literal_urls: tuple[str, ...]
     # A literal `fetch` may send a body that is not JSON: `fetch` sends a string body as it is.
