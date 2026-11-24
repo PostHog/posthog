@@ -27,7 +27,7 @@ import {
 import { CyclotronJobInvocation } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
-import { IntakeOutput, IntakeProducer } from './intake-producer'
+import { IntakeOutput, IntakeProduceOutcome, IntakeProducer } from './intake-producer'
 import { encodeIntakeMessage } from './message'
 import { keyedRunId } from './run-intake'
 
@@ -208,7 +208,7 @@ describe('insertIntakeBatch', () => {
     const produceSealed = async (
         contentState: Record<string, unknown>,
         output?: IngestionOutput
-    ): Promise<{ id: string; produced: Buffer }> => {
+    ): Promise<{ id: string; produced: Buffer; outcome: IntakeProduceOutcome }> => {
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
@@ -242,11 +242,12 @@ describe('insertIntakeBatch', () => {
             },
         } as CyclotronJobInvocation
 
-        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce(
-            { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
-            'async'
-        )
-        return { id: run.id, produced: produced! }
+        const outcome = await new IntakeProducer(
+            topic as IngestionOutputs<IntakeOutput>,
+            undefined,
+            sealing.seal
+        ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
+        return { id: run.id, produced: produced!, outcome }
     }
 
     it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
@@ -278,10 +279,11 @@ describe('insertIntakeBatch', () => {
         )
         try {
             const output = new SingleIngestionOutput('intake-file-bytes-test', topicName, producer, 'test')
-            const { id } = await produceSealed(
+            const { id, outcome } = await produceSealed(
                 { send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] } },
                 output
             )
+            expect(outcome).toBe('acked')
             await producer.flush()
 
             let received: (batch: Message[]) => void = () => undefined
@@ -293,7 +295,17 @@ describe('insertIntakeBatch', () => {
                 return Promise.resolve()
             })
 
-            await insertIntakeBatch(await delivered, services, OPTIONS)
+            // Bounded inside the test, so a message Kafka never delivers fails here and the finally block still
+            // closes the consumer, the producer and the topic.
+            let giveUp: NodeJS.Timeout | undefined
+            const nothingDelivered = new Promise<never>((_, reject) => {
+                giveUp = setTimeout(() => reject(new Error('Kafka delivered nothing in 30 s')), 30_000)
+            })
+            try {
+                await insertIntakeBatch(await Promise.race([delivered, nothingDelivered]), services, OPTIONS)
+            } finally {
+                clearTimeout(giveUp)
+            }
 
             const [job] = await storedJobs([id])
             expect(job.fileBytes).toBe('1000')
