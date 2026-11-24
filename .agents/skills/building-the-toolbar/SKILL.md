@@ -75,7 +75,7 @@ pnpm check-toolbar-csp-eval  # no eval, new Function or string timers in shipped
 ```
 
 Each script's header comment explains its limits.
-When `check-toolbar-graph` fails, cut the new import rather than add it to `bin/toolbar-graph-baseline.json`.
+When `check-toolbar-graph` fails, cut the new import. The check allows no exceptions.
 When it names a file outside the Tailwind scan, add a glob for it to `src/toolbar/shared/tailwind.config.js`.
 
 These guards cover the floating toolbar bundle only.

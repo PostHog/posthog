@@ -6,9 +6,7 @@ import { ElementOverlays } from '~/toolbar/shared/elements/ElementOverlays'
 import { toolbarLogic } from '../../../shared/bar/toolbarLogic'
 
 export function Elements(): JSX.Element {
-    const { visibleMenu: activeToolbarMode } = useValues(toolbarLogic)
-
-    const { theme } = useValues(toolbarLogic)
+    const { visibleMenu, theme } = useValues(toolbarLogic)
 
     // KLUDGE: if we put theme directly on the div then
     // linting and typescript complain about it not being
@@ -26,7 +24,7 @@ export function Elements(): JSX.Element {
                 <ElementInfoWindow />
             </div>
 
-            <ElementOverlays showHeatmapCanvas={activeToolbarMode === 'heatmap'} />
+            <ElementOverlays showHeatmapCanvas={visibleMenu === 'heatmap'} />
         </>
     )
 }
