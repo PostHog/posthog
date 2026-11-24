@@ -18,6 +18,7 @@ from products.alerts_platform.backend.delivery.team_flags import team_flag_enabl
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
+    ORGANIZATION_SOURCE_KINDS,
     ROUTING_FLAG,
     AlertDeliveryRequest,
     AnnouncedTransition,
@@ -66,7 +67,8 @@ def _opens_incidents(receiver: RoutedReceiver) -> bool:
 
 
 def _routing_team(request: AlertDeliveryRequest) -> Team | None:
-    if not request.owned_by_platform:
+    # Routes belong to a project, and an organization's alerts are for its admins only.
+    if not request.owned_by_platform or request.source in ORGANIZATION_SOURCE_KINDS:
         return None
     # A delivery that exists only for its incident actions has nothing for a chat receiver.
     if not request.sends_messages and not has_incident_route(request.team_id):

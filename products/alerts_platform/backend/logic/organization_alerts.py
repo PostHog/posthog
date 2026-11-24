@@ -151,6 +151,7 @@ def _require_organization_kind(source_kind: SourceKind) -> None:
 def _home_team_id(organization_id: UUID, source_kind: SourceKind, configuration_id: UUID) -> int | None:
     _require_organization_kind(source_kind)
     return (
+        # nosemgrep: idor-lookup-without-team (scoped by organization: the caller names one, and its alerts span its teams)
         PlatformAlertConfiguration.objects.unscoped()
         .filter(id=configuration_id, source_kind=source_kind.value, team__organization_id=organization_id)
         .values_list("team_id", flat=True)

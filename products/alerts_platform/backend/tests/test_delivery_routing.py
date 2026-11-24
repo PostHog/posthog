@@ -83,14 +83,18 @@ class TestDeliverRoutes(APIBaseTest):
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
         inline: bool = False,
+        source: SourceKind = SourceKind.LOGS,
     ) -> int:
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
             if isinstance(flag, Exception):
                 raise flag
             return flag if key == ROUTING_FLAG else False
 
-        request = _request(
-            self.team.id, owned_by_platform=True, sends_messages=sends_messages, incident_actions=incident_actions
+        request = replace(
+            _request(
+                self.team.id, owned_by_platform=True, sends_messages=sends_messages, incident_actions=incident_actions
+            ),
+            source=source,
         )
         with (
             patch(
@@ -136,6 +140,11 @@ class TestDeliverRoutes(APIBaseTest):
                 MessageDetail(label="team", value="infra"),
                 MessageDetail(label="runbook", value="https://example.com/runbook"),
             )
+
+    def test_an_organization_alert_reaches_no_project_route(self) -> None:
+        sent = self._deliver(source=SourceKind.BILLING)
+
+        assert (sent, RecordingTransport.sends) == (0, [])
 
     def test_routes_each_group_on_its_own_labels_under_the_rules(self) -> None:
         self._route(
