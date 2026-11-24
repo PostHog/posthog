@@ -122,6 +122,6 @@ tools:
         feature_flag: workflows-transactional-push-api
         confirmed_action:
             message: >
-                About to send push template '{template_id}' to every device of each recipient listed. Reply 'confirm'
-                to send it.
+                About to send push template '{template_id}' to every device of each recipient listed. Reply 'confirm' to
+                send it.
             action_label: send push notifications
