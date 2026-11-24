@@ -84,4 +84,12 @@ describe('EmailSidesField', () => {
         rerender(field(EVEN))
         expect(screen.queryByLabelText('Padding Top')).toBeNull()
     })
+
+    it('names the selected mode for screen readers', () => {
+        render(<Field start={EVEN} />)
+        fireEvent.click(screen.getByLabelText('Set each side'))
+        expect(screen.getByLabelText('Padding: Set each side')).toBeTruthy()
+        fireEvent.click(screen.getByLabelText('Same on all sides'))
+        expect(screen.getByLabelText('Padding: Same on all sides')).toBeTruthy()
+    })
 })

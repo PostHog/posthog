@@ -12,6 +12,8 @@ const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'left', title: 'Left' },
 ]
 
+const MODE_TITLES = { same: 'Same on all sides', each: 'Set each side' }
+
 function IconSameSides(): JSX.Element {
     return (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
@@ -70,33 +72,36 @@ export function EmailSidesField({
                             data-attr={attr}
                         />
                     )}
-                    <LemonSegmentedButton
-                        size="xsmall"
-                        value={mode}
-                        onChange={(next) => {
-                            if (next === mode) {
-                                return
-                            }
-                            setOpened(next === 'each')
-                            if (next === 'same' && uneven) {
-                                onChange({ top: shown.top, right: shown.top, bottom: shown.top, left: shown.top })
-                            }
-                        }}
-                        options={[
-                            {
-                                value: 'same',
-                                icon: <IconSameSides />,
-                                tooltip: 'Same on all sides',
-                                'data-attr': attr ? `${attr}-same` : undefined,
-                            },
-                            {
-                                value: 'each',
-                                icon: <IconEachSide />,
-                                tooltip: 'Set each side',
-                                'data-attr': attr ? `${attr}-each` : undefined,
-                            },
-                        ]}
-                    />
+                    {/* LemonSegmentedButton shows which option is selected only visually. */}
+                    <div role="group" aria-label={`${label}: ${MODE_TITLES[mode]}`}>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={mode}
+                            onChange={(next) => {
+                                if (next === mode) {
+                                    return
+                                }
+                                setOpened(next === 'each')
+                                if (next === 'same' && uneven) {
+                                    onChange({ top: shown.top, right: shown.top, bottom: shown.top, left: shown.top })
+                                }
+                            }}
+                            options={[
+                                {
+                                    value: 'same',
+                                    icon: <IconSameSides />,
+                                    tooltip: MODE_TITLES.same,
+                                    'data-attr': attr ? `${attr}-same` : undefined,
+                                },
+                                {
+                                    value: 'each',
+                                    icon: <IconEachSide />,
+                                    tooltip: MODE_TITLES.each,
+                                    'data-attr': attr ? `${attr}-each` : undefined,
+                                },
+                            ]}
+                        />
+                    </div>
                 </div>
             </div>
             {mode === 'each' ? (
