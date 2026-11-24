@@ -49,7 +49,10 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 "<ph_client_api_host>",
                             )).await;
 
-                            // Call before process exit so queued events are flushed
+                            // Capture events and exceptions here
+
+                            // Shut down last, before the process exits. It flushes queued
+                            // events, and the client drops anything captured after it.
                             client.shutdown().await;
                         }
                     `}

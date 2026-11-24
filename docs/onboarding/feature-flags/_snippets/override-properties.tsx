@@ -28,6 +28,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                             'group_property_name': 'value'
                         },
                     },
+                    flagKeys: ['flag-key'],
                 }
             )
             const flagValue = flags.getFlag('flag-key')
@@ -43,6 +44,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                     'your_group_type': {'group_property_name': 'value'},
                     'another_group_type': {'group_property_name': 'value'}
                 },
+                flag_keys=['flag-key'],
             )
             flag_value = flags.get_flag('flag-key')
         `,
@@ -93,7 +95,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                         Set("another_group_type", "your_group_id"),
                     PersonProperties: posthog.NewProperties().
                         Set("property_name", "value"),
-                    GroupProperties: map[string]map[string]interface{}{
+                    GroupProperties: map[string]posthog.Properties{
                         "your_group_type": {
                             "group_property_name": "value",
                         },
@@ -101,6 +103,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
                             "group_property_name": "value",
                         },
                     },
+                    FlagKeys: []string{"flag-key"},
                 },
             )
             if err == nil && flags != nil {

@@ -37,7 +37,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         'node.js': dedent`
-            const flags = await client.evaluateFlags('distinct_id_of_your_user')
+            const flags = await client.evaluateFlags('distinct_id_of_your_user', { flagKeys: ['flag-key'] })
             if (flags.isEnabled('flag-key')) {
                 // Your code if the flag is enabled
                 // Optional: fetch the payload
@@ -45,7 +45,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         python: dedent`
-            flags = posthog.evaluate_flags('distinct_id_of_your_user')
+            flags = posthog.evaluate_flags('distinct_id_of_your_user', flag_keys=['flag-key'])
             if flags.is_enabled('flag-key'):
                 # Do something differently for this user
                 # Optional: fetch the payload
@@ -68,6 +68,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
         go: dedent`
             flags, err := client.EvaluateFlags(posthog.EvaluateFlagsPayload{
                 DistinctId: "distinct_id_of_your_user",
+                FlagKeys:   []string{"flag-key"},
             })
             if err != nil {
                 // Handle error (e.g. capture error and fallback to default behaviour)
@@ -76,6 +77,7 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
                 // Do something differently for this user
                 // Optional: fetch the payload
                 matchedFlagPayload := flags.GetFlagPayload("flag-key")
+                _ = matchedFlagPayload
             }
         `,
         dotnet: dedent`

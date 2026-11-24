@@ -43,7 +43,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             }
         `,
         'node.js': dedent`
-            const flags = await client.evaluateFlags('distinct_id_of_your_user')
+            const flags = await client.evaluateFlags('distinct_id_of_your_user', { flagKeys: ['flag-key'] })
             const enabledVariant = flags.getFlag('flag-key')
             if (enabledVariant === 'variant-key') {  // replace 'variant-key' with the key of your variant
                 // Do something differently for this user
@@ -52,7 +52,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             }
         `,
         python: dedent`
-            flags = posthog.evaluate_flags('distinct_id_of_your_user')
+            flags = posthog.evaluate_flags('distinct_id_of_your_user', flag_keys=['flag-key'])
             enabled_variant = flags.get_flag('flag-key')
             if enabled_variant == 'variant-key': # replace 'variant-key' with the key of your variant
                 # Do something differently for this user
@@ -76,6 +76,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
         go: dedent`
             flags, err := client.EvaluateFlags(posthog.EvaluateFlagsPayload{
                 DistinctId: "distinct_id_of_your_user",
+                FlagKeys:   []string{"flag-key"},
             })
             if err != nil {
                 // Handle error (e.g. capture error and fallback to default behaviour)
@@ -88,6 +89,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
                 // Do something differently for this user
                 // Optional: fetch the payload
                 matchedFlagPayload := flags.GetFlagPayload("flag-key")
+                _ = matchedFlagPayload
             }
         `,
         dotnet: dedent`
