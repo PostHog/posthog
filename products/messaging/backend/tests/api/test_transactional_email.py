@@ -3873,11 +3873,50 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             format="json",
         )
 
-    def _post_in_thread(self, barrier: threading.Barrier, *, template_key: str, category_key: str) -> Any:
+    def _warm_template_keys(self, *template_keys: str) -> None:
+        for template_key in template_keys:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {
+                    "to": "user@example.com",
+                    "template_key": template_key,
+                    "subject": "Warmup",
+                    "html": "<p>Warmup</p>",
+                },
+                format="json",
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+    def _release_category_table_once_sends_wait(
+        self, expected_waiters: int, locked: threading.Event, sends_done: threading.Event
+    ) -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("LOCK TABLE posthog_messagecategory IN ACCESS EXCLUSIVE MODE")
+                locked.set()
+                wait_until(
+                    lambda: self._sessions_blocked_by_this_session() >= expected_waiters or sends_done.is_set(),
+                    timeout=30,
+                    interval=0.05,
+                    message="timed out waiting for concurrent sends to reach category resolution",
+                )
+        finally:
+            locked.set()
+            connection.close()
+
+    def _sessions_blocked_by_this_session(self) -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(DISTINCT pid) FROM pg_locks "
+                "WHERE NOT granted AND pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+            )
+            return int(cursor.fetchone()[0])
+
+    def _post_in_thread(self, *, template_key: str, category_key: str) -> Any:
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._raw_token}")
         try:
-            barrier.wait(timeout=30)
             return client.post(
                 f"/api/projects/{self.team.id}/messaging/send/email/",
                 {
@@ -3899,38 +3938,6 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 for index in range(count)
             ]
         )
-
-    @parameterized.expand(
-        [
-            ("restores_at_limit", True),
-            ("creates_at_limit", False),
-        ]
-    )
-    def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
-        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
-        existing = (
-            MessageCategory.objects.create(
-                team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
-            )
-            if archived
-            else None
-        )
-        barrier = threading.Barrier(2)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(self._post_in_thread, barrier, template_key="welcome-a", category_key="newsletter")
-            second = pool.submit(self._post_in_thread, barrier, template_key="welcome-b", category_key="newsletter")
-            responses = [first.result(timeout=30), second.result(timeout=30)]
-
-        assert [response.status_code for response in responses] == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED]
-        category = MessageCategory.objects.get(team=self.team, key="newsletter")
-        if existing is not None:
-            assert category.id == existing.id
-        assert not category.deleted
-        assert (
-            MessageCategory.objects.filter(team=self.team, deleted=False).count() == send_categories.SEND_CATEGORY_LIMIT
-        )
-        assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}] * 2
 
     def test_a_category_restored_in_the_app_at_the_limit_is_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
@@ -3959,22 +3966,36 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert not MessageCategory.objects.get(id=category.id).deleted
         assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
 
-    def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("restoring_archived_categories", True),
+            ("creating_new_categories", False),
+        ]
+    )
+    def test_only_one_of_two_competing_sends_can_claim_the_last_category_slot(
+        self, cdp_post, _flag, _capture, _name, archived
+    ):
+        self.enterContext(FakeCdpApi().serving(cdp_post))
+        self._warm_template_keys("promos-send", "newsletter-send")
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
-        promos, newsletter = (
-            MessageCategory.objects.create(
-                team=self.team, key=key, name=key.title(), category_type="marketing", deleted=True
-            )
-            for key in ("promos", "newsletter")
-        )
-        barrier = threading.Barrier(2)
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(self._post_in_thread, barrier, template_key="promos-send", category_key="promos")
-            second = pool.submit(
-                self._post_in_thread, barrier, template_key="newsletter-send", category_key="newsletter"
-            )
-            responses = [first.result(timeout=30), second.result(timeout=30)]
+        if archived:
+            for key in ("promos", "newsletter"):
+                MessageCategory.objects.create(
+                    team=self.team, key=key, name=key.title(), category_type="marketing", deleted=True
+                )
+        locked = threading.Event()
+        sends_done = threading.Event()
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            blocker = pool.submit(self._release_category_table_once_sends_wait, 2, locked, sends_done)
+            assert locked.wait(timeout=30)
+            try:
+                first = pool.submit(self._post_in_thread, template_key="promos-send", category_key="promos")
+                second = pool.submit(self._post_in_thread, template_key="newsletter-send", category_key="newsletter")
+                responses = [first.result(timeout=30), second.result(timeout=30)]
+            finally:
+                sends_done.set()
+            blocker.result(timeout=30)
 
         accepted = [response for response in responses if response.status_code == status.HTTP_202_ACCEPTED]
         refused = [response for response in responses if response.status_code == status.HTTP_400_BAD_REQUEST]
@@ -3983,9 +4004,15 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert (
             MessageCategory.objects.filter(team=self.team, deleted=False).count() == send_categories.SEND_CATEGORY_LIMIT
         )
-        live = list(MessageCategory.objects.filter(id__in=[promos.id, newsletter.id], deleted=False))
-        archived = list(MessageCategory.objects.filter(id__in=[promos.id, newsletter.id], deleted=True))
-        assert len(live) == 1 and len(archived) == 1
+        live = list(MessageCategory.objects.filter(team=self.team, key__in=["promos", "newsletter"], deleted=False))
+        assert len(live) == 1
+        if archived:
+            assert (
+                MessageCategory.objects.filter(team=self.team, key__in=["promos", "newsletter"], deleted=True).count()
+                == 1
+            )
+        else:
+            assert MessageCategory.objects.filter(team=self.team, key__in=["promos", "newsletter"]).count() == 1
         assert cdp.categories() == [{"id": str(live[0].id), "type": "marketing"}]
 
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
