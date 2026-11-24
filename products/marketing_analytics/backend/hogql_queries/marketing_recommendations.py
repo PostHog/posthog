@@ -1570,10 +1570,14 @@ class _Recommender:
 
     # Advice to spend more waits for the brand negatives: blocking brand searches frees budget and changes the
     # impression share that advice relies on. Once the negative is in place, the leak card counts as applied and
-    # leaves the list, so holding the advice longer would leave nothing on screen.
+    # leaves the list, so holding the advice longer would leave nothing on screen. Without search term conversions
+    # the campaign still counts its brand conversions from before the negative, so the advice waits for those to
+    # leave the date range.
     def _holds_spend_advice(self, campaign: CampaignStats, leak: _BrandSpend | None) -> bool:
         if leak is None:
             return False
+        if not self.inputs.search_term_conversions:
+            return True
         return not self._brand_negated(self._brand_spelled_by(leak.top_term) or leak.top_term, {campaign.id})
 
     def _term_cost(self, campaign_id: str) -> float:
