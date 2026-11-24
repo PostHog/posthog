@@ -1873,8 +1873,9 @@ _REPORT_EVENT_SOURCE = "signals_scout_report"
 # no side effects, so its attempt is still recorded on the internal stream but is NOT fanned out as a
 # customer-facing, automation-driving event. A member's capped create (`user_daily_report_limit`) is
 # refused the same way, since nothing was filed, and so is a filing for an issue an open report already
-# names (`source_issue_already_reported`), whose `report_id` is that other report. Other gate-skips that represent a real, customer-controlled
-# condition (e.g. `ai_processing_not_approved`) still forward the raw event.
+# names (`source_issue_already_reported`), whose `report_id` is that other report. Other gate-skips that
+# represent a real, customer-controlled condition (e.g. `ai_processing_not_approved`) still forward the
+# raw event.
 _INACTIVE_SKIP_REASONS = frozenset(
     {
         "scout_emit_disabled",
