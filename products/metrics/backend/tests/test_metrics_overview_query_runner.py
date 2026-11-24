@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -101,6 +102,29 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(s.service_name, dt.datetime.fromisoformat(s.last_seen)) for s in overview.services], [("api", newest)]
         )
+
+    def test_last_seen_is_capped_at_now_for_future_samples(self):
+        now = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(now - dt.timedelta(minutes=5), 1.0)],
+            service_name="api",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.duration",
+            points=[(now + dt.timedelta(hours=15), 2.0)],
+            service_name="api",
+            has_labels=False,
+        )
+
+        with time_machine.travel(now, tick=False):
+            overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        assert overview.last_seen is not None
+        self.assertEqual(dt.datetime.fromisoformat(overview.last_seen), now)
+        self.assertEqual([dt.datetime.fromisoformat(s.last_seen) for s in overview.services], [now])
 
     @parameterized.expand(
         [

@@ -393,6 +393,66 @@ TOOL_FAILURE_RATE_METRIC = CatalogMetric(
     unit="percent",
 )
 
+# The noise catalog leaves out signups, so this is the only metric that fits a signups alert.
+NEW_SIGNUPS_METRIC = CatalogMetric(
+    name="new_signups_daily",
+    display_name="New signups",
+    description="Daily count of new Hedgebox signups (signed_up events) over the trailing 30 days.",
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT toStartOfDay(timestamp) AS day, count() AS signups\n"
+            "FROM events\n"
+            "WHERE event = 'signed_up'\n"
+            "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+            "GROUP BY day\n"
+            "ORDER BY day"
+        ),
+    },
+)
+
+# The noise catalog counts page views in total, so only this metric ranks the pages.
+PAGEVIEWS_BY_PAGE_METRIC = CatalogMetric(
+    name="pageviews_by_page_7d",
+    display_name="Pageviews by page",
+    description="Pageviews and unique visitors per page path over the trailing 7 days, most viewed page first.",
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT properties.$pathname AS page, count() AS pageviews, count(DISTINCT person_id) AS visitors\n"
+            "FROM events\n"
+            "WHERE event = '$pageview'\n"
+            "  AND timestamp >= now() - INTERVAL 7 DAY\n"
+            "GROUP BY page\n"
+            "ORDER BY pageviews DESC\n"
+            "LIMIT 20"
+        ),
+    },
+)
+
+# paid_bill events are dated up to 30 days ahead, so the query stops at now() or no paying account could churn.
+CHURNED_ACCOUNTS_METRIC = CatalogMetric(
+    name="churned_accounts",
+    display_name="Churned accounts",
+    description=(
+        "Accounts that were active in the 60 days before the last 30 days and had no activity in the last 30 days. "
+        "The account is the account group ($group_0)."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT count() AS churned_accounts\n"
+            "FROM (\n"
+            "    SELECT $group_0 AS account, max(timestamp) AS last_seen\n"
+            "    FROM events\n"
+            "    WHERE $group_0 != '' AND timestamp >= now() - INTERVAL 90 DAY AND timestamp < now()\n"
+            "    GROUP BY account\n"
+            "    HAVING last_seen < now() - INTERVAL 30 DAY\n"
+            ")"
+        ),
+    },
+)
+
 # Both churn branches read Hedgebox events, so the markdown cases need no warehouse table.
 CHURN_RISK_DOWNGRADE_BRANCH = "downgraded_plan"
 CHURN_RISK_DELETION_BRANCH = "deleted_file"

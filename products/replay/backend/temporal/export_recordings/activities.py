@@ -7,13 +7,14 @@ import functools
 import contextlib
 import collections
 import dataclasses
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 
 import structlog
+from botocore.exceptions import ClientError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -27,6 +28,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.aws import AWS_ROLE_ARN_RE, validate_aws_role_arn
+from posthog.models.integration.common import IntegrationError
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
@@ -38,12 +41,11 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ExternalRoleArnNotConfiguredError,
     InvalidCredentialsError,
     PolicyStatement,
-    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
-    get_s3_integration,
     s3_client,
 )
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -81,7 +83,10 @@ BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<sta
 # Our cost and storage paths stay out of the customer's bucket.
 CUSTOMER_QUOTE_FIELDS = ("quote_id", "team_id", "date_from", "date_to", "selection", "created_at", "usage")
 
-NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, ExternalRoleArnNotConfiguredError)
+# S3 returns these with a 4xx status, but a later attempt can succeed.
+TRANSIENT_S3_ERROR_CODES = frozenset({"RequestTimeout", "SlowDown", "Throttling", "ThrottlingException"})
+
+NON_RETRYABLE_ERRORS = (InvalidCredentialsError, ExternalRoleArnNotConfiguredError)
 
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
 SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
@@ -320,34 +325,37 @@ class RoleCredentials:
 
 async def resolve_s3_credentials(team_id: int, destination: ExportDestination, run_id: str) -> RoleCredentials:
     """Assume the customer's role, scoped to this run's folder in their bucket."""
-    integration = await get_s3_integration(destination.integration_id, team_id)
-    aws_role_arn: str | None = getattr(integration, "aws_role_arn", None)
-    if not aws_role_arn:
-        raise ApplicationError("Recording exports need an AWS S3 integration with a role ARN", non_retryable=True)
     team = await Team.objects.aget(id=team_id)
     refresh_using = functools.partial(
         get_credentials_using_user_aws_role,
-        aws_role_arn,
-        f"posthog-{team.organization_id}",
+        destination.role_arn,
+        external_id(team.organization_id),
         session_name=f"PostHog-replay-export-{team_id}",
-        policy_statements=policy_statements(destination, team_id, run_id, aws_role_arn),
+        policy_statements=policy_statements(destination, team_id, run_id),
         # Recording exports have their own external-access role, separate from batch exports.
         external_role_arn=settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
     )
     return RoleCredentials(
-        credentials=await refresh_using(), refresh_using=refresh_using, owner_account_id=role_account_id(aws_role_arn)
+        credentials=await refresh_using(),
+        refresh_using=refresh_using,
+        owner_account_id=role_account_id(destination.role_arn),
     )
 
 
+def external_id(organization_id: object) -> str:
+    return f"posthog-{organization_id}"
+
+
 def role_account_id(aws_role_arn: str) -> str:
-    parts = aws_role_arn.split(":")
-    if len(parts) < 6 or not parts[4]:
-        raise ApplicationError(f"Malformed role ARN {aws_role_arn!r}", non_retryable=True)
-    return parts[4]
+    # destination_error has already matched the ARN against AWS_ROLE_ARN_RE.
+    return aws_role_arn.split(":")[4]
 
 
 def destination_error(destination: ExportDestination) -> str | None:
     """Return why the destination is not allowed, or None."""
+    # The session policy and KMS key ARNs are built for the aws partition only.
+    if not AWS_ROLE_ARN_RE.match(destination.role_arn) or not destination.role_arn.startswith("arn:aws:"):
+        return f"{destination.role_arn!r} is not a valid IAM role ARN in the aws partition"
     if not BUCKET_NAME_PATTERN.match(destination.bucket):
         return f"{destination.bucket!r} is not a valid S3 bucket name"
     if any(character in destination.prefix for character in "*?"):
@@ -357,9 +365,7 @@ def destination_error(destination: ExportDestination) -> str | None:
     return None
 
 
-def policy_statements(
-    destination: ExportDestination, team_id: int, run_id: str, aws_role_arn: str
-) -> list[PolicyStatement]:
+def policy_statements(destination: ExportDestination, team_id: int, run_id: str) -> list[PolicyStatement]:
     if error := destination_error(destination):
         raise ApplicationError(error, non_retryable=True)
     statements = [
@@ -376,7 +382,7 @@ def policy_statements(
             PolicyStatement(
                 Effect="Allow",
                 Action=["kms:GenerateDataKey", "kms:Decrypt"],
-                Resource=kms_key_arn(destination.kms_key_id, destination.region, aws_role_arn),
+                Resource=kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn),
             )
         )
     return statements
@@ -619,6 +625,60 @@ async def export_session(
 def count(lines: list[ManifestLine]) -> ExportTotals:
     statuses: collections.Counter[str] = collections.Counter(manifest_line.status for manifest_line in lines)
     return ExportTotals(**statuses, bytes=sum(manifest_line.bytes for manifest_line in lines))
+
+
+@activity.defn
+async def check_destination(input: CheckDestinationInput) -> None:
+    """Fails the run before any shard starts when the customer's role is unsafe or cannot write to the bucket."""
+    if not settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise ApplicationError("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN is not set on this worker", non_retryable=True)
+    team = await Team.objects.aget(id=input.team_id)
+    try:
+        # Refuses a role that another organization could make us assume, because it lacks the external ID condition.
+        await asyncio.to_thread(
+            validate_aws_role_arn,
+            input.destination.role_arn,
+            settings.RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN,
+            external_id(team.organization_id),
+        )
+    except IntegrationError as e:
+        # Retryable, because the same error covers STS outages and a trust policy that IAM has not propagated yet.
+        raise ApplicationError(str(e)) from e
+    # A test upload that is aborted leaves no object, and each step needs a different permission.
+    destination = input.destination
+    key = f"{run_prefix(destination, input.team_id)}/{input.run_id}/preflight"
+    create_needs = part_needs = f"s3:PutObject on s3://{destination.bucket}/{key}"
+    if destination.kms_key_id:
+        key_arn = kms_key_arn(destination.kms_key_id, destination.region, destination.role_arn)
+        create_needs = f"{create_needs} and kms:GenerateDataKey on {key_arn}"
+        part_needs = f"kms:Decrypt on {key_arn}"
+    async with customer_bucket(input.team_id, destination, input.run_id) as bucket:
+        upload_id = await _probe(bucket.create_multipart_upload(key), create_needs)
+        try:
+            await _probe(bucket.upload_part(key, upload_id, 1, bytearray(b"preflight")), part_needs)
+        except BaseException:
+            # The part's error names the permission at fault, so a failed abort must not replace it.
+            with contextlib.suppress(Exception):
+                await bucket.abort_multipart_upload(key, upload_id)
+            raise
+        await _probe(
+            bucket.abort_multipart_upload(key, upload_id), f"s3:AbortMultipartUpload on s3://{destination.bucket}/{key}"
+        )
+
+
+async def _probe[T](call: Awaitable[T], permission: str) -> T:
+    try:
+        return await call
+    except ClientError as e:
+        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 500)
+        code = e.response.get("Error", {}).get("Code")
+        if status >= 500 or status == 429 or code in TRANSIENT_S3_ERROR_CODES:
+            raise
+        if code == "AccessDenied":
+            message = f"The role needs {permission}, in the AWS account that owns the bucket. AWS said: {e}"
+        else:
+            message = f"The bucket refused a test upload: {e}"
+        raise ApplicationError(message, non_retryable=True) from e
 
 
 @activity.defn

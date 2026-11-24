@@ -56,6 +56,28 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
         name="sequence_folders", path="/sequence-folders", scope="sequences:read", paginated=False
     ),
     "inbox_threads": ReplyIoEndpointConfig(name="inbox_threads", path="/inbox/threads", scope="inbox:read"),
+    "inbox_categories": ReplyIoEndpointConfig(
+        name="inbox_categories", path="/inbox/threads/categories", scope="inbox:read", paginated=False
+    ),
+    # Message rows carry no thread ID, and LinkedIn messages have a null `messageId`. One side of a
+    # thread does not send two messages at the same instant, so the thread, time and direction
+    # identify a message.
+    "inbox_messages": ReplyIoEndpointConfig(
+        name="inbox_messages",
+        path="/inbox/threads/{id}/messages",
+        scope="inbox:read",
+        fanout=DependentEndpointConfig(
+            parent_name="inbox_threads",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "threadId"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        primary_keys=["threadId", "date", "isOutbound"],
+        # The messages endpoint caps `top` at 100.
+        page_size=100,
+    ),
     # One row per user per team, so a user in several teams appears once for each.
     "team_users": ReplyIoEndpointConfig(
         name="team_users",
@@ -87,6 +109,25 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
         # Same all-time window as email_activity: without one the report returns only the last seven days.
         json={"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}},
         primary_keys=["userId", "bookedAt", "contactFullName", "source"],
+    ),
+    # One row per call, with the same all-time window as email_activity.
+    "call_activity": ReplyIoEndpointConfig(
+        name="call_activity",
+        path="/reporting/calls",
+        scope="reporting:read",
+        method="POST",
+        json={"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}},
+    ),
+    # One row per LinkedIn action. The report has no row ID, and `contactId` is null for actions that
+    # match no contact; one sender account does not take the same action on the same profile twice
+    # at the same instant.
+    "linkedin_activity": ReplyIoEndpointConfig(
+        name="linkedin_activity",
+        path="/reporting/linkedin",
+        scope="reporting:read",
+        method="POST",
+        json={"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}},
+        primary_keys=["senderLinkedInAccountName", "contactLinkedInUrl", "actionDate", "actionType"],
     ),
     "sequence_contacts": ReplyIoEndpointConfig(
         name="sequence_contacts",

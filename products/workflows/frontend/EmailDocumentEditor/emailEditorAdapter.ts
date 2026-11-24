@@ -1,4 +1,5 @@
 import type { Editor, EditorEvents } from '@tiptap/core'
+import posthog from 'posthog-js'
 
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
@@ -8,6 +9,7 @@ import {
     isEmailDocEmpty,
 } from './emailDocument'
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
+import { htmlToEmailText } from './htmlToEmailText'
 import { renderEmailHtml, renderEmailText, safeEmailDoc } from './renderEmailHtml'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
@@ -58,6 +60,7 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             .setContent(safeEmailDoc(doc), { emitUpdate: false })
             .command(({ tr }) => {
                 tr.setDocAttribute('page', doc.attrs?.page ?? {})
+                tr.setDocAttribute('ownPlainText', doc.attrs?.ownPlainText === true)
                 return true
             })
             .run()
@@ -74,14 +77,22 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             callback({ html, design: designForDocument(doc, html) })
         },
         exportPlainText: (callback: (data: { text: string }) => void) => {
-            callback({ text: renderEmailText(editor.getJSON()) })
+            const doc = editor.getJSON()
+            try {
+                callback({ text: renderEmailText(doc) })
+            } catch (error) {
+                // The text part only stands in for the html in mail apps that can't show it, so it never stops an edit
+                // from saving.
+                posthog.captureException(error)
+                callback({ text: htmlToEmailText(renderEmailHtml(doc)) })
+            }
         },
-        loadDesign: (design: Record<string, any>, html?: string) => {
+        loadDesign: (design: Record<string, any>, html?: string, text?: string) => {
             const wrappedHtml = design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
             const savedHtml = design?.[EMAIL_DOCUMENT_DESIGN_KEY]?.html ?? wrappedHtml
             const { document } = emailDocumentFromValue({ design, html: html ?? savedHtml })
             // An old-editor template applied to an open email has to show here too.
-            const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml).document?.doc
+            const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml, text).document?.doc
             if (doc) {
                 loadDoc(doc)
                 emit('design:loaded')

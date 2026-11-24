@@ -20,6 +20,7 @@ from products.batch_exports.backend.facade.destinations.databricks import (
     DatabricksWarehouseStoppedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -79,6 +80,20 @@ def _ctx(table_name: str, run_uuid: str, schema_id: str = "schema") -> Destinati
 
 def _read(client: FakeDatabricksClient, table: str) -> list[tuple]:
     return sorted((row["id"], row["name"]) for row in client.tables[table.lower()].rows)
+
+
+@pytest.mark.parametrize("sync_type", ["full_refresh", "incremental"])
+async def test_bytes_written_sums_every_file_put_to_the_volume(sync_type: str) -> None:
+    client = FakeDatabricksClient()
+    ctx = replace(_ctx("charges", "run-a1"), sync_type=sync_type)
+
+    outcome = await LocalDatabricksWriter(ctx, client).write_batch(
+        _batches(_rows([1], ["a"]), _rows([2], ["b"])),
+        DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False),
+    )
+
+    assert len(client.uploaded_bytes) == 2
+    assert outcome == BatchWriteOutcome(rows_written=2, bytes_written=sum(client.uploaded_bytes))
 
 
 class TestConfigurationErrors:

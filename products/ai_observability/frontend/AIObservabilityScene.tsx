@@ -56,6 +56,7 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { HomeHost } from './redesign/home/HomeHost'
 import { ShellHost } from './redesign/shell/ShellHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
@@ -569,7 +570,17 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
         return <NotFound object="page" />
     }
-    return <ShellHost>{activeTab === 'traces' ? <TracesListHost /> : <TabBody tab={activeTab} />}</ShellHost>
+    return (
+        <ShellHost>
+            {activeTab === 'traces' ? (
+                <TracesListHost />
+            ) : activeTab === 'dashboard' ? (
+                <HomeHost />
+            ) : (
+                <TabBody tab={activeTab} />
+            )}
+        </ShellHost>
+    )
 }
 
 function AIObservabilityTabbedContent(): JSX.Element {

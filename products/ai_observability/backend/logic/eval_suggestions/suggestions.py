@@ -33,6 +33,7 @@ from .eligibility import (
     queue_first_visit_run,
     record_visit,
     release_first_visit_run,
+    suggestions_turned_off,
 )
 
 logger = structlog.get_logger(__name__)
@@ -102,7 +103,7 @@ def latest_suggestions(
 
     A running run counts as pending for `pending_window`, the longest its workflow can take.
     """
-    if not is_enabled_for_organization(str(team.organization_id)):
+    if not is_enabled_for_organization(str(team.organization_id)) or suggestions_turned_off(team):
         return LatestSuggestions(run=None, pending=False, suggestions=[])
     record_visit(team)
     runs = EvalSuggestionRun.objects.for_team(team.pk)

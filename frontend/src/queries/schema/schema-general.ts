@@ -3633,7 +3633,12 @@ export interface BookActivityMatrixCell {
     row: string
     column: string
     series: string
+    /** People active in this product through any channel. Each person counts once. */
     users: integer
+    /** People active in this product in the app. */
+    uiUsers?: integer
+    /** People active in this product through AI agents, such as MCP tool calls. */
+    agentUsers?: integer
 }
 
 export interface BookActivityMatrixCombination {
@@ -3703,6 +3708,8 @@ export interface BookActivityPerson {
     rank: integer
     engagedSeconds: integer
     actionCount: integer
+    /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+    agentCalls?: integer
     /** Every action event that qualified this person, most frequent first. */
     actions: BookActivityPersonAction[]
     /** The top 5 pages by engaged time. */
@@ -4919,11 +4926,19 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+/** @deprecated Use `ErrorTrackingIssueTagsFilter`. */
 export interface ErrorTrackingIssueTagFilter {
     /** Key of the tag definition. */
     key: string
     /** True matches the issues the tag is applied to. False matches every other issue. */
     applied: boolean
+}
+
+export interface ErrorTrackingIssueTagsFilter {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[]
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[]
 }
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
@@ -4940,8 +4955,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    /** @deprecated Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`. */
     issueTag?: ErrorTrackingIssueTagFilter | null
+    /**
+     * Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for
+     * the project.
+     */
+    issueTags?: ErrorTrackingIssueTagsFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -9202,6 +9222,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
+    /** Google Ads keyword table, used to tell which searches are already keywords. */
+    keywordTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
@@ -9282,6 +9304,13 @@ export interface MarketingAnalyticsRecommendationIdentity {
 
 export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
 
+/**
+ * `negative_keyword`: the search is now excluded by a negative keyword.
+ * `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords.
+ * `keyword_added`: the search is now a keyword in an active Search campaign.
+ */
+export type MarketingAnalyticsRecommendationDetectedChange = 'negative_keyword' | 'brand_negative' | 'keyword_added'
+
 export interface MarketingAnalyticsRecommendationResolution {
     /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
     id: string
@@ -9341,6 +9370,8 @@ export interface MarketingAnalyticsRecommendation {
     key: string
     /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
     resolution?: MarketingAnalyticsRecommendationResolution | null
+    /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+    detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */

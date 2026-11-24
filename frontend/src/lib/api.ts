@@ -7000,7 +7000,7 @@ const api = {
                   onError: (error: any) => void
                   /** Fires every time the underlying fetch returns a healthy response — i.e.
                    *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   /** Fires when the server cleanly closes the response body (not on errors,
                    *  not on abort). Use this to react to server-initiated stream rotation. */
                   onClose?: () => void
@@ -7013,7 +7013,7 @@ const api = {
                   data: any
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
@@ -7065,7 +7065,7 @@ const api = {
                     onError(error)
                     abortController.abort()
                 } else {
-                    onOpen?.()
+                    onOpen?.(response)
                     if (isLivestreamUrl) {
                         posthog.capture('livestream_sse_opened', {
                             url,

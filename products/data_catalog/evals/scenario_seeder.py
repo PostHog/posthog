@@ -34,6 +34,7 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 from products.annotations.backend.facade.api import create_project_annotation
 from products.data_catalog.backend.facade.api import approve_metric, upsert_metric
+from products.data_catalog.evals.catalog_seeders import seed_catalog_noise_only, seed_catalog_with_new_signups
 from products.data_catalog.evals.catalog_synthesizer import TOOL_FAILURE_RATE_METRIC
 from products.data_catalog.evals.scenario_synthesizer import (
     CAMPAIGN_ANNOTATION_CONTENT,
@@ -576,6 +577,19 @@ def seed_mcp_tool_failures(context: CustomPromptSandboxContext) -> dict[str, Any
             "events": events,
         }
     }
+
+
+# The alert cases put the scenario inside the noise catalog, so the agent must pick the fitting metric out of it.
+def seed_tool_failures_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return {**seed_catalog_noise_only(context), **seed_mcp_tool_failures(context)}
+
+
+def seed_signup_spike_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return {**seed_catalog_with_new_signups(context), **seed_wau_spike_with_annotation(context)}
+
+
+def seed_upload_double_count_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return {**seed_catalog_noise_only(context), **seed_upload_double_count(context)}
 
 
 def seed_slack_pretax_note(context: CustomPromptSandboxContext) -> dict[str, Any]:

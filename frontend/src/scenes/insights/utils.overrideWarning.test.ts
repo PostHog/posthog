@@ -22,6 +22,7 @@ describe('getOverrideWarningPropsForButton()', () => {
             dateFilter,
             null,
             undefined,
+            null,
         ],
         [
             'SQL with a filters placeholder uses dashboard filters',
@@ -29,6 +30,7 @@ describe('getOverrideWarningPropsForButton()', () => {
             dateFilter,
             null,
             'filters',
+            null,
         ],
         [
             'SQL uses a dashboard variable it declares',
@@ -36,6 +38,7 @@ describe('getOverrideWarningPropsForButton()', () => {
             null,
             endpointOverride,
             'variables',
+            null,
         ],
         [
             'SQL ignores a dashboard variable it does not declare',
@@ -43,11 +46,21 @@ describe('getOverrideWarningPropsForButton()', () => {
             null,
             endpointOverride,
             undefined,
+            null,
         ],
-        ['a regular insight uses dashboard filters', trendsInsight, dateFilter, null, 'filters'],
-    ])('%s', (_name, query, filtersOverride, variablesOverride, expectedOverrideType) => {
-        expect(getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride).tooltip).toEqual(
-            expectedOverrideType ? expect.stringContaining(`dashboard ${expectedOverrideType}`) : undefined
-        )
+        ['a regular insight uses dashboard filters', trendsInsight, dateFilter, null, 'filters', null],
+        ['a tile uses its own filters', trendsInsight, null, null, 'filters', dateFilter],
+        [
+            'a tile that ignores dashboard filters and has none of its own',
+            trendsInsight,
+            dateFilter,
+            null,
+            undefined,
+            { ignoreDashboardFilters: true, explicitDate: true },
+        ],
+    ])('%s', (_name, query, filtersOverride, variablesOverride, expectedOverrideType, tileFiltersOverride) => {
+        expect(
+            getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride, tileFiltersOverride).tooltip
+        ).toEqual(expectedOverrideType ? expect.stringContaining(`dashboard ${expectedOverrideType}`) : undefined)
     })
 })

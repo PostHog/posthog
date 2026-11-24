@@ -1429,6 +1429,15 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 "native",
             ),
             (
+                "an agent turned on after the move, which only the copy holds, waits for the agent's verdict",
+                _AGENT_ON,
+                PlatformAlertOwner.PLATFORM,
+                None,
+                0,
+                "all_firing_alerts",
+                "edited_on_the_copy",
+            ),
+            (
                 "a breakdown check with several firing values, which the agent never takes, signals each one",
                 _AGENT_ON,
                 PlatformAlertOwner.PLATFORM,
@@ -1506,6 +1515,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             configuration = self._copy(alert, owner=owner, grouping=grouping.to_stored())
         else:
             configuration = self._copy(alert, owner=owner)
+        if shape == "edited_on_the_copy":
+            # Edits of a moved alert reach only its copy, so its row still has the agent off.
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                owner=owner, investigation_agent_enabled=False, detector_config=None
+            )
         with team_scope(self.team.id):
             if before == "firing":
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))

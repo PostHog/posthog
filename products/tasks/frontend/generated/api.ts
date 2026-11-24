@@ -2031,6 +2031,26 @@ export const tasksRunsConnectionTokenRetrieve = async (
     })
 }
 
+export const getTasksRunsHeartbeatCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/heartbeat/`
+}
+
+/**
+ * Tell the server that a local run is still alive. The client that drives a local run calls this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses them, along with failed and cancelled runs and runs of a finished task.
+ * @summary Record a local run heartbeat
+ */
+export const tasksRunsHeartbeatCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsHeartbeatCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
 }

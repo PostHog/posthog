@@ -46,6 +46,7 @@ NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
 NO_SETUP_CHECK_DESCRIPTION = "No setup check given"
 NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
 RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
+CLAMPED_CHANGES_DESCRIPTION = "Merge master, then re-run Visual Review: this branch is older than the baseline history"
 # The state of a recheck verdict that posts nothing on the head.
 NO_STATUS_STATE = "skipped"
 
@@ -131,6 +132,9 @@ class RunFacts:
     stale_approvals: int = 0
     # Set for a run the baseline file classified, which passes only when the ledger agrees.
     ledger_recheck: ledger_recheck.LedgerRecheck | None = None
+    # The ledger resolved the run at its first commit, because the merge base is older. The run
+    # then also lists the default branch's changes since the merge base, and only a merge fixes that.
+    clamped: bool = False
 
 
 @frozen
@@ -151,6 +155,8 @@ def _review_verdict(facts: RunFacts) -> StatusVerdict:
     if facts.approved:
         return StatusVerdict(state="success", description="Visual changes approved")
     if facts.unresolved > 0:
+        if facts.clamped:
+            return StatusVerdict(state="failure", description=CLAMPED_CHANGES_DESCRIPTION)
         return StatusVerdict(state="failure", description=f"Visual changes detected: {facts.changes_summary}")
     if facts.awaiting_finalize > 0:
         return StatusVerdict(
@@ -244,6 +250,8 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
             stale = len(baseline_approvals.stale_approvals(run))
         if passes_review and stale == 0:
             recheck = ledger_recheck.recheck_run(run)
+    record = baseline_record.record_for_run(run)
+    clamped = record is not None and record.mode == BaselineMode.LEDGER and record.clamped_to_seed
     return RunFacts(
         status=RunStatus(run.status),
         error_message=run.error_message,
@@ -257,6 +265,7 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
         hidden_by_quarantine=hidden,
         stale_approvals=stale,
         ledger_recheck=recheck,
+        clamped=clamped,
     )
 
 
