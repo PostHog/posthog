@@ -247,15 +247,16 @@ def test_metrics_recorded_on_activity_meter_after_a_request_outside_any_activity
     env.run(record_request, request, response, started_at_monotonic=time.monotonic())
 
     updates = {update.metric.name: update for update in buffer.retrieve_updates()}
-    labels = {"source_type": "stripe", "host": "api.stripe.com", "status_class": "2xx"}
+    labels = {"source_type": "stripe", "status_class": "2xx"}
     requests = updates["data_import_http_requests_total"]
     assert requests.value == 1
-    assert dict(requests.attributes).items() >= {**labels, "team_id": "99"}.items()
+    assert dict(requests.attributes).items() >= {**labels, "team_id": "99", "host": "api.stripe.com"}.items()
     assert updates["data_import_http_response_bytes"].value == 100
     for histogram in ("data_import_http_latency_ms", "data_import_http_response_bytes"):
         attributes = dict(updates[histogram].attributes)
         assert attributes.items() >= labels.items()
         assert "team_id" not in attributes
+        assert "host" not in attributes
 
 
 def test_metrics_no_response_bytes_histogram_when_zero(job_ctx):

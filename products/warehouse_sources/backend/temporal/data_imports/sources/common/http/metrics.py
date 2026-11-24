@@ -1,9 +1,10 @@
 """OpenTelemetry instruments for the tracked HTTP transport.
 
 Schema id, job id, and the full URL deliberately do not appear as metric
-labels. They live in logs only. Only the request counter carries `team_id`:
-on the histograms it would multiply every team by every bucket, and the
-per-team breakdown of latency and size is in the logs.
+labels. They live in logs only. Only the request counter carries `team_id`
+and `host`. Many sources have a host per customer, so on the histograms either
+label would multiply every customer by every bucket. The per-team and per-host
+breakdown of latency and size is in the logs.
 
 Source HTTP calls run inside activities, so the instruments come from the
 activity meter. Outside an activity (unit tests, a shell) they record nothing.
