@@ -89,15 +89,15 @@ sequenceDiagram
     participant DB as Postgres
     participant Recv as post_save receivers
     participant Redis
-    participant Task as Celery task (5 min later)
+    participant Task as Celery task (5 or 7 min later)
     API->>Save: validated filters, cohort_type
     Save->>Save: compute hashes,<br/>decide invalidated kinds
     Save->>DB: UPDATE filters, hashes,<br/>clear invalidated stamps
     Save->>Recv: post_save
     Recv->>DB: on commit: supersede active runs<br/>of invalidated kinds
     opt team trigger-allowlisted, cohort created or kind invalidated
-        Recv->>Redis: on commit: SET pending key NX EX 300
-        Recv->>Task: apply_async(countdown=300)
+        Recv->>Redis: on commit: SET pending key NX EX 300 or 420
+        Recv->>Task: apply_async(countdown=300 or 420)
     end
     Task->>DB: lock cohort, re-check, pin definition,<br/>insert run + participation
 ```
@@ -112,10 +112,14 @@ sequenceDiagram
    Active cohort-scoped runs of an invalidated kind move to `superseded`.
    In a team-scoped run, only this cohort's participation is superseded, and the team run carries on for the other cohorts.
 3. **Debounce, on commit.**
-   For a team in both the realtime and the trigger allowlists, when the save created the cohort or invalidated a kind, and the cohort has leaves of that kind to backfill, Django sets a Redis key per cohort and kind with `SET NX` and a 5-minute expiry, and schedules a Celery task 5 minutes out.
+   For a team in both the realtime and the trigger allowlists, when the save created the cohort or invalidated a kind, and the cohort has leaves of that kind to backfill, Django sets a Redis key per cohort and kind with `SET NX`, and schedules a Celery task that fires as the key expires.
+   The wait is 5 minutes for a behavioral run and 7 minutes for a person property run.
+   The person property wait is longer than the processor's catalog refresh interval plus its jitter, so each processor pod has loaded the definition from the save that scheduled the task before the run's first person seed reaches it, unless a refresh fails.
+   A behavioral run needs no such wait, because the processor holds its tiles behind the [apply fence](backfill-overview.md#rule-3-the-arrival-bound-and-the-apply-fence) for longer than a catalog refresh.
    If the key already exists, a task is already pending, and this save adds nothing.
-   Saves within five minutes of the first one produce one run, pinned to the definition current when the task fires.
-4. **Create, 5 minutes later.**
+   Saves within that wait of the first one produce one run, pinned to the definition current when the task fires.
+   A later save inside the window does not delay the task, so a person property run can pin that save's definition before every pod has loaded it.
+4. **Create, 5 or 7 minutes later.**
    The task re-checks the trigger allowlist and the [attestations](#gates), then calls the run creator.
    The creator locks the cohort row, re-checks eligibility and exclusivity, pins the current definition, and inserts the run in `awaiting_boundary` with its participation.
    A person creator first estimates the run's size against ClickHouse without holding the lock, and under the lock refuses if the person conditions changed in the meantime.
