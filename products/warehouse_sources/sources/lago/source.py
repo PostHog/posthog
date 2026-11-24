@@ -7,7 +7,7 @@ from products.warehouse_sources.sources.lago.lago import (
     lago_source,
     validate_credentials as validate_lago_credentials,
 )
-from products.warehouse_sources.sources.lago.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.lago.settings import ENDPOINTS, INCREMENTAL_FIELDS, INCREMENTAL_LOOKBACK_SECONDS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -72,7 +72,14 @@ class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # `from_date` is inclusive and the lookback re-reads an overlap, so only a merge dedupes it.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_LOOKBACK_SECONDS.keys(),
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self, config: LagoSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
@@ -95,7 +102,8 @@ class LagoSource(ResumableSource[LagoSourceConfig, LagoResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Lago endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
