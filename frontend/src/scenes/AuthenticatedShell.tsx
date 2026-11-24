@@ -12,6 +12,7 @@ import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -43,6 +44,9 @@ function preloadCommand(): void {
 }
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
+    // Mark during render because a layout effect here runs after the scene's own effects. The gap from this
+    // mark to `empty_state_gate_mounted` or `scene_rendered` then excludes the wait for this lazy chunk.
+    markBootPhase('authenticated_shell_rendered')
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)

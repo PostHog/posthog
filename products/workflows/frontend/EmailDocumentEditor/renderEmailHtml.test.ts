@@ -248,6 +248,24 @@ describe('renderEmailHtml', () => {
         }
     )
 
+    const setsValue = '{% assign u = secret %}Go'
+    it.each<[string, JSONContent]>([
+        ['a button', { type: 'emailButton', attrs: { href: '{{ u }}' }, content: [{ type: 'text', text: setsValue }] }],
+        [
+            'an image',
+            { type: 'emailImage', attrs: { src: 'https://example.com/a.png', href: '{{ u }}', alt: setsValue } },
+        ],
+        [
+            'a link',
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: setsValue, marks: [{ type: 'link', attrs: { href: '{{ u }}' } }] }],
+            },
+        ],
+    ])('reads the address of %s before its label sets a value', (_name, block) => {
+        expect(renderEmailText(doc(block))).toEqual(`{{ u }} ${setsValue}`)
+    })
+
     it('writes plain text with links, buttons and separate lines from an HTML block', () => {
         const text = renderEmailText(
             doc(
@@ -310,6 +328,44 @@ describe('renderEmailHtml', () => {
                 })
             )
         ).toEqual('{% if vip %}Private\n{% else %}Public\n{% endif %}')
+    })
+
+    it.each([
+        {
+            name: 'a text link once, after all of its text',
+            block: {
+                type: 'paragraph',
+                content: ['Read ', 'all'].map((text, index) => ({
+                    type: 'text',
+                    text,
+                    marks: [
+                        { type: 'link', attrs: { href: '{{ unsubscribe_url }}' } },
+                        ...(index ? [{ type: 'bold' }] : []),
+                    ],
+                })),
+            },
+            expected: 'Read all ({{ unsubscribe_url }})',
+        },
+        {
+            name: 'an image link in a column',
+            block: {
+                type: 'emailColumns',
+                content: [
+                    {
+                        type: 'emailColumn',
+                        content: [
+                            {
+                                type: 'emailImage',
+                                attrs: { src: 'https://example.com/a.png', alt: 'Shop', href: 'https://example.com' },
+                            },
+                        ],
+                    },
+                ],
+            },
+            expected: 'Shop (https://example.com)',
+        },
+    ])('writes the address of $name', ({ block, expected }) => {
+        expect(renderEmailText(doc(block))).toEqual(expected)
     })
 
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {

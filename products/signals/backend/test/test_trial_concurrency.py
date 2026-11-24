@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date
@@ -119,10 +119,11 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             user_id: int,
             limits: TrialLimits = STANDARD_TRIAL_LIMITS,
             api_scopes: list[str] | None = None,
+            on_create: Callable[[SignalTrialGrant], None] | None = None,
         ) -> SignalTrialGrant:
             with ThreadPoolExecutor(max_workers=1) as pool:
                 assert not pool.submit(can_lock_skill).result(timeout=10)
-            return original(policy, user_id=user_id, limits=limits, api_scopes=api_scopes)
+            return original(policy, user_id=user_id, limits=limits, api_scopes=api_scopes, on_create=on_create)
 
         def billing() -> TrialBillingStatus:
             assert not connection.in_atomic_block

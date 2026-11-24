@@ -14,6 +14,7 @@ import {
 } from './emailDocument'
 import { buildEmailExtensions } from './emailExtensions'
 import { parseLiquidOutput } from './emailVariables'
+import { isTextOfHtml } from './htmlToEmailText'
 import { renderEmailHtml } from './renderEmailHtml'
 
 const UNSUPPORTED_CONTENT: Record<string, string> = {
@@ -1317,13 +1318,16 @@ function hasOldRowMarkup(node: JSONContent): boolean {
 const HTML_WRAP_BODY_ID = 'html-wrap-body'
 
 /** The whole email as one HTML block, sent exactly as the old editor exported it. */
-function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentConversion {
+function wholeEmailAsHtml(storedHtml: string, reasons: string[], ownPlainText = false): EmailDocumentConversion {
     return {
         document: {
             version: EMAIL_DOCUMENT_VERSION,
             doc: {
                 type: 'doc',
-                attrs: { page: { oldEditorStyles: true, htmlAsWritten: true } },
+                attrs: {
+                    page: { oldEditorStyles: true, htmlAsWritten: true },
+                    ...(ownPlainText ? { ownPlainText } : {}),
+                },
                 content: [{ type: 'emailHtml', attrs: { html: storedHtml.trim(), emailStyle: null } }],
             },
         },
@@ -1336,10 +1340,12 @@ function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentC
 /**
  * Builds a document from an old-editor design. A row the new editor can't rebuild keeps the old editor's own html for
  * it, so every email converts and sends the same. Nothing is saved until a person accepts the result.
+ * `textFromOutside` is plain text that came with the html, and edits leave it alone unless it only repeats the html.
  */
 export function unlayerToEmailDocument(
     design: Record<string, any> | null | undefined,
-    storedHtml?: string | null
+    storedHtml?: string | null,
+    textFromOutside?: string
 ): EmailDocumentConversion {
     const body = design?.body
     if (!body && !storedHtml?.trim()) {
@@ -1363,7 +1369,7 @@ export function unlayerToEmailDocument(
         contents[0].type === 'html' &&
         storedHtml?.trim()
     ) {
-        return wholeEmailAsHtml(storedHtml, [])
+        return wholeEmailAsHtml(storedHtml, [], !!textFromOutside && !isTextOfHtml(textFromOutside, storedHtml))
     }
     if (!body || !Array.isArray(body.rows)) {
         return storedHtml?.trim()
