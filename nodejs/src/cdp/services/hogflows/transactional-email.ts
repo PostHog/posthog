@@ -266,24 +266,41 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
     category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
 
-const LIQUID_UNSUBSCRIBE_EXPRESSION =
-    '(?:\\{\\{-?\\s*unsubscribe_url(?:_one_click)?\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
+const LIQUID_UNSUBSCRIBE_BASE_EXPRESSION =
+    '(?:\\{\\{-?\\s*unsubscribe_url\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}|\\{%-?\\s*unsubscribe_url\\s*-?%\\})'
+const LIQUID_UNSUBSCRIBE_ONE_CLICK_EXPRESSION =
+    '\\{\\{-?\\s*unsubscribe_url_one_click\\s*(?:-?|\\|\\s*[a-zA-Z_][^{}]*)\\}\\}'
+const LIQUID_UNSUBSCRIBE_EXPRESSION = `(?:${LIQUID_UNSUBSCRIBE_BASE_EXPRESSION}|${LIQUID_UNSUBSCRIBE_ONE_CLICK_EXPRESSION})`
 const LIQUID_UNSUBSCRIBE_PLACEHOLDER = new RegExp(LIQUID_UNSUBSCRIBE_EXPRESSION)
-const LIQUID_UNSUBSCRIBE_BASE = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}$`)
-const LIQUID_UNSUBSCRIBE_WITH_SUFFIX = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}[?#][^\\r\\n]*$`)
-const LIQUID_UNSUBSCRIBE_HREF = new RegExp(`^${LIQUID_UNSUBSCRIBE_EXPRESSION}(?:[?#][^\\r\\n]*)?$`)
+const LIQUID_UNSUBSCRIBE_BASE = new RegExp(`^${LIQUID_UNSUBSCRIBE_BASE_EXPRESSION}$`)
+const LIQUID_UNSUBSCRIBE_ONE_CLICK = new RegExp(`^${LIQUID_UNSUBSCRIBE_ONE_CLICK_EXPRESSION}$`)
+const LIQUID_UNSUBSCRIBE_WITH_SUFFIX = new RegExp(
+    `^(?:${LIQUID_UNSUBSCRIBE_BASE_EXPRESSION}[?#]|${LIQUID_UNSUBSCRIBE_ONE_CLICK_EXPRESSION}[?&#])[^\\r\\n]*$`
+)
+const LIQUID_UNSUBSCRIBE_HREF = new RegExp(
+    `^(?:${LIQUID_UNSUBSCRIBE_BASE_EXPRESSION}(?:[?#][^\\r\\n]*)?|${LIQUID_UNSUBSCRIBE_ONE_CLICK_EXPRESSION}(?:[?&#][^\\r\\n]*)?)$`
+)
 const LIQUID_QUERY_SUFFIX = /^[?#][^\r\n]*$/
+const LIQUID_ONE_CLICK_SUFFIX = /^[?&#][^\r\n]*$/
 const LIQUID_CONTROL_KEYWORD = /^-?\s*(if|unless|case|elsif|when|else|endif|endunless|endcase)(?=\s|-?$)/
 
-type LiquidBranchState = 'empty' | 'matched_base' | 'matched_query' | 'invalid'
+type LiquidMatchedState = 'matched_base' | 'matched_one_click' | 'matched_query'
+type LiquidBranchState = 'empty' | LiquidMatchedState | 'invalid'
+
+const HREF_MATCH_RANK: Record<'none' | LiquidMatchedState, number> = {
+    matched_base: 0,
+    matched_one_click: 1,
+    matched_query: 2,
+    none: 3,
+}
 
 type LiquidFrame = {
     openTag: 'root' | 'if' | 'unless' | 'case'
     mode: 'href' | 'suffix'
-    initialQuery: boolean
+    initialState: LiquidMatchedState
     inActiveBranch: boolean
     seenElse: boolean
-    matchedState: 'none' | 'matched_base' | 'matched_query'
+    matchedState: 'none' | LiquidMatchedState
     allBranchesValid: boolean
     allBranchesQuery: boolean
     branchState: LiquidBranchState
@@ -302,7 +319,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
     const root: LiquidFrame = {
         openTag: 'root',
         mode: 'href',
-        initialQuery: false,
+        initialState: 'matched_base',
         inActiveBranch: true,
         seenElse: false,
         matchedState: 'none',
@@ -322,6 +339,8 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         if (frame.branchState === 'empty') {
             if (LIQUID_UNSUBSCRIBE_BASE.test(text)) {
                 frame.branchState = 'matched_base'
+            } else if (LIQUID_UNSUBSCRIBE_ONE_CLICK.test(text)) {
+                frame.branchState = 'matched_one_click'
             } else if (LIQUID_UNSUBSCRIBE_WITH_SUFFIX.test(text)) {
                 frame.branchState = 'matched_query'
             } else {
@@ -329,6 +348,8 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
             }
         } else if (frame.branchState === 'matched_base') {
             frame.branchState = LIQUID_QUERY_SUFFIX.test(text) ? 'matched_query' : 'invalid'
+        } else if (frame.branchState === 'matched_one_click') {
+            frame.branchState = LIQUID_ONE_CLICK_SUFFIX.test(text) ? 'matched_query' : 'invalid'
         } else if (/[\r\n]/.test(text)) {
             frame.branchState = 'invalid'
         }
@@ -338,10 +359,12 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         flushText(frame)
         if (frame.inActiveBranch) {
             if (frame.mode === 'href') {
-                if (frame.branchState === 'matched_base') {
-                    frame.matchedState = 'matched_base'
-                } else if (frame.branchState === 'matched_query' && frame.matchedState === 'none') {
-                    frame.matchedState = 'matched_query'
+                if (
+                    frame.branchState !== 'empty' &&
+                    frame.branchState !== 'invalid' &&
+                    HREF_MATCH_RANK[frame.branchState] < HREF_MATCH_RANK[frame.matchedState]
+                ) {
+                    frame.matchedState = frame.branchState
                 }
             } else {
                 if (frame.branchState === 'invalid') {
@@ -352,7 +375,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
                 }
             }
         }
-        frame.branchState = frame.mode === 'suffix' ? (frame.initialQuery ? 'matched_query' : 'matched_base') : 'empty'
+        frame.branchState = frame.mode === 'suffix' ? frame.initialState : 'empty'
     }
 
     let pos = 0
@@ -379,19 +402,20 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         if (keyword === 'if' || keyword === 'unless' || keyword === 'case') {
             flushText(current)
             const isSuffix =
-                current.inActiveBranch &&
-                (current.branchState === 'matched_base' || current.branchState === 'matched_query')
-            const initialQuery = isSuffix && current.branchState === 'matched_query'
+                current.inActiveBranch && current.branchState !== 'empty' && current.branchState !== 'invalid'
+            const initialState: LiquidMatchedState = isSuffix
+                ? (current.branchState as LiquidMatchedState)
+                : 'matched_base'
             stack.push({
                 openTag: keyword,
                 mode: isSuffix ? 'suffix' : 'href',
-                initialQuery,
+                initialState,
                 inActiveBranch: keyword !== 'case',
                 seenElse: false,
                 matchedState: 'none',
                 allBranchesValid: true,
                 allBranchesQuery: true,
-                branchState: isSuffix ? (initialQuery ? 'matched_query' : 'matched_base') : 'empty',
+                branchState: isSuffix ? initialState : 'empty',
                 branchText: '',
             })
         } else if (keyword === 'elsif' || keyword === 'when' || keyword === 'else') {
@@ -424,7 +448,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
                             : 'invalid'
                 } else if (!current.allBranchesValid) {
                     parent.branchState = 'invalid'
-                } else if (current.initialQuery || (current.seenElse && current.allBranchesQuery)) {
+                } else if (current.initialState === 'matched_query' || (current.seenElse && current.allBranchesQuery)) {
                     parent.branchState = 'matched_query'
                 }
             }
@@ -436,7 +460,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
         return false
     }
     flushText(root)
-    return root.branchState === 'matched_base' || root.branchState === 'matched_query'
+    return root.branchState !== 'empty' && root.branchState !== 'invalid'
 }
 
 const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>

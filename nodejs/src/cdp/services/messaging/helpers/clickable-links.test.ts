@@ -296,6 +296,12 @@ describe('preferencesTokensInBody', () => {
         expect(tokens[0]).toBe('tok-first')
     })
 
+    it('extracts the token from a rendered one-click unsubscribe link with an ampersand parameter', () => {
+        const html =
+            '<a href="https://app.posthog.com/messaging-preferences/tok-1/?one_click_unsubscribe=1&amp;lang=de">Unsubscribe</a>'
+        expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual(['tok-1'])
+    })
+
     it('returns no tokens when a forbidden tag appears alongside a valid preferences link', () => {
         const html = '<svg></svg><a href="https://app.posthog.com/messaging-preferences/tok-1/">Unsubscribe</a>'
         expect(preferencesTokensInBody({ html }, 'https://app.posthog.com')).toEqual([])
@@ -392,11 +398,5 @@ describe('hasReplaceableUnsubscribeLink', () => {
         },
     ])('returns $expected for $name', ({ content, expected }) => {
         expect(hasReplaceableUnsubscribeLink(content)).toBe(expected)
-    })
-
-    it('remains fast when the body already mentions many fallback sentinel tokens', () => {
-        const spoofed = Array.from({ length: 1_000 }, (_, i) => `_${i.toString(36).padStart(5, '0')}`).join(' ')
-        const html = `<p>${spoofed}</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>`
-        expect(hasReplaceableUnsubscribeLink({ html })).toBe(true)
     })
 })

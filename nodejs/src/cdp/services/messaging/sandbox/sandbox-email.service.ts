@@ -1,6 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 
 import { MessageOptOutRecord } from '../../../types'
@@ -173,7 +174,13 @@ export class SandboxEmailService {
         if (request.freshPreferences) {
             const freshPreferences = await this.checkRecipient(request, spellings, { preferencesOnly: true })
             if (!freshPreferences.ok) {
-                await caps.refundUnsent()
+                if (!(await caps.refundUnsent())) {
+                    logger.warn('Could not refund sandbox email cap after preference check refused send', {
+                        teamId: request.teamId,
+                        invocationId: request.invocationId,
+                        reason: freshPreferences.reason,
+                    })
+                }
                 return refusal(freshPreferences.reason)
             }
         }

@@ -110,6 +110,46 @@ describe('marketingSendRefusal', () => {
             undefined,
         ],
         [
+            'one-click unsubscribe_url with an HTML-encoded ampersand parameter suffix',
+            '<a href="{{ unsubscribe_url_one_click }}&amp;lang=de">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'one-click unsubscribe_url with an ampersand parameter suffix',
+            '<a href="{{ unsubscribe_url_one_click }}&lang=de">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'one-click unsubscribe_url with a fragment suffix',
+            '<a href="{{ unsubscribe_url_one_click }}#footer">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'one-click unsubscribe_url with a conditional ampersand parameter suffix',
+            '<a href="{{ unsubscribe_url_one_click }}{% if variables.lang %}&amp;lang={{ variables.lang }}{% endif %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'a conditional selecting one-click unsubscribe_url followed by an ampersand parameter suffix',
+            '<a href="{% if variables.a %}{{ unsubscribe_url_one_click }}{% else %}{{ unsubscribe_url_one_click }}&amp;a=1{% endif %}&amp;lang=de">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'plain unsubscribe_url with a bare ampersand suffix',
+            '<a href="{{ unsubscribe_url }}&amp;lang=de">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'one-click unsubscribe_url followed by non-delimiter text',
+            '<a href="{{ unsubscribe_url_one_click }}extra">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'a conditional mixing one-click and plain unsubscribe_url followed by a bare ampersand suffix',
+            '<a href="{% if variables.a %}{{ unsubscribe_url_one_click }}{% else %}{{ unsubscribe_url }}{% endif %}&amp;lang=de">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
             'a foreign-host URL wrapping an if conditional',
             '<a href="https://example.com/?next={% if true %}{{ unsubscribe_url }}{% endif %}">Unsubscribe</a>',
             'unsubscribe_link_required',

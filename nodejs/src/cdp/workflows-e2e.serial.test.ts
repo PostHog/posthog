@@ -4312,6 +4312,16 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, { content: undefined }),
             },
             {
+                name: 'a code send in a marketing category without its own content whose email step appends a query parameter to the one-click link',
+                kind: 'code',
+                stepEmail: {
+                    subject: 'News',
+                    html: '<a href="{{ unsubscribe_url_one_click }}&amp;lang=de">Unsubscribe</a>',
+                    text: '',
+                },
+                payload: codeSendIn(newsletter, { content: undefined }),
+            },
+            {
                 name: 'a code send in a marketing category without its own content whose email step encodes spaces in the link href',
                 kind: 'code',
                 stepEmail: {
