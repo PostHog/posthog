@@ -975,7 +975,11 @@ class TestLiveSandboxRegistry:
             task = Task.objects.create(
                 team=team, created_by=owner, repository=f"org/{name}", github_user_integration=integration
             )
-            state = {"sandbox_id": name, "pr_authorship_mode": "user", "interaction_origin": "slack"}
+            state: dict[str, str | int] = {
+                "sandbox_id": name,
+                "pr_authorship_mode": "user",
+                "interaction_origin": "slack",
+            }
             if actor_user_id is not None:
                 state["slack_actor_user_id"] = actor_user_id
             return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS, state=state)

@@ -17,7 +17,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
-from products.tasks.backend.constants import SANDBOX_REPOSITORIES_ROOT
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
@@ -44,6 +44,14 @@ def _isolated_tasks_cache(settings):
     settings.TASKS_REDIS_URL = ""
     settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
     get_tasks_cache().clear()
+
+
+@pytest.fixture
+def sandbox_mock() -> MagicMock:
+    sandbox = MagicMock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    sandbox.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    return sandbox
 
 
 @pytest.mark.parametrize(
@@ -302,6 +310,7 @@ async def test_github_token_failure_maps_to_run_error(
     cause: Exception | None,
     expected_error: type[Exception],
     resume: bool,
+    sandbox_mock: MagicMock,
 ) -> None:
     # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
     # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
@@ -330,6 +339,10 @@ async def test_github_token_failure_maps_to_run_error(
     with (
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        patch(
+            "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox_mock},
+        ),
         pytest.raises(expected_error) as raised,
     ):
         if resume:
@@ -384,16 +397,13 @@ def test_repo_less_run_starts_without_github_when_reauthorization_is_required(
     side_effect=ReauthorizationRequired("relink GitHub"),
 )
 async def test_repo_less_resume_scrubs_and_continues_when_reauthorization_is_required(
-    _mock_full: MagicMock, _mock_log: MagicMock
+    _mock_full: MagicMock, _mock_log: MagicMock, sandbox_mock: MagicMock
 ) -> None:
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
         InjectFreshTokensOnResumeInput,
         inject_fresh_tokens_on_resume,
     )
 
-    sandbox = MagicMock()
-    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
-    sandbox.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
     with (
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
@@ -403,7 +413,7 @@ async def test_repo_less_resume_scrubs_and_continues_when_reauthorization_is_req
         ),
         patch(
             "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
-            **{"return_value.get_by_id.return_value": sandbox},
+            **{"return_value.get_by_id.return_value": sandbox_mock},
         ),
     ):
         await ActivityEnvironment().run(
@@ -411,8 +421,10 @@ async def test_repo_less_resume_scrubs_and_continues_when_reauthorization_is_req
             InjectFreshTokensOnResumeInput(context=_REPO_LESS_CONTEXT, sandbox_id="sandbox-id", repository=None),
         )
 
-    assert any(SANDBOX_REPOSITORIES_ROOT in call.args[0] for call in sandbox.execute.call_args_list)
-    github_env_writes = [call.args[1] for call in sandbox.write_file.call_args_list if call.args[0] == GITHUB_ENV_FILE]
+    assert any(DEFAULT_SANDBOX_WORKING_DIR in call.args[0] for call in sandbox_mock.execute.call_args_list)
+    github_env_writes = [
+        call.args[1] for call in sandbox_mock.write_file.call_args_list if call.args[0] == GITHUB_ENV_FILE
+    ]
     assert github_env_writes
     assert set(github_env_writes) == {b""}
 
@@ -432,6 +444,7 @@ async def test_transient_github_token_failure_is_reported_only_on_last_attempt(
     attempt: int,
     unreported: bool,
     expected_delay: timedelta | None,
+    sandbox_mock: MagicMock,
 ) -> None:
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
         InjectFreshTokensOnResumeInput,
@@ -458,6 +471,10 @@ async def test_transient_github_token_failure_is_reported_only_on_last_attempt(
     with (
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
         patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        patch(
+            "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox_mock},
+        ),
         pytest.raises(ProcessTaskTransientError) as raised,
     ):
         await env.run(
