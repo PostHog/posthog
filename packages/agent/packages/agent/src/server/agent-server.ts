@@ -2239,6 +2239,12 @@ export class AgentServer {
     };
     const launch = readRunLaunch(launchSources);
     this.taskRepositories = launch.repositories;
+    if (launch.policySource !== "server") {
+      this.logger.warn("run_policy_not_from_server", {
+        runId: payload.run_id,
+        source: launch.policySource,
+      });
+    }
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
@@ -2277,6 +2283,7 @@ export class AgentServer {
       prewarmed: launch.prewarmed,
       executionEnvironment: "cloud",
       sharedPromptCache: launch.sharedPromptCache,
+      runPolicySource: launch.policySource,
     });
 
     // Only that stamped header makes the run id a trace the generations land

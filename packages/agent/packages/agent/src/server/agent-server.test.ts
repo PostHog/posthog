@@ -1253,6 +1253,19 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
+    it("reports where the run policy came from with gateway requests", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mockedClaudeSdk.query.mockClear();
+      await createServer({ runtimeAdapter: "claude" }).start();
+
+      const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+        options: { env?: Record<string, string> };
+      };
+      expect(request?.options?.env?.ANTHROPIC_CUSTOM_HEADERS).toContain(
+        "x-posthog-property-task_run_policy_source: origin",
+      );
+    }, 30000);
+
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
       const originalCodexHome = process.env.CODEX_HOME;
