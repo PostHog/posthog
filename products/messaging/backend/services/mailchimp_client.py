@@ -105,8 +105,11 @@ class MailchimpClient:
         while True:
             page = self.page(path, items_key, len(rows), params)
             rows.extend(page.items)
-            if not page.items or len(rows) >= page.total:
+            if len(rows) >= page.total:
                 return rows
+            if not page.items:
+                # Fewer rows than Mailchimp counted must not pass as the whole list.
+                raise MailchimpAPIError("Mailchimp sent an unexpected response.")
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {"User-Agent": USER_AGENT, "Authorization": f"Bearer {self._api_key}"}

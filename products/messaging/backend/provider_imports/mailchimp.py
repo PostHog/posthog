@@ -26,7 +26,7 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.models.provider_import_run import ImportProviderKey
+from products.messaging.backend.models.provider_import_run import ImportProviderKey, ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import lock_team_keys
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -248,7 +248,7 @@ class MailchimpImportProvider(ImportProvider):
             ),
         ),
         # Needs the opt-out steps in the same run and before it, so no imported contact can be sent marketing email they
-        # left in Mailchimp. Right after them, so few contacts join in between.
+        # left in Mailchimp.
         ImportStepSpec(
             key="contacts",
             label="Contacts",
@@ -317,9 +317,12 @@ class MailchimpImportProvider(ImportProvider):
             client = MailchimpClient(context.api_key)
             match step:
                 case "audiences" | "groups" | "cleaned" | "complaints":
-                    pages = _opt_out_pages(step, client, context, checkpoint)
-                    # A contact whose opt-out wasn't read could get marketing email once contacts become people.
-                    yield from map(_whole_lists_only, pages) if "contacts" in context.steps else pages
+                    if "contacts" in context.steps:
+                        # A contact whose opt-out wasn't read could get marketing email once contacts become people.
+                        pages = _opt_out_pages(step, client, context, _from_list_start(checkpoint))
+                        yield from map(_whole_lists_only, pages)
+                    else:
+                        yield from _opt_out_pages(step, client, context, checkpoint)
                 case "templates":
                     yield from _fetch_templates(client, context, checkpoint)
                 case "campaigns":
@@ -487,6 +490,7 @@ def _read_targets(
             moved_on = end > offset
             offset = max(offset, end)
             more = moved_on and offset < page.total
+            ended_early = not moved_on and offset < page.total
             last_read = set(previous_page)
             items = [item for key, item in zip(keys, page.items) if key not in read and key not in last_read]
             read.update(keys[: max(MAX_REMEMBERED_CONTACTS - len(read), 0)])
@@ -495,10 +499,12 @@ def _read_targets(
                 processed=len(items),
                 save=partial(save, target, items, is_first_page),
                 checkpoint={"target": target.position, "offset": offset, "restarts": restarts}
-                if more
+                if more or ended_early
                 else after_target,
             )
             is_first_page = False
+            if ended_early:
+                yield ImportPage(processed=0, save=partial(_changing_list, target), checkpoint=after_target)
             if not more:
                 break
 
@@ -542,6 +548,13 @@ def _missing_audience(target: _Target) -> SavedPage:
     )
 
 
+def _from_list_start(checkpoint: StepCheckpoint | None) -> StepCheckpoint | None:
+    """Reads the checkpoint's list again, because a retry can't see how far it moved since the last page."""
+    if not checkpoint or not (checkpoint.get("offset") or checkpoint.get("restarts")):
+        return checkpoint
+    return {"target": checkpoint.get("target", ""), "offset": 0, "restarts": 1}
+
+
 def _whole_lists_only(page: ImportPage) -> ImportPage:
     """Fails the step when an audience couldn't be read whole, instead of going on with a warning."""
 
@@ -577,7 +590,8 @@ def _is_empty(client: MailchimpClient, audience: Mapping[str, Any]) -> bool:
             for status in ("pending", "archived")
         )
     except MailchimpNotFound:
-        return True
+        # Reading its contacts reports it as missing.
+        return False
 
 
 def _fetch_audiences(
@@ -800,6 +814,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         raise ImportTooLarge(TOO_MANY_AUDIENCES_MESSAGE)
     # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
     # them again.
+    run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
     contacts = ContactCollector()
     lists: list[ContactList] = []
     read = 0
@@ -808,9 +823,14 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         target = _member_target(
             audience,
             "subscribed",
-            "members.email_address,members.status,members.merge_fields,members.last_changed",
+            "members.email_address,members.status,members.merge_fields,members.timestamp_opt,members.last_changed",
         )
-        for page in _read_targets(client, [target], None, partial(_collect_subscribed, contacts, members)):
+        for page in _read_targets(client, [target], None, partial(_collect_subscribed, contacts, members, run_started)):
+            if page.checkpoint and page.checkpoint.get("restarts"):
+                # Contacts collected before the list changed may have left it, so the step starts over.
+                raise ImportProviderUnavailable(
+                    f"{_audience_name(audience)}: this audience changed in Mailchimp while PostHog read it."
+                )
             # Holds the contacts in memory. Nothing reaches PostHog until the page this step yields saves.
             _whole_lists_only(page).save()
             read += page.processed
@@ -841,12 +861,17 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
 def _collect_subscribed(
     contacts: ContactCollector,
     members: list[dict[str, str]],
+    run_started: datetime,
     _target: _Target,
     items: list[dict[str, Any]],
     _first: bool,
 ) -> SavedPage:
     for item in items:
         if item.get("status") != "subscribed":
+            continue
+        # The opt-out steps didn't see who joined after the run started, so they wait for the next import.
+        joined = _timestamp(item.get("timestamp_opt"))
+        if joined and joined > run_started:
             continue
         row = contacts.add(item.get("email_address"), _merge_properties(item.get("merge_fields")))
         if row is not None:

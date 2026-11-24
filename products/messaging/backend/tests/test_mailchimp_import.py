@@ -351,8 +351,8 @@ class TestMailchimpImport(TestMailchimpImportBase):
 
         run = self._run(["audiences"])
 
-        assert run.progress["audiences"]["counts"]["missing"] == 2
-        assert len(run.progress["audiences"]["warnings"]) == 2
+        assert run.progress["audiences"]["counts"]["missing"] == 3
+        assert len(run.progress["audiences"]["warnings"]) == 3
 
     def test_waits_out_a_rate_limit(self) -> None:
         self.mailchimp.failures.append(Failure(route="lists", status=429, times=2, headers={"Retry-After": "7"}))
@@ -512,11 +512,55 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert run.progress["contacts"]["status"] == "completed"
         assert "people_imports" not in run.progress["contacts"]
 
-    def test_contacts_wait_when_an_audience_hid_its_opt_outs(self) -> None:
-        self.mailchimp.failures.append(Failure(route="members", status=404, times=100, status_filter="unsubscribed"))
+    @parameterized.expand(
+        [
+            ("audiences", "members", "unsubscribed"),
+            ("groups", "members", "subscribed"),
+            ("cleaned", "members", "cleaned"),
+            ("complaints", "abuse", None),
+        ]
+    )
+    def test_contacts_wait_when_an_audience_hid_its_opt_outs(
+        self, step: str, route: str, status_filter: str | None
+    ) -> None:
         run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for earlier in OPT_OUT_STEPS[: OPT_OUT_STEPS.index(step)]:
+            runs.run_step(self.team.id, run.id, earlier, attempt=1)
+        self.mailchimp.failures.append(Failure(route=route, status=404, times=100, status_filter=status_filter))
 
         with self.assertRaisesRegex(ImportProviderUnavailable, "couldn't find this audience"):
-            runs.run_step(self.team.id, run.id, "audiences", attempt=1)
+            runs.run_step(self.team.id, run.id, step, attempt=1)
         with self.assertRaises(ImportStepBlocked):
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+    @parameterized.expand([("members", "unsubscribed", "audiences"), ("members", "subscribed", "contacts")])
+    def test_a_list_shorter_than_its_total_is_not_whole(self, route: str, status: str, step: str) -> None:
+        handle = self.mailchimp.handle
+
+        def short(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            code, body, headers = handle(path, query, authorization)
+            if path.endswith(f"/{route}") and query.get("status") == status and "members" in body:
+                wanted = "merge_fields" in query.get("fields", "") if step == "contacts" else True
+                body = {"total_items": body["total_items"]} if wanted else body
+            return code, body, headers
+
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for earlier in run.steps[: run.steps.index(step)]:
+            runs.run_step(self.team.id, run.id, earlier, attempt=1)
+        with patch.object(self.mailchimp, "handle", short), self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert not Cohort.objects.filter(team_id=self.team.id).exists()
+
+    def test_a_contact_who_joined_after_the_run_started_waits_for_the_next_import(self) -> None:
+        self.mailchimp.data["lists"][1]["members"].append(
+            {
+                "email_address": "new@example.com",
+                "status": "subscribed",
+                "timestamp_opt": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+            }
+        )
+
+        run = self._import_contacts("new_people")
+
+        assert "new@example.com" not in self._staged(run)["Mailchimp contacts"]
