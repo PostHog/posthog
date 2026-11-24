@@ -469,9 +469,13 @@ def _no_data(snapshot: AlertSnapshot, check: CheckInput, *, muted: bool) -> Aler
     """A group whose data the source is sure is missing moves to NO_DATA, and announces it once.
 
     Neither cooldown nor `last_notified_at` is touched, because both measure announcements about the
-    condition, and whether a firing was announced is read from `last_notified_at`.
+    condition, and whether a firing was announced is read from `last_notified_at`. Nothing records
+    whether a move into NO_DATA was announced, so a mute holds the move itself, and the first check
+    after the mute ends moves the group and announces it.
     """
     entering = snapshot.state != AlertState.NO_DATA
+    if entering and check.notify_no_data and muted:
+        return replace(_stay(snapshot), consecutive_failures=0, muted_notification=NotificationAction.NO_DATA)
     outcome = AlertCheckOutcome(
         new_state=AlertState.NO_DATA,
         notification=NotificationAction.NO_DATA if entering and check.notify_no_data else NotificationAction.NONE,

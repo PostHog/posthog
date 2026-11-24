@@ -211,17 +211,23 @@ def not_breaching(grouping_key: str) -> GroupObservation:
 
 
 _NO_DATA_OPTIONS: Final = frozenset({OnMissingData.NO_DATA, OnMissingData.NOTIFY_NO_DATA})
+_JUDGES_EMPTY_UNGROUPED: Final = frozenset({OnMissingData.BREACHING, *_NO_DATA_OPTIONS})
 
 
 def _missing_keys(check: PlatformAlertCheckInput) -> list[str]:
     """The groups a check judges when it does not return them.
 
     Under Breaching, an ungrouped alert's one group is judged even with no open instance, because an
-    empty result is exactly what a heartbeat alert fires on.
+    empty result is exactly what a heartbeat alert fires on. Under the no-data options a healthy group
+    that stops reporting moves to NO_DATA too, so every group with an instance is judged. A group the
+    platform no longer tracks cannot be.
     """
-    keys = check.open_keys()
+    if check.on_missing_data in _NO_DATA_OPTIONS:
+        keys = [instance.grouping_key for instance in check.instances]
+    else:
+        keys = check.open_keys()
     if (
-        check.on_missing_data == OnMissingData.BREACHING
+        check.on_missing_data in _JUDGES_EMPTY_UNGROUPED
         and check.grouping.mode == GroupingMode.SINGLE
         and "" not in keys
     ):

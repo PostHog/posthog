@@ -55,6 +55,7 @@ def test_a_literal_digest_does_not_share_a_row_with_the_long_key_it_spells() -> 
 
 _NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 _FIRING = InstanceCheckState(grouping_key="", state=PlatformAlertState.FIRING.value, firing_started_at=_NOW)
+_RESTING = InstanceCheckState(grouping_key="", state=PlatformAlertState.NOT_FIRING.value)
 
 
 def _check(
@@ -118,6 +119,9 @@ def _decided(
         (OnMissingData.RESOLVE, (), {}),
         (OnMissingData.NO_DATA, (_FIRING,), {"": (AlertEventKind.CHECK, "no_data", True)}),
         (OnMissingData.NOTIFY_NO_DATA, (_FIRING,), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
+        (OnMissingData.NOTIFY_NO_DATA, (_RESTING,), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
+        (OnMissingData.NOTIFY_NO_DATA, (), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
+        (OnMissingData.RESOLVE, (_RESTING,), {}),
     ],
     ids=[
         "resolve",
@@ -127,6 +131,9 @@ def _decided(
         "resolve_no_group",
         "no_data",
         "notify_no_data",
+        "notify_no_data_from_healthy",
+        "notify_no_data_on_empty_result",
+        "resolve_leaves_healthy_alone",
     ],
 )
 def test_a_group_the_source_is_sure_is_missing_is_judged_by_the_alerts_choice(

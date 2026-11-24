@@ -603,16 +603,23 @@ class TestNoData:
         )
         assert (None if episode is None else episode.ended) == episode_ended
 
-    def test_a_mute_holds_the_no_data_announcement(self) -> None:
-        result = evaluate_alert_check(
+    def test_a_mute_holds_the_move_into_no_data_until_it_ends_so_it_is_announced(self) -> None:
+        muted = evaluate_alert_check(
             snapshot(state=AlertState.FIRING, firing_started_at=STARTED, snooze_until=SNOOZING),
             NOTIFY_NO_DATA,
             NOW,
             policy=PLATFORM_LOGS_ALERT_POLICY,
         )
+        unmuted = evaluate_alert_check(
+            snapshot(state=muted.new_state, firing_started_at=STARTED),
+            NOTIFY_NO_DATA,
+            NOW,
+            policy=PLATFORM_LOGS_ALERT_POLICY,
+        )
 
-        assert (result.new_state, result.notification, result.muted_notification) == (
-            AlertState.NO_DATA,
+        assert (muted.new_state, muted.notification, muted.muted_notification) == (
+            AlertState.FIRING,
             NotificationAction.NONE,
             NotificationAction.NO_DATA,
         )
+        assert (unmuted.new_state, unmuted.notification) == (AlertState.NO_DATA, NotificationAction.NO_DATA)
