@@ -459,17 +459,28 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await fileBytesOn(id)).toBe(stored)
         })
 
-        it.each([
-            ['in its send state', withFiles()],
-            ['in its email queue parameters', withQueuedFiles],
-        ])('is stored on the row of a workflow that moves to the email queue with files %s', async (_name, files) => {
+        it.each<[string, Partial<CyclotronJobInvocation>, Partial<CyclotronJobInvocation>, string | null]>([
+            ['a workflow that moves to the email queue with files in its send state', {}, withFiles(), '1000'],
+            [
+                'a workflow that moves to the email queue with files in its email queue parameters',
+                {},
+                withQueuedFiles,
+                '1000',
+            ],
+            [
+                'an email send whose new state carries no files',
+                { queue: 'email', ...withFiles() },
+                { state: baseInvocation.state },
+                null,
+            ],
+        ])('is set on the row of %s when it is rescheduled', async (_name, queued, rescheduledAs, stored) => {
             const queue = await startQueue()
-            const id = await enqueue(queue)
-            const [claimed] = await (await consume(queue, queueName)).claimed()
+            const id = await enqueue(queue, queued)
+            const [claimed] = await (await consume(queue, queued.queue ?? queueName)).claimed()
 
-            await queue.queueInvocationResults([movedToEmail({ ...claimed, ...files })])
+            await queue.queueInvocationResults([movedToEmail({ ...claimed, ...rescheduledAs })])
 
-            expect(await fileBytesOn(id)).toBe('1000')
+            expect(await fileBytesOn(id)).toBe(stored)
         })
 
         it.each([
