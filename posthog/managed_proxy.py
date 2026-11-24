@@ -38,7 +38,9 @@ def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
         update_cloudflare_proxy_root_redirect(record.domain, record.root_redirect_url)
 
 
-def reconcile_cloudflare_proxy(organization_id: str | UUID, proxy_record_id: str | UUID) -> bool:
+def reconcile_cloudflare_proxy(
+    organization_id: str | UUID, proxy_record_id: str | UUID, *, from_sweep: bool = False
+) -> bool:
     with cloudflare_proxy_lock(proxy_record_id):
         record = ProxyRecord.objects.filter(organization_id=organization_id, pk=proxy_record_id).first()
         if record is None or not is_cloudflare_proxy(record):
@@ -50,6 +52,8 @@ def reconcile_cloudflare_proxy(organization_id: str | UUID, proxy_record_id: str
             .exists()
         )
         if active:
+            if from_sweep and not record.needs_activation_recovery:
+                return False
             if not proxy_domain_can_be_provisioned(record):
                 return False
             if record.status in (ProxyRecord.Status.DELETING, ProxyRecord.Status.ERRORING):
@@ -58,6 +62,12 @@ def reconcile_cloudflare_proxy(organization_id: str | UUID, proxy_record_id: str
                 return True
 
         if not active:
+            # Record the intent first so a partial Cloudflare cleanup can still be recovered.
+            if not record.needs_activation_recovery and record.status in (
+                ProxyRecord.Status.VALID,
+                ProxyRecord.Status.WARNING,
+            ):
+                ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=True)
             hostname = get_custom_hostname_by_domain(record.domain)
             if hostname:
                 delete_custom_hostname(hostname.id)
@@ -65,4 +75,6 @@ def reconcile_cloudflare_proxy(organization_id: str | UUID, proxy_record_id: str
             return False
 
         _restore_cloudflare_proxy(record)
+        if record.needs_activation_recovery:
+            ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=False)
         return True
