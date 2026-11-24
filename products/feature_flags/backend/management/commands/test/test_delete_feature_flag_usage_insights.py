@@ -11,10 +11,7 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from posthog.helpers.dashboard_templates import (
-    FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-    add_enriched_insights_to_feature_flag_dashboard,
-)
+from posthog.helpers.feature_flag_usage_insights import FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -26,6 +23,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
+from products.feature_flags.backend.usage_dashboard import add_enriched_insights_to_feature_flag_dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.testing import create_subscription
 
@@ -52,7 +50,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         flag = FeatureFlag.objects.create(team=team, created_by=self.user, key=key, filters=filters)
         dashboard = create_usage_dashboard(flag, self.user)
         if enriched:
-            add_enriched_insights_to_feature_flag_dashboard(flag, dashboard)
+            add_enriched_insights_to_feature_flag_dashboard(flag, dashboard.id)
         return flag
 
     def _run(self, *args: str, team: Team | None = None, stdout: StringIO | None = None) -> None:
