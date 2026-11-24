@@ -31,6 +31,7 @@ import { AnyPropertyFilter, CohortType, PropertyFilterType } from '~/types'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { laneCardFacts } from './ReleaseLaneCard'
 import { UsageKind, UsageTarget } from './releaseLaneUsage'
 import { releaseLaneUsageLogic } from './releaseLaneUsageLogic'
 import { releaseLogic } from './releaseLogic'
@@ -321,6 +322,33 @@ function LinkedFlag({ row, flagId }: { row: ReleaseRow; flagId: number | undefin
     )
 }
 
+const TIMELINE_FACTS = new Set(['Status', 'Started', 'Starts', 'Ended'])
+
+function Facts({ lane }: { lane: Lane }): JSX.Element | null {
+    const span = lane.kind === 'experiment' || lane.kind === 'early_access' ? lane.span : null
+    const facts = span ? laneCardFacts({ lane, span }).filter(([label]) => !TIMELINE_FACTS.has(label)) : []
+    if (!facts.length) {
+        return null
+    }
+    return (
+        <Text size="xs" variant="muted" className="truncate" data-attr="release-lane-detail-facts">
+            {facts.map(([label, value], index) => (
+                <span key={label}>
+                    {index > 0 && <span>{' · '}</span>}
+                    {label === 'Progress' ? (
+                        <span className="text-foreground">{value}</span>
+                    ) : (
+                        <>
+                            <span>{`${label} `}</span>
+                            <span className="text-foreground">{value.charAt(0).toLowerCase() + value.slice(1)}</span>
+                        </>
+                    )}
+                </span>
+            ))}
+        </Text>
+    )
+}
+
 function SurveyQuestion(): JSX.Element | null {
     const { panelSurvey } = useValues(releaseCalendarLogic)
     const questions = (panelSurvey?.questions ?? []) as { question?: string }[]
@@ -360,6 +388,7 @@ export function ReleaseLaneDetail({
         lane.kind === 'early_access'
             ? row.earlyAccess.find((item) => `early-access-${item.id}` === lane.key)
             : undefined
+    const description = experiment?.description || earlyAccess?.description
     const linkedFlagId = experiment
         ? row.flags.find((flag) => flag.key === experiment.feature_flag_key)?.id
         : lane.kind === 'survey'
@@ -383,6 +412,12 @@ export function ReleaseLaneDetail({
             </div>
             {target && <Usage target={target} from={from} />}
             <div className="flex flex-col gap-0.5">
+                {description && (
+                    <Text size="xs" className="line-clamp-2" title={description}>
+                        {description}
+                    </Text>
+                )}
+                <Facts lane={lane} />
                 {lane.kind === 'flag' && <LastChange flagId={lane.flag.id} />}
                 {lane.kind === 'survey' && <SurveyQuestion />}
                 {lane.kind !== 'flag' && <LinkedFlag row={row} flagId={linkedFlagId} />}
