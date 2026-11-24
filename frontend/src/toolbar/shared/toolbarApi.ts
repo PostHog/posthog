@@ -8,13 +8,13 @@ import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/shared/types'
-import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour } from '~/types'
+import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition } from '~/types'
 
 /**
  * The single, blessed way to talk to the PostHog API from the toolbar.
  *
  * Every authenticated data request should go through `toolbarApi` — preferably one of its
- * resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.productTours.delete(id, …)`), which
+ * resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.fieldNotes.delete(id, …)`), which
  * own the route strings (see the `toolbarApi` export below for the full contract). It wraps
  * `toolbarFetch` (which owns the OAuth bearer + token refresh) and folds the eight different
  * ad-hoc failure-handling styles the toolbar had grown into one consistent contract:
@@ -257,7 +257,7 @@ function apiDelete<T = unknown>(route: ToolbarRoute, options: ToolbarApiOptions)
 /**
  * `toolbarApi` is the single entry point for talking to the PostHog API from the toolbar.
  *
- * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.productTours.delete(id, …)`):
+ * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.fieldNotes.delete(id, …)`):
  * they own the route strings so every project-scoped path lives in exactly one place
  * and call sites read as intent rather than URLs. Each method takes the resource-specific arguments
  * (id, payload, query) plus a `ToolbarApiOptions` and returns the same `ToolbarApiResult<T>`, so
@@ -295,21 +295,6 @@ export const toolbarApi = {
             options: ToolbarApiOptions
         ): Promise<ToolbarApiResult<WebExperiment>> =>
             apiPatch(projectRoute(`web_experiments/${id}/`), payload, options),
-    },
-
-    productTours: {
-        list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results?: ProductTour[] } | ProductTour[]>> =>
-            apiGet(projectRoute(`product_tours/`), options),
-        create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<ProductTour>> =>
-            apiPost(projectRoute(`product_tours/`), payload, options),
-        updateDraft: (
-            id: number | string,
-            payload: Record<string, any>,
-            options: ToolbarApiOptions
-        ): Promise<ToolbarApiResult<ProductTour>> =>
-            apiPatch(projectRoute(`product_tours/${id}/draft/`), payload, options),
-        delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
-            apiDelete(projectRoute(`product_tours/${id}/`), options),
     },
 
     fieldNotes: {

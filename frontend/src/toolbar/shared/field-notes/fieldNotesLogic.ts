@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { inferSelector } from '~/toolbar/shared/product-tours/elementInference'
+import { inferSelector } from '~/toolbar/shared/elements/elementInference'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'

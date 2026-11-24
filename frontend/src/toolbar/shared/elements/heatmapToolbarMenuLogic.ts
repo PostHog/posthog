@@ -47,7 +47,6 @@ import {
 } from '~/toolbar/shared/elements/domElementIndex'
 import { heatmapVariantFilterGateFromFlags } from '~/toolbar/shared/elements/heatmapVariantFilterGate'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
-import { productToursLogic } from '~/toolbar/shared/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
@@ -1314,12 +1313,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         startAreaSelection: () => {
-            // product tours' picker also listens for document clicks; two armed pickers
-            // would both consume the same page click
-            const productTours = productToursLogic.findMounted()
-            if (productTours?.values.isSelecting) {
-                productTours.actions.setEditorState({ mode: 'idle' })
-            }
             const candidates = computeAreaCandidates()
             actions.setAreaCandidates(candidates)
             toolbarPosthogJS.capture('toolbar heatmap area selection started', {

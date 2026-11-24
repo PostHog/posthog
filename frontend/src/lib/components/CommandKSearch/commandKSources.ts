@@ -7,7 +7,6 @@ import {
     fileSystemEntryToSearchItem,
     groupToSearchItem,
     personToSearchItem,
-    productTourToSearchItem,
     ticketResultToSearchItem,
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
@@ -28,7 +27,6 @@ import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
-import { productToursList } from 'products/product_tours/frontend/generated/api'
 import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { fileSystemTypesFor } from './commandKFilterOptions'
@@ -232,14 +230,6 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
     person: async ({ text }, signal, context) => {
         const { items } = await searchPersons(text, RESULTS_LIMIT, signal, context)
         return items.map((person) => ({ ...person, category: 'results' }))
-    },
-    product_tour: async ({ text }, signal, context) => {
-        const response = await productToursList(
-            String(context.currentTeamId),
-            { search: text || undefined, limit: RESULTS_LIMIT },
-            { signal }
-        )
-        return response.results.map(productTourToSearchItem)
     },
     ticket: async ({ text, name, freeText }, signal, context) => {
         const search = name && isTicketNumberQuery(text) ? freeText : text

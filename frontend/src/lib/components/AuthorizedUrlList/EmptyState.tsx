@@ -15,21 +15,18 @@ import { QuillAuthorizedUrlEmptyState } from './QuillAuthorizedUrlEmptyState'
 type EmptyStateProps = {
     type: AuthorizedUrlListType
     experimentId?: ExperimentIdType | null
-    productTourId?: string | null
     actionId?: number | null
     displaySuggestions?: boolean
 }
 
 export function EmptyState({
     experimentId,
-    productTourId,
     actionId,
     type,
     displaySuggestions = true,
 }: EmptyStateProps): JSX.Element | null {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
-        productTourId: productTourId ?? null,
         actionId: actionId ?? null,
         type,
     })

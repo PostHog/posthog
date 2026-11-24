@@ -161,8 +161,8 @@ export function ApprovalPolicies(): JSX.Element {
                             <p className="m-0">
                                 Launching, pausing, and changing the rollout or variant split of an experiment now
                                 follow the experiment policies. Feature flag policies cover the flags that no product
-                                manages, so flags that a survey, product tour, or early access feature manages no longer
-                                need approval. Surveys will get their own policies soon.{' '}
+                                manages, so flags that a survey or early access feature manages no longer need approval.
+                                Surveys will get their own policies soon.{' '}
                                 <Link
                                     to="https://posthog.com/docs/settings/approvals#experiment-policies"
                                     target="_blank"
@@ -431,7 +431,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         <p className="text-xs text-secondary">
                             {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE
                                 ? "With no conditions, any change to an experiment's rollout, variant split or holdout exclusion needs approval. Changes to its release conditions do not."
-                                : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey, product tour or early access feature manages the flag."}
+                                : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey or early access feature manages the flag."}
                         </p>
                     </div>
                 )}

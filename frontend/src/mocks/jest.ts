@@ -16,7 +16,6 @@ const jestOnlyDefaultHandlers = mocksToHandlers({
     get: {
         // teamLogic and projectLogic reload the tab project by id, and the paginated floor is not a project.
         '/api/projects/:team_id/': MOCK_DEFAULT_TEAM,
-        '/api/projects/:team_id/product_tours/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
         '/api/projects/:team_id/event_definitions/primary_properties/': { primary_properties: {} },

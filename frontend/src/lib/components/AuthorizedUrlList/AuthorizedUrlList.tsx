@@ -16,13 +16,7 @@ import { isOAuthMode } from 'lib/utils/oauthClient'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AvailableFeature,
-    ExperimentIdType,
-    ToolbarUserIntent,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, ExperimentIdType } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './authorizedUrlListLogic'
@@ -33,8 +27,6 @@ export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
-    productTourId?: string | null
-    userIntent?: ToolbarUserIntent
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
@@ -49,8 +41,6 @@ export interface AuthorizedUrlListProps {
 export function AuthorizedUrlList({
     actionId,
     experimentId,
-    productTourId,
-    userIntent,
     query,
     type,
     addText = 'Add new authorized URL',
@@ -64,9 +54,7 @@ export function AuthorizedUrlList({
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
-        productTourId: productTourId ?? null,
         actionId: actionId ?? null,
-        userIntent,
         type,
         query,
         allowWildCards,
@@ -151,7 +139,6 @@ export function AuthorizedUrlList({
                 type={type}
                 actionId={actionId}
                 experimentId={experimentId}
-                productTourId={productTourId}
                 addText={addText}
                 allowWildCards={allowWildCards}
                 displaySuggestions={displaySuggestions}
@@ -185,7 +172,6 @@ export function AuthorizedUrlList({
             {!hideEmptyState && (
                 <EmptyState
                     experimentId={experimentId}
-                    productTourId={productTourId}
                     actionId={actionId}
                     type={type}
                     displaySuggestions={displaySuggestions}
@@ -198,7 +184,6 @@ export function AuthorizedUrlList({
                         type={type}
                         actionId={actionId}
                         experimentId={experimentId}
-                        productTourId={productTourId}
                         allowWildCards={allowWildCards}
                     />
                 </div>
@@ -232,7 +217,6 @@ export function AuthorizedUrlList({
                             type={type}
                             actionId={actionId}
                             experimentId={experimentId}
-                            productTourId={productTourId}
                             allowWildCards={allowWildCards}
                         />
                     </div>

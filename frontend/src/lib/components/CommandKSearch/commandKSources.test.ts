@@ -6,7 +6,6 @@ import { GroupTypeIndex, SearchResponse, SearchableEntity } from '~/types'
 import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
-import { productToursList } from 'products/product_tours/frontend/generated/api'
 import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, requestDebounceMs, settleRequest } from './commandKSources'
@@ -14,7 +13,6 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, requestDebounceMs, settl
 jest.mock('products/alerts/frontend/generated/api', () => ({ alertsList: jest.fn() }))
 jest.mock('products/conversations/frontend/generated/api', () => ({ conversationsTicketsList: jest.fn() }))
 jest.mock('products/persons/frontend/generated/api', () => ({ personsList: jest.fn() }))
-jest.mock('products/product_tours/frontend/generated/api', () => ({ productToursList: jest.fn() }))
 jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsList: jest.fn() }))
 jest.mock('~/generated/core/api', () => ({
     ...jest.requireActual('~/generated/core/api'),
@@ -137,10 +135,6 @@ describe('settleRequest', () => {
                     },
                 ],
             } as any)
-            jest.mocked(productToursList).mockResolvedValue({
-                count: 1,
-                results: [{ id: 't1', name: 'Revenue tour' }],
-            } as any)
             jest.mocked(personsList).mockResolvedValue({
                 results: [{ uuid: 'p1', distinct_ids: ['d1'], properties: { email: 'ada@example.com' } }],
             } as any)
@@ -163,7 +157,6 @@ describe('settleRequest', () => {
         test.each([
             ['type:alert revenue', '/alerts?alert_type=insights&alert_id=a1'],
             ['type:alert', '/alerts?alert_type=insights&alert_id=a1'],
-            ['type:product_tour revenue', '/product_tours/t1'],
             ['type:workflows revenue', '/workflows/w1/workflow'],
             ['type:endpoints name:revenue', '/endpoints/revenue-daily'],
             ['type:ticket refund', '/support/tickets/42'],
@@ -201,18 +194,6 @@ describe('settleRequest', () => {
                         ],
                     } as any),
                 ['/support/tickets/1'],
-            ],
-            [
-                'type:product_tour name:"revenue tour"',
-                () =>
-                    jest.mocked(productToursList).mockResolvedValue({
-                        count: 2,
-                        results: [
-                            { id: 'p1', name: 'Revenue tour' },
-                            { id: 'p2', name: 'Onboarding', description: 'A revenue tour for new users' },
-                        ],
-                    } as any),
-                ['/product_tours/p1'],
             ],
         ])('keeps only the results whose name matches for %s', async (query, mockResults, hrefs) => {
             mockResults()

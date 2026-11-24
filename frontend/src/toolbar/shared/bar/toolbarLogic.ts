@@ -14,7 +14,6 @@ import { experimentsLogic } from '~/toolbar/shared/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/shared/experiments/experimentsTabLogic'
 import { fieldNotesLogic } from '~/toolbar/shared/field-notes/fieldNotesLogic'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
-import { productToursLogic } from '~/toolbar/shared/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/shared/toolbarEntitlementsLogic'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
@@ -44,7 +43,6 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
-    | 'product-tours'
     | 'field-notes'
 
 export type ToolbarPositionType =
@@ -179,12 +177,6 @@ export interface toolbarLogicActions {
     toggleClickmapsEnabled: (enabled: boolean) => {
         enabled: boolean
     } // heatmapToolbarMenuLogic
-    hideButtonProductTours: () => {
-        value: true
-    } // productToursLogic
-    showButtonProductTours: () => {
-        value: true
-    } // productToursLogic
     logout: () => {
         value: true
     } // toolbarConfigLogic
@@ -383,8 +375,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
-            productToursLogic,
-            ['showButtonProductTours', 'hideButtonProductTours'],
             fieldNotesLogic,
             ['showButtonFieldNotes', 'hideButtonFieldNotes'],
             heatmapToolbarMenuLogic,
@@ -776,7 +766,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
-            actions.hideButtonProductTours()
             actions.hideButtonFieldNotes()
 
             if (visibleMenu === 'heatmap') {
@@ -791,8 +780,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'flags') {
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
-            } else if (visibleMenu === 'product-tours') {
-                actions.showButtonProductTours()
             } else if (visibleMenu === 'field-notes') {
                 actions.showButtonFieldNotes()
             }

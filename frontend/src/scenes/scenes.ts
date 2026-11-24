@@ -534,16 +534,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'survey',
         docsHref: 'https://posthog.com/docs/surveys',
     },
-    [Scene.ProductTours]: {
-        projectBased: true,
-        name: 'Product tours',
-        description: 'Guide users through your product with interactive tours',
-        iconType: 'product_tour',
-    },
-    [Scene.ProductTour]: {
-        projectBased: true,
-        name: 'Product tour',
-    },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar' },
     [Scene.Transformations]: {
@@ -875,8 +865,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
     [urls.surveyFormBuilder(':id')]: [Scene.SurveyFormBuilder, 'surveyFormBuilder'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
-    [urls.productTours()]: [Scene.ProductTours, 'productTours'],
-    [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
     // pinned: the backend builds this path into the approval link it returns, which people share
     [urls.workloadTrustPolicyRequest(':id')]: [Scene.WorkloadTrustPolicyRequest, 'workloadTrustPolicyRequest'],
