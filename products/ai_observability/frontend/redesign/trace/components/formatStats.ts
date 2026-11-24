@@ -1,22 +1,8 @@
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
-
-const TRAILING_ZEROS_BEYOND_CENTS = /0{1,2}$/
-
-export function formatCostUsd(costUsd: number): string {
-    if (costUsd === 0) {
-        return '$0'
-    }
-    if (costUsd < 0.001) {
-        return '<$0.001'
-    }
-    if (costUsd < 1) {
-        return `$${costUsd.toFixed(4).replace(TRAILING_ZEROS_BEYOND_CENTS, '')}`
-    }
-    return `$${humanFriendlyNumber(costUsd, 2, 2)}`
-}
+import type { TraceApi, TraceNodeStatsApi } from '../../../generated/api.schemas'
+import { formatCostUsd } from '../../shared/formatCost'
 
 export function formatLatencyMs(latencyMs: number): string {
     const roundedMs = Math.round(latencyMs)
@@ -47,26 +33,50 @@ export function formatCacheTokens(readTokens: number | null, writeTokens: number
     return sides.length > 0 ? sides.join(' · ') : null
 }
 
-export function statParts(stats: TraceNodeStatsApi): string[] {
-    const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens)
-    return [
-        stats.costUsd !== null ? formatCostUsd(stats.costUsd) : null,
-        tokens,
-        stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null,
-        stats.cacheReadTokens ? `${humanFriendlyNumber(stats.cacheReadTokens, 0)} cache read` : null,
-        stats.cacheWriteTokens ? `${humanFriendlyNumber(stats.cacheWriteTokens, 0)} cache write` : null,
-    ].filter((part): part is string => part !== null)
+export type StatKind = 'cost' | 'tokens' | 'latency' | 'cacheRead' | 'cacheWrite'
+
+export interface StatPart {
+    kind: StatKind
+    text: string
 }
 
-export function compactStatParts(stats: TraceNodeStatsApi): string[] {
+function knownParts(parts: [StatKind, string | null][]): StatPart[] {
+    return parts.flatMap(([kind, text]) => (text !== null ? [{ kind, text }] : []))
+}
+
+export function statParts(stats: TraceNodeStatsApi): StatPart[] {
+    return knownParts([
+        ['cost', stats.costUsd !== null ? formatCostUsd(stats.costUsd) : null],
+        ['tokens', formatTokenCounts(stats.inputTokens, stats.outputTokens)],
+        ['latency', stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null],
+        ['cacheRead', stats.cacheReadTokens ? `${humanFriendlyNumber(stats.cacheReadTokens, 0)} cache read` : null],
+        ['cacheWrite', stats.cacheWriteTokens ? `${humanFriendlyNumber(stats.cacheWriteTokens, 0)} cache write` : null],
+    ])
+}
+
+export function compactStatParts(stats: TraceNodeStatsApi): StatPart[] {
     const knownTokens = [stats.inputTokens, stats.outputTokens].filter((count): count is number => count !== null)
-    return [
-        stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null,
-        knownTokens.length > 0
-            ? `${humanFriendlyNumber(
-                  knownTokens.reduce((a, b) => a + b, 0),
-                  0
-              )} tok`
-            : null,
-    ].filter((part): part is string => part !== null)
+    return knownParts([
+        ['latency', stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null],
+        [
+            'tokens',
+            knownTokens.length > 0
+                ? `${humanFriendlyNumber(
+                      knownTokens.reduce((a, b) => a + b, 0),
+                      0
+                  )} tok`
+                : null,
+        ],
+    ])
+}
+
+const TOTALS_KINDS: StatKind[] = ['tokens', 'cacheRead', 'cacheWrite']
+const COST_AND_LATENCY_KINDS: StatKind[] = ['cost', 'latency']
+
+/** The stats of a trace's overview that were computed from only some of its steps. */
+export function partialStatKinds({
+    totalsPartial,
+    costAndLatencyPartial,
+}: Pick<TraceApi, 'totalsPartial' | 'costAndLatencyPartial'>): StatKind[] {
+    return [...(totalsPartial ? TOTALS_KINDS : []), ...(costAndLatencyPartial ? COST_AND_LATENCY_KINDS : [])]
 }

@@ -265,6 +265,7 @@ from products.workflows.backend.facade.proposals import (
     absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
+    conversion_evidence_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -7219,6 +7220,16 @@ class HogFlowViewSet(
         # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
         evidence.pop("measured", None)
+        conversion_error = conversion_evidence_error(
+            hog_flow_id=instance.id,
+            evidence=evidence,
+            changes=content,
+            live=snapshot_flow_content(instance).get("conversion"),
+            base_version=params["base_version"],
+            now=django_timezone.now(),
+        )
+        if conversion_error:
+            raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
             evidence["measured"] = measured
@@ -7406,6 +7417,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
+                live_conversion=snapshot_flow_content(hog_flow).get("conversion"),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
