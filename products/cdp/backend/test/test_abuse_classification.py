@@ -24,6 +24,8 @@ from products.cdp.backend.test.abuse_support import (
 
 LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
 SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
+CLEARLY_NORMAL_SCORES = {**SCORES, "resource_exhaustion": 0.1, "normal_integration": 0.9}
+LOCAL_URL_FILTER = "if (event.properties.$current_url == 'http://127.0.0.1/') {\n  return\n}\n"
 NO_CALL_HOG = "print(event.properties.$ip)"
 REQUEST_CATCHER_HOG = "fetch('https://webhook.site/0000')"
 METADATA_HOG = "fetch('http://169.254.169.254/latest')"
@@ -159,6 +161,60 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 ["internal_host_reference"],
                 True,
                 False,
+                False,
+            ),
+            (
+                "clearly_normal_quiets_an_internal_host_reference",
+                CLEARLY_NORMAL_SCORES,
+                None,
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                False,
+                False,
+            ),
+            (
+                "internal_host_reference_alerts_below_the_weak_rule_control",
+                {**CLEARLY_NORMAL_SCORES, "normal_integration": 0.89},
+                None,
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                True,
+                False,
+            ),
+            (
+                "weak_rule_control_threshold_from_payload",
+                CLEARLY_NORMAL_SCORES,
+                {**DEFAULT_THRESHOLDS, "weak_rule_control_threshold": 0.95},
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                True,
+                False,
+            ),
+            (
+                "internal_host_reference_alerts_when_a_gated_risk_reaches_the_alert_threshold",
+                SCORES,
+                None,
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                True,
+                False,
+            ),
+            (
+                "internal_host_reference_alerts_beside_another_rule",
+                CLEARLY_NORMAL_SCORES,
+                None,
+                LOCAL_URL_FILTER + REQUEST_CATCHER_HOG,
+                ["internal_host_reference", "request_catcher"],
+                True,
+                False,
+            ),
+            (
+                "clearly_normal_does_not_quiet_a_request_catcher",
+                CLEARLY_NORMAL_SCORES,
+                None,
+                REQUEST_CATCHER_HOG,
+                ["request_catcher"],
+                True,
                 False,
             ),
         ]
@@ -505,6 +561,18 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 None,
                 {},
                 {"error": "gateway_error", "rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+            ),
+            (
+                "refused_with_an_internal_host_reference",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {"hog": LOCAL_URL_FILTER + RULE_FREE_HOG},
+                {
+                    "error": "gateway_error",
+                    "rule_hits": ["internal_host_reference"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
             ),
             (
                 "unreachable_without_a_rule",

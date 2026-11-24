@@ -45,7 +45,7 @@ from products.cdp.backend.services.hog_function_content import comparable_conten
 logger = structlog.get_logger(__name__)
 
 # Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
-# "control_threshold": 0.7}, and may override the account cutoffs, for example {"established_min_age_days": 30,
+# "control_threshold": 0.7, "weak_rule_control_threshold": 0.9}, and may override the account cutoffs, for example {"established_min_age_days": 30,
 # "new_max_age_days": 14, "new_max_members": 2}.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
@@ -78,7 +78,11 @@ class ScoredHogFunction:
 
     @property
     def would_alert(self) -> bool:
-        return bool(self.rule_hits) or (self.verdict is not None and self.verdict.would_alert)
+        if self.verdict is None:
+            return bool(self.rule_hits)
+        weak_rules_only = set(self.rule_hits) <= rules.WEAK_RULES
+        rules_alert = bool(self.rule_hits) and not (weak_rules_only and self.verdict.clearly_normal)
+        return rules_alert or self.verdict.would_alert
 
     @property
     def would_block(self) -> bool:
@@ -171,11 +175,12 @@ def _flag_payload(team: Team) -> dict[str, Any]:
 
 
 def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
-    if not payload.keys() & {"alert_threshold", "block_threshold", "control_threshold"}:
+    optional = {"control": "control_threshold", "weak_rule_control": "weak_rule_control_threshold"}
+    if not payload.keys() & {"alert_threshold", "block_threshold", *optional.values()}:
         return Thresholds()
     try:
-        control = {"control": float(payload["control_threshold"])} if "control_threshold" in payload else {}
-        return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **control)
+        controls = {field: float(payload[key]) for field, key in optional.items() if key in payload}
+        return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **controls)
     except (KeyError, TypeError, ValueError, OverflowError):
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team_id, exc_info=True)
         return Thresholds()
