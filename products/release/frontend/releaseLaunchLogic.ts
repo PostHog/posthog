@@ -3,12 +3,18 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'lib/posthog-typed'
-import { scheduleDateToProjectTzISO } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamType } from '~/types'
 
-import { LaunchFlag, defaultLaunchFlagIds, scheduleFlagLaunches } from './releaseLaunch'
+import {
+    LaunchFailure,
+    LaunchFlag,
+    defaultLaunchFlagIds,
+    isLaunchInPast,
+    launchTimeISO,
+    scheduleFlagLaunches,
+} from './releaseLaunch'
 import { releaseLogic } from './releaseLogic'
 
 interface ReleaseLaunchLogicValues {
@@ -18,9 +24,10 @@ interface ReleaseLaunchLogicValues {
     launchFlags: LaunchFlag[]
     launchDate: Dayjs
     selectedFlagIds: number[]
-    failedFlagIds: number[]
+    failures: LaunchFailure[]
     launching: boolean
-    failedFlagKeys: string[]
+    failedFlags: (LaunchFailure & { key: string })[]
+    launchInPast: boolean
     timezone: string
 }
 
@@ -31,7 +38,7 @@ interface ReleaseLaunchLogicActions {
     setLaunchDate: (date: Dayjs) => { date: Dayjs }
     toggleLaunchFlag: (flagId: number, checked: boolean) => { flagId: number; checked: boolean }
     setSelectedFlagIds: (flagIds: number[]) => { flagIds: number[] }
-    setFailedFlagIds: (flagIds: number[]) => { flagIds: number[] }
+    setFailures: (failures: LaunchFailure[]) => { failures: LaunchFailure[] }
     launch: () => { value: true }
     launchDone: () => { value: true }
 }
@@ -52,7 +59,7 @@ export const releaseLaunchLogic = kea<releaseLaunchLogicType>([
         setLaunchDate: (date: Dayjs) => ({ date }),
         toggleLaunchFlag: (flagId: number, checked: boolean) => ({ flagId, checked }),
         setSelectedFlagIds: (flagIds: number[]) => ({ flagIds }),
-        setFailedFlagIds: (flagIds: number[]) => ({ flagIds }),
+        setFailures: (failures: LaunchFailure[]) => ({ failures }),
         launch: true,
         launchDone: true,
     }),
@@ -69,16 +76,23 @@ export const releaseLaunchLogic = kea<releaseLaunchLogicType>([
                     checked ? [...state.filter((id) => id !== flagId), flagId] : state.filter((id) => id !== flagId),
             },
         ],
-        failedFlagIds: [[] as number[], { openLaunch: () => [], setFailedFlagIds: (_, { flagIds }) => flagIds }],
+        failures: [[] as LaunchFailure[], { openLaunch: () => [], setFailures: (_, { failures }) => failures }],
         launching: [false, { launch: () => true, launchDone: () => false }],
     }),
     selectors({
-        failedFlagKeys: [
-            (s) => [s.launchFlags, s.failedFlagIds],
-            (launchFlags: LaunchFlag[], failedFlagIds: number[]): string[] =>
-                launchFlags.filter((flag) => failedFlagIds.includes(flag.id)).map((flag) => flag.key),
+        failedFlags: [
+            (s) => [s.launchFlags, s.failures],
+            (launchFlags: LaunchFlag[], failures: LaunchFailure[]): (LaunchFailure & { key: string })[] =>
+                failures.map((failure) => ({
+                    ...failure,
+                    key: launchFlags.find((flag) => flag.id === failure.flagId)?.key ?? String(failure.flagId),
+                })),
         ],
         timezone: [(s) => [s.currentTeam], (currentTeam: TeamType | null): string => currentTeam?.timezone || 'UTC'],
+        launchInPast: [
+            (s) => [s.launchDate, s.timezone],
+            (launchDate: Dayjs, timezone: string): boolean => isLaunchInPast(launchDate, timezone),
+        ],
     }),
     listeners(({ actions, values }) => ({
         openLaunch: ({ flags }) => {
@@ -90,27 +104,35 @@ export const releaseLaunchLogic = kea<releaseLaunchLogicType>([
                 actions.launchDone()
                 return
             }
+            if (isLaunchInPast(values.launchDate, values.timezone)) {
+                lemonToast.error('Pick a launch time in the future.')
+                actions.launchDone()
+                return
+            }
             try {
-                const { scheduledFlagIds, failedFlagIds } = await scheduleFlagLaunches(
+                const { scheduledFlagIds, failures } = await scheduleFlagLaunches(
                     String(values.currentProjectId),
                     flagIds,
-                    scheduleDateToProjectTzISO(values.launchDate, values.timezone)
+                    launchTimeISO(values.launchDate, values.timezone)
                 )
                 posthog.capture('release launch scheduled', {
                     flag_count: flagIds.length,
                     scheduled_count: scheduledFlagIds.length,
-                    failed_count: failedFlagIds.length,
+                    failed_count: failures.length,
+                    pending_approval_count: failures.filter((failure) => failure.pendingApproval).length,
                 })
                 if (scheduledFlagIds.length) {
                     actions.loadScheduledChanges()
                 }
-                if (failedFlagIds.length) {
-                    actions.setFailedFlagIds(failedFlagIds)
-                    actions.setSelectedFlagIds(failedFlagIds)
+                if (failures.length) {
+                    actions.setFailures(failures)
+                    actions.setSelectedFlagIds(
+                        failures.filter((failure) => !failure.pendingApproval).map((failure) => failure.flagId)
+                    )
                     lemonToast.error(
-                        failedFlagIds.length === 1
-                            ? 'One flag could not be scheduled. Try again.'
-                            : `${failedFlagIds.length} flags could not be scheduled. Try again.`
+                        failures.length === 1
+                            ? 'One flag could not be scheduled.'
+                            : `${failures.length} flags could not be scheduled.`
                     )
                 } else {
                     lemonToast.success(

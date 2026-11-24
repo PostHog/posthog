@@ -8,6 +8,7 @@ import {
     CalloutContent,
     CalloutDescription,
     CalloutIcon,
+    CalloutTitle,
     Checkbox,
     DatePicker,
     Dialog,
@@ -27,11 +28,13 @@ import {
 } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { releaseLaunchLogic } from './releaseLaunchLogic'
 
 export function ReleaseLaunchDialog(): JSX.Element {
-    const { launchOpen, launchFlags, launchDate, selectedFlagIds, failedFlagKeys, launching, timezone } =
+    const { launchOpen, launchFlags, launchDate, selectedFlagIds, failedFlags, launchInPast, launching, timezone } =
         useValues(releaseLaunchLogic)
     const { closeLaunch, setLaunchDate, toggleLaunchFlag, launch } = useActions(releaseLaunchLogic)
     const [pickerOpen, setPickerOpen] = useState(false)
@@ -98,13 +101,39 @@ export function ReleaseLaunchDialog(): JSX.Element {
                                 ))}
                             </div>
                         </Field>
-                        {failedFlagKeys.length > 0 && (
+                        {failedFlags.length > 0 && (
                             <Callout tone="destructive" data-attr="release-launch-failed">
                                 <CalloutIcon />
                                 <CalloutContent>
-                                    <CalloutDescription>
-                                        {`These flags could not be scheduled: ${failedFlagKeys.join(', ')}. The other flags are scheduled. Try again for these flags.`}
-                                    </CalloutDescription>
+                                    <CalloutTitle>
+                                        These flags could not be scheduled. The other flags are scheduled.
+                                    </CalloutTitle>
+                                    <ul className="flex flex-col gap-1">
+                                        {failedFlags.map((failure) => (
+                                            <li key={failure.flagId}>
+                                                <CalloutDescription>
+                                                    <span className="font-medium">{failure.key}</span>
+                                                    {failure.pendingApproval ? (
+                                                        <>
+                                                            <span>
+                                                                : a change to this flag waits for approval. Resolve it
+                                                                first, then schedule the launch.{' '}
+                                                            </span>
+                                                            <LinkPrimitive
+                                                                to={urls.featureFlag(failure.flagId)}
+                                                                className="underline"
+                                                                data-attr="release-launch-failed-open-flag"
+                                                            >
+                                                                Open the flag
+                                                            </LinkPrimitive>
+                                                        </>
+                                                    ) : (
+                                                        <span>: {failure.reason}</span>
+                                                    )}
+                                                </CalloutDescription>
+                                            </li>
+                                        ))}
+                                    </ul>
                                 </CalloutContent>
                             </Callout>
                         )}
@@ -118,7 +147,13 @@ export function ReleaseLaunchDialog(): JSX.Element {
                         variant="primary"
                         onClick={launch}
                         loading={launching}
-                        disabledReason={selectedFlagIds.length ? undefined : 'Select at least one flag'}
+                        disabledReason={
+                            !selectedFlagIds.length
+                                ? 'Select at least one flag'
+                                : launchInPast
+                                  ? 'Pick a launch time in the future'
+                                  : undefined
+                        }
                         data-attr="release-launch-confirm"
                     >
                         {selectedFlagIds.length === 1 ? 'Schedule 1 flag' : `Schedule ${selectedFlagIds.length} flags`}

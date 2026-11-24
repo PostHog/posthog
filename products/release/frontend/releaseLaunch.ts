@@ -1,3 +1,6 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { scheduleDateToProjectTzISO } from 'scenes/feature-flags/featureFlagLogic'
+
 import { scheduledChangesCreate } from 'products/feature_flags/frontend/generated/api'
 
 export interface LaunchFlag {
@@ -6,13 +9,36 @@ export interface LaunchFlag {
     active: boolean
 }
 
+export interface LaunchFailure {
+    flagId: number
+    reason: string
+    pendingApproval: boolean
+}
+
 export interface LaunchResult {
     scheduledFlagIds: number[]
-    failedFlagIds: number[]
+    failures: LaunchFailure[]
 }
 
 export function defaultLaunchFlagIds(flags: LaunchFlag[]): number[] {
     return flags.filter((flag) => !flag.active).map((flag) => flag.id)
+}
+
+export function launchTimeISO(date: Dayjs, timezone: string): string {
+    return scheduleDateToProjectTzISO(date, timezone)
+}
+
+export function isLaunchInPast(date: Dayjs, timezone: string, now: Dayjs = dayjs()): boolean {
+    return !dayjs(launchTimeISO(date, timezone)).isAfter(now)
+}
+
+function launchFailure(flagId: number, error: unknown): LaunchFailure {
+    const failure = error as { status?: number; code?: string | null; detail?: string | null; message?: string }
+    return {
+        flagId,
+        reason: failure?.detail || failure?.message || 'The request failed.',
+        pendingApproval: failure?.status === 409 && failure?.code === 'change_request_pending',
+    }
 }
 
 export async function scheduleFlagLaunches(
@@ -33,6 +59,8 @@ export async function scheduleFlagLaunches(
     )
     return {
         scheduledFlagIds: flagIds.filter((_, index) => results[index].status === 'fulfilled'),
-        failedFlagIds: flagIds.filter((_, index) => results[index].status === 'rejected'),
+        failures: results.flatMap((result, index) =>
+            result.status === 'rejected' ? [launchFailure(flagIds[index], result.reason)] : []
+        ),
     }
 }
