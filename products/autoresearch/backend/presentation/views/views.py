@@ -36,7 +36,7 @@ from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_r
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
-from products.autoresearch.backend.facade.access import has_autoresearch_access
+from products.autoresearch.backend.facade.access import access_refusal, has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import (
     ArtifactNotFound,
     ArtifactStorageUnavailable,
@@ -45,13 +45,14 @@ from products.autoresearch.backend.facade.contracts import (
     InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
+    TrainingBudgetReached,
     TrainingRunCapReached,
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
+    START_TRAINING_REFUSED_SERIALIZER,
     AgentModelOptionsSerializer,
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
@@ -80,6 +81,7 @@ from .serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingBudgetReachedSerializer,
     TrainingRunCapReachedSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
@@ -346,7 +348,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         description=(
             "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
             "against the daily limit, with when the next run can start at the limit, the "
-            "most experiments per training run, and live pipelines against the live pipeline limit. "
+            "most experiments per training run, live pipelines against the live pipeline limit, and this UTC "
+            "calendar month's training spend against the monthly budget, with when it resets. "
             "Read-only; it runs no queries."
         ),
     )
@@ -456,19 +459,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             ),
             403: OpenApiResponse(
                 description=(
-                    "The caller has no PostHog Desktop access, which cloud runs need, "
-                    "or the request comes from inside a sandbox."
+                    "The organization is deactivated or pending deletion (code 'organization_deactivated'), "
+                    "autoresearch is not enabled for the caller, or the request comes from inside a sandbox."
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
             429: OpenApiResponse(
-                response=TrainingRunCapReachedSerializer,
+                response=START_TRAINING_REFUSED_SERIALIZER,
                 description=(
-                    "The project used its daily limit of training runs (this body), "
-                    "or the team is over its PostHog Desktop usage limit."
+                    "The project used its daily limit of training runs, or its monthly training budget "
+                    "(code 'training_budget_reached')."
                 ),
             ),
-            503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
         description=(
@@ -487,11 +489,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
-        if access_response := code_access_required_response(request, self.organization):
-            return access_response
-        if limit_response := usage_limit_response(request.user, self.team_id):
-            return limit_response
+        # Session auth passes ActiveOrganizationPermission, so a deactivated organization is refused here.
+        if refusal := access_refusal(request.user, self.organization, team_id=self.team_id):
+            raise PermissionDenied(refusal.detail, code=refusal.code)
         try:
             training_run = api.start_training(
                 self.team_id,
@@ -510,6 +510,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         except TrainingRunCapReached as exc:
             body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
             return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)
+        except TrainingBudgetReached as exc:
+            budget_body = {
+                "detail": str(exc),
+                "code": exc.code,
+                "spent_usd": exc.spent_usd,
+                "limit_usd": exc.limit_usd,
+                "resets_at": exc.resets_at,
+            }
+            return Response(TrainingBudgetReachedSerializer(instance=budget_body).data, status=429)
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
@@ -810,6 +819,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         "materialize_features",
         "upload_artifact",
         "delete_artifact",
+        "stop",
     ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
@@ -1007,6 +1017,43 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 reader_summary=data.get("reader_summary"),
                 headline=data.get("headline"),
                 next_steps=data.get("next_steps"),
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The stopped training run, with status 'failed'.",
+            ),
+            400: OpenApiResponse(description="The training run already finished."),
+            403: OpenApiResponse(description="The request came from the training agent's sandbox."),
+            404: OpenApiResponse(description="The training run does not exist under this pipeline."),
+        },
+        summary="Stop a training run",
+        description=(
+            "Stop a pending or running training run. The run fails with a 'stopped' error, its sandbox is "
+            "cancelled, and no model is promoted from it, so the current champion keeps scoring. The iterations "
+            "it recorded stay. When this was the pipeline's first run, the pipeline goes back to draft and its "
+            "definition can change again. The run still counts against the project's daily training limit."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="stop")
+    def stop(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The training agent writes only through its own run, so a confused or injected agent must not stop runs.
+        if is_sandbox_origin_request(request) and _is_training_agent_sandbox(request, self.team_id):
+            raise PermissionDenied("Training runs cannot be stopped from inside a training sandbox.")
+        try:
+            training_run = api.stop_training_run(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                user_id=request.user.pk,
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

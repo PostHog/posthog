@@ -26,11 +26,11 @@ from products.warehouse_sources.sources.sleekplan.settings import (
     SLEEKPLAN_ENDPOINTS,
     SURVEY_LOOKBACK_DAYS,
     SURVEY_START_PARAM,
+    V1_FIRST_PAGE,
     SleekplanEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 30
-FIRST_PAGE = 1
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -51,8 +51,8 @@ class SleekplanPaginator(PageNumberPaginator):
     return a bare array under `data` with no flag, and fall back to the base class's stop-on-empty.
     """
 
-    def __init__(self) -> None:
-        super().__init__(base_page=FIRST_PAGE, page_param="page")
+    def __init__(self, base_page: int = V1_FIRST_PAGE) -> None:
+        super().__init__(base_page=base_page, page_param="page")
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
@@ -114,9 +114,9 @@ def _resolve_incremental_field(config: SleekplanEndpointConfig, incremental_fiel
     return config.default_incremental_field or next(iter(advertised))
 
 
-def _client_config(api_key: str) -> ClientConfig:
+def _client_config(api_key: str, base_url: str = SLEEKPLAN_BASE_URL) -> ClientConfig:
     return {
-        "base_url": SLEEKPLAN_BASE_URL,
+        "base_url": base_url,
         # Framework auth rather than a hand-built header, so the key is redacted from logs and
         # captured samples.
         "auth": {"type": "bearer", "token": api_key},
@@ -143,8 +143,10 @@ def _resource(
         "path": config.path,
         "params": _endpoint_params(config),
         "data_selector": config.data_selector,
-        "paginator": SleekplanPaginator(),
+        "paginator": SleekplanPaginator(config.first_page),
     }
+    if config.response_actions:
+        endpoint_config["response_actions"] = config.response_actions
 
     use_merge = should_use_incremental_field and bool(config.incremental_fields)
     if use_merge:
@@ -211,7 +213,7 @@ def sleekplan_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = SLEEKPLAN_ENDPOINTS[endpoint]
-    client_config = _client_config(api_key)
+    client_config = _client_config(api_key, config.base_url)
 
     if config.fanout is not None:
         return _fan_out_source(config, client_config, team_id, job_id, resumable_source_manager)
@@ -253,6 +255,12 @@ def _fan_out_source(
 ) -> SourceResponse:
     assert config.fanout is not None
     parent_config = SLEEKPLAN_ENDPOINTS[config.fanout.parent_name]
+    parent_endpoint_extra: Endpoint = {
+        "paginator": SleekplanPaginator(parent_config.first_page),
+        "data_selector": parent_config.data_selector,
+    }
+    if parent_config.response_actions:
+        parent_endpoint_extra["response_actions"] = parent_config.response_actions
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -276,12 +284,9 @@ def _fan_out_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             page_size_param="per_page",
-            parent_endpoint_extra={
-                "paginator": SleekplanPaginator(),
-                "data_selector": parent_config.data_selector,
-            },
+            parent_endpoint_extra=parent_endpoint_extra,
             child_endpoint_extra={
-                "paginator": SleekplanPaginator(),
+                "paginator": SleekplanPaginator(config.first_page),
                 "data_selector": config.data_selector,
             },
             resume_hook=save_checkpoint,

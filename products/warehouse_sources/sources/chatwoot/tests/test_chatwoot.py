@@ -25,7 +25,13 @@ from products.warehouse_sources.sources.chatwoot.chatwoot import (
 from products.warehouse_sources.sources.chatwoot.settings import CHATWOOT_ENDPOINTS, ENDPOINTS, MESSAGES_PAGE_SIZE
 from products.warehouse_sources.sources.chatwoot.source import ChatwootSource
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 TEAM_ID = 1
 
@@ -222,6 +228,24 @@ class TestGetRowsPaged:
         assert isinstance(result.raised, Exception)
         assert "not allowed" in str(result.raised)
         assert result.requests == []
+
+
+class TestFetchJsonRetries:
+    @mock.patch("products.warehouse_sources.sources.chatwoot.chatwoot.make_tracked_session")
+    def test_retries_a_connection_reset_mid_body_stream(self, mock_session):
+        # requests surfaces a connection reset while streaming the body (inside _read_capped_body's
+        # iter_content) as ChunkedEncodingError, a sibling of ConnectionError rather than a subclass.
+        broken = mock.MagicMock(status_code=200, ok=True, is_redirect=False, is_permanent_redirect=False)
+        broken.iter_content.side_effect = requests.exceptions.ChunkedEncodingError(
+            "Connection broken: ConnectionResetError(104, 'Connection reset by peer')"
+        )
+        mock_session.return_value.get.side_effect = [broken, _resp([{"id": 3}])]
+        manager = _make_manager()
+
+        batches = list(get_rows(None, "1", "token", "teams", TEAM_ID, mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == [3]
+        assert mock_session.return_value.get.call_count == 2
 
 
 class TestGetRowsMessages:
@@ -433,6 +457,38 @@ class TestGetRowsReportingEvents:
         ]
 
 
+class TestRetryExhaustion:
+    @pytest.mark.parametrize(
+        "status, expected_messages",
+        [
+            (
+                525,
+                [
+                    "Cloudflare could not complete a secure connection to your Chatwoot server (HTTP 525). Check the TLS setup between Cloudflare and your Chatwoot server, then turn syncing back on."
+                ],
+            ),
+            (
+                526,
+                [
+                    "Cloudflare rejected the TLS certificate of your Chatwoot server (HTTP 526). Install a valid certificate on your Chatwoot server, then turn syncing back on."
+                ],
+            ),
+            # An ordinary server error stays retryable on the next schedule.
+            (503, []),
+        ],
+    )
+    def test_origin_tls_failures_are_non_retryable_after_retries_run_out(self, status, expected_messages):
+        result = _driver().run("teams", always(ScriptedResponse(status=status, body=b"<html>error</html>")))
+
+        assert result.raised is not None
+        matches = [
+            message
+            for pattern, message in ChatwootSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        ]
+        assert matches == expected_messages
+
+
 class TestGetRowsAuditLogs:
     @pytest.mark.parametrize(
         "watermark, expected_since",
@@ -590,6 +646,32 @@ class TestWebhookTableTransformer:
         assert row["message_type"] == 0
         assert row["created_at"] == 1767323045
         assert "event" not in row and "account" not in row and "conversation" not in row and "inbox" not in row
+
+    @pytest.mark.parametrize(
+        "first_reply_created_at, expected",
+        [
+            ("2026-01-02T03:04:05.123Z", 1767323045),
+            (None, 0),
+        ],
+    )
+    def test_conversation_first_reply_created_at_matches_the_rest_type(self, first_reply_created_at, expected):
+        transform = make_webhook_table_transformer("conversations")
+        table = table_from_py_list(
+            [
+                {
+                    "event": "conversation_updated",
+                    "id": 7,
+                    "status": "open",
+                    "created_at": 1767323000,
+                    "first_reply_created_at": first_reply_created_at,
+                    "account": {"id": 1, "name": "acme"},
+                }
+            ]
+        )
+
+        rows = transform(table).to_pylist()
+
+        assert rows[0]["first_reply_created_at"] == expected
 
     def test_rows_without_an_id_are_dropped(self):
         transform = make_webhook_table_transformer("conversations")

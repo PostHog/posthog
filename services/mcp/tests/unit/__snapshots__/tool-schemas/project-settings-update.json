@@ -357,6 +357,40 @@
                 "payment_event": {
                     "description": "Event used to count payments on dashboards."
                 },
+                "role_default_pinned_properties": {
+                    "description": "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write.",
+                    "items": {
+                        "properties": {
+                            "pinned_properties": {
+                                "description": "Ordered account properties shown to members of this role.",
+                                "items": {
+                                    "properties": {
+                                        "id": {
+                                            "description": "Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.",
+                                            "maxLength": 64,
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "description": "Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship\n* `account_field` - Account field",
+                                            "enum": ["custom_property", "relationship", "account_field"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["kind", "id"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "role_id": {
+                                "description": "Organization role whose members inherit these properties.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["role_id", "pinned_properties"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "signup_event": {
                     "description": "Event used to count signups on dashboards."
                 },
@@ -488,7 +522,7 @@
             ]
         },
         "id": {
-            "description": "Project ID, or `@current` to target the caller's active project.",
+            "description": "Project ID. If omitted, updates the caller's active project.",
             "maximum": 2147483647,
             "minimum": -2147483648,
             "type": "number"
@@ -4024,28 +4058,6 @@
                 }
             ]
         },
-        "recording_domains": {
-            "anyOf": [
-                {
-                    "items": {
-                        "anyOf": [
-                            {
-                                "maxLength": 200,
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Origins permitted to record session replays and heatmaps. Empty list allows all origins."
-        },
         "require_evaluation_contexts": {
             "anyOf": [
                 {
@@ -4440,6 +4452,10 @@
                     "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.",
                     "type": "boolean"
                 },
+                "email_workflow_run_link_tag_enabled": {
+                    "description": "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default.",
+                    "type": "boolean"
+                },
                 "marketing_frequency_cap_hold_hours": {
                     "anyOf": [
                         {
@@ -4531,6 +4547,5 @@
             "type": "object"
         }
     },
-    "required": ["id"],
     "type": "object"
 }

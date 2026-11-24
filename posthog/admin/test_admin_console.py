@@ -1,8 +1,8 @@
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from pathlib import Path
 from types import FunctionType
 from urllib.parse import urlencode
 
@@ -12,7 +12,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django import forms
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
@@ -20,6 +20,7 @@ from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -30,6 +31,7 @@ from django.utils import timezone
 from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from kombu.exceptions import OperationalError
 from loginas import settings as la_settings
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -41,7 +43,7 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.results import (
@@ -52,14 +54,22 @@ from posthog.admin.console.results import (
 )
 from posthog.admin.console.tools import (
     Cell,
+    Choice,
     ConsoleTool,
+    Decision,
     Download,
+    FieldGroup,
+    Filters,
+    Link,
+    Links,
     Live,
     Notice,
     Page,
     Paging,
     Row,
     Secret,
+    Stat,
+    Stats,
     Table,
     ToolOperation,
 )
@@ -90,12 +100,6 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.billing.quota_limiting import QuotaResource
 from ee.hogai.django_checkpoint.compaction import CompactionResult
 
-TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
-REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
-
-_CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
-_TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 CONSOLE_HOME = "/admin/console/"
@@ -107,6 +111,7 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
     {
         "admin/posthog/user/<int:pk>/delete/",
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
+        "admin/legal_documents/legaldocument/add/",
         "admin/posthog/datadeletionrequest/add/",
         "admin/account_audits/accountauditcredential/add/",
         "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
@@ -114,13 +119,6 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
 )
 # Django's set-password form. UserAdmin sets change_password_form to None, so the raw view never shows a form.
 DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
-
-
-def _selector_present(css: str, class_name: str) -> bool:
-    # Tailwind and quill escape every character that is not selector-safe, so `@3xl:grid-cols-2` is
-    # written `.\@3xl\:grid-cols-2`. The trailing guard stops `.flex` matching inside `.flex-1`.
-    escaped = "".join(char if char.isalnum() or char in "-_" else "\\" + char for char in class_name)
-    return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
 
 
 def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
@@ -138,7 +136,7 @@ class _DuplicatePanel(Panel):
     record = "team"
     key = "overview"
     title = "Duplicate"
-    owner = Owner(name="Dev experience", crest="dev-experience")
+    owner = None
 
 
 class _UndeclaredOperationPanel(_DuplicatePanel):
@@ -151,8 +149,96 @@ class _UndeclaredOperationPanel(_DuplicatePanel):
 class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
-    owner = Owner(name="Dev experience", crest="dev-experience")
-    group = "Data"
+    owner = None
+    group = "Infrastructure"
+
+
+class _ToolActionForm(forms.Form):
+    reason = forms.CharField()
+    confirm = forms.CharField(required=False)
+
+
+class _ToolFiltersForm(forms.Form):
+    since = forms.CharField()
+    step = forms.CharField(widget=forms.HiddenInput, required=False)
+
+
+class _ActingTool(_Tool):
+    key = "acting-tool"
+    title = "Acting tool"
+    runs: list[str] = []
+
+    def _act(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+        assert form is not None
+        if form.cleaned_data["confirm"] != "yes":
+            messages.error(request, "Type yes to confirm.")
+            return HttpResponse(status=400)
+        self.runs.append(form.cleaned_data["reason"])
+        return None
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        if request.GET.get("state") == "stale":
+            return []
+        return [
+            ToolOperation(
+                key="act", label="Act", handler=self._act, form_class=_ToolActionForm, pending_label="Acting..."
+            )
+        ]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(
+            blocks=(
+                Notice(text="Check the window first.", tone=Tone.WARNING),
+                Stats(items=(Stat(label="Runs to replay", value="1,234"),)),
+                Links(
+                    items=(
+                        Link(label="Show details", href="/admin/console/", primary=True, pending_label="Loading..."),
+                    )
+                ),
+                Filters(
+                    form=_ToolFiltersForm(request.GET),
+                    groups=(FieldGroup(title="Window", field_names=("since",)),),
+                    submit_label="Preview",
+                ),
+            )
+        )
+
+
+class _VerdictForm(forms.Form):
+    item = forms.CharField()
+    verdict = forms.ChoiceField(choices=[("good", "Good"), ("bad", "Bad")])
+    note = forms.CharField(required=False)
+
+
+DECISION = Decision(
+    title="Item 3",
+    text="What the item says.",
+    operation_key="judge",
+    field="verdict",
+    choices=(Choice(label="Good", value="good", tone=Tone.SUCCESS, key="ArrowRight"),),
+    values={"item": "3"},
+    note_field="note",
+    note_label="Why",
+    query="item=4",
+    skip_href="/admin/console/tools/deciding-tool/?item=4",
+    skip_key="ArrowDown",
+)
+
+
+class _DecidingTool(_Tool):
+    key = "deciding-tool"
+    title = "Deciding tool"
+    decided: list[dict[str, str]] = []
+
+    def _judge(self, request: HttpRequest, form: forms.Form | None) -> None:
+        assert form is not None
+        self.decided.append(form.cleaned_data)
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [ToolOperation(key="judge", label="Judge", handler=self._judge, form_class=_VerdictForm, listed=False)]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=(replace(DECISION, operation_key=request.GET.get("runs", "judge")),))
 
 
 class _SecretTool(_Tool):
@@ -177,7 +263,13 @@ class _SecretTool(_Tool):
     @classmethod
     def issue(cls, request: HttpRequest, form: object) -> Page:
         cls.runs += 1
-        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
+        return Page(
+            blocks=(
+                Stats(items=(Stat(label="Passwords issued", value="1"),)),
+                Secret(label="Root password", value="example-secret-value"),
+                Links(items=(Link(label="Back to the cluster", href="/admin/console/"),)),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -214,54 +306,7 @@ def _move_twice() -> None:
     registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
-class TestAdminConsoleAssets(SimpleTestCase):
-    def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
-        css = (CONSOLE_ASSETS / "console.css").read_text()
-        templates = sorted(TEMPLATE_DIR.glob("*.html"))
-        assert templates, f"No templates found in {TEMPLATE_DIR}, so this test checks nothing."
-
-        missing: dict[str, set[str]] = {}
-        for template in templates:
-            for attribute in _CLASS_ATTRIBUTE.findall(template.read_text()):
-                for token in _TEMPLATE_TAG.sub(" ", attribute).split():
-                    # `group/name` only marks a parent for `group-*/name:` variants and has no rule of its own.
-                    if token.startswith("group/") or "{" in token or "}" in token:
-                        continue
-                    if not _selector_present(css, token):
-                        missing.setdefault(template.name, set()).add(token)
-
-        assert not missing, (
-            "These classes are in the console templates but not in console.css, so they render unstyled. "
-            f"Rebuild with `{REBUILD}`. If the class is quill's, quill may have renamed it: "
-            + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
-        )
-
-    def test_every_asset_the_templates_link_to_ships(self) -> None:
-        linked = {
-            name
-            for template in TEMPLATE_DIR.glob("*.html")
-            for name in re.findall(r"/static/admin-console/([^\"?{]+)[\"?]", template.read_text())
-        }
-        assert linked, "No linked assets found, so this test checks nothing."
-
-        missing = sorted(name for name in linked if not (CONSOLE_ASSETS / name).is_file())
-        assert not missing, (
-            f"These assets are linked from the console templates but missing. Rebuild with `{REBUILD}`: {missing}"
-        )
-
-    def test_every_owner_crest_ships(self) -> None:
-        missing = sorted(
-            {
-                owner.crest
-                for owner in console.owners()
-                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
-            }
-        )
-
-        assert not missing, (
-            f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
-        )
-
+class TestAdminConsoleContract(SimpleTestCase):
     @parameterized.expand(
         [
             ("duplicate_panel_key", _register_twice, "already used"),
@@ -317,14 +362,55 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "undo_hint",
             ),
             (
+                "danger_tool_operation_without_reason",
+                lambda: ToolOperation(
+                    key="wipe",
+                    label="Wipe",
+                    handler=lambda request, form: None,
+                    form_class=forms.Form,
+                    danger=True,
+                    undo_hint="It cannot be undone.",
+                ),
+                "reason",
+            ),
+            (
+                "link_off_site",
+                lambda: Link(label="Docs", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "filters_that_would_hide_a_field",
+                lambda: Filters(
+                    form=_ToolActionForm(),
+                    groups=(FieldGroup(title="Only one", field_names=("reason",)),),
+                    submit_label="Go",
+                ),
+                "must name each form field",
+            ),
+            (
                 "owner_gate_for_an_owner_without_a_staff_group",
-                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                lambda: Gate.owner().resolve(Owner(name="Replay", crest="replay")),
                 "has no staff_group",
             ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
             (
                 "fact_linking_off_site",
                 lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "notice_linking_off_site_with_a_backslash",
+                lambda: Notice(text="Moved", link_text="Open", href="/\\example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "link_off_site_with_a_tab_the_browser_drops",
+                lambda: Link(label="Docs", href="/\t/example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_newline_the_browser_drops",
+                lambda: Fact(label="Docs", value="Read", href="/\n/example.com/phish"),
                 "starts with /",
             ),
             (
@@ -350,7 +436,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
                         ),
                     )
                 ),
-                "not a table, notice or output",
+                "not a table, notice, output or stats",
+            ),
+            (
+                "live_block_holding_a_secret",
+                lambda: Live(key="password", block=Secret(label="Root password", value="example")),  # type: ignore[arg-type]
+                "not a table, notice, output or stats",
             ),
             (
                 "secret_on_a_page_that_renders_again",
@@ -361,6 +452,16 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "decision_value_that_a_button_also_posts",
+                lambda: replace(DECISION, values={"verdict": "good"}),
+                "must not set",
+            ),
+            (
+                "decision_skip_link_off_site",
+                lambda: replace(DECISION, skip_href="//example.com/phish"),
+                "starts with /",
             ),
             (
                 "download_name_that_would_break_the_header",
@@ -620,14 +721,23 @@ class TestAdminConsoleViews(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def test_staff_login_is_required(self) -> None:
+    @parameterized.expand([("team_page", "/admin/console/teams/{team}/"), ("tools_index", "/admin/console/tools/")])
+    def test_staff_login_is_required(self, _name: str, path: str) -> None:
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+        response = self.client.get(path.format(team=self.team.pk))
 
         assert response.status_code == 302
         assert response["Location"].startswith("/admin/login/")
+
+    def test_the_tools_page_links_every_registered_tool(self) -> None:
+        response = self.client.get("/admin/console/tools/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        for tool in console.tools():
+            assert f'href="/admin/console/tools/{tool.key}/"' in content, f"{tool.key} is missing from the tools page"
 
     def test_operations_need_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
@@ -659,6 +769,7 @@ class TestAdminConsoleViews(BaseTest):
         assert first.cookies[KEY_COOKIE]["max-age"] == 0
         assert first.status_code == 200
         assert "example-secret-value" in first.content.decode()
+        assert "Passwords issued" in first.content.decode() and "Back to the cluster" in first.content.decode()
         assert reload.status_code == 410
         assert "example-secret-value" not in reload.content.decode()
         assert _SecretTool.runs == 1
@@ -692,6 +803,18 @@ class TestAdminConsoleViews(BaseTest):
     def _record(self, record: str) -> Model:
         if record == "deletion-request":
             return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        if record == "oauth-application":
+            return OAuthApplication.objects.create(
+                name="Console app",
+                client_id="console_app_client_id",
+                client_secret="secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                is_provisioning_partner=True,
+            )
         return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
             record
         ]
@@ -731,7 +854,14 @@ class TestAdminConsoleViews(BaseTest):
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
-        assert f"/admin/console/teams/{self.team.pk}/" in home
+        opened_pages = (
+            f"/admin/console/teams/{self.team.pk}/",
+            f"/admin/console/organizations/{self.organization.pk}/",
+            f"/admin/console/projects/{self.project.pk}/",
+            f"/admin/console/users/{self.user.pk}/",
+        )
+        for opened_page in opened_pages:
+            assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
@@ -762,6 +892,10 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("team_name", "team", None),
+            ("organization_name", "organization_name", None),
+            ("team_uuid", "team_uuid", None),
+            ("team_api_token_in_uuid_form", "team_token", None),
+            ("organization_id", "organization", None),
             ("user_email_in_another_case", "user", None),
             ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
         ]
@@ -769,6 +903,16 @@ class TestAdminConsoleViews(BaseTest):
     def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
         if record == "team":
             query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        elif record == "organization_name":
+            query, expected = "Lookup Hedgehogs", f"/admin/console/teams/{self.team.pk}/"
+            Organization.objects.filter(pk=self.organization.pk).update(name="The Lookup Hedgehogs Ltd")
+        elif record == "team_uuid":
+            query, expected = str(self.team.uuid), f"/admin/console/teams/{self.team.pk}/"
+        elif record == "team_token":
+            query, expected = "3f2b8c1e-5d47-4a90-b6e2-9c0d1f7a8e35", f"/admin/console/teams/{self.team.pk}/"
+            Team.objects.filter(pk=self.team.pk).update(api_token=query)
+        elif record == "organization":
+            query, expected = str(self.organization.pk), f"/admin/console/organizations/{self.organization.pk}/"
         else:
             query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
         params = {"q": query, **({"ticket": ticket} if ticket else {})}
@@ -807,6 +951,79 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         self.team.refresh_from_db()
         assert self.team.api_token == expected_token
+
+    @parameterized.expand(
+        [
+            ("runs_and_keeps_the_query", "?window=1", {"reason": "outage", "confirm": "yes"}, 302, ["outage"]),
+            ("handler_refusal_keeps_what_staff_typed", "", {"reason": "kept text", "confirm": "no"}, 400, []),
+            ("invalid_form_runs_nothing", "", {"reason": "", "confirm": "yes"}, 400, []),
+            ("operation_the_tool_no_longer_offers", "?state=stale", {"reason": "late", "confirm": "yes"}, 404, []),
+        ]
+    )
+    def test_a_tool_operation_runs_only_when_offered_and_valid(
+        self, _name: str, query: str, data: dict[str, str], status: int, runs: list[str]
+    ) -> None:
+        _ActingTool.runs = []
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.post(f"/admin/console/tools/acting-tool/act/{query}", data)
+
+        assert response.status_code == status
+        assert _ActingTool.runs == runs
+        if status == 302:
+            assert response["Location"] == f"/admin/console/tools/acting-tool/{query}"
+        if data["reason"] == "kept text":
+            content = response.content.decode()
+            assert "Type yes to confirm." in content
+            assert 'value="kept text"' in content
+            assert 'data-pending-label="Acting..."' in content
+
+    def test_a_tool_page_renders_every_block_it_holds(self) -> None:
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.get("/admin/console/tools/acting-tool/?since=2026-10-22&step=details")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-tone="warning"' in content and "Check the window first." in content
+        assert "Runs to replay" in content and "1,234" in content
+        assert 'data-pending-label="Loading..."' in content and "Show details" in content
+        assert 'value="2026-10-22"' in content and "Preview" in content
+        assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
+        _DecidingTool.decided = []
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            page = self.client.get("/admin/console/tools/deciding-tool/").content.decode()
+            response = self.client.post(
+                "/admin/console/tools/deciding-tool/judge/?item=4", {"item": "3", "verdict": "good", "note": "Fine"}
+            )
+
+        assert 'action="/admin/console/tools/deciding-tool/judge/?item=4"' in page
+        assert '<input type="hidden" name="item" value="3"' in page
+        assert re.search(r'name="verdict"\s+value="good"\s+data-console-key="ArrowRight"', page)
+        assert 'href="/admin/console/tools/deciding-tool/?item=4"' in page and 'data-console-key="ArrowDown"' in page
+        # The operation is the Decision's, so the Actions card does not offer its form too.
+        assert "tool-actions-title" not in page
+        assert response["Location"] == "/admin/console/tools/deciding-tool/?item=4"
+        assert _DecidingTool.decided == [{"item": "3", "verdict": "good", "note": "Fine"}]
+
+    def test_a_decision_for_an_operation_the_tool_does_not_offer_fails_the_page(self) -> None:
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            with self.assertRaisesRegex(ValueError, "must offer with a form"):
+                self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
+
+    def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        _ActingTool.runs = []
+
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = client.post(
+                "/admin/console/tools/acting-tool/act/?personal_api_key=phx_example",
+                {"reason": "forged", "confirm": "yes"},
+            )
+
+        assert response.status_code == 403
+        assert _ActingTool.runs == []
 
     @parameterized.expand(
         [
@@ -1130,6 +1347,35 @@ class TestAdminConsoleViews(BaseTest):
         assert "restriction_type=redirect_to_dlq" not in content
         assert "The high cardinality query failed: Timeout exceeded" in content
         assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
+
+    @patch("posthog.models.distinct_id_usage.report.DistinctIdUsageQueries")
+    def test_distinct_id_usage_report_reuses_event_counts_but_not_restrictions(self, queries: MagicMock) -> None:
+        caches["default"].clear()
+        queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
+        queries.high_cardinality.return_value = []
+        burst_minute = datetime(2026, 11, 7, 5, 30, tzinfo=UTC)
+        queries.distinct_id_bursts.return_value = [(self.team.pk, "bursty-user", burst_minute, 150_000)]
+        queries.team_bursts.return_value = [(self.team.pk, burst_minute, 600_000)]
+        url = (
+            "/admin/console/tools/distinct-id-usage/?datetime_from=2026-11-07T04%3A00&datetime_to=2026-11-07T10%3A00"
+            "&high_usage_percentage_threshold=30&high_usage_min_events_threshold=10000"
+            "&high_usage_distinct_id_min_events=100000&high_cardinality_threshold=1000000"
+            "&burst_distinct_id_threshold=100000&burst_team_threshold=500000"
+        )
+
+        first = self.client.get(url).content.decode()
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["heavy-user"],
+        )
+        second = self.client.get(url).content.decode()
+
+        assert queries.high_usage.call_count == 1
+        assert "Event counts were read at" in second
+        assert "bursty-user" in second and "600,000" in first and "600,000" in second
+        assert "Not in list" not in first
+        assert "Applied: Skip person processing" in second
 
     @parameterized.expand(
         [
@@ -1685,15 +1931,16 @@ class TestAdminConsoleApiKeys(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _personal_key(self) -> PersonalAPIKey:
+    def _personal_key(self, **fields: object) -> PersonalAPIKey:
         token = generate_random_token_personal()
-        return PersonalAPIKey.objects.create(
-            user=self.user,
-            label="Leaked key",
-            secure_value=hash_key_value(token),
-            mask_value=mask_key_value(token),
-            scopes=["*"],
-        )
+        defaults: dict[str, object] = {
+            "user": self.user,
+            "label": "Leaked key",
+            "secure_value": hash_key_value(token),
+            "mask_value": mask_key_value(token),
+            "scopes": ["*"],
+        }
+        return PersonalAPIKey.objects.create(**{**defaults, **fields})
 
     @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
     def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
@@ -1712,6 +1959,100 @@ class TestAdminConsoleApiKeys(BaseTest):
         exposed.assert_called_once_with(
             self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
         )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_an_organization_operation_changes_only_the_keys_that_reach_the_organization(
+        self, operation: str, exposed: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Another organization")
+        self.user.join(organization=other)
+        outsider = User.objects.create_and_join(other, "outsider@example.com", None)
+        unscoped = self._personal_key(label="Unscoped key")
+        scoped_here = self._personal_key(label="Scoped here key", scoped_organizations=[str(self.organization.pk)])
+        untouched = [
+            self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
+            self._personal_key(label="Outsider key", user=outsider),
+        ]
+        # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
+        narrowed = self._personal_key(label="Narrowed during the run key", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
+            if instance.pk != narrowed.pk:
+                PersonalAPIKey.objects.filter(pk=narrowed.pk).update(scoped_organizations=[str(other.pk)])
+
+        tool = self.client.get(
+            f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
+        )
+        preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
+        assert preview.status_code == 200
+        untouched.append(self._personal_key(label="Created after the preview key"))
+        post_save.connect(narrow, sender=PersonalAPIKey)
+        post_delete.connect(narrow, sender=PersonalAPIKey)
+        try:
+            confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        finally:
+            post_save.disconnect(narrow, sender=PersonalAPIKey)
+            post_delete.disconnect(narrow, sender=PersonalAPIKey)
+        replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302 and replayed.status_code == 302
+        assert "Unscoped key" in tool.content.decode() and "Outsider key" not in tool.content.decode()
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
+            ("Unscoped key", "Other organizations too"),
+            ("Scoped here key", "This organization only"),
+            ("Narrowed during the run key", "Other organizations too"),
+        }
+        assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
+        untouched.append(narrowed)
+        assert [PersonalAPIKey.objects.get(pk=key.pk).secure_value for key in untouched] == [
+            key.secure_value for key in untouched
+        ]
+        in_reach = PersonalAPIKey.objects.filter(user=self.user, pk__in=[unscoped.pk, scoped_here.pk])
+        if operation == "revoke-all":
+            assert not in_reach.exists()
+            exposed.delay.assert_not_called()
+        else:
+            old_values = {unscoped.secure_value, scoped_here.secure_value}
+            assert len(set(in_reach.values_list("secure_value", flat=True)) - old_values) == 2
+            assert exposed.delay.call_count == 2
+            exposed.delay.assert_any_call(
+                self.user.id, unscoped.id, unscoped.mask_value, "This key was detected at https://example.com/leak."
+            )
+
+    @parameterized.expand([("roll-all",), ("revoke-all",)])
+    def test_an_organization_operation_refuses_more_keys_than_the_preview_lists(self, operation: str) -> None:
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        with patch("posthog.admin.console.api_key_panels.KEYS_LIST_LIMIT", 1):
+            preview = self.client.post(url, {"reason": "Keys leaked"})
+
+        assert preview.status_code == 400
+        assert "confirm_token" not in preview.context
+        assert "too many to change at once" in preview.content.decode()
+        assert PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).count() == 2
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_all_keys_continues_when_an_email_cannot_be_queued(self, exposed: MagicMock) -> None:
+        exposed.delay.side_effect = [OperationalError("broker unavailable"), None]
+        keys = [self._personal_key(label=f"Key {index}") for index in range(2)]
+        url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/roll-all/"
+
+        preview = self.client.post(url, {"reason": "Keys leaked"})
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert not PersonalAPIKey.objects.filter(secure_value__in=[key.secure_value for key in keys]).exists()
+        assert (
+            LogEntry.objects.filter(object_id__in=[key.pk for key in keys], change_message="Rolled key.").count() == 2
+        )
+        assert [str(message) for message in messages.get_messages(confirmed.wsgi_request)] == [
+            "Rolled 2 personal API keys.",
+            f"Could not email these owners: {self.user.email}. Tell them that their keys changed.",
+        ]
 
     @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")

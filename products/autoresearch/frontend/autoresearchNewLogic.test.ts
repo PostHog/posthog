@@ -8,9 +8,10 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { autoresearchNewLogic } from './autoresearchNewLogic'
+import { NewPipelineFormValues, autoresearchNewLogic } from './autoresearchNewLogic'
 import {
     autoresearchCreate,
+    autoresearchLimitsRetrieve,
     autoresearchResolveTemplateCreate,
     autoresearchTemplatesList,
     autoresearchTrainCreate,
@@ -19,6 +20,7 @@ import {
 
 jest.mock('./generated/api', () => ({
     autoresearchCreate: jest.fn(),
+    autoresearchLimitsRetrieve: jest.fn(),
     autoresearchTrainCreate: jest.fn(),
     autoresearchValidateCreate: jest.fn(),
     autoresearchTemplatesList: jest.fn(),
@@ -30,6 +32,16 @@ const mockValidate = autoresearchValidateCreate as jest.Mock
 const mockTemplates = autoresearchTemplatesList as jest.Mock
 const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
 const mockTrain = autoresearchTrainCreate as jest.Mock
+const mockLimits = autoresearchLimitsRetrieve as jest.Mock
+
+const LIMITS = {
+    max_training_runs_per_day: 3,
+    training_runs_used: 1,
+    next_slot_at: null,
+    max_iterations_per_run: 10,
+    max_live_pipelines: 3,
+    live_pipelines: 2,
+}
 
 function validation(
     warnings: { code: string; severity: string }[],
@@ -89,6 +101,9 @@ function resolved(overrides: Record<string, unknown>): Record<string, unknown> {
     }
 }
 
+// A custom model validates and creates only once its population is chosen.
+const ALL_USERS = { population_choice: 'all' } as const
+
 async function settle(logic: ReturnType<typeof autoresearchNewLogic.build>): Promise<void> {
     await jest.advanceTimersByTimeAsync(1000)
     await expectLogic(logic).toFinishAllListeners()
@@ -101,6 +116,28 @@ describe('autoresearchNewLogic', () => {
         initKeaTests()
         mockValidate.mockResolvedValue({ can_proceed: true, warnings: [] })
         mockTemplates.mockResolvedValue(TEMPLATES)
+        mockLimits.mockResolvedValue(LIMITS)
+    })
+
+    it.each([
+        [
+            'training on',
+            LIMITS,
+            'This project can start 3 training runs in any 24 hours (1 used) and keep 3 models active (2 active now).',
+        ],
+        [
+            'training turned off',
+            { ...LIMITS, max_training_runs_per_day: 0, training_runs_used: 0 },
+            'Training is turned off for this project. It can keep 3 models active (2 active now).',
+        ],
+    ])('summarizes the project limits with %s', async (_, limits, expected) => {
+        mockLimits.mockResolvedValue(limits)
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        await settle(logic)
+
+        // pluralize joins the count and the word with a non-breaking space.
+        expect(logic.values.projectLimitsSummary?.replace(/\u00a0/g, ' ')).toEqual(expected)
     })
 
     afterEach(() => {
@@ -114,15 +151,69 @@ describe('autoresearchNewLogic', () => {
         ['a horizon out of range', { horizon_days: 0 }, 0],
         ['a fractional horizon', { horizon_days: 1.5 }, 0],
         ['a fractional training lookback', { training_lookback_days: 30.5 }, 0],
-    ])('sends %s to the validate endpoint only when the day fields are valid', async (_, days, expectedCalls) => {
+        ['a custom model with no population chosen', { population_choice: null }, 0],
+        ['a population event not picked yet', { population_choice: 'event' as const }, 0],
+    ] as [
+        string,
+        Partial<Pick<NewPipelineFormValues, 'horizon_days' | 'training_lookback_days' | 'population_choice'>>,
+        number,
+    ][])('sends %s to the validate endpoint only when the form is complete', async (_, values, expectedCalls) => {
         const logic = autoresearchNewLogic()
         logic.mount()
 
-        logic.actions.setNewPipelineValues({ target_event: '$pageview', ...days })
+        logic.actions.setNewPipelineValues({ target_event: '$pageview', ...ALL_USERS, ...values })
         await settle(logic)
 
         expect(mockValidate).toHaveBeenCalledTimes(expectedCalls)
         expect(logic.values.validationFailed).toBe(false)
+    })
+
+    it.each([
+        [
+            'all identified users',
+            (logic: ReturnType<typeof autoresearchNewLogic.build>) => logic.actions.setPopulationChoice('all'),
+            {},
+        ],
+        [
+            'people who did an event',
+            (logic: ReturnType<typeof autoresearchNewLogic.build>) => {
+                logic.actions.setPopulationChoice('event')
+                logic.actions.setPopulationEvent('signed_up', 14)
+            },
+            { kind: 'performed_event_within_days', event: 'signed_up', days: 14 },
+        ],
+    ])('enables Start training on a custom model only once %s is chosen', async (_, choose, population) => {
+        const logic = autoresearchNewLogic()
+        logic.mount()
+
+        logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+        await settle(logic)
+        expect(logic.values.startTrainingDisabledReason).toEqual('Choose who the model predicts for')
+        logic.actions.submitWithIntent('draft')
+        await settle(logic)
+        expect(mockCreate).not.toHaveBeenCalled()
+
+        choose(logic)
+        await settle(logic)
+        expect(mockValidate).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ training_population: population, inference_population: population })
+        )
+        expect(logic.values.startTrainingDisabledReason).toBeUndefined()
+    })
+
+    it.each([
+        ['too_expensive', 'The check ran out of time. Narrow who the model predicts for first.'],
+        ['unavailable', "Couldn't check this model. Retry the check first."],
+    ])('explains a %s check failure on Start training', async (errorCode, reason) => {
+        mockValidate.mockResolvedValue(validation([], { can_proceed: false, error: 'Failed', error_code: errorCode }))
+        const logic = autoresearchNewLogic()
+        logic.mount()
+
+        logic.actions.setNewPipelineValues({ target_event: '$pageview', ...ALL_USERS })
+        await settle(logic)
+
+        expect(logic.values.startTrainingDisabledReason).toEqual(reason)
     })
 
     it('scores all identified users when only the separate training population has filters', async () => {
@@ -137,6 +228,7 @@ describe('autoresearchNewLogic', () => {
 
         logic.actions.setNewPipelineValues({
             target_event: '$pageview',
+            ...ALL_USERS,
             separate_training_population: true,
             training_population: [trainingFilter],
         })
@@ -235,7 +327,12 @@ describe('autoresearchNewLogic', () => {
     ])('opens Advanced when an invalid %s blocks submit', async (_, advancedValues) => {
         const logic = autoresearchNewLogic()
         logic.mount()
-        logic.actions.setNewPipelineValues({ name: 'Model', target_event: '$pageview', ...advancedValues })
+        logic.actions.setNewPipelineValues({
+            name: 'Model',
+            target_event: '$pageview',
+            ...ALL_USERS,
+            ...advancedValues,
+        })
         await settle(logic)
         expect(logic.values.advancedOpen).toBe(false)
 
@@ -300,6 +397,14 @@ describe('autoresearchNewLogic', () => {
             ['skipped', 'skipped', 'skipped', 'fail'],
             true,
         ],
+        [
+            'a check that ran out of time',
+            [],
+            { can_proceed: false, error: 'Validation ran out of time', error_code: 'too_expensive' },
+            'blocked',
+            [],
+            true,
+        ],
     ])(
         'builds the readiness checklist from a response with %s',
         async (_, warnings, overrides, readiness, statuses, startTrainingDisabled) => {
@@ -307,7 +412,7 @@ describe('autoresearchNewLogic', () => {
             const logic = autoresearchNewLogic()
             logic.mount()
 
-            logic.actions.setNewPipelineValues({ target_event: '$pageview' })
+            logic.actions.setNewPipelineValues({ target_event: '$pageview', ...ALL_USERS })
             await settle(logic)
 
             expect(logic.values.readiness).toBe(readiness)
@@ -333,7 +438,7 @@ describe('autoresearchNewLogic', () => {
             const logic = autoresearchNewLogic()
             logic.mount()
 
-            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared', ...ALL_USERS })
             await settle(logic)
             logic.actions.submitWithIntent(intent)
             await settle(logic)
@@ -366,7 +471,7 @@ describe('autoresearchNewLogic', () => {
             const logic = autoresearchNewLogic()
             logic.mount()
 
-            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared', ...ALL_USERS })
             await settle(logic)
             logic.actions.submitWithIntent('train')
             await jest.advanceTimersByTimeAsync(0)
@@ -396,7 +501,7 @@ describe('autoresearchNewLogic', () => {
         const logic = autoresearchNewLogic()
         logic.mount()
 
-        logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+        logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared', ...ALL_USERS })
         await settle(logic)
         logic.actions.submitWithIntent('train')
         await settle(logic)

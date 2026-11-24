@@ -236,13 +236,16 @@ class TestCursorTransport:
 
     @parameterized.expand(
         [
-            ("members", ["id"], None),
-            ("daily_usage", ["date", "userId"], ["date"]),
-            ("usage_events", ["id"], ["timestamp"]),
-            ("spend", ["userId"], None),
+            ("members", ["id"], None, "asc"),
+            ("daily_usage", ["date", "userId"], ["date"], "asc"),
+            ("usage_events", ["id"], ["timestamp"], "asc"),
+            ("spend", ["userId"], None, "asc"),
+            ("ask_mode", ["event_date", "model"], ["event_date"], "asc"),
+            # Each window lists newest first, so an "asc" promise would lose rows on a resumed run.
+            ("billing_items", ["billingItemId"], ["eventTime"], None),
         ]
     )
-    def test_source_response_shape(self, endpoint, primary_keys, partition_keys):
+    def test_source_response_shape(self, endpoint, primary_keys, partition_keys, sort_mode):
         result = _driver().run(
             endpoint,
             always(ScriptedResponse(json={})),
@@ -256,7 +259,7 @@ class TestCursorTransport:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode
 
     def test_members_yields_single_batch_via_get(self):
         result = _driver().run(
@@ -390,6 +393,9 @@ class TestCursorTransport:
             ("ai_code_changes", {"items": [], "totalCount": 0}, True),
             ("bugbot_reviews", {"data": [], "pagination": {"hasNextPage": False}}, True),
             ("conversation_insights", {"data": {}}, False),
+            ("ask_mode", {"data": []}, False),
+            ("plans", {"data": []}, False),
+            ("mcp", {"data": []}, False),
         ]
     )
     def test_analytics_endpoints_send_calendar_dates_as_query_params(self, endpoint, payload, paginated):
@@ -522,6 +528,93 @@ class TestCursorTransport:
 
         assert result.raised is None
         assert {name: result.requests[0].param(name) for name in expected_params} == expected_params
+
+    def test_billing_items_follow_the_page_cursor_within_a_window(self):
+        now_ms = 1_700_000_000_000  # 2023-11-14T22:13:20Z
+        pages = [
+            ScriptedResponse(
+                json={
+                    "data": [{"billingItemId": "item-2", "eventTime": "2023-11-14T09:30:00.000Z"}],
+                    "pagination": {"hasMore": True, "nextCursor": "cursor-2"},
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "data": [{"billingItemId": "item-1", "eventTime": "2023-11-13T23:00:00.512Z"}],
+                    "pagination": {"hasMore": False},
+                }
+            ),
+        ]
+        with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
+            result = _driver().run(
+                "billing_items",
+                pages,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.fromtimestamp((now_ms - DAY_MS) / 1000, tz=UTC),
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/teams/billing-items", "/v2/teams/billing-items"]
+        # The API takes RFC 3339 times only and rejects a page number, so neither form may leak in.
+        assert result.params("startTime") == ["2023-11-13T22:13:20Z", "2023-11-13T22:13:20Z"]
+        assert result.params("endTime") == ["2023-11-14T22:13:20Z", "2023-11-14T22:13:20Z"]
+        assert result.params("cursor") == [None, "cursor-2"]
+        assert result.params("page") == [None, None]
+        assert result.params("pageSize") == ["500", "500"]
+        assert [row["billingItemId"] for row in result.rows] == ["item-2", "item-1"]
+        assert result.rows[1]["eventTime"] == datetime(2023, 11, 13, 23, 0, 0, 512000, tzinfo=UTC)
+        assert result.saved_states[0] == CursorResumeConfig(
+            window_start=now_ms - DAY_MS, page=2, cursor="cursor-2", window_end=now_ms
+        )
+
+    @parameterized.expand(
+        [
+            # hasMore without a cursor cannot be followed, so the window ends with a warning instead of looping.
+            ("has_more_without_cursor", {"hasMore": True}, True),
+            ("has_more_with_empty_cursor", {"hasMore": True, "nextCursor": ""}, True),
+            ("has_more_with_non_string_cursor", {"hasMore": True, "nextCursor": 7}, True),
+            ("no_more_pages", {"hasMore": False, "nextCursor": "stale"}, False),
+            ("no_pagination_block", None, False),
+        ]
+    )
+    def test_billing_items_window_ends_when_there_is_no_cursor_to_follow(self, _name, pagination, warns):
+        now_ms = 1_700_000_000_000
+        logger = mock.MagicMock()
+        body: dict = {"data": [{"billingItemId": "item-1"}]}
+        if pagination is not None:
+            body["pagination"] = pagination
+        with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
+            result = _driver().run(
+                "billing_items",
+                [ScriptedResponse(json=body)],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.fromtimestamp((now_ms - DAY_MS) / 1000, tz=UTC),
+                logger=logger,
+            )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert logger.warning.called is warns
+
+    def test_billing_items_resume_reuses_the_range_of_the_saved_cursor(self):
+        now_ms = 1_700_000_000_000  # 2023-11-14T22:13:20Z
+        window_start = now_ms - 40 * DAY_MS
+        # An earlier run cut this window short at its own "now"; Cursor rejects the cursor with any other end.
+        saved_end = window_start + 10 * DAY_MS
+        empty_page = ScriptedResponse(json={"data": [], "pagination": {"hasMore": False}})
+        with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
+            result = _driver().run(
+                "billing_items",
+                [empty_page, empty_page],
+                resume_state=CursorResumeConfig(
+                    window_start=window_start, page=3, cursor="cursor-3", window_end=saved_end
+                ),
+            )
+
+        assert result.raised is None
+        assert result.params("startTime") == ["2023-10-05T22:13:20Z", "2023-10-15T22:13:20Z"]
+        assert result.params("endTime") == ["2023-10-15T22:13:20Z", "2023-11-14T22:13:20Z"]
+        assert result.params("cursor") == ["cursor-3", None]
 
     def test_audit_logs_walk_every_page_of_a_window(self):
         now_ms = 1_700_000_000_000

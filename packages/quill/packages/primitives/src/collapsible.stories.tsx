@@ -33,13 +33,14 @@ export const Default: Story = {
 export const IconTrigger: Story = {
     render: () => (
         <Collapsible className="max-w-60" variant="folder" defaultOpen>
-            <CollapsibleHeader>
+            <CollapsibleHeader className="ps-0">
                 {/* Rest icon swaps to the chevron when the row is hovered. */}
                 <CollapsibleTrigger iconOnly icon={<DatabaseZapIcon />}>
                     Toggle sources
                 </CollapsibleTrigger>
-                {/* Full-row surface under the overlaid chevron — ps-6 clears it,
-                    so hovering anywhere highlights the whole row. */}
+                {/* Full-row surface under the overlaid chevron. ps-0 on the header
+                    lets it start under the chevron and ps-8 clears the chevron, so
+                    hovering anywhere highlights the whole row. */}
                 <Button variant="default" size="sm" left className="w-full ps-8">
                     Sources
                     <Text size="xs" variant="muted" render={<span />} className="ms-auto">

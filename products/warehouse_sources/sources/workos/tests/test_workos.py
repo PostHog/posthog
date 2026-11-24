@@ -139,6 +139,73 @@ class TestWorkOSWaitlistEntriesFanout:
         assert [row["id"] for row in resumed.rows] == ["wl_user_3"]
 
 
+class TestWorkOSOrganizationMembershipsFanout:
+    @staticmethod
+    def _run(script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+        return SourceDriver(WorkOSSource(), WorkOSSourceConfig(api_key="sk_test_123")).run(
+            "organization_memberships", script, **inputs
+        )
+
+    def test_walks_every_page_of_every_organization_with_all_statuses(self) -> None:
+        result = self._run(
+            [
+                ScriptedResponse(json=_page(["org_a"], after="org_a")),
+                ScriptedResponse(json=_page(["om_1"], after="om_1")),
+                ScriptedResponse(json=_page(["om_2"], after=None)),
+                ScriptedResponse(json=_page(["org_b"], after=None)),
+                ScriptedResponse(json=_page(["om_3"], after=None)),
+            ]
+        )
+
+        assert [row["id"] for row in result.rows] == ["om_1", "om_2", "om_3"]
+        assert result.paths == [
+            "/organizations",
+            "/user_management/organization_memberships",
+            "/user_management/organization_memberships",
+            "/organizations",
+            "/user_management/organization_memberships",
+        ]
+        # WorkOS refuses the list call without an `organization_id` or `user_id`.
+        assert result.params("organization_id") == [None, "org_a", "org_a", None, "org_b"]
+        # Without `statuses`, WorkOS leaves out inactive and pending memberships.
+        assert result.params("statuses") == [None, *["active,inactive,pending"] * 2, None, "active,inactive,pending"]
+        assert result.params("limit") == ["100"] * 5
+        assert result.params("after") == [None, None, "om_1", "org_a", None]
+
+    def test_resume_starts_from_the_saved_organizations_page(self) -> None:
+        first = self._run(
+            [
+                ScriptedResponse(json=_page(["org_a"], after="org_a")),
+                ScriptedResponse(json=_page(["om_1"], after=None)),
+                ScriptedResponse(json=_page(["org_b"], after="org_b")),
+                ScriptedResponse(json=_page(["om_2"], after=None)),
+                ScriptedResponse(json=_page(["org_c"], after="org_c")),
+                ScriptedResponse(json=_page(["om_3"], after=None)),
+                ScriptedResponse(json=_page(["org_d"], after=None)),
+            ]
+            + [ScriptedResponse(status=500, json={"message": "boom"})] * 10
+        )
+        assert first.raised is not None
+        assert first.final_state is not None
+
+        resumed = self._run(
+            [
+                ScriptedResponse(json=_page(["org_b"], after="org_b")),
+                ScriptedResponse(json=_page(["org_c"], after="org_c")),
+                ScriptedResponse(json=_page(["org_d"], after=None)),
+                ScriptedResponse(json=_page(["om_4"], after=None)),
+            ],
+            resume_state=first.final_state,
+        )
+
+        # The resume reads organizations from one page before the failed page, not from the start,
+        # and skips the organizations it already finished.
+        assert resumed.paths == ["/organizations"] * 3 + ["/user_management/organization_memberships"]
+        assert resumed.params("after") == ["org_a", "org_b", "org_c", None]
+        assert resumed.params("organization_id") == [None, None, None, "org_d"]
+        assert [row["id"] for row in resumed.rows] == ["om_4"]
+
+
 class TestWorkOSValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "body", "expected_valid"),

@@ -181,4 +181,63 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "pullRequestId": "Unique ID of the pull request in SonarQube Cloud.",
         },
     },
+    "project_analyses": {
+        "description": "Analyses of each project's main branch, with the events attached to each analysis, from project_analyses/search.",
+        "docs_url": "https://sonarcloud.io/web_api/api/project_analyses",
+        "columns": {
+            "project_key": "Key of the project.",
+            "key": "Key of the analysis. Unique in its project.",
+            "date": "Timestamp of the analysis.",
+            "events": "Events attached to the analysis, each with its key, category (VERSION, QUALITY_GATE, QUALITY_PROFILE, DEFINITION_CHANGE, OTHER), name, and description.",
+            "projectVersion": "Project version set for the analysis.",
+            "buildString": "Build string set for the analysis.",
+            "revision": "SCM revision of the analysis.",
+            "manualNewCodePeriodBaseline": "Whether the analysis is set manually as the baseline of the new code period.",
+        },
+    },
+    "project_branches": {
+        "description": "Branches of each project, with their quality gate status and issue counts, from project_branches/list.",
+        "docs_url": "https://sonarcloud.io/web_api/api/project_branches",
+        "columns": {
+            "project_key": "Key of the project.",
+            "name": "Name of the branch. Unique in its project.",
+            "isMain": "Whether the branch is the main branch of the project.",
+            "type": "Branch type (LONG or SHORT).",
+            "mergeBranch": "Name of the branch a short-lived branch merges into.",
+            "status": "Quality gate status of the branch, with its bug, vulnerability, and code smell counts.",
+            "analysisDate": "Timestamp of the last analysis of the branch.",
+            "commit": "Last analyzed commit of the branch.",
+            "branchId": "Unique ID of the branch in SonarQube Cloud.",
+        },
+    },
+    "user_groups": {
+        "description": "User groups of the organization, from user_groups/search. Needs the Administer permission on the organization.",
+        "docs_url": "https://sonarcloud.io/web_api/api/user_groups",
+        "columns": {
+            "id": "Unique identifier of the group.",
+            "name": "Name of the group.",
+            "description": "Description of the group.",
+            "membersCount": "Number of members of the group.",
+            "default": "Whether new members of the organization join the group automatically.",
+        },
+    },
+    "user_group_members": {
+        "description": "Members of each user group, one row per group and user, from user_groups/users. Needs the Administer permission on the organization.",
+        "docs_url": "https://sonarcloud.io/web_api/api/user_groups",
+        "columns": {
+            "group_id": "Identifier of the group.",
+            "group_name": "Name of the group.",
+            "login": "Login of the user.",
+            "name": "Name of the user.",
+            "selected": "Whether the user is a member of the group. Always true, because only members are synced.",
+        },
+    },
+    "languages": {
+        "description": "Programming languages SonarQube Cloud supports, which resolve the language keys on rules, quality profiles, and components, from languages/list.",
+        "docs_url": "https://sonarcloud.io/web_api/api/languages",
+        "columns": {
+            "key": "Unique language key (e.g. java, py, js).",
+            "name": "Name of the language.",
+        },
+    },
 }

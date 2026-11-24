@@ -45,6 +45,13 @@ jobs:
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
+    mobile-rebuild:
+        name: Mobile Rebuild
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
+        uses: ./.github/workflows/pr-native-rebuild.yml
+
     trunk-impacted-targets:
         # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR
         # can sit in draft long enough for the queue to have forgotten it.

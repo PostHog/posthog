@@ -141,6 +141,34 @@ def _make_output(
 
 
 class TestQueryNewRecords:
+    def test_drained_fetch_resumes_after_the_last_row_and_reports_where_it_stopped(self):
+        config = _make_config(max_records=2, cursor_id_field="id")
+        mock_result = MagicMock()
+        mock_result.columns = ["id", "description", "__signal_window_position", "__signal_window_position_id"]
+        mock_result.results = [(1, "a", 1767225600000, "1"), (2, "b", 1767225600000, "2")]
+        context: dict[str, Any] = {
+            "table_name": "test_table",
+            "last_synced_at": "2025-01-01T00:00:00+00:00",
+            "resume_after_id": "0",
+            "extra": {},
+            "drain_window": True,
+        }
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                records = data_warehouse_record_fetcher(team=MagicMock(), config=config, context=context)
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "(created_at = {last_synced_at} AND toString(id) > {resume_after_id})" in query_arg
+        assert "ORDER BY created_at ASC, toString(id) ASC" in query_arg
+        assert mock_parse.call_args.kwargs["placeholders"]["resume_after_id"] == ast.Constant(value="0")
+        assert records == [{"id": 1, "description": "a"}, {"id": 2, "description": "b"}]
+        assert (context["window_end"], context["window_end_id"], context["window_capped"]) == (
+            datetime(2026, 1, 1, tzinfo=UTC),
+            "2",
+            True,
+        )
+
     def test_continuous_sync_uses_partition_field_and_placeholders(self):
         config = _make_config(partition_field="updated_at")
         mock_result = MagicMock()
@@ -700,7 +728,10 @@ class TestEmissionRetryIdentity:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("record_processed_outputs", [False, True])
-    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+    @pytest.mark.parametrize("record_count", [1, 2])
+    async def test_retry_repairs_ledger_for_finalized_signal(
+        self, team: Team, record_processed_outputs: bool, record_count: int
+    ) -> None:
         output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
         signal_id = signal_id_for(
             team_id=team.id,
@@ -716,7 +747,9 @@ class TestEmissionRetryIdentity:
         config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
         with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
             for _ in range(2):
-                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                result = await run_signal_pipeline(
+                    team=team, config=config, records=[{"id": "record-1"}] * record_count, extra={}
+                )
                 assert result["signals_emitted"] == 0
         emit.assert_not_awaited()
         assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
@@ -1506,6 +1539,11 @@ class TestPipelineStageTelemetry:
             "signal_data_source_entered",
             "signal_data_source_filtered",
         ]
+        (filtered_call,) = [
+            call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
+        ]
+        assert filtered_call.kwargs["properties"]["filter_reason"] == "not_actionable"
+        assert filtered_call.kwargs["properties"]["steering_applied"] is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1551,7 +1589,10 @@ class TestRunSignalPipelineSteering:
         filtered_calls = [
             call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
         ]
-        assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
+        assert [
+            (call.kwargs["properties"]["filter_reason"], call.kwargs["properties"]["steering_applied"])
+            for call in filtered_calls
+        ] == [("not_actionable", True)]
 
     @pytest.mark.asyncio
     async def test_without_source_config_prompt_is_unchanged(self, team):
@@ -1688,6 +1729,7 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
             patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
@@ -1725,6 +1767,7 @@ class TestEmitActivitySourceConfigThreading:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
+            patch("products.signals.backend.emission.fetch_window.pending_window", return_value=None),
             patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
             patch(
                 f"{ACTIVITY_MODULE_PATH}.afetch_source_config",

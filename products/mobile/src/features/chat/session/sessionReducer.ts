@@ -18,8 +18,7 @@ import type {
     SessionToolStatus,
 } from './types'
 
-// Mirrors `foldLogToThread` in `products/posthog_ai/frontend/logics/runStreamLogic.ts`, without timestamps and debug
-// rows, which the phone does not draw.
+// Mirrors `foldLogToThread` in `products/posthog_ai/frontend/logics/runStreamLogic.ts`, without debug rows.
 
 /** The agent server writes this prompt into a resume run's log before the real message. It is not the person's. */
 const RESUME_CONTEXT_PREFIX = 'You are resuming a previous conversation.'
@@ -84,7 +83,14 @@ export type SessionThreadAction =
     | { type: 'frame'; frame: unknown; context: FrameContext }
     | { type: 'frames'; frames: readonly SessionFrame[] }
     /** `echo: false` for text the agent never echoes, such as an answered decision. */
-    | { type: 'local_user'; id: string; text: string; echo?: boolean; attachments?: SessionAttachment[] }
+    | {
+          type: 'local_user'
+          id: string
+          text: string
+          timestamp?: string
+          echo?: boolean
+          attachments?: SessionAttachment[]
+      }
     /** Takes back an optimistic send that did not reach the server. */
     | { type: 'withdraw'; id: string }
     /** `resumeRun` when the run the thread follows now resumes an earlier one. */
@@ -262,6 +268,7 @@ function toolInput(update: Record<string, unknown>): Record<string, unknown> | u
 
 /** Mutable working copy for one action, so a replayed log of thousands of frames folds without a copy per frame. */
 class Draft {
+    timestamp?: string
     items: SessionThreadItem[]
     invocations: Map<string, SessionToolInvocation>
     rawToolCalls: Map<string, RawToolCall>
@@ -339,6 +346,9 @@ class Draft {
     }
 
     private push(item: SessionThreadItem): void {
+        if ((item.kind === 'user' || item.kind === 'assistant') && this.timestamp && !item.timestamp) {
+            item = { ...item, timestamp: this.timestamp }
+        }
         if (item.kind !== 'thought') {
             // A thought has no closing frame; anything that follows it is where the thought ended.
             for (const thought of this.openThoughts) {
@@ -384,7 +394,13 @@ class Draft {
         if (this.items.some((item) => item.id === id)) {
             return
         }
-        const item: SessionThreadItem = { kind: 'user', id, text, ...(attachments.length > 0 ? { attachments } : {}) }
+        const item: SessionThreadItem = {
+            kind: 'user',
+            id,
+            text,
+            ...(this.timestamp ? { timestamp: this.timestamp } : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
+        }
         if (echo) {
             this.items.push(item)
             this.waiting.push({ id, text, turns: 0 })
@@ -534,6 +550,7 @@ class Draft {
         const existing = open.find((item) => item.id.startsWith(prefix)) ?? open[0]
         if (existing) {
             existing.text = text || existing.text
+            existing.timestamp = this.timestamp
             existing.complete = true
             this.openAssistants.delete(existing)
             return
@@ -861,6 +878,8 @@ function applyFrame(draft: Draft, frame: unknown, context: FrameContext): void {
             draft.rebuildPending = false
         }
     }
+    const timestamp = asRecord(frame)?.timestamp
+    draft.timestamp = typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp)) ? timestamp : undefined
     const method = notification.method
     const params = asRecord(notification.params) ?? {}
     const notificationError = asText(asRecord(notification.error)?.message)
@@ -937,6 +956,7 @@ export function sessionThreadReducer(state: SessionThreadState, action: SessionT
                 return state
             }
             const draft = new Draft(state)
+            draft.timestamp = action.timestamp
             draft.localUser(action.id, text, action.echo !== false, action.attachments ?? [])
             return draft.toState()
         }

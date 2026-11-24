@@ -17,7 +17,9 @@ from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.integrations import IntegrationManager
+from posthog.integrations.backend.django_backend import _reported_over_encrypted
 from posthog.integrations.contracts import FrozenIntegrationRecord
+from posthog.integrations.secret_reads import integration_secret_decrypt_counter
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration, SlackIntegration, UndecryptedIntegrationSecretError
 
@@ -145,6 +147,45 @@ class TestIntegrationModel(BaseTest):
 
         assert getattr(record, field_name) == "a-real-token"
         assert record.sensitive_config[field_name] == "a-real-token"
+
+    def test_over_encrypted_row_is_reported_once_and_clean_row_does_no_decrypt(self) -> None:
+        _reported_over_encrypted.clear()
+        integration = self.create_integration("stripe", sensitive_config={"access_token": "a-real-token"})
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
+        stored = json.loads(get_db_field_value("sensitive_config", integration.id))
+        update_db_field_value(
+            "sensitive_config",
+            integration.id,
+            json.dumps({**stored, "access_token": field.encrypt(stored["access_token"])}),
+        )
+        counter = integration_secret_decrypt_counter.labels(kind="stripe", result="recovered")
+        before = counter._value.get()
+
+        with patch("posthog.integrations.backend.django_backend.logger") as mock_logger:
+            for _ in range(3):
+                loaded = Integration.objects.get(pk=integration.id)
+                assert loaded.access_token == "a-real-token"
+
+        assert counter._value.get() - before == 1
+        assert mock_logger.warning.call_count == 1
+
+        update_db_field_value("sensitive_config", integration.id, json.dumps(stored))
+        with patch.object(EncryptedJSONField, "decrypt_all_layers") as decrypt_all_layers:
+            Integration.objects.get(pk=integration.id)
+        decrypt_all_layers.assert_not_called()
+
+    def test_unreadable_value_is_not_reported_as_recovered_and_is_refused(self) -> None:
+        _reported_over_encrypted.clear()
+        integration = self.create_integration("stripe", sensitive_config={"access_token": "a-real-token"})
+        update_db_field_value("sensitive_config", integration.id, json.dumps({"access_token": "gAAAAABleftover=="}))
+        counter = integration_secret_decrypt_counter.labels(kind="stripe", result="recovered")
+        before = counter._value.get()
+
+        loaded = Integration.objects.get(pk=integration.id)
+
+        assert counter._value.get() == before
+        with pytest.raises(UndecryptedIntegrationSecretError):
+            _ = loaded.access_token
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)

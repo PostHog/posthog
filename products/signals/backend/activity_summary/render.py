@@ -18,17 +18,17 @@ import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from enum import IntEnum, StrEnum
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 13
+RENDER_VERSION = 14
 # Summaries below this rebuild at once, others age in. Raise it only when old summaries must not stay served,
 # for example when a filter fix removes content they must not keep.
-MIN_RENDER_VERSION = 13
+MIN_RENDER_VERSION = 12
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -194,9 +194,11 @@ _INBOX_WORK_ARTEFACTS: Mapping[str, str] = {
     "pull_request": "linked a pull request",
     "title_change": "edited the title",
     "summary_change": "edited the summary",
-    "reviewer_corrections": "corrected the reviewers",
 }
-INBOX_ARTEFACT_TYPES: frozenset[str] = frozenset({INBOX_DISMISSAL, INBOX_NOTE, *_INBOX_WORK_ARTEFACTS})
+INBOX_REVIEWER_CORRECTIONS = "reviewer_corrections"
+INBOX_ARTEFACT_TYPES: frozenset[str] = frozenset(
+    {INBOX_DISMISSAL, INBOX_NOTE, INBOX_REVIEWER_CORRECTIONS, *_INBOX_WORK_ARTEFACTS}
+)
 # Dismissal reasons that say the person does not care about the topic of the report.
 NOT_INTERESTED_REASONS: frozenset[str] = frozenset({"wontfix_irrelevant", "report_unclear", "analysis_wrong"})
 # Dismissal reasons that say the person cared about the report and dealt with it.
@@ -457,6 +459,9 @@ class McpItem:
     intent: str
 
 
+ReviewerChange = Literal["removed_self", "added_self", "others"]
+
+
 @frozen
 class InboxAction:
     """One `SignalReportAction` row of the person: they opened, read, rated or discussed one report.
@@ -488,6 +493,8 @@ class InboxArtefact:
     reason: str | None = None
     # The note of a dismissal, or the text of a note.
     note: str | None = None
+    # Reviewer corrections only: whether the person removed or added themselves, or changed only other people.
+    reviewer_change: ReviewerChange | None = None
 
 
 @frozen
@@ -1359,10 +1366,25 @@ def mcp_units(
 
 
 @frozen
-class _InboxFact:
+class InboxFact:
     strength: InboxStrength
     text: str
     at: datetime.datetime
+
+
+@frozen
+class InboxReportFacts:
+    """What the person did with one report, or with every report of one bulk triage, the strongest fact first.
+
+    A bulk triage has no title and one fact."""
+
+    report_ids: frozenset[str]
+    title: str | None
+    facts: tuple[InboxFact, ...]
+
+    @property
+    def latest_at(self) -> datetime.datetime:
+        return max(fact.at for fact in self.facts)
 
 
 @frozen
@@ -1378,56 +1400,72 @@ def _inbox_note(note: str | None) -> str:
     return cap_line(clean_text(note or "", INBOX_NOTE_CHARS * 2), INBOX_NOTE_CHARS)
 
 
-def _dismissal_fact(artefact: InboxArtefact) -> _InboxFact:
+def inbox_title(title: str) -> str:
+    return cap_line(clean_text(title, INBOX_TITLE_CHARS * 2), INBOX_TITLE_CHARS)
+
+
+def _dismissal_fact(artefact: InboxArtefact) -> InboxFact:
     reason = artefact.reason or ""
     details = [label] if (label := DISMISSAL_REASON_LABELS.get(reason)) else []
     if note := _inbox_note(artefact.note):
         details.append(f'"{note}"')
     detail = f" ({', '.join(details)})" if details else ""
     if reason in NOT_INTERESTED_REASONS:
-        return _InboxFact(
+        return InboxFact(
             strength=InboxStrength.REJECTED, text=f"dismissed it as not interested{detail}", at=artefact.at
         )
     if reason in RESOLVED_REASONS or artefact.state == "resolved":
-        return _InboxFact(strength=InboxStrength.ACTED, text=f"resolved it{detail}", at=artefact.at)
+        return InboxFact(strength=InboxStrength.ACTED, text=f"resolved it{detail}", at=artefact.at)
     verb = "snoozed" if artefact.state == "potential" else "dismissed"
-    return _InboxFact(strength=InboxStrength.TRIAGED, text=f"{verb} it{detail}", at=artefact.at)
+    return InboxFact(strength=InboxStrength.TRIAGED, text=f"{verb} it{detail}", at=artefact.at)
 
 
-def _artefact_fact(artefact: InboxArtefact) -> _InboxFact | None:
+def _reviewer_fact(artefact: InboxArtefact) -> InboxFact:
+    """Removing yourself says as much as a "not interested" dismissal, and adding yourself is an action.
+    A correction that names only other people shows triage, not the person's own interest."""
+    if artefact.reviewer_change == "removed_self":
+        return InboxFact(strength=InboxStrength.REJECTED, text="removed themselves as reviewer", at=artefact.at)
+    if artefact.reviewer_change == "added_self":
+        return InboxFact(strength=InboxStrength.ACTED, text="added themselves as reviewer", at=artefact.at)
+    return InboxFact(strength=InboxStrength.TRIAGED, text="changed the reviewers", at=artefact.at)
+
+
+def _artefact_fact(artefact: InboxArtefact) -> InboxFact | None:
     if artefact.type == INBOX_DISMISSAL:
         return _dismissal_fact(artefact)
+    if artefact.type == INBOX_REVIEWER_CORRECTIONS:
+        return _reviewer_fact(artefact)
     if artefact.type == INBOX_NOTE:
         note = _inbox_note(artefact.note)
-        return _InboxFact(
+        return InboxFact(
             strength=InboxStrength.ACTED, text=f'left a note: "{note}"' if note else "left a note", at=artefact.at
         )
     if (text := _INBOX_WORK_ARTEFACTS.get(artefact.type)) is not None:
-        return _InboxFact(strength=InboxStrength.ACTED, text=text, at=artefact.at)
+        return InboxFact(strength=InboxStrength.ACTED, text=text, at=artefact.at)
     return None
 
 
-def _action_fact(action: InboxAction) -> _InboxFact | None:
+def _action_fact(action: InboxAction) -> InboxFact | None:
     """The fact of one action, or None for one that says nothing on its own: a read mark, a cleared
     rating, or a report opened on one day only."""
     if action.type == INBOX_FEEDBACK and action.sentiment in ("positive", "negative"):
         text = "rated it useful" if action.sentiment == "positive" else "rated it not useful"
-        return _InboxFact(strength=InboxStrength.RATED, text=text, at=action.last_at)
+        return InboxFact(strength=InboxStrength.RATED, text=text, at=action.last_at)
     if action.type == INBOX_SLACK_DISCUSSION:
-        return _InboxFact(strength=InboxStrength.DISCUSSED, text="discussed it in Slack", at=action.last_at)
+        return InboxFact(strength=InboxStrength.DISCUSSED, text="discussed it in Slack", at=action.last_at)
     if action.type == INBOX_VIEW and _day(action.first_at) != _day(action.last_at):
-        return _InboxFact(strength=InboxStrength.VIEWED, text="opened it on more than one day", at=action.last_at)
+        return InboxFact(strength=InboxStrength.VIEWED, text="opened it on more than one day", at=action.last_at)
     return None
 
 
 def _bulk_triage(
-    dismissals: Sequence[InboxArtefact], drops: Counter[str], limits: RenderLimits
-) -> tuple[list[InboxArtefact], list[tuple[Unit, frozenset[str]]]]:
-    """The dismissals outside a bulk triage, and one line for each run of `MIN_INBOX_BULK_TRIAGE` or more
+    dismissals: Sequence[InboxArtefact], drops: Counter[str]
+) -> tuple[list[InboxArtefact], list[InboxReportFacts]]:
+    """The dismissals outside a bulk triage, and one entry for each run of `MIN_INBOX_BULK_TRIAGE` or more
     reports dismissed inside `INBOX_BULK_TRIAGE_WINDOW`, with the most common reason."""
     ordered = sorted(dismissals, key=lambda artefact: artefact.at)
     kept: list[InboxArtefact] = []
-    lines: list[tuple[Unit, frozenset[str]]] = []
+    bulk: list[InboxReportFacts] = []
     start = 0
     while start < len(ordered):
         end = start
@@ -1441,21 +1479,20 @@ def _bulk_triage(
             continue
         reasons = Counter(label for artefact in run if (label := DISMISSAL_REASON_LABELS.get(artefact.reason or "")))
         mostly = f", mostly as {reasons.most_common(1)[0][0]}" if reasons else ""
-        latest = run[-1].at
-        text = f"- {_day(latest).isoformat()} dismissed {len(reports)} reports at once{mostly}"
-        unit = Unit(at=latest, text=cap_line(text, limits.inbox_line_chars), weight=float(InboxStrength.TRIAGED))
-        lines.append((unit, reports))
+        fact = InboxFact(
+            strength=InboxStrength.TRIAGED, text=f"dismissed {len(reports)} reports at once{mostly}", at=run[-1].at
+        )
+        bulk.append(InboxReportFacts(report_ids=reports, title=None, facts=(fact,)))
         drops[Drop.INBOX_BULK_TRIAGE] += len(run) - 1
         start = end
-    return kept, lines
+    return kept, bulk
 
 
-def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS) -> InboxUnits:
-    """One line per report that the person touched, with what they did with it, the strongest first.
+def inbox_facts(inbox: InboxActivity, drops: Counter[str]) -> list[InboxReportFacts]:
+    """What the person did with each report they touched, unordered.
 
-    Lines rank by their strongest fact and then by recency, and the first `limits.inbox_lines` stay. Entries
-    that a task or an agent wrote go first, then a bulk triage collapses to one line. A report with
-    only a read mark or an open on one day gets no line."""
+    Entries that a task or an agent wrote go first, then a bulk triage collapses to one entry. A report
+    with only a read mark or an open on one day, or with no usable title, gets no entry."""
     artefacts: list[InboxArtefact] = []
     for artefact in inbox.artefacts:
         if artefact.by_agent:
@@ -1463,12 +1500,12 @@ def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits 
         else:
             artefacts.append(artefact)
     dismissals = [artefact for artefact in artefacts if artefact.type == INBOX_DISMISSAL]
-    kept_dismissals, bulk_lines = _bulk_triage(dismissals, drops, limits)
+    kept_dismissals, entries = _bulk_triage(dismissals, drops)
     kept_ids = {id(artefact) for artefact in kept_dismissals}
     artefacts = [artefact for artefact in artefacts if artefact.type != INBOX_DISMISSAL or id(artefact) in kept_ids]
 
     titles: dict[str, str] = {}
-    facts: dict[str, list[_InboxFact]] = {}
+    facts: dict[str, list[InboxFact]] = {}
     viewed: set[str] = set()
     for action in inbox.actions:
         titles.setdefault(action.report_id, action.title)
@@ -1483,7 +1520,6 @@ def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits 
         if (fact := _artefact_fact(artefact)) is not None:
             facts[artefact.report_id].append(fact)
 
-    ranked: list[tuple[Unit, frozenset[str]]] = list(bulk_lines)
     for report_id, report_facts in facts.items():
         if not report_facts:
             drops[Drop.INBOX_SINGLE_VIEW if report_id in viewed else Drop.INBOX_READ_ONLY] += 1
@@ -1493,11 +1529,27 @@ def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits 
             drops[Drop.UNNAMED_OBJECT] += 1
             continue
         ordered = sorted(report_facts, key=lambda fact: (-fact.strength, -fact.at.timestamp(), fact.text))
-        latest = max(fact.at for fact in report_facts)
-        title_text = cap_line(clean_text(title, INBOX_TITLE_CHARS * 2), INBOX_TITLE_CHARS)
-        fact_text = ", ".join(dict.fromkeys(fact.text for fact in ordered))
-        text = cap_line(f'- {_day(latest).isoformat()} "{title_text}": {fact_text}', limits.inbox_line_chars)
-        ranked.append((Unit(at=latest, text=text, weight=float(ordered[0].strength)), frozenset({report_id})))
+        entries.append(InboxReportFacts(report_ids=frozenset({report_id}), title=title, facts=tuple(ordered)))
+    return entries
+
+
+def inbox_fact_text(facts: Iterable[InboxFact]) -> str:
+    return ", ".join(dict.fromkeys(fact.text for fact in facts))
+
+
+def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS) -> InboxUnits:
+    """One line per report that the person touched, with what they did with it, the strongest first.
+
+    Lines rank by their strongest fact and then by recency, and the first `limits.inbox_lines` stay."""
+    ranked: list[tuple[Unit, frozenset[str]]] = []
+    for entry in inbox_facts(inbox, drops):
+        latest = entry.latest_at
+        if entry.title is None:
+            text = f"- {_day(latest).isoformat()} {inbox_fact_text(entry.facts)}"
+        else:
+            text = f'- {_day(latest).isoformat()} "{inbox_title(entry.title)}": {inbox_fact_text(entry.facts)}'
+        unit = Unit(at=latest, text=cap_line(text, limits.inbox_line_chars), weight=float(entry.facts[0].strength))
+        ranked.append((unit, entry.report_ids))
     ranked.sort(key=lambda line: (-line[0].weight, -line[0].at.timestamp(), line[0].text))
     if len(ranked) > limits.inbox_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.inbox_lines

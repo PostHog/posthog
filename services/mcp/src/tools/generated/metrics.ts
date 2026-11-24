@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/metrics/api'
-import { pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CharacterizeMetricAnomalySchema = () => {
@@ -84,6 +84,7 @@ const metricAttributesList = (): ToolBase<
                 limit: params.limit,
                 metricName: params.metricName,
                 search: params.search,
+                search_values: params.search_values,
             },
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -130,6 +131,7 @@ const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, S
                 fold_histograms: params.fold_histograms,
                 limit: params.limit,
                 match: params.match,
+                series_stats: params.series_stats,
                 service: params.service,
                 sparklines: params.sparklines,
                 value: params.value,
@@ -174,7 +176,10 @@ const QueryMetricsSchema = () => {
     return MetricsQueryCreateBody
 }
 
-const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas._MetricQueryResponse> => ({
+const queryMetrics = (): ToolBase<
+    ReturnType<typeof QueryMetricsSchema>,
+    WithPostHogUrl<Schemas._MetricQueryResponse>
+> => ({
     name: 'query-metrics',
     schema: QueryMetricsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof QueryMetricsSchema>>) => {
@@ -188,8 +193,14 @@ const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/query/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results', 'hint']) as typeof result
-        return filtered
+        const filtered = pickResponseFields(result, [
+            'results',
+            'hint',
+            'omitted_empty_series',
+            'omitted_by_limit',
+            'url_params',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/metrics?${filtered.url_params}`)
     },
 })
 

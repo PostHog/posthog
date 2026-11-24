@@ -545,9 +545,9 @@ where
 
     match res {
         Ok(CheckOutcome::Answered(response)) => Some(response.chunk_ids_to_upload),
-        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, body))) => {
+        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, _))) => {
             info!("The server does not support upload checks. Sending every chunk.");
-            debug!("Upload check rejected with status {status}: {body}");
+            debug!("Upload check rejected with status {status}");
             None
         }
         Ok(CheckOutcome::Rejected(e)) | Err(e) => {
@@ -1226,7 +1226,13 @@ mod tests {
         (head, buffer[head_end..head_end + body_len].to_vec())
     }
 
-    const PRESIGNED_SECRETS: [&str; 3] = ["ASIAEXAMPLEKEYID", "SESSIONTOKEN", "SIGNATURE"];
+    const PRESIGNED_SECRETS: [&str; 5] = [
+        "ASIAEXAMPLEKEYID",
+        "SESSIONTOKEN",
+        "SIGNATURE",
+        "COOKIE_SECRET",
+        "LOCATION_SECRET",
+    ];
 
     fn presigned_put_url(origin: &str) -> String {
         format!("{origin}/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE")
@@ -1242,7 +1248,7 @@ mod tests {
                 read_request(&mut stream);
                 write!(
                     stream,
-                    "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nSet-Cookie: session=COOKIE_SECRET\r\nLocation: https://example.com/?token=LOCATION_SECRET\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 )
                 .expect("write response");

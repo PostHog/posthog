@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { ErrorEventType } from 'lib/components/Errors/types'
 
@@ -109,6 +109,33 @@ describe('EventsTable', () => {
 
         expect(screen.getByText(expectedType)).toBeInTheDocument()
         expect(screen.getByText(expectedValue)).toBeInTheDocument()
+    })
+
+    it('links a URL in the message without selecting the row on click', () => {
+        const onEventSelect = jest.fn()
+        const record = {
+            ...event,
+            properties: {
+                $exception_types: ['Error'],
+                $exception_values: ['Minified React error #418; visit https://react.dev/errors/418 for details.'],
+            },
+        } as ErrorEventType
+
+        render(
+            <EventsTable
+                items={[record]}
+                hasMore={false}
+                loading={false}
+                selectedEvent={null}
+                onEventSelect={onEventSelect}
+                onLoadMore={jest.fn()}
+            />
+        )
+
+        const link = screen.getByText('https://react.dev/errors/418')
+        expect(link.closest('a')).toHaveAttribute('href', 'https://react.dev/errors/418')
+        fireEvent.click(link)
+        expect(onEventSelect).not.toHaveBeenCalled()
     })
 
     it('scrolls to the newly selected event when the selection changes', () => {

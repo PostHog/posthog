@@ -8,7 +8,7 @@ defineKnownException({
         return !!exception.value.match(/React(?:\.js)?(?: DOM)?(?: production)? error #(\d+)/i)
     },
     render(exception) {
-        const errorCode = exception.value.match(/React(?:\.js)?(?: DOM)?(?: production)? error #(\d+)/i)
+        const errorCode = exception.value.match(/React(?:\.js)?(?: DOM)?(?: production)? error #(\d+)/i)?.[1]
         return (
             <KnownExceptionBanner>
                 React minifies error messages as part of its production build process to reduce bundle size, and does

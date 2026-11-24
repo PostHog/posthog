@@ -10,6 +10,7 @@ from products.cdp.backend.filters import (
     compile_filters_expr as compile_filters_expr,
     filter_action_ids as filter_action_ids,
     filter_cohort_ids as filter_cohort_ids,
+    is_property_group as is_property_group,
 )
 from products.cdp.backend.flag_gated_templates import (
     FLAG_GATED_TEMPLATE_IDS as FLAG_GATED_TEMPLATE_IDS,

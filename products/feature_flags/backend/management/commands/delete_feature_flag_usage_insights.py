@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils.timezone import now
 
-from posthog.helpers.dashboard_templates import (
+from posthog.helpers.feature_flag_usage_insights import (
     FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
     FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
@@ -47,7 +47,7 @@ def _classifier_q() -> Q:
     Keys on name and description, not on `is_sample`: every dashboard template sets that, so on its
     own it would also match billing/usage and onboarding insights. Callers wanting a second signal
     add it on top of this (see `_delete_orphaned`).
-    Names come from constants in posthog/helpers/dashboard_templates.py.
+    Names come from constants in posthog/helpers/feature_flag_usage_insights.py.
     Descriptions interpolate the flag key, so those are matched by fragment instead.
     """
     return (
@@ -447,11 +447,6 @@ class Command(BaseCommand):
 
     def _delete_orphaned(self) -> None:
         """Pass 2 (opt-in): generated insights left on a generated dashboard no flag row points at."""
-        # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
-        # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
-        # pass exists for dashboards with no flag row at all (hard-deleted rows, see
-        # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
-        # ones whose dashboard was deleted outright stay out of scope.
         # Requiring the generator's marker keeps rows an edit has already disqualified out of the scan
         # entirely. `_keep_ids` would spare them anyway, so this only saves fetching them.
         insights = Insight.objects.filter(_classifier_q(), is_sample=True)
@@ -467,6 +462,11 @@ class Command(BaseCommand):
                 break
             last_id = batch[-1].id
 
+            # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
+            # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
+            # pass exists for dashboards with no flag row at all (hard-deleted rows, see
+            # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
+            # ones whose dashboard was deleted, soft or hard, stay out of scope.
             on_generated_dashboards = dashboards_api.insight_ids_on_template_dashboards(
                 insight_ids=[c.id for c in batch],
                 name_prefix=USAGE_DASHBOARD_NAME_PREFIX,

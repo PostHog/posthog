@@ -1,17 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { Skeleton } from '@posthog/quill'
+
 import { isProjectGroupTag } from 'lib/components/Account/projectGroupTags'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useRestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
 import { useTagSourceExcluding } from 'lib/components/useTagPages'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { projectTagsLogic } from './projectTagsLogic'
+import { QuillProjectTags } from './QuillProjectTags'
 
 export function ProjectTags(): JSX.Element {
     const {
@@ -34,13 +38,18 @@ export function ProjectTags(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!currentProject) {
-        return <LemonSkeleton className="w-40 h-5" />
+        return todayRailNav ? <Skeleton className="w-40 h-5" /> : <LemonSkeleton className="w-40 h-5" />
     }
 
     if (restrictionReason) {
         return <ObjectTags tags={regularTags} staticOnly data-attr="project-tags" />
+    }
+
+    if (todayRailNav) {
+        return <QuillProjectTags regularTagSource={regularTagSource} />
     }
 
     return (

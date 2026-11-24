@@ -9,6 +9,7 @@ from dagster import JsonMetadataValue
 from parameterized import parameterized
 
 from ee.billing.dags.productled_outbound_targets import (
+    BASE_COLUMNS,
     TEAM_PRODUCT_SCHEMA,
     build_team_product_df,
     compute_active_products,
@@ -35,6 +36,7 @@ def make_base_row(**overrides) -> dict:
         "domain": "test.com",
         "headcount": 100,
         "headcount_engineering": None,
+        "icp_fit_score": None,
         "icp_score": None,
         "industry": None,
         "last_3m_avg_mrr": 5000.0,
@@ -60,6 +62,7 @@ def make_base_schema() -> dict:
         "domain": pl.Utf8,
         "headcount": pl.Int64,
         "headcount_engineering": pl.Int64,
+        "icp_fit_score": pl.Int64,
         "icp_score": pl.Int64,
         "industry": pl.Utf8,
         "last_3m_avg_mrr": pl.Float64,
@@ -89,6 +92,7 @@ class TestPloBaseTargets:
                 "acme.com",  # domain
                 100,  # headcount
                 20,  # headcount_engineering
+                62,  # icp_fit_score
                 75,  # icp_score
                 "Software",  # industry
                 5000.0,  # last_3m_avg_mrr
@@ -126,6 +130,17 @@ class TestPloBaseTargets:
 
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 0
+
+    @patch("ee.billing.dags.productled_outbound_targets.execute_hogql_query")
+    @patch("ee.billing.dags.productled_outbound_targets.Team")
+    def test_keeps_score_that_follows_100_null_scores(self, mock_team, mock_hogql):
+        rows = [make_base_row()] * 100 + [make_base_row(icp_fit_score=0)]
+        mock_hogql.return_value = MagicMock(results=[tuple(row[column] for column in BASE_COLUMNS) for row in rows])
+
+        df = plo_base_targets(dagster.build_asset_context())
+
+        assert isinstance(df, pl.DataFrame)
+        assert df["icp_fit_score"].to_list() == [None] * 100 + [0]
 
 
 class TestBuildTeamProductDf:
@@ -407,6 +422,7 @@ class TestDataframeToPloClayPayload:
     def test_converts_to_payload_with_users(self):
         row = make_base_row(
             domain="acme.com",
+            icp_fit_score=0,
             organization_id="org-1",
             organization_name="Acme Inc",
         )
@@ -434,6 +450,7 @@ class TestDataframeToPloClayPayload:
 
         assert len(payload) == 1
         assert payload[0]["domain"] == "acme.com"
+        assert payload[0]["icp_fit_score"] == 0
         assert payload[0]["multi_product_count"] == 3
         assert payload[0]["event_growth_pct"] == 50.0
         assert payload[0]["new_user_count"] == 2

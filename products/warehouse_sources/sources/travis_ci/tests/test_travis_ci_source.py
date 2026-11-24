@@ -20,11 +20,14 @@ class TestTravisCISource:
 
     @parameterized.expand(
         [
-            # Builds and jobs page newest-first and stop at the id watermark; repositories and
-            # branches expose no usable cursor, so they are full refresh only.
+            # Builds, jobs, stages and requests page newest-first and stop at the id watermark;
+            # repositories, branches and crons expose no usable cursor, so they are full refresh only.
             ("repositories", False),
             ("builds", True),
             ("jobs", True),
+            ("stages", True),
+            ("requests", True),
+            ("crons", False),
             ("branches", False),
         ]
     )

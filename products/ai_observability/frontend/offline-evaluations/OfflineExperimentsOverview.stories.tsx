@@ -3,7 +3,6 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -19,7 +18,6 @@ const meta: Meta<typeof OfflineExperimentsOverview> = {
     parameters: {
         mockDate: '2026-09-28T12:00:00Z',
         pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers.map((scorer) => scorer.id).join(',')}`,
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         (Story, { parameters }) => (

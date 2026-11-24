@@ -18,10 +18,10 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel
 from rest_framework import exceptions
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import Conflict
 from posthog.models.user import User
-from posthog.storage import object_storage
 
 from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES,
@@ -244,6 +244,20 @@ class SandboxSession(BaseSandboxService):
                 user_id=self.user.pk,
             )
             return None
+        except tasks_facade.TaskDoneError:
+            logger.info(
+                "sandbox_warm_task_done",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
+        except tasks_facade.TaskRunAlreadyLiveError:
+            logger.info(
+                "sandbox_warm_run_in_progress",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
 
         return SandboxRouteResult(
             task_id=str(task_id),
@@ -362,8 +376,20 @@ class SandboxSession(BaseSandboxService):
         `_meta.attached_context` so the persisted ACP log stays a complete record.
         """
         try:
+            tasks_facade.check_wake_by_task_id(run.task_id, source="posthog_ai_follow_up")
+            reserved = tasks_facade.reserve_warm_task_run(run.id)
+        except (tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError) as error:
+            raise Conflict(str(error)) from error
+        try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
+            if reserved and isinstance(e, RPCError) and e.status == RPCStatusCode.NOT_FOUND:
+                try:
+                    tasks_facade.release_warm_task_run_reservation(run.id)
+                except Exception as release_error:
+                    logger.warning(
+                        "sandbox_followup_reservation_release_failed", run_id=str(run.id), error=str(release_error)
+                    )
             # Status race: the run still reads in-progress but its workflow has already finished or
             # was terminated, so the signal can't be delivered. Surface a recoverable conflict
             # instead of an unhandled 500, and don't log the turn — a retry then routes cleanly
@@ -452,7 +478,10 @@ class SandboxSession(BaseSandboxService):
             }
             extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
-            new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            try:
+                new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            except (tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError) as error:
+                raise Conflict(str(error)) from error
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.
@@ -497,7 +526,7 @@ class SandboxSession(BaseSandboxService):
 
         for chain_run in run.get_resume_chain():
             _absorb((chain_run.state or {}).get("attached_context"))
-            log_content = object_storage.read(chain_run.log_url, missing_ok=True) or ""
+            log_content = tasks_facade.read_task_run_log_content([chain_run.log])
             for line in log_content.splitlines():
                 line = line.strip()
                 if not line:

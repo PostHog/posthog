@@ -17,6 +17,7 @@ from posthog.security.url_validation import ResolvedIPs
 
 PUBLIC_IP = ipaddress.ip_address("93.184.216.34")
 PROXY_URL = "http://proxy.example.com:3128"
+PROXY_URL_WITH_USERINFO = "http://pod-name:x@proxy.example.com:3128"
 
 
 class ConnectionIntercepted(Exception):
@@ -63,6 +64,38 @@ async def test_direct_connections_keep_pins_and_tls_identity(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_pins", [False, True])
+async def test_direct_connections_rotate_validated_addresses(refresh_pins: bool) -> None:
+    pins: dict[str, ResolvedIPs] = {"example.com": {PUBLIC_IP, ipaddress.ip_address("1.1.1.1")}}
+    with (
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected DNS lookup")),
+        patch("aiohttp.TCPConnector._wrap_create_connection", side_effect=ConnectionIntercepted) as connect,
+    ):
+        async with pinned_session(pins) as client:
+            with pytest.raises(ConnectionIntercepted):
+                await client.get("https://example.com/")
+
+            first_order = [addr[4][0] for addr in connect.call_args.kwargs["addr_infos"]]
+            assert set(first_order) == {str(ip) for ip in pins["example.com"]}
+            expected_order = first_order[1:] + first_order[:1]
+
+            if refresh_pins:
+                pins["example.com"] = {
+                    ipaddress.ip_address(first_order[1]),
+                    ipaddress.ip_address("8.8.8.8"),
+                    ipaddress.ip_address("9.9.9.9"),
+                }
+                expected_order = [first_order[1]] + [str(ip) for ip in pins["example.com"] if str(ip) != first_order[1]]
+
+            for _ in range(2):
+                with pytest.raises(ConnectionIntercepted):
+                    await client.get("https://example.com/")
+
+                assert [addr[4][0] for addr in connect.call_args.kwargs["addr_infos"]] == expected_order
+                expected_order = expected_order[1:] + expected_order[:1]
+
+
+@pytest.mark.asyncio
 @override_settings(SSRF_TRUSTED_PROXY_URLS=[PROXY_URL])
 @pytest.mark.parametrize("pinned", [False, True])
 @pytest.mark.parametrize(
@@ -73,6 +106,7 @@ async def test_direct_connections_keep_pins_and_tls_identity(
         ("http://example.com/", {"HTTP_PROXY": PROXY_URL}, None, True),
         ("https://example.com/", {"HTTPS_PROXY": PROXY_URL, "NO_PROXY": "example.com"}, None, False),
         ("https://example.com/", {}, PROXY_URL, True),
+        ("https://example.com/", {}, PROXY_URL_WITH_USERINFO, True),
     ],
 )
 async def test_proxy_routing(
@@ -115,7 +149,10 @@ async def test_proxy_routing(
 @pytest.mark.asyncio
 @override_settings(SSRF_TRUSTED_PROXY_URLS=[PROXY_URL])
 @pytest.mark.parametrize("pinned", [False, True])
-@pytest.mark.parametrize("proxy", ["http://proxy.example.com:3129", "http://other.example.com:3128"])
+@pytest.mark.parametrize(
+    "proxy",
+    ["http://proxy.example.com:3129", "http://other.example.com:3128", "http://pod-name:x@other.example.com:3128"],
+)
 async def test_untrusted_proxy_is_rejected_before_connecting(proxy: str, pinned: bool) -> None:
     with patch("aiohttp.TCPConnector.connect", side_effect=AssertionError("Unexpected connection")) as connect:
         async with pinned_session({"example.com": {PUBLIC_IP}} if pinned else {}) as client:

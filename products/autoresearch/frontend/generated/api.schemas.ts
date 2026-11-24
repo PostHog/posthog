@@ -160,6 +160,21 @@ export interface AutoresearchPredictionCoverageApi {
 export interface AutoresearchLiveTrainingRunApi {
     /** Unique UUID of the live training run. */
     readonly id: string
+    /**
+     * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_id: string | null
+    /**
+     * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_run_id: string | null
+    /**
+     * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_url: string | null
     /** Maximum experiments allowed for this run. */
     readonly iteration_budget: number
     /** Experiments the agent has recorded so far in this run. */
@@ -1935,6 +1950,21 @@ export interface TrainingRunCapReachedApi {
     next_slot_at: string | null
 }
 
+export interface TrainingBudgetReachedApi {
+    /** Why the run did not start. */
+    detail: string
+    /** Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code. */
+    code: string
+    /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, across all its pipelines. A run whose cost is not recorded yet counts as 0. */
+    spent_usd: number
+    /** The project's monthly training budget, in whole US dollars. 0 means training is turned off. */
+    limit_usd: number
+    /** When the budget resets: the start of the next UTC calendar month. */
+    resets_at: string
+}
+
+export type StartTrainingRefusedApi = TrainingRunCapReachedApi | TrainingBudgetReachedApi
+
 export interface AgentReasoningEffortOptionApi {
     /** Effort id to pass as agent_reasoning_effort, e.g. 'medium'. */
     value: string
@@ -2001,6 +2031,12 @@ export interface ProjectLimitsApi {
     max_live_pipelines: number
     /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
     live_pipelines: number
+    /** The project's monthly training budget, in whole US dollars. A training run is refused once training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off. */
+    max_training_spend_usd_per_month: number
+    /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, a run in progress included. A run whose cost is not recorded yet counts as 0. */
+    training_spend_usd: number
+    /** When training_spend_usd resets to 0: the start of the next UTC calendar month. */
+    training_spend_resets_at: string
     /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
      *
      * * `project` - Project
@@ -2019,6 +2055,12 @@ export interface ProjectLimitsApi {
      * * `default` - Default
      * * `code` - Code */
     max_live_pipelines_source: LimitSourceEnumApi
+    /** Where max_training_spend_usd_per_month comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+     *
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code */
+    max_training_spend_usd_per_month_source: LimitSourceEnumApi
 }
 
 /**
@@ -2204,6 +2246,20 @@ export interface ValidationWarningApi {
     severity: ValidationWarningSeverityEnumApi
 }
 
+/**
+ * * `invalid_definition` - Invalid definition
+ * * `too_expensive` - Too expensive
+ * * `unavailable` - Unavailable
+ */
+export type AutoresearchValidationErrorCodeEnumApi =
+    (typeof AutoresearchValidationErrorCodeEnumApi)[keyof typeof AutoresearchValidationErrorCodeEnumApi]
+
+export const AutoresearchValidationErrorCodeEnumApi = {
+    InvalidDefinition: 'invalid_definition',
+    TooExpensive: 'too_expensive',
+    Unavailable: 'unavailable',
+} as const
+
 export interface ValidatePipelineResponseApi {
     /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
@@ -2241,6 +2297,12 @@ export interface ValidatePipelineResponseApi {
      * @nullable
      */
     error: string | null
+    /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+     *
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable */
+    error_code: AutoresearchValidationErrorCodeEnumApi | null
 }
 
 export type AutoresearchListParams = {

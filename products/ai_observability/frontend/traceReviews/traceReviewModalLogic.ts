@@ -40,6 +40,7 @@ function loadActiveScoreDefinitionsPage(
 ): ReturnType<typeof aiObservabilityScoreDefinitionsList> {
     return aiObservabilityScoreDefinitionsList(String(teamId), {
         archived: false,
+        calculation: 'reported',
         order_by: 'name',
         search: search.trim() || undefined,
         offset,
@@ -101,6 +102,10 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         kind: score.definition_kind,
         archived: score.definition_archived,
         current_version: score.definition_version,
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         current_version_id: score.definition_version_id,
         config: score.definition_config,
         created_by: null,

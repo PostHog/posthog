@@ -145,8 +145,8 @@ def invalidate_team_tokens_task(self: Task, team_id: int) -> dict:
 def invalidate_token_sync(token_hash: str) -> dict:
     """Synchronously invalidate a single token's cache entry with async retry fallback.
 
-    Used for secret tokens, personal API keys, and project secret API keys —
-    all are cached under their SHA256 hash in the same Redis key namespace.
+    Used for personal API keys and project secret API keys, which are cached
+    under their SHA256 hash in the same Redis key namespace.
     """
     return _sync_with_async_fallback(
         action=lambda: token_auth_cache.invalidate_token(token_hash),

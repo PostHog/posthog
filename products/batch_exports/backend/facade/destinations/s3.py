@@ -20,6 +20,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     get_credentials_using_user_aws_role,
     s3_client,
 )
+from products.batch_exports.backend.temporal.destinations.utils import render_key_prefix
 
 __all__ = [
     "ConcurrentS3Consumer",
@@ -32,4 +33,5 @@ __all__ = [
     "get_credentials_using_user_aws_role",
     "get_s3_integration",
     "s3_client",
+    "render_key_prefix",
 ]

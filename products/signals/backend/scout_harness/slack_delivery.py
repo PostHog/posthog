@@ -25,6 +25,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_harness.scout_naming import scout_display_name
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
     build_scout_report_chart_blocks,
@@ -195,9 +196,9 @@ def _scout_invite_footer(integration: IntegrationRecord, *, scout_team_id: int, 
     return [invite] if invite is not None else []
 
 
-def _prettify_scout_name(skill_name: str) -> str:
-    cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
-    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
+def _scout_name(run: SignalScoutRun) -> str:
+    config = run.scout_config
+    return scout_display_name(skill_name=run.skill_name, display_name=config.display_name if config else None)
 
 
 def find_project_slack_integration(*, integration_id: int, project_id: int) -> IntegrationRecord | None:
@@ -250,7 +251,7 @@ def _slack_channel_id(channel: str) -> str:
 
 def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
     """Render a direct scout finding, with its description delivered as Markdown."""
-    scout_name = _prettify_scout_name(emission.scout_run.skill_name)
+    scout_name = _scout_name(emission.scout_run)
     blocks: list[dict] = [
         {
             "type": "context",
@@ -389,7 +390,7 @@ def build_scout_report_slack_message(
     delivery_id: str | None = None,
     render_budget: ChartRenderBudget | None = None,
 ) -> tuple[list[dict], str]:
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     blocks: list[dict] = [
         {
@@ -521,7 +522,7 @@ def build_scout_report_thread_slack_messages(
     the thread holds the report's sections in order, with nothing clipped at the block's cap. A
     summary that opens with a heading puts that first section in the lead, so the channel never
     shows a title-only stub."""
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     lead_blocks: list[dict] = [
         {
@@ -552,7 +553,7 @@ def build_scout_report_note_slack_message(
     Such an edit leaves the title and summary the report message shows unchanged, so re-sending
     `build_scout_report_slack_message` would post a message identical to the one already in the
     channel. The addition is what's new, so that's what gets delivered."""
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     blocks: list[dict] = [
         {

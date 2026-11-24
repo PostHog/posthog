@@ -78,6 +78,8 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_event_count_in_period": {team_a_id: 100, team_b_id: 50, team_c_id: 25},
         "teams_with_enhanced_persons_event_count_in_period": {team_a_id: 80, team_b_id: 40},
         "teams_with_mcp_event_count_in_period": {team_a_id: 30, team_c_id: 5},
+        "teams_with_ai_overage_bytes_in_period": {team_a_id: 2_400_000, team_b_id: 1_700_000},
+        "teams_with_web_mcp_events_count_in_period": {team_a_id: 12, team_c_id: 2},
         "teams_with_business_knowledge_chunks_in_period": {team_a_id: 1_200, team_b_id: 300},
         "teams_with_business_knowledge_queries_in_period": {team_b_id: 40, team_c_id: 7},
         "teams_with_recording_count_in_period": {team_a_id: 8, team_c_id: 3},
@@ -305,6 +307,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         (UsageCounter.MOBILE_BILLABLE_RECORDINGS, "get_teams_with_mobile_billable_recording_count_in_period"),
         (UsageCounter.SURVEY_RESPONSES, "get_teams_with_survey_responses_count_in_period"),
         (UsageCounter.AI_EVENTS, "get_teams_with_ai_event_count_in_period"),
+        (UsageCounter.AI_OVERAGE_BYTES, "get_teams_with_ai_overage_bytes_in_period"),
         (UsageCounter.CDP_INVOCATIONS, "get_teams_with_cdp_billable_invocations_in_period"),
         (UsageCounter.WORKFLOW_EMAILS, "get_teams_with_workflow_emails_sent_in_period"),
         (UsageCounter.WORKFLOW_PUSH, "get_teams_with_workflow_push_sent_in_period"),
@@ -424,6 +427,11 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # silent zero-usage filter could hide actual drift.
     assert str(org_a.id) in celery_per_org
     assert str(org_b.id) in celery_per_org
+    for reports in (celery_per_org, temporal_per_org):
+        assert reports[str(org_a.id)]["web_mcp_events_count_in_period"] == 12
+        assert reports[str(org_b.id)]["web_mcp_events_count_in_period"] == 2
+        assert reports[str(org_a.id)]["teams"][str(team_a1.id)]["web_mcp_events_count_in_period"] == 12
+        assert reports[str(org_a.id)]["teams"][str(team_a2.id)]["web_mcp_events_count_in_period"] == 0
 
     counter_metadata = ("usage_sources", "counter_comparisons")
     assert not any(field in report for report in celery_per_org.values() for field in counter_metadata)

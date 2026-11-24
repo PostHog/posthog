@@ -3,6 +3,7 @@ import socket
 import dataclasses
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from django.conf import settings
@@ -27,10 +28,11 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, attempt_of
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     CURRENT_HISTORY_PARTITION,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
@@ -104,8 +106,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_BATCH_ROWS,
     CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
+    CDC_FRESHNESS_SECONDS,
+    CDC_MERGE_DURATION_SECONDS,
     CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
+    CDC_TABLE_FILE_COUNT,
+    CDC_TABLE_MODES,
     DELTA_COMPACT_DURING_REBUILD_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
@@ -138,6 +145,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    delete_consumed_webhook_files,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
@@ -559,6 +569,43 @@ def _file_count_after_write(
     return None
 
 
+def _oldest_cdc_commit_time(pa_table: pa.Table) -> datetime | None:
+    """The source commit time of the batch's oldest change, or None when no row carries one."""
+    if CDC_TIMESTAMP_COLUMN not in pa_table.column_names:
+        return None
+    column = pa_table.column(CDC_TIMESTAMP_COLUMN)
+    if not pa.types.is_timestamp(column.type):
+        return None
+    oldest = pc.min(column).as_py()
+    if oldest is None:
+        return None
+    return oldest.replace(tzinfo=UTC) if oldest.tzinfo is None else oldest
+
+
+def _record_cdc_load_metrics(
+    *,
+    schema: ExternalDataSchema,
+    cdc_write_mode: str | None,
+    rows: int,
+    write_seconds: float | None,
+    file_count: int | None,
+    oldest_commit_time: datetime | None,
+) -> None:
+    # The create payload can store any string as the table mode, so an unknown one must not add series.
+    table_mode = schema.cdc_table_mode if schema.cdc_table_mode in CDC_TABLE_MODES else "unknown"
+    labels = {"table_mode": table_mode, "write_mode": cdc_write_mode or "none"}
+    CDC_BATCH_ROWS.labels(**labels).observe(rows)
+    if write_seconds is not None:
+        CDC_MERGE_DURATION_SECONDS.labels(**labels).observe(write_seconds)
+    if file_count is not None:
+        CDC_TABLE_FILE_COUNT.labels(**labels).observe(file_count)
+    if oldest_commit_time is not None:
+        # A source clock ahead of ours would read as a negative age.
+        CDC_FRESHNESS_SECONDS.labels(**labels).observe(
+            max(0.0, (datetime.now(UTC) - oldest_commit_time).total_seconds())
+        )
+
+
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
@@ -757,6 +804,8 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+        if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
+            _delete_consumed_webhook_files(export_signal)
 
         logger.info(
             "job_marked_completed",
@@ -777,6 +826,45 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         _resume_schedule_after_ad_hoc_run(export_signal)
+
+
+def _delete_consumed_webhook_files(export_signal: ExportSignalMessage) -> None:
+    """Delete the webhook files whose rows the attempt that completed this job loaded.
+
+    Runs before the pipeline lock is released, so the next run does not read these files again.
+    A failed delete leaves the files for the next run, which merges their rows again on the primary
+    key, so it does not fail the completed job.
+    """
+    parsed = attempt_of(export_signal.run_uuid)
+    if parsed is None:
+        # Without the attempt, the files that this attempt queued are unknown. They stay for the next run.
+        logger.warning(
+            "webhook_consumed_files_attempt_unknown",
+            external_data_job_id=export_signal.job_id,
+            run_uuid=export_signal.run_uuid,
+        )
+        return
+    try:
+        deleted = async_to_sync(delete_consumed_webhook_files)(
+            export_signal.team_id, export_signal.schema_id, export_signal.job_id, parsed[1]
+        )
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(
+            "webhook_consumed_files_delete_failed",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            exc_info=True,
+        )
+        return
+    logger.info(
+        "webhook_consumed_files_deleted",
+        external_data_job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        file_count=deleted,
+    )
 
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
@@ -1434,7 +1522,8 @@ def _compact_during_rebuild(
     report_phase("compact_during_rebuild")
     with timer.step("compact_during_rebuild"):
         outcome = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
-            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES,
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MAX_PARTITIONS,
         )
     DELTA_COMPACT_DURING_REBUILD_TOTAL.labels(outcome=outcome).inc()
 
@@ -1689,6 +1778,9 @@ def _process_message_reported(
         # An incremental history batch holds source rows, not change events, so no CDC row handling applies.
         resolution_enabled = cdc_write_mode is not None and not stages_history(cdc_write_mode, export_signal.sync_type)
 
+        # Resolution keeps one row per key, which can drop the batch's oldest change.
+        oldest_cdc_commit_time = _oldest_cdc_commit_time(pa_table) if export_signal.sync_type == "cdc" else None
+
         with timer.step("cdc_resolve"):
             pa_table = _enrich_cdc_rows(
                 pa_table,
@@ -1846,6 +1938,23 @@ def _process_message_reported(
             # all batches, then overlay the current batch for JSON detection.
             internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
             internal_schema.add_pyarrow_table(pa_table)
+
+        if export_signal.sync_type == "cdc":
+            # The batch is already committed, so a metric error must not fail its load.
+            try:
+                _record_cdc_load_metrics(
+                    schema=schema,
+                    cdc_write_mode=cdc_write_mode,
+                    rows=source_rows,
+                    write_seconds=timer.seconds("write"),
+                    file_count=file_count,
+                    oldest_commit_time=oldest_cdc_commit_time,
+                )
+            except Exception as e:
+                logger.warning(
+                    "cdc_load_metrics_failed", external_data_schema_id=export_signal.schema_id, exc_info=True
+                )
+                capture_exception(e)
 
         logger.debug(
             "batch_written_to_delta_lake",

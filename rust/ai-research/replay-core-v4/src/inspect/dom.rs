@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use url::Url;
@@ -12,6 +12,7 @@ use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
 use crate::url_policy::{is_fetched_image_type, is_remote, needs_redaction, MAX_URL_LEN};
 
+use super::budget;
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
 use super::edits::{Buffers, Edit, LinkForm, Slot};
 use super::events::{field, fields, number, text};
@@ -84,7 +85,7 @@ enum Media {
     },
     SvgImage,
     Video,
-    /// A `source` under a `picture`. Its `type` can name a media type the fetcher does not store, such as AVIF.
+    /// A `source` under a `picture`. Its `type` can name a media type the fetcher does not store, such as JPEG XL.
     PictureSource {
         unfetched_type: bool,
     },
@@ -313,13 +314,7 @@ impl Urls {
         if self.limit == Some(UrlLimit::Edits) {
             return false;
         }
-        let within_budget = budget.is_none_or(|budget| {
-            budget
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
-                    left.checked_sub(bytes)
-                })
-                .is_ok()
-        });
+        let within_budget = budget.is_none_or(|budget| budget::take(budget, bytes));
         if within_budget {
             self.edit_bytes_taken += bytes;
         } else {

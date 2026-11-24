@@ -25,8 +25,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
     AccountPropertyRowSink,
     _is_missing_object_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink"
+_STAGING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store"
+
+
+def _aws_write_error(code: str, detail: str) -> OSError:
+    return OSError(
+        "When initiating multiple part upload for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        f"AWS Error {code} during CreateMultipartUpload operation: {detail}"
+    )
 
 
 def _sink() -> AccountPropertyRowSink:
@@ -116,6 +127,46 @@ async def test_stages_only_columns_from_sources_with_a_present_key() -> None:
     assert to_thread.await_args.args[1].column_names == ["mrr", "organization_id"]
     expected_root = settings.BUCKET_URL.removeprefix("s3://").rstrip("/")
     assert to_thread.await_args.args[2].startswith(f"{expected_root}/account_property_sync/7/model_")
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_attempts", "raises"),
+    [
+        (
+            _aws_write_error("INTERNAL_FAILURE", "We encountered an internal error. Please try again."),
+            2,
+            None,
+        ),
+        (_aws_write_error("ACCESS_DENIED", "Access Denied"), 1, ObjectStoreConfigurationError),
+        (RuntimeError("staging blew up"), 1, RuntimeError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stage_chunk_retries_only_a_transient_object_store_failure(error, expected_attempts, raises) -> None:
+    # Creating the multipart upload is a single network call, so a SLOW_DOWN/InternalError blip on
+    # it used to drop the whole chunk and abort the entire multi-chunk staging activity, forcing a
+    # Temporal-level retry that redoes every earlier chunk. Mirrors person_property_row_sink's
+    # equivalent coverage now that stage_chunk retries the write the same way.
+    sink = _sink()
+    to_thread = AsyncMock(side_effect=[error, None])
+    projection = [
+        AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+    ]
+
+    with (
+        patch(f"{_MODULE}.account_property_projection_for", return_value=projection),
+        patch.object(sink, "_get_fs", return_value=MagicMock()),
+        patch(f"{_MODULE}.asyncio.to_thread", new=to_thread),
+        patch(f"{_STAGING_MODULE}.asyncio.sleep", new=AsyncMock()),
+    ):
+        table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+        if raises is not None:
+            with pytest.raises(raises):
+                await sink.stage_chunk(chunk=0, table=table)
+        else:
+            await sink.stage_chunk(chunk=0, table=table)
+
+    assert to_thread.await_count == expected_attempts
 
 
 @pytest.mark.asyncio
@@ -302,6 +353,107 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_full_re
     stage_chunk.assert_awaited_once()
     assert stage_chunk.await_args is not None
     assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
+
+
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_retries_a_second_race_against_the_fallback_read() -> None:
+    # The fallback re-read of "whatever is committed now" can itself lose the same vacuum/full-refresh
+    # race it was meant to recover from, if another materialize run lands before it completes. Before
+    # this test, a second consecutive race propagated unhandled out of stage_delta_snapshot instead of
+    # being retried like the first one, failing the whole staging activity attempt.
+    sink = _sink()
+    fresh_table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+    fresh_output = pa.BufferOutputStream()
+    pq.write_table(fresh_table, fresh_output)
+
+    stale_delta_table = MagicMock()
+    stale_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/stale.parquet"]
+    raced_delta_table = MagicMock()
+    raced_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/raced.parquet"]
+    current_delta_table = MagicMock()
+    current_delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/current.parquet"]
+
+    def _open_input_file(path):
+        if path in ("data-warehouse/dlt/stale.parquet", "data-warehouse/dlt/raced.parquet"):
+            raise OSError(2, f"Path does not exist '{path}'. Detail: [errno 2] No such file or directory")
+        return pa.BufferReader(fresh_output.getvalue())
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.side_effect = _open_input_file
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(
+            f"{_MODULE}.deltalake.DeltaTable",
+            side_effect=[stale_delta_table, raced_delta_table, current_delta_table],
+        ) as open_delta,
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        staged = await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert staged is True
+    assert clear.await_count == 3
+    assert cast(AsyncMock, sink.logger.awarning).await_count == 2
+    assert open_delta.call_args_list == [
+        call("s3://data-warehouse/dlt/table", version=7, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+        call("s3://data-warehouse/dlt/table", version=None, storage_options={"region_name": "us-east-1"}),
+    ]
+    stage_chunk.assert_awaited_once()
+    assert stage_chunk.await_args is not None
+    assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
+
+
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_raises_after_exhausting_stale_version_retries() -> None:
+    # A race that keeps recurring on every retry (the view materializes faster than we can stage it)
+    # must still fail the activity attempt rather than retry forever.
+    sink = _sink()
+
+    def _open_input_file(path):
+        raise OSError(2, f"Path does not exist '{path}'. Detail: [errno 2] No such file or directory")
+
+    filesystem = MagicMock()
+    filesystem.open_input_file.side_effect = _open_input_file
+    delta_table = MagicMock()
+    delta_table.file_uris.return_value = ["s3://data-warehouse/dlt/always_missing.parquet"]
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()) as clear,
+        patch.object(sink, "_get_fs", return_value=filesystem),
+        patch(f"{_MODULE}.deltalake.DeltaTable", return_value=delta_table),
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+    ):
+        with pytest.raises(OSError, match="Path does not exist"):
+            await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    assert clear.await_count == 3
 
 
 @pytest.mark.asyncio

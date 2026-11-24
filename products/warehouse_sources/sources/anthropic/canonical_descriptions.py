@@ -418,4 +418,141 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "science_entitled_user_count": "Members holding a Claude Science seat entitlement at the time of the daily snapshot, independent of the organization-level Claude Science toggle.",
         },
     },
+    "organization": {
+        "description": "The Anthropic organization the configured Admin API key belongs to, as one row.",
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/retrieve",
+        "columns": {
+            "id": "Unique identifier (UUID) of the organization.",
+            "type": 'Object type, always "organization".',
+            "name": "Name of the organization.",
+        },
+    },
+    "analytics_chat_project_usage": {
+        "description": (
+            "Claude chat project activity, one row per project per UTC day. Data for a day lands "
+            "about a day later and may be revised by a few percent over the following days."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/analytics/apps/chat/projects/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and the project ID.",
+            "date": "UTC day the metrics are aggregated over, in RFC 3339 format.",
+            "project_id": "Tagged project identifier (claude_proj_...).",
+            "project_name": "Name of the project.",
+            "created_at": "RFC 3339 timestamp of when the project was created. Null if the project was deleted before attribution was recorded.",
+            "created_by_id": "Tagged ID (user_...) of the user who created the project. Null if unknown or the account no longer exists.",
+            "created_by_email_address": "Email address of the user who created the project.",
+            "distinct_conversation_count": "Distinct conversations in the project.",
+            "distinct_user_count": "Distinct users who used the project that day.",
+            "message_count": "Messages sent in the project that day.",
+        },
+    },
+    "analytics_artifact_activity": {
+        "description": (
+            "Artifact creation, one row per UTC day for each artifact MIME type and shared flag. "
+            "Covers artifacts created in Claude chat, Claude Code and Cowork."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/analytics/artifacts/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day, the artifact type and the shared flag.",
+            "date": "UTC day the metrics are aggregated over, in RFC 3339 format.",
+            "artifact_type": "Canonical artifact MIME type, such as text/markdown or application/vnd.ant.react, or other. Claude Code and Cowork artifacts report as text/html.",
+            "is_shared": "Whether the artifacts in this row have ever been shared beyond their creator.",
+            "artifacts_created_count": "Artifacts created that day.",
+            "published_artifacts_created_count": "Artifacts created that day that have been published. Never more than artifacts_created_count.",
+            "distinct_user_count": "Distinct users who created artifacts that day.",
+        },
+    },
+    "spend_limits": {
+        "description": (
+            "Spend limits configured in a Claude Enterprise organization, one row per limit. Each limit "
+            "applies to one scope (the organization, a seat tier, a group, a service or a member) and period."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/beta/organization/spend_limits/list",
+        "columns": {
+            "id": "Unique tagged ID of the spend limit (spl_...).",
+            "type": 'Object type, always "spend_limit".',
+            "amount": "Limit amount as an integer decimal string in the minor unit of currency (cents for USD). Null when no numeric cap is set at this scope.",
+            "currency": "ISO 4217 code of the organization's billing currency.",
+            "is_enabled": "False when extra usage is switched off for the organization. Always true for limits other than the organization limit.",
+            "period": "Window the limit resets over: daily, weekly or monthly.",
+            "scope_type": "What the limit applies to: organization, seat_tier, rbac_group, organization_service, user, workspace or usage_tier.",
+            "scope_user_id": "Tagged ID of the member, for a user scope.",
+            "scope_seat_tier": "Seat tier, for a seat_tier scope.",
+            "scope_rbac_group_id": "Group ID, for an rbac_group scope.",
+            "scope_service": "Service, for an organization_service scope.",
+            "scope_workspace_id": "Workspace ID, for a workspace scope.",
+            "created_at": "RFC 3339 timestamp of when the spend limit was created.",
+            "updated_at": "RFC 3339 timestamp of when the spend limit was last modified.",
+        },
+    },
+    "spend_limits_effective": {
+        "description": (
+            "Each member's effective spend limit and period-to-date spend, one row per member and period. "
+            "The source columns show which scope the limit was inherited from."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/organization/spend_limits/effective/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the actor and the period.",
+            "spend_limit_id": "ID of the spend limit that applies to the member.",
+            "period": "Period the limit and spend are reported for: daily, weekly or monthly.",
+            "amount": "Effective limit as an integer decimal string in the minor unit of currency (cents for USD). Null when no limit applies for this period.",
+            "currency": "ISO 4217 code of the organization's billing currency.",
+            "period_to_date_spend": "Spend so far in the current period, as a decimal string in the minor unit of currency. May carry fractional cents. Reads 0 when the spend reading is temporarily unavailable.",
+            "actor_type": "Kind of actor: user_actor or scoped_api_key_actor.",
+            "actor_user_id": "Tagged ID of the member, for a user actor.",
+            "actor_email_address": "Email address of the member. Null when the account is unavailable or deleted.",
+            "actor_name": "Display name of the member. Null when unavailable, deleted or not set.",
+            "actor_deleted": "True only when the member's account has been deleted.",
+            "actor_scoped_api_key_id": "ID of the scoped Admin API key, for a scoped_api_key_actor.",
+            "scope_type": "Scope type of the limit that applies to the member.",
+            "source_type": "Scope type the effective limit was inherited from: user, seat_tier, rbac_group or organization.",
+        },
+    },
+    "analytics_cost": {
+        "description": (
+            "Cost in USD per UTC day, broken out by actor type, API key, workspace, model, product, cost "
+            "component and token type. Includes all cost, whether or not it is attributable to a seat user."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/beta/organization/analytics/cost/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and every dimension value.",
+            "starting_at": "Start of the day the cost is bucketed into, in RFC 3339 format.",
+            "ending_at": "End of the bucket (exclusive), in RFC 3339 format.",
+            "actor_type": "Kind of identity the row is attributed to: api_actor, federated_actor, service_account_actor or user_actor. Null when no identity is attributable.",
+            "api_key_id": "Tagged ID (apikey_...) of the API key that authenticated the requests. Null for usage that no API key authenticated.",
+            "workspace_id": "Tagged ID (wrkspc_...) of the workspace the usage occurred in. Null for Claude Enterprise usage.",
+            "model": "Model the usage ran on.",
+            "product": "Product surface the usage came from, such as messages_api, claude_code or chat.",
+            "cost_type": "Cost component: tokens, web search, code execution or session_usage (Claude Managed Agents session time).",
+            "token_type": "Token type, for rows with cost_type tokens. Null for other cost components.",
+            "amount": "Post-discount, pre-credit cost in fractional cents, as a decimal string. Divide by 100 for dollars.",
+            "list_amount": "List-price (pre-discount) cost in fractional cents, as a decimal string.",
+            "currency": 'Currency code for the cost amounts, currently always "USD".',
+        },
+    },
+    "analytics_usage": {
+        "description": (
+            "Token usage per UTC day, broken out by actor type, API key, workspace, model and product. "
+            "Includes all usage, whether or not it is attributable to a seat user."
+        ),
+        "docs_url": "https://platform.claude.com/docs/en/api/beta/organization/analytics/usage/list",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the day and every dimension value.",
+            "starting_at": "Start of the day the usage is bucketed into, in RFC 3339 format.",
+            "ending_at": "End of the bucket (exclusive), in RFC 3339 format.",
+            "actor_type": "Kind of identity the row is attributed to: api_actor, federated_actor, service_account_actor or user_actor. Null when no identity is attributable.",
+            "api_key_id": "Tagged ID (apikey_...) of the API key that authenticated the requests. Null for usage that no API key authenticated.",
+            "workspace_id": "Tagged ID (wrkspc_...) of the workspace the usage occurred in. Null for Claude Enterprise usage.",
+            "model": "Model the usage ran on.",
+            "product": "Product surface the usage came from, such as messages_api, claude_code or chat.",
+            "uncached_input_tokens": "Input tokens processed without a cache hit.",
+            "cache_read_input_tokens": "Input tokens read from the prompt cache.",
+            "cache_creation_ephemeral_1h_input_tokens": "Input tokens used to create 1-hour prompt-cache entries.",
+            "cache_creation_ephemeral_5m_input_tokens": "Input tokens used to create 5-minute prompt-cache entries.",
+            "output_tokens": "Output tokens generated.",
+            "total_tokens": "Total tokens across every token type.",
+            "requests": "API requests in the row's scope. Counts execution spans for code execution.",
+            "web_search_requests": "Web search requests made through server-side tool use.",
+        },
+    },
 }

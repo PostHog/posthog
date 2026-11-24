@@ -817,10 +817,9 @@ async fn sentinel_round_trip(
     let person_id: i64 = sqlx::query_scalar(&format!(
         r#"
         INSERT INTO {table} (
-            team_id, uuid, properties, properties_last_updated_at,
-            properties_last_operation, created_at, version, is_identified
+            team_id, uuid, properties, created_at, version, is_identified
         )
-        VALUES ($1, gen_random_uuid(), $2::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, now(), 0, false)
+        VALUES ($1, gen_random_uuid(), $2::jsonb, now(), 0, false)
         RETURNING id
         "#
     ))

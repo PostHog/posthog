@@ -20,58 +20,58 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HogQLExpression = z.string()
+const HogQLExpressionOpen = z.string()
 
-const AssistantEventsQuery = z
-    .object({
+const AssistantEventsQueryOpen = z
+    .looseObject({
         kind: z.literal('EventsQuery').default('EventsQuery'),
-        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+        select: z.array(HogQLExpressionOpen).describe('Event columns as HogQL expressions.'),
     })
     .catchall(z.unknown())
 
-const AssistantDataTableNode = z
-    .object({
+const AssistantDataTableNodeOpen = z
+    .looseObject({
         kind: z.literal('DataTableNode').default('DataTableNode'),
-        source: AssistantEventsQuery,
+        source: AssistantEventsQueryOpen,
     })
     .catchall(z.unknown())
 
-const AssistantBareHogQLQuery = z
-    .object({
+const AssistantBareHogQLQueryOpen = z
+    .looseObject({
         kind: z.literal('HogQLQuery').default('HogQLQuery'),
         query: z.string().describe('The HogQL query to run.'),
     })
     .catchall(z.unknown())
 
-const AssistantBIVisualizationNode = z
-    .object({
+const AssistantBIVisualizationNodeOpen = z
+    .looseObject({
         config: z
             .record(z.string(), z.unknown())
             .describe('Complete worksheet configuration, including shelves and filters. Validated by the insight API.'),
         kind: z.literal('BIVisualizationNode').default('BIVisualizationNode'),
-        source: AssistantBareHogQLQuery,
+        source: AssistantBareHogQLQueryOpen,
     })
     .catchall(z.unknown())
 
-const AssistantPieChartOptions = z.object({
+const AssistantPieChartOptionsOpen = z.looseObject({
     hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
 })
 
-const AssistantVizSpecificOptions = z.object({
-    ActionsPie: AssistantPieChartOptions.optional(),
+const AssistantVizSpecificOptionsOpen = z.looseObject({
+    ActionsPie: AssistantPieChartOptionsOpen.optional(),
 })
 
-const AssistantInsightVizNode = z.object({
+const AssistantInsightVizNodeOpen = z.looseObject({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
         .record(z.string(), z.unknown())
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
-    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
+    vizSpecificOptions: AssistantVizSpecificOptionsOpen.describe('Chart rendering options.').optional(),
 })
 
-const AssistantDataVisualizationBoxPlotSettings = z.object({
+const AssistantDataVisualizationBoxPlotSettingsOpen = z.looseObject({
     excludeOutliers: z.coerce
         .boolean()
         .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
@@ -96,12 +96,12 @@ const AssistantDataVisualizationBoxPlotSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationGoalLine = z.object({
+const AssistantDataVisualizationGoalLineOpen = z.looseObject({
     label: z.string().describe('Label rendered next to the goal line.'),
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
 })
 
-const AssistantDataVisualizationYAxisSettings = z.object({
+const AssistantDataVisualizationYAxisSettingsOpen = z.looseObject({
     label: z.string().describe('Label rendered beside this Y axis.').optional(),
     scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
     showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
@@ -109,12 +109,12 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
-const AssistantDataVisualizationMetricSettings = z.object({
+const AssistantDataVisualizationMetricSettingsOpen = z.looseObject({
     showChange: z.coerce.boolean().optional(),
     summary: z.enum(['total', 'average', 'latest']).optional(),
 })
 
-const PieChartSettings = z.object({
+const PieChartSettingsOpen = z.looseObject({
     showTotal: z.coerce
         .boolean()
         .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
@@ -131,11 +131,11 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationColumnDisplaySettings = z.object({
+const AssistantDataVisualizationColumnDisplaySettingsOpen = z.looseObject({
     description: z.string().describe('Table column description shown in the header tooltip.').optional(),
 })
 
-const AssistantDataVisualizationAxisFormatting = z.object({
+const AssistantDataVisualizationAxisFormattingOpen = z.looseObject({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
     style: z
@@ -147,21 +147,23 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
-const AssistantDataVisualizationColumnSettings = z.object({
-    display: AssistantDataVisualizationColumnDisplaySettings.describe('Display settings for this column.').optional(),
-    formatting: AssistantDataVisualizationAxisFormatting.describe(
+const AssistantDataVisualizationColumnSettingsOpen = z.looseObject({
+    display: AssistantDataVisualizationColumnDisplaySettingsOpen.describe(
+        'Display settings for this column.'
+    ).optional(),
+    formatting: AssistantDataVisualizationAxisFormattingOpen.describe(
         'Number-formatting settings for the values in this column.'
     ).optional(),
 })
 
-const AssistantDataVisualizationColumn = z.object({
+const AssistantDataVisualizationColumnOpen = z.looseObject({
     column: z.string().describe('Name of a column returned by the SQL query.'),
-    settings: AssistantDataVisualizationColumnSettings.describe(
+    settings: AssistantDataVisualizationColumnSettingsOpen.describe(
         'Optional display and number-formatting settings for this column.'
     ).optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
+const AssistantDataVisualizationAxisDisplaySettingsOpen = z.looseObject({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
     displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
     excludeFromTotal: z.coerce
@@ -187,40 +189,44 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationAxisSettings = z.object({
-    display: AssistantDataVisualizationAxisDisplaySettings.describe(
+const AssistantDataVisualizationAxisSettingsOpen = z.looseObject({
+    display: AssistantDataVisualizationAxisDisplaySettingsOpen.describe(
         'Display settings for a plotted Y series.'
     ).optional(),
-    formatting: AssistantDataVisualizationAxisFormatting.describe(
+    formatting: AssistantDataVisualizationAxisFormattingOpen.describe(
         'Number-formatting settings for the values on this axis or series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationAxis = z.object({
+const AssistantDataVisualizationAxisOpen = z.looseObject({
     column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
-    settings: AssistantDataVisualizationAxisSettings.describe(
+    settings: AssistantDataVisualizationAxisSettingsOpen.describe(
         'Optional series settings. Only applies to Y-axis series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationChartSettings = z.object({
-    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+const AssistantDataVisualizationChartSettingsOpen = z.looseObject({
+    boxPlot: AssistantDataVisualizationBoxPlotSettingsOpen.describe(
         'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
     ).optional(),
+    colorBarsByCategory: z.coerce
+        .boolean()
+        .describe('Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.')
+        .optional(),
     goalLines: z
-        .array(AssistantDataVisualizationGoalLine)
+        .array(AssistantDataVisualizationGoalLineOpen)
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettingsOpen.describe('Settings for the left Y axis.').optional(),
     legendPosition: z
         .enum(['top', 'bottom', 'left', 'right'])
         .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
         .optional(),
-    metric: AssistantDataVisualizationMetricSettings.describe(
+    metric: AssistantDataVisualizationMetricSettingsOpen.describe(
         'Settings for `Metric`. `summary` defaults to `latest`.'
     ).optional(),
-    pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+    pie: PieChartSettingsOpen.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettingsOpen.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
     ).optional(),
     seriesBreakdownColumn: z
@@ -250,17 +256,17 @@ const AssistantDataVisualizationChartSettings = z.object({
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
-    xAxis: AssistantDataVisualizationColumn.describe(
+    xAxis: AssistantDataVisualizationColumnOpen.describe(
         'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationAxisOpen)
         .describe('One or more numeric columns plotted as Y series.')
         .optional(),
 })
 
-const AssistantDataVisualizationDisplayType = z.enum([
+const AssistantDataVisualizationDisplayTypeOpen = z.enum([
     'ActionsTable',
     'BoldNumber',
     'Metric',
@@ -277,30 +283,30 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoxPlot',
 ])
 
-const AssistantDataVisualizationTableSettings = z.object({
+const AssistantDataVisualizationTableSettingsOpen = z.looseObject({
     columns: z
-        .array(AssistantDataVisualizationColumn)
+        .array(AssistantDataVisualizationColumnOpen)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
     transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
 })
 
-const AssistantDataVisualizationNode = z.object({
-    chartSettings: AssistantDataVisualizationChartSettings.describe(
+const AssistantDataVisualizationNodeOpen = z.looseObject({
+    chartSettings: AssistantDataVisualizationChartSettingsOpen.describe(
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
-    display: AssistantDataVisualizationDisplayType.describe(
+    display: AssistantDataVisualizationDisplayTypeOpen.describe(
         'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
-    tableSettings: AssistantDataVisualizationTableSettings.describe(
+    tableSettings: AssistantDataVisualizationTableSettingsOpen.describe(
         'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
     ).optional(),
 })
 
-const InsightNodeKind = z.enum([
+const InsightNodeKindOpen = z.enum([
     'TrendsQuery',
     'FunnelsQuery',
     'RetentionQuery',
@@ -312,22 +318,22 @@ const InsightNodeKind = z.enum([
     'WebOverviewQuery',
 ])
 
-const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+const AssistantMetricsNodeKindOpen = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
 
-const AssistantBareInsightQuery = z
-    .object({
-        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
+const AssistantBareInsightQueryOpen = z
+    .looseObject({
+        kind: z.union([InsightNodeKindOpen, AssistantMetricsNodeKindOpen]),
     })
     .catchall(z.unknown())
 
-const InsightQuery = z.union([
-    AssistantDataTableNode,
-    AssistantBIVisualizationNode,
-    AssistantInsightVizNode,
-    AssistantDataVisualizationNode,
-    AssistantBareInsightQuery,
-    AssistantBareHogQLQuery,
-    AssistantEventsQuery,
+const InsightQueryOpen = z.union([
+    AssistantDataTableNodeOpen,
+    AssistantBIVisualizationNodeOpen,
+    AssistantInsightVizNodeOpen,
+    AssistantDataVisualizationNodeOpen,
+    AssistantBareInsightQueryOpen,
+    AssistantBareHogQLQueryOpen,
+    AssistantEventsQueryOpen,
 ])
 
 const ElementsStatsRetrieveSchema = () => {
@@ -478,7 +484,7 @@ const eventsRetentionUpdateExecute = (): ToolBase<
 const InsightCreateSchema = () => {
     const InsightsCreateBody = orvalSchemas.InsightsCreateBody()
     return InsightsCreateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true }).extend({
-        query: InsightQuery,
+        query: InsightQueryOpen,
         dashboards: InsightsCreateBody.shape['dashboards'].describe(
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
@@ -624,7 +630,7 @@ const InsightUpdateSchema = () => {
                 }).shape
             )
             .extend({
-                query: InsightQuery.optional(),
+                query: InsightQueryOpen.optional(),
                 dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),

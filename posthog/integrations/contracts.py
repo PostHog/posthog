@@ -79,9 +79,14 @@ class IntegrationRecord(Protocol):
     def can_be_managed_by_creator(self, user_id: int | None) -> bool: ...
 
 
+# Kinds that hold the creator's personal credentials, so the creator can manage them without admin access.
+# A literal, not `POSTHOG_CONNECT_KIND`: `posthog.models.integration.oauth` imports this module.
+CREATOR_MANAGED_KINDS = frozenset({"google-calendar", "posthog"})
+
+
 def creator_can_manage(kind: str, created_by_id: int | None, user_id: int | None) -> bool:
     """True when the user who created the row can manage it without admin access."""
-    return user_id is not None and kind == "google-calendar" and created_by_id == user_id
+    return user_id is not None and kind in CREATOR_MANAGED_KINDS and created_by_id == user_id
 
 
 @frozen

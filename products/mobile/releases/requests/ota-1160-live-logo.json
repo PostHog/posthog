@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-live-logo",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-chat-live-20261116",
+    "notes": "Animate the PostHog logo while Live refreshes on Home and the Live screen. Remove the Updating row and native refresh spinner while keeping saved values visible and pull-to-refresh available. Verify logo animation and manual refresh on iOS and Android."
+}

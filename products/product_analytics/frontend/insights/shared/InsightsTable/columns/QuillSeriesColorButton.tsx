@@ -6,6 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 
+import { QuillSeriesSwatch } from 'products/product_analytics/frontend/insights/shared/QuillSeriesSwatch'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -15,7 +16,6 @@ export function QuillSeriesColorButton({ item }: { item: IndexedTrendResult }): 
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
-    const color = seriesRowColor(item, getTrendsColor(item))
 
     return (
         <Button
@@ -25,12 +25,7 @@ export function QuillSeriesColorButton({ item }: { item: IndexedTrendResult }): 
             disabledReason={editingDisabledReason}
             onClick={() => openModal(item)}
         >
-            <span
-                className="size-3.5 rounded-full border-2"
-                // The series color comes from the chart's palette or the user's choice, so it can't be a token.
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)` }}
-            />
+            <QuillSeriesSwatch color={seriesRowColor(item, getTrendsColor(item))} />
         </Button>
     )
 }

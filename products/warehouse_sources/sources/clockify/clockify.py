@@ -29,7 +29,7 @@ from products.warehouse_sources.sources.sdk import (
 CLOCKIFY_BASE_URL = "https://api.clockify.me/api/v1"
 
 # Single-level fan-out endpoints: one request per workspace. Two-level ones (tasks,
-# time_entries, invoice_payments) chain a second parent and are handled explicitly below.
+# time_entries, invoice_payments, time_off_balances) chain a second parent and are handled explicitly below.
 _WORKSPACE_CHILD_ENDPOINTS = (
     "users",
     "clients",
@@ -42,6 +42,8 @@ _WORKSPACE_CHILD_ENDPOINTS = (
     "time_off_requests",
     "approval_requests",
     "user_groups",
+    "time_off_policies",
+    "holidays",
 )
 
 
@@ -177,12 +179,12 @@ def _flatten_time_entry(item: dict[str, Any]) -> dict[str, Any]:
 # the flat ``workspace_id`` / ``project_id`` / ``user_id`` columns the tables have always exposed.
 _rename_workspace = rename_parent_fields("workspaces", {"id": "workspace_id"})
 _rename_task_parents = rename_parent_fields("projects", {"workspace_id": "workspace_id", "id": "project_id"})
-_rename_time_entry_parents = rename_parent_fields("users", {"workspace_id": "workspace_id", "id": "user_id"})
+_rename_user_parents = rename_parent_fields("users", {"workspace_id": "workspace_id", "id": "user_id"})
 _rename_invoice_parents = rename_parent_fields("invoices", {"workspace_id": "workspace_id", "id": "invoice_id"})
 
 
 def _time_entry_map(row: dict[str, Any]) -> dict[str, Any]:
-    return _rename_time_entry_parents(_flatten_time_entry(row))
+    return _rename_user_parents(_flatten_time_entry(row))
 
 
 def _approval_request_map(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
@@ -300,6 +302,12 @@ def _resources_for(endpoint: str, incremental: IncrementalConfig | None) -> list
         ]
     if endpoint == "time_entries":
         return [_workspaces_resource(), _workspace_child_resource("users"), _time_entries_resource(incremental)]
+    if endpoint == "time_off_balances":
+        return [
+            _workspaces_resource(),
+            _workspace_child_resource("users"),
+            _chained_resource("time_off_balances", _rename_user_parents),
+        ]
     if endpoint == "invoice_payments":
         return [
             _workspaces_resource(),

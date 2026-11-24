@@ -194,7 +194,7 @@ describe('HttpImageFetcher', () => {
         ['a type that is not an image', 'image', 'text/html', PNG, 'not_image'],
         ['an SVG, which the store validates as a document', 'image', 'image/svg+xml', PNG, 'ok'],
         ['the BMP format', 'image', 'image/bmp', Buffer.from('BM'), 'not_image'],
-        ['the AVIF format', 'image', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
+        ['the AVIF format', 'image', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'ok'],
         ['a payload that is not the declared format', 'image', 'image/gif', PNG, 'ok'],
         ['a payload of the wrong raster format', 'image', 'image/png', GIF, 'ok'],
         ['a generic binary type for an image', 'image', 'application/octet-stream', PNG, 'not_image'],

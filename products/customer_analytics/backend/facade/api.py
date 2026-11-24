@@ -74,7 +74,7 @@ from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -94,6 +94,12 @@ from products.conversations.backend.facade.api import (
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
+from products.customer_analytics.backend.constants import (
+    ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.customer_analytics.backend.events import emit_account_tags_added, emit_account_tags_removed
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
@@ -124,6 +130,7 @@ from products.customer_analytics.backend.logic import (
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
+from products.customer_analytics.backend.logic.account_activity_access import get_account_activity_account
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
@@ -132,6 +139,10 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.activity_query_access import (
+    validate_activity_query_property_access as validate_activity_property_access,
+)
+from products.customer_analytics.backend.logic.book_activity_access import validate_book_activity_query_access
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -401,8 +412,68 @@ def _resolve_accessible_account(
         return None
 
 
-def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+def validate_activity_query_property_access(team: Team, user: "User | None", labels: list[str]) -> None:
+    validate_activity_property_access(team, user, labels)
+
+
+def validate_account_users_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
     raise PermissionDenied("Run the account-user query synchronously.")
+
+
+def validate_account_activity_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    get_account_activity_account(team=team, user=user, account_id=account_id, access=access)
+
+
+def get_activity_query_status_scopes(labels: list[str]) -> list[str] | None:
+    person_prefixes = (
+        ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+        BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+    )
+    activity_prefixes = (
+        *person_prefixes,
+        BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+        BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
+    )
+    if not any(label.startswith(activity_prefixes) for label in labels):
+        return None
+    scopes = ["query:read", "account:read"]
+    if any(label.startswith(person_prefixes) for label in labels):
+        scopes.append("person:read")
+    return scopes
+
+
+def validate_book_activity_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None or str(user.id) != labeled_user_id:
+        raise UserAccessControlError("account", "viewer")
+    validate_book_activity_query_access(team, user, access)
+
+
+def validate_book_activity_accounts_access(
+    team: Team, user: "User | None", labeled_account_ids: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
+    account_ids = set(labeled_account_ids.split(",")) if labeled_account_ids else set()
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    accessible = _accounts_queryset(team.id, access).filter(id__in=account_ids, ignored_at__isnull=True)
+    if accessible.count() != len(account_ids):
+        raise UserAccessControlError("account", "viewer")
+
+
+def validate_book_activity_people_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    validate_book_activity_access(team, user, labeled_user_id, access=access)
+    access.assert_access_level_for_resource("person", "viewer")
 
 
 def get_account(
@@ -1307,6 +1378,10 @@ def get_account_view(
     )
 
 
+def authorize_account_view_content(content: dict[str, Any], *, team: Team, user: "User", can_query: bool) -> None:
+    _account_views_logic.authorize_account_view_content(content, team=team, user=user, can_query=can_query)
+
+
 def create_account_view(
     *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
 ) -> contracts.AccountView:
@@ -1370,15 +1445,11 @@ InvalidPinnedAccountProperties = contracts.InvalidPinnedAccountProperties
 def _to_user_customer_analytics_config(
     config: UserCustomerAnalyticsConfigModel,
 ) -> contracts.UserCustomerAnalyticsConfig:
-    raw_references = _user_customer_analytics_config_logic.read_pinned_properties(config)
+    resolved_pins = _user_customer_analytics_config_logic.read_pinned_properties(config)
     return contracts.UserCustomerAnalyticsConfig(
-        pinned_properties=[
-            contracts.PinnedAccountProperty(
-                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
-                id=str(reference["id"]),
-            )
-            for reference in raw_references
-        ],
+        pinned_properties=resolved_pins.pinned_properties,
+        pinned_properties_source=resolved_pins.source,
+        available_default_pinned_properties=resolved_pins.available_defaults,
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
         account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
@@ -1396,6 +1467,19 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def follow_user_default_pinned_properties(
+    *,
+    team_id: int,
+    user_id: int,
+    kind: contracts.DefaultPinnedAccountPropertiesSourceKindValue,
+    role_id: UUID | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.follow_default_pinned_properties(
+        team_id=team_id, user_id=user_id, kind=kind, role_id=role_id
     )
     return _to_user_customer_analytics_config(config)
 
@@ -3989,7 +4073,11 @@ def list_account_automations(
         team=team,
         account_id=str(account.id),
         external_id=account.external_id,
-        workflow_ids=get_viewable_workflow_ids(team_id=team.pk, user_access_control=user_access_control),
+        workflow_ids=get_viewable_workflow_ids(
+            team_id=team.pk,
+            user_access_control=user_access_control,
+            tag_name=_account_automations_logic.ACCOUNT_AUTOMATION_WORKFLOW_TAG,
+        ),
         user_access_control=user_access_control,
         page=page,
     )
@@ -5215,9 +5303,10 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
 
 # --- Custom property values ---
 
-# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# Re-exported from logic so the presentation layer can catch them — hoglint forbids
 # presentation importing logic directly, so these errors are part of the facade's surface.
 CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
+CustomPropertyValueHistoryTooLong = _custom_property_values_logic.CustomPropertyValueHistoryTooLong
 CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueConflict
 InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
 
@@ -5314,6 +5403,29 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+def list_custom_property_value_history(
+    team_id: int, account_id: str | UUID, definition_id: str | UUID, since: date | None = None
+) -> list[contracts.CustomPropertyValueHistoryEntry]:
+    """Every value the account has held for the property, oldest first, from the start of `since`
+    in UTC when given. Raises `CustomPropertyDefinitionNotFound` for a definition outside the team."""
+    history = _custom_property_values_logic.list_custom_property_value_history(
+        team_id=team_id,
+        account_id=account_id,
+        definition_id=definition_id,
+        since=datetime.combine(since, time.min, tzinfo=UTC) if since else None,
+    )
+    return [
+        contracts.CustomPropertyValueHistoryEntry(
+            value=_custom_property_values_logic.stored_value_of(entry.row),
+            set_at=entry.row.created_at,
+            set_by_id=entry.row.created_by_id,
+            replaced_at=entry.replaced_at,
+            is_current=entry.is_current,
+        )
+        for entry in history
+    ]
 
 
 # --- Account relationships ---
@@ -5604,6 +5716,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
         can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
 

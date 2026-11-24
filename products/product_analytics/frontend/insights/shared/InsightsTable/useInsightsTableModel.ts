@@ -4,6 +4,7 @@ import { ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { alphabet } from 'lib/utils/strings'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -13,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { hasBreakdownFilter } from '~/queries/schema/node-guards'
+import { hasBreakdownFilter, isInsightQueryWithSeries } from '~/queries/schema/node-guards'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
@@ -44,10 +45,17 @@ export type InsightsTableColumn =
     | { kind: 'aggregation'; key: 'count'; sorter: Sorter }
     | { kind: 'percent-of-total'; key: 'percent-of-total'; sorter: Sorter }
     | { kind: 'previous'; key: 'previous'; sorter: Sorter }
+    | { kind: 'event-count'; key: 'breakdown_event_count'; title: string; sorter: Sorter }
     | { kind: 'value'; key: string; index: number; sorter: Sorter }
     | { kind: 'load-more'; key: 'load-more-columns'; hiddenCount: number }
 
-const NUMERIC_COLUMN_KINDS: InsightsTableColumn['kind'][] = ['aggregation', 'percent-of-total', 'previous', 'value']
+const NUMERIC_COLUMN_KINDS: InsightsTableColumn['kind'][] = [
+    'aggregation',
+    'percent-of-total',
+    'previous',
+    'event-count',
+    'value',
+]
 
 export function isNumericColumn(column: InsightsTableColumn): boolean {
     return NUMERIC_COLUMN_KINDS.includes(column.kind)
@@ -156,22 +164,32 @@ export function useInsightsTableModel({
 
     const columns: InsightsTableColumn[] = []
 
-    columns.push({
-        kind: 'label',
-        key: 'label',
-        sorter: (a, b) => {
-            if (isSingleSeriesWithBreakdown) {
-                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
-                    return a.breakdown_value - b.breakdown_value
-                }
-                return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
-            }
+    const showSeriesColumn =
+        indexedResults.length !== 1 ||
+        !isSingleSeriesDefinition ||
+        hasBreakdownFilter(breakdownFilter) ||
+        !!compareFilter?.compare ||
+        isLegend ||
+        isMainInsightView
 
-            const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
-            const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
-            return labelA.localeCompare(labelB)
-        },
-    })
+    if (showSeriesColumn) {
+        columns.push({
+            kind: 'label',
+            key: 'label',
+            sorter: (a, b) => {
+                if (isSingleSeriesWithBreakdown) {
+                    if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                        return a.breakdown_value - b.breakdown_value
+                    }
+                    return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
+                }
+
+                const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
+                const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
+                return labelA.localeCompare(labelB)
+            },
+        })
+    }
 
     if (hasBreakdownFilter(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
@@ -266,6 +284,16 @@ export function useInsightsTableModel({
                 },
             })
         }
+    }
+
+    if (indexedResults.some((result) => result.breakdown_event_count != null)) {
+        const seriesCount = querySource && isInsightQueryWithSeries(querySource) ? querySource.series.length : 0
+        columns.push({
+            kind: 'event-count',
+            key: 'breakdown_event_count',
+            title: `Events (${alphabet.slice(0, seriesCount).join(' + ')})`,
+            sorter: (a, b) => (a.breakdown_event_count ?? 0) - (b.breakdown_event_count ?? 0),
+        })
     }
 
     const valueColumns = useMemo((): InsightsTableColumn[] => {

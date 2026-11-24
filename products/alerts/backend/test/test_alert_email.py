@@ -12,7 +12,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend.facade.destinations import list_alert_destination_groups, list_delivery_destination_groups
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
-from products.alerts.backend.platform_hooks import insight_alert_viewer
+from products.alerts.backend.platform_hooks import insight_alert_creator, insight_alert_viewer
 from products.alerts.backend.platform_insight_alert import subscribers_with_insight_access
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -95,17 +95,38 @@ class TestInsightAlertEmailDestination(APIBaseTest):
         assert reached == ([self.user.id] if user_reached else [])
 
     @parameterized.expand(
-        [("can see the insight", True, True), ("denied the insight", False, True), ("no alert", True, False)]
+        [
+            ("can see the insight", "row", True),
+            ("denied the insight", "row", False),
+            ("can see the insight of an alert with no row", "native", True),
+            ("denied the insight of an alert with no row", "native", False),
+            ("no alert", None, True),
+        ]
     )
-    def test_the_platform_sees_an_alert_only_when_its_insight_is_visible(
-        self, _name: str, can_see_insight: bool, alert_exists: bool
+    def test_the_platform_sees_an_alert_and_its_creator_only_when_its_insight_is_visible(
+        self, _name: str, kept_as: str | None, can_see_insight: bool
     ) -> None:
-        alert_id = self._alert().id if alert_exists else uuid4()
+        if kept_as == "row":
+            alert_id = create_insight_alert(self.team, created_by=self.user).id
+        elif kept_as == "native":
+            with team_scope(self.team.id):
+                alert_id = platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="alert",
+                    source_kind=SourceKind.INSIGHT,
+                    check_interval_minutes=60,
+                    source_config={"insight_id": self._alert().insight.id},
+                    created_by_id=self.user.id,
+                ).id
+        else:
+            alert_id = uuid4()
 
         with patch.object(UserAccessControl, "check_access_level_for_object", return_value=can_see_insight):
             visible = insight_alert_viewer(team_id=self.team.id, alert_id=alert_id, user_id=self.user.id)
 
-        assert visible is (can_see_insight and alert_exists)
+        assert visible is (can_see_insight and kept_as is not None)
+        expected_creator = self.user.id if kept_as is not None else None
+        assert insight_alert_creator(team_id=self.team.id, alert_id=alert_id) == expected_creator
 
     @parameterized.expand(
         [

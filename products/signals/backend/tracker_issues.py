@@ -180,6 +180,10 @@ def _claim_tracker_issue(
     report lock, so without this claim two evaluations would each open an issue for one report. The
     row is unique per report, so exactly one claim wins. A row that already holds an issue is
     returned as it is; a row left by a failed attempt is retried.
+
+    Every change to an existing row is a conditional update on the status this evaluation read. Two
+    evaluations can read the same FAILED row, and only the one whose update changes the row may call
+    the provider.
     """
     # for_team scopes the lookup; get_or_create still needs team_id in the defaults, because a
     # queryset filter does not propagate into the row it creates.
@@ -194,19 +198,32 @@ def _claim_tracker_issue(
     )
     if created:
         return claim
+
+    now = timezone.now()
+    row = SignalReportTrackerIssue.objects.for_team(team_id).filter(id=claim.id)
     if claim.status == SignalReportTrackerIssue.Status.PENDING:
-        if claim.updated_at <= timezone.now() - PENDING_CLAIM_TIMEOUT:
-            claim.status = SignalReportTrackerIssue.Status.FAILED
-            claim.failure_reason = ABANDONED_CLAIM_REASON
-            claim.save(update_fields=["status", "failure_reason", "updated_at"])
+        # The owner can still finish after the timeout, so its CREATED result must win over this.
+        row.filter(status=SignalReportTrackerIssue.Status.PENDING, updated_at__lte=now - PENDING_CLAIM_TIMEOUT).update(
+            status=SignalReportTrackerIssue.Status.FAILED, failure_reason=ABANDONED_CLAIM_REASON, updated_at=now
+        )
         return None
-    if claim.status == SignalReportTrackerIssue.Status.FAILED:
-        if claim.failure_reason == ABANDONED_CLAIM_REASON:
+    if claim.status == SignalReportTrackerIssue.Status.FAILED and claim.failure_reason != ABANDONED_CLAIM_REASON:
+        retried = (
+            row.filter(status=SignalReportTrackerIssue.Status.FAILED)
+            .exclude(failure_reason=ABANDONED_CLAIM_REASON)
+            .update(
+                status=SignalReportTrackerIssue.Status.PENDING,
+                integration_id=target.integration.id,
+                provider=target.integration.kind,
+                updated_at=now,
+            )
+        )
+        if not retried:
             return None
         claim.status = SignalReportTrackerIssue.Status.PENDING
         claim.integration_id = target.integration.id
         claim.provider = target.integration.kind
-        claim.save(update_fields=["status", "integration", "provider", "updated_at"])
+        claim.updated_at = now
         return claim
     return None
 
@@ -310,11 +327,14 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
     Edits the pull request description rather than trusting the agent to write the reference, and
     attaches the pull request to a Linear issue so the link reads in both directions. Returns
     whether the pull request now carries the reference. Never raises.
+
+    A closed issue is never linked. A restored report keeps the issue it had before, and a new pull
+    request that says "Closes" or "Tracked in" for a closed work item gives the auditor a false trail.
     """
     try:
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
-            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED)
+            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED, closed_at__isnull=True)
             .first()
         )
         if tracker is None or tracker.pr_linked_at is not None:

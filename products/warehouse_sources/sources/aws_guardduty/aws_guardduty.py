@@ -26,6 +26,7 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
     probe_status_message,
@@ -39,7 +40,6 @@ TRANSPORT_RETRY = BoundedRetry(
     allowed_methods=frozenset({"GET", "POST"}),
     raise_on_status=False,
 )
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"(?:us|eu|ap|sa|ca|me|af|il|mx|cn)-(?:gov-)?[a-z]+-\d+")
 _SORT_CRITERIA = {"AttributeName": "updatedAt", "OrderBy": "ASC"}
 _TIMESTAMP_COLUMNS = ("created_at", "updated_at", "invited_at", "scan_start_time", "scan_end_time")
@@ -170,7 +170,7 @@ class AwsGuarddutyClient:
 
 
 def normalize_row(item: dict[str, Any], detector_id: str, region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+    row = {camel_to_snake(key): value for key, value in item.items()}
     row["source_detector_id"] = detector_id
     row["region"] = region
     for column in _TIMESTAMP_COLUMNS:

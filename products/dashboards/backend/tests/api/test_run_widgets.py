@@ -1,6 +1,8 @@
 import typing
+from datetime import timedelta
 from typing import Any, cast
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +12,7 @@ from django.test.utils import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import RecordingOrder, RecordingOrderDirection
+from posthog.schema import LogsQueryResponse, RecordingOrder, RecordingOrderDirection
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
@@ -18,7 +20,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
@@ -58,6 +60,7 @@ from products.dashboards.backend.widgets.error_tracking_list import run_error_tr
 from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.logs.backend.facade.queries import LogsQueryRunner
 from products.logs.backend.models import LogsView
 
 
@@ -560,6 +563,40 @@ class TestDashboardRunWidgets(APIBaseTest):
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertEqual(query.severityLevels, ["error"])
         self.assertEqual(query.limit, 15)
+
+    @parameterized.expand(
+        [
+            ("flag_off_recomputes_every_refresh", False, 1, 2),
+            ("flag_on_serves_cache_within_freshness_window", True, 1, 1),
+            ("flag_on_recomputes_after_freshness_window", True, 61, 2),
+        ]
+    )
+    def test_logs_widget_refresh_reuses_cached_result_with_dashboard_v2(
+        self, _name: str, flag_on: bool, seconds_between_refreshes: int, expected_computes: int
+    ) -> None:
+        log_row = {
+            "uuid": "0196e9ab-0000-0000-0000-000000000000",
+            "timestamp": "2026-11-18T11:59:00Z",
+            "severity_text": "error",
+            "level": "error",
+            "body": "Boom",
+            "trace_id": "abc123",
+        }
+        config = {"limit": 10, "dateRange": {"date_from": "-1h"}}
+        with (
+            patch("products.dashboards.backend.feature_flags.posthog_feature_flag_enabled", return_value=flag_on),
+            patch.object(
+                LogsQueryRunner, "_calculate", return_value=LogsQueryResponse(results=[log_row], hasMore=False)
+            ) as compute,
+            time_machine.travel("2026-11-18T12:00:00Z", tick=False) as traveller,
+        ):
+            first = run_logs_list_widget(self.team, config, user=self.user)
+            traveller.shift(timedelta(seconds=seconds_between_refreshes))
+            second = run_logs_list_widget(self.team, config, user=self.user)
+
+        self.assertEqual(compute.call_count, expected_computes)
+        self.assertEqual(first["results"], [log_row])
+        self.assertEqual(second["results"], [log_row])
 
     @parameterized.expand(
         [
@@ -1524,5 +1561,9 @@ class TestDashboardRunWidgets(APIBaseTest):
             and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
         ]
         self.assertEqual(len(completed_calls), 1)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.FAILURE)
-        self.assertEqual(completed_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
+        completed_properties = completed_calls[0].kwargs["properties"]
+        self.assertEqual(completed_properties["outcome"], SloOutcome.FAILURE)
+        self.assertEqual(completed_properties["widget_type"], "error_tracking_list")
+        self.assertEqual(completed_properties["error_type"], "Exception")
+        self.assertEqual(completed_properties["error_message"], "boom")
+        self.assertIn("error_origin", completed_properties)

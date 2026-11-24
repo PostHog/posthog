@@ -280,7 +280,7 @@ It never replaces the required live query.
 - **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
 - **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
 
-A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+A refresh replaces `value`, `value_at`, and `series`, records each bucket's label in `series_buckets`, and clears `comparison`.
 It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
 Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
 
@@ -411,7 +411,7 @@ Cap is **20 charts per report** (and a combined query-size budget), which is far
 ### Suggesting follow-up prompts
 
 `suggested_prompts` are prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request.
-Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
+Clicking one sends it at once to an agent run that gets the report as context. The reader cannot edit it first, so write each prompt as the exact request to send.
 You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
 
 Optional, and worth it only when you can name a prompt worth an agent run.

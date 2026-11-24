@@ -211,3 +211,73 @@ def test_credential_validation_uses_one_request(
     request = network.requests_log[0]
     assert request.headers["authorization"] == f"Bearer {TOKEN}"
     assert request.query == {"limit": ("1",)}
+
+
+@pytest.mark.parametrize(
+    ("incremental", "cursor", "expected_from"),
+    [
+        (False, "2026-06-01T00:00:00Z", None),
+        (True, None, None),
+        (True, "2026-06-01T00:00:00Z", datetime(2026, 6, 1, tzinfo=UTC)),
+        (True, "2026-06-01T03:00:00+03:00", datetime(2026, 6, 1, tzinfo=UTC)),
+        (True, "2020-01-01T00:00:00Z", NOW - timedelta(days=90)),
+    ],
+)
+def test_merchant_orders_pages_and_time_filter(
+    incremental: bool, cursor: str | None, expected_from: datetime | None
+) -> None:
+    rows = [{"id": index, "last_updated": "2026-06-10T00:00:00.000Z"} for index in range(40)]
+    with time_machine.travel(NOW, tick=False):
+        result = _driver().run(
+            "merchant_orders",
+            [
+                ScriptedResponse(json={"elements": rows[:20], "next_offset": 20, "total": 40}),
+                ScriptedResponse(json={"elements": rows[20:], "next_offset": 40, "total": 40}),
+            ],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=cursor,
+        )
+    assert result.raised is None
+    assert result.rows == rows
+    assert result.paths == ["/merchant_orders/search", "/merchant_orders/search"]
+    assert result.params("offset") == ["0", "20"]
+    sent_from = result.params("last_updated_from")
+    if expected_from is None:
+        assert sent_from == [None, None]
+    else:
+        assert [datetime.fromisoformat(value or "") for value in sent_from] == [expected_from, expected_from]
+    assert [state.offset for state in result.saved_states] == [20]
+    assert result.response is not None
+    assert result.response.sort_mode is None
+
+
+def test_merchant_orders_resume_keeps_time_filter() -> None:
+    resume_state = MercadoPagoResumeConfig(offset=20, begin_date="2026-06-01T00:00:00.000+00:00")
+    with time_machine.travel(NOW, tick=False):
+        result = _driver().run(
+            "merchant_orders",
+            [ScriptedResponse(json={"elements": [{"id": 21}], "next_offset": 21, "total": 21})],
+            resume_state=resume_state,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-10T00:00:00Z",
+        )
+    assert result.raised is None
+    assert result.rows == [{"id": 21}]
+    assert result.params("offset") == ["20"]
+    assert result.params("last_updated_from") == ["2026-06-01T00:00:00.000+00:00"]
+
+
+def test_payment_methods_reads_one_bare_list() -> None:
+    methods = [
+        {"id": "visa", "payment_type_id": "credit_card", "status": "active"},
+        {"id": "pix", "payment_type_id": "bank_transfer", "status": "active"},
+    ]
+    result = _driver().run("payment_methods", [ScriptedResponse(json=methods)])
+    assert result.raised is None
+    assert result.rows == methods
+    assert result.paths == ["/v1/payment_methods"]
+    assert result.queries == [{}]
+    assert result.saved_states == []
+    assert result.response is not None
+    assert result.response.partition_keys is None
+    assert result.response.partition_mode is None

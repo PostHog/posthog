@@ -13,10 +13,10 @@ import {
     behavioralEntityLabel,
     formatPropertyLabel,
 } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { actionsModel } from '~/models/actionsModel'
 import {

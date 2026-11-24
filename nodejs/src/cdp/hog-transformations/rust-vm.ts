@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 
+import { MmdbSource } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -101,14 +102,14 @@ let cachedModule: HogvmNodeModule | null | undefined = undefined
  * Returns null when the addon isn't built for this environment. `options` only take effect on the
  * first call in the process — later callers always get the module as first configured.
  */
-export function loadHogvmNodeModule(options: { mmdbPath: string }): HogvmNodeModule | null {
+export function loadHogvmNodeModule(options: { mmdb: MmdbSource }): HogvmNodeModule | null {
     if (cachedModule !== undefined) {
         return cachedModule
     }
     try {
         const module_: HogvmNodeModule = require('@posthog/hogvm-node')
         module_.init({
-            mmdbPath: options.mmdbPath,
+            mmdbPath: options.mmdb.kind === 'file' ? options.mmdb.path : undefined,
             knownBotUaList: KNOWN_BOT_UA_LIST,
             knownBotIpList: KNOWN_BOT_IP_LIST,
         })

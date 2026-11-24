@@ -5,6 +5,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { EXIT_SUCCESS } from '@/core/errors'
+
 import { CONTAINER_CASES } from './containers'
 import { generateInput } from './inputs'
 
@@ -17,7 +19,7 @@ const golden = CONTAINER_CASES.map((testCase) => {
     const file = join(folder, 'input')
     writeFileSync(file, generateInput(testCase.input))
     const result = Bun.spawnSync([oracle, 'container', testCase.type, file])
-    if (result.exitCode !== 0) {
+    if (result.exitCode !== EXIT_SUCCESS) {
         throw new Error(`oracle failed for ${JSON.stringify(testCase)}: ${result.stderr.toString()}`)
     }
     return { ...testCase, hash: result.stdout.toString().trim() }

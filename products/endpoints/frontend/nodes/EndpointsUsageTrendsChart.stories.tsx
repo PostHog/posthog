@@ -33,16 +33,18 @@ const REQUESTS_BY_ENDPOINT: Record<string, number[]> = {
 export const Breakdown: Story = {
     render: () => (
         <Stage width={760}>
-            <EndpointsUsageTrendsChart
-                metric="requests"
-                results={DAYS.flatMap((date, i) =>
-                    Object.entries(REQUESTS_BY_ENDPOINT).map(([breakdown, values]) => ({
-                        date,
-                        breakdown,
-                        value: values[i],
-                    }))
-                )}
-            />
+            <div className="border rounded bg-bg-light p-2">
+                <EndpointsUsageTrendsChart
+                    metric="requests"
+                    results={DAYS.flatMap((date, i) =>
+                        Object.entries(REQUESTS_BY_ENDPOINT).map(([breakdown, values]) => ({
+                            date,
+                            breakdown,
+                            value: values[i],
+                        }))
+                    )}
+                />
+            </div>
         </Stage>
     ),
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),

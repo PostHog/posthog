@@ -82,6 +82,21 @@ export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turns an answer engine on or off for the project, or sets how often it checks each prompt. The next daily run uses the change. Each check on an engine is a paid model call.
+ * @summary Update an AEO answer engine
+ */
+export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
+    frequency: zod
+        .enum(['daily', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .optional()
+        .describe(
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+        ),
+})
+
+/**
  * Adds keywords to the project's keyword list. Send many at once. Blank entries and keywords already in the list are skipped and counted. Fails with 400 when the new keywords would take the list past 200.
  * @summary Add AEO keywords
  */
@@ -101,6 +116,46 @@ export const AeoKeywordsCreateBody = /* @__PURE__ */ zod.object({
         .max(aeoKeywordsCreateBodyKeywordsMax)
         .describe(
             'Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.'
+        ),
+})
+
+/**
+ * Suggests keywords to add to the project's keyword list. Requires AI data processing approved for the organization. PostHog ranks keywords from the site, the project's tracked prompts and topics, and the web searches the engines ran while answering them, and gives a reason for each. PostHog has no search-volume data: each suggestion only carries how many recent answers searched for it. Nothing is saved: add the keywords you keep with aeo_keywords create. Keywords already in the list and keywords that name the brand are left out. Fails with 400 when the list already holds 200 keywords. Returns a pending job right away; poll GET aeo_keywords/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO keywords
+ */
+export const aeoKeywordsSuggestBodyDomainMax = 200
+
+export const aeoKeywordsSuggestBodyBrandMax = 200
+
+export const aeoKeywordsSuggestBodyDescriptionMax = 1000
+
+export const aeoKeywordsSuggestBodyCountDefault = 20
+export const aeoKeywordsSuggestBodyCountMax = 50
+
+export const AeoKeywordsSuggestBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDomainMax)
+        .describe(
+            "The project's site, for example posthog.com. The model reads it with web search when the project's prompts and searches are not enough."
+        ),
+    brand: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty. Keywords that name the brand are left out.'),
+    description: zod
+        .string()
+        .max(aeoKeywordsSuggestBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    count: zod
+        .number()
+        .min(1)
+        .max(aeoKeywordsSuggestBodyCountMax)
+        .default(aeoKeywordsSuggestBodyCountDefault)
+        .describe(
+            'How many keywords to suggest, at most 50, and never more than the room left in the 200-keyword list.'
         ),
 })
 
@@ -201,7 +256,7 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. PostHog reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggestBodyDomainMax = 200
@@ -252,6 +307,71 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
         .max(aeoPromptsSuggestBodyCountMax)
         .default(aeoPromptsSuggestBodyCountDefault)
         .describe('How many prompts to suggest, at most 50.'),
+})
+
+/**
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Without it, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * @summary Set up AI visibility
+ */
+export const aeoSetupCreateBodyDomainMax = 200
+
+export const aeoSetupCreateBodyBrandMax = 200
+
+export const aeoSetupCreateBodyDescriptionMax = 1000
+
+export const aeoSetupCreateBodyEnginesItemMax = 64
+
+export const aeoSetupCreateBodyEnginesMax = 20
+
+export const aeoSetupCreateBodyRunFirstCheckDefault = false
+export const aeoSetupCreateBodyOnlyFirstRunDefault = false
+export const aeoSetupCreateBodyActivatePausedPromptsDefault = false
+
+export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoSetupCreateBodyDomainMax)
+        .optional()
+        .describe(
+            "The project's site, for example example.com. It becomes the own brand, and PostHog reads it to suggest prompts and keywords. Required unless only_first_run is true."
+        ),
+    brand: zod
+        .string()
+        .max(aeoSetupCreateBodyBrandMax)
+        .optional()
+        .describe('The brand name. Inferred from the site when empty.'),
+    description: zod
+        .string()
+        .max(aeoSetupCreateBodyDescriptionMax)
+        .optional()
+        .describe('What the product does and who it is for. Inferred from the site when empty.'),
+    engines: zod
+        .array(
+            zod.string().max(aeoSetupCreateBodyEnginesItemMax).describe('An engine id from GET aeo_setup\/context\/.')
+        )
+        .max(aeoSetupCreateBodyEnginesMax)
+        .optional()
+        .describe(
+            'The engines to track, by id. Every other engine is turned off before any run. An engine that is not available yet may be chosen: it stays on and PostHog starts checking with it once it is available. Leave it out to keep the current engine settings.'
+        ),
+    run_first_check: zod
+        .boolean()
+        .default(aeoSetupCreateBodyRunFirstCheckDefault)
+        .describe(
+            'Queue a first citation check run after setup. Each check is a paid call to every enabled engine. When false, setup saves the new prompts paused, so no checks run and nothing is spent until they are turned on, for example with only_first_run and activate_paused_prompts.'
+        ),
+    only_first_run: zod
+        .boolean()
+        .default(aeoSetupCreateBodyOnlyFirstRunDefault)
+        .describe(
+            'Queue a citation check run and nothing else: no brand, prompts or keywords, and no engine change. Use it when the project is already set up and should be checked now instead of on its schedule. Each check is a paid call to every enabled engine.'
+        ),
+    activate_paused_prompts: zod
+        .boolean()
+        .default(aeoSetupCreateBodyActivatePausedPromptsDefault)
+        .describe(
+            "With only_first_run, turn on every paused prompt before the run, such as the ones a setup without run_first_check saved paused. Turned-on prompts are checked on each engine's schedule from then on."
+        ),
 })
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000

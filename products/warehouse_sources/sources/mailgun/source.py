@@ -101,6 +101,17 @@ class MailgunSource(
             # hits the same domains with the same result. Keep the raw message: it names the HTTP
             # status per domain, which tells disabled domains apart from a key without access.
             "request for every sending domain": None,
+            # /v3/ip_pools takes no parameters we construct, so a 400 here isn't a malformed
+            # request on our side — Mailgun rejects it on accounts without the Dedicated IP Pools
+            # feature on their plan, and every retry would hit the same account-level rejection.
+            "400 Client Error: Bad Request for url: https://api.mailgun.net/v3/ip_pools": (
+                "Mailgun rejected the IP pools request. This table needs the Dedicated IP Pools "
+                "feature on your Mailgun plan; disable it if your plan doesn't include dedicated IPs."
+            ),
+            "400 Client Error: Bad Request for url: https://api.eu.mailgun.net/v3/ip_pools": (
+                "Mailgun rejected the IP pools request. This table needs the Dedicated IP Pools "
+                "feature on your Mailgun plan; disable it if your plan doesn't include dedicated IPs."
+            ),
         }
 
     @property

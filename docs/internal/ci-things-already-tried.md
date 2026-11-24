@@ -252,6 +252,9 @@ The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
+In `ci-backend.yml` a ready PR takes that full matrix once.
+After a full run passes, a selector full-run request or a product cascade that has a selection runs the subset, until a failed merge queue attempt re-arms full runs.
+`.github/scripts/backend-full-run-state.js` reads that state from the gate's `Test results` check on the PR's earlier heads.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
 
@@ -286,6 +289,60 @@ A `full` verdict means Snob produced no trustworthy set, so there is nothing to 
 To go after those minutes, reduce how often the verdict is `full` — the `MAX_CHANGED_FILES = 50` bail and the `FULL_RUN_PATTERNS` list in `tools/snob_backend_test_selection_shadow.py` are the levers, and both change recall, so measure with the shadow first.
 
 _Also asked as:_ skip product tests on a full run, narrow the product matrix, why do all products run when I only changed core
+
+### Treat comment-only or formatting-only edits as unchanged for reuse
+
+**Verdict: rejected** · Nov 2026 · measured, not built
+
+The paths-filter action reuses an earlier passing result when the files its filters match have the same blob SHA on the previous head and the new head.
+See "Reusing an earlier passing result" in `.github/actions/paths-filter/README.md`.
+The proposal was to compare a normalized form instead, with an AST or token normalizer for Python and TypeScript, so that a push that only changes comments or formatting also reuses.
+
+The measurement replayed the push history of 120 recently merged same-repository PRs against the real path filters.
+With the action's rules modelled, byte-identical inputs reuse on these shares of the later pushes where the suite ran:
+
+| Suite      | Reused             |
+| ---------- | ------------------ |
+| Backend    | 15%                |
+| Frontend   | 29%                |
+| Storybook  | 24%                |
+| Playwright | 26%                |
+| Rust       | 33% (of 18 pushes) |
+| Node.js    | 28% (of 40 pushes) |
+
+These are counts of pushes, not job-minutes.
+
+A normalizer adds at most 1.6% of later pushes for backend, and under 1% for frontend and Storybook.
+The risk surface is larger than that.
+Some comments change behavior: type-checker and linter directives, and `# noqa` or `@ts-expect-error` lines.
+Some schema is generated from JSDoc.
+Some tests read line numbers, so a formatting change can change their result.
+
+_Also asked as:_ ignore whitespace changes in CI, skip CI for comment-only changes, normalize the diff before reuse, AST diff for path filters
+
+### Compare against the last green head instead of the previous head for reuse
+
+**Verdict: landed** · Nov 2026 · [#138417](https://github.com/PostHog/posthog/pull/138417), first rejected on the measurement below
+
+Reuse first compared the new head with the immediately previous head (`github.event.before`).
+When the previous head had other inputs or was not green, the suite ran, even if an older head was green with identical inputs.
+The proposal was to search back to the last green head.
+
+On the same replay of 120 PRs it adds 13 reused pushes on top of 255 across the six suites.
+About one in eight pushes whose previous head was not green has any earlier green head with identical inputs.
+The first objection was cost: the search needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
+
+Two findings removed that objection.
+The repository activity API lists every head a branch had in the last day in one call, force-pushed heads included.
+One GraphQL query then compares a few blobs on all of those heads, so a push that changes an input costs two more calls and reads no check run.
+The replay did not count a head that a rebase or a force-push removed from the PR's commits, or a previous head whose run was superseded.
+The gain is therefore not re-measured: read `heads_behind` on the `posthog-ci-reuse-decision` events, where any value above 0 is a reuse this search added.
+
+A failed gate on any head newer than the green one stops the search, whatever that head's inputs.
+The failure can come from a file no scoped filter matches, such as a database init script the suite mounts, and that file may still be on the branch.
+So the search adds reuse after a cancelled, superseded or skipped head, but not after a red one.
+
+_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push (refused), reuse after a revert, reuse after a rebase or force-push
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
@@ -453,6 +510,27 @@ Run the trial for several days. A short window cannot separate the jobs whose ti
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Run the python static checks in a `parallel:` block
+
+**Verdict: rejected** · Nov 2026 · [#131571](https://github.com/PostHog/posthog/pull/131571)
+
+The `code-quality` job in `ci-python.yml` runs mypy, ty, the projections check and a lint/pytest group. They read the same tree and share no state, so running them concurrently looks free, and the job wall should fall from their sum to the longest of them.
+
+It is a large regression. The job went from 382s to 528s, which is 38% slower.
+mypy went from 106-187s to 415s, and ty from 46-53s to 137s.
+The block itself took 415s, held open until mypy finished at 06:53:29Z, so overlapping the checks bought nothing on top.
+
+`code-quality` runs on `depot-ubuntu-24.04`, which has 2 vCPUs. mypy already saturates both cores with its own worker, and ty parallelizes internally too. Overlapping them does not divide the work, it time-shares one saturated CPU between three jobs, and each one pays the contention.
+On a 2-vCPU runner, the serial order is the fast order.
+
+This also explains why the existing `parallel:` group in that job is cheap to keep: ruff, the template linters and the gated pytest suites are short and mostly I/O-bound, so they do not compete with a CPU-saturating neighbour. Adding a CPU-bound step to that group is what breaks it.
+
+Do not retry this on the same runner. It would need `depot-ubuntu-24.04-4` or larger first, and then the extra runner cost has to be weighed against the wall time, the same trade rejected for WebKit in "Run the Storybook WebKit shards on 4-CPU runners".
+
+Both sides of the comparison ran with every gated pytest suite switched on. A diff that touches `ci-python.yml` matches every path filter in the `changes` job, so its job is not comparable to a typical pull request's.
+
+_Also asked as:_ parallelize mypy and ty, run the static checks at the same time, speed up the python code-quality job, why is mypy slow in CI
+
 ### Put the setup actions in a `parallel:` block
 
 **Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
@@ -496,11 +574,20 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
-The backend timing collector keeps the full `products/` tree because its optimizer uses product directory presence to retain timings for skipped products.
+The HogQL parser npm version check uses a shallow sparse checkout and reads changed paths through the pull request API.
+Its package version check reads `package.json` and the npm registry, so neither step needs source history.
+Rust parser wheel builds retain the entire `rust/` workspace so Cargo can resolve every member, plus the root `.gitignore` so Cargo can list source distribution files in a blobless checkout.
+The parser npm workflow's WASM build needs only `common/hogql_parser/` and `.github/actions/setup-emsdk/`; its CMake build downloads the ANTLR runtime separately.
+The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
+Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
+The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
+Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+Its lint checkout must include shared fixtures outside `rust/` because `clippy --all-targets` compiles tests that embed those files.
+Map those fixtures in the Rust path filter and crate determinator rules too, so fixture-only changes run the compatibility tests.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
@@ -519,6 +606,8 @@ It keeps the frozen filtered install and live upstream test.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
+Ownership lint omits new-path metadata when it checks tracked-file coverage, so files excluded by sparse checkout do not cause another ownership lookup.
+
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
@@ -532,7 +621,8 @@ With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, 
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
-The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The `test-selection-verdict` job uses the same split checkout and history fetch.
+The `backend-coverage-report` job still uses a deep blobless checkout. It runs after the required gate, so no PR waits on it.
 The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
 Its PR checkout keeps bounded blobless history for the merge-base schema key.
 

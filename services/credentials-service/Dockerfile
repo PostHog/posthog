@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7.1@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# The digest pins the frontend image; the tag alone is mutable. Update both together.
 # PostHog credentials-service (Hono / Node.js). Serves the platform integration
 # credentials PostHog itself owns over HTTP; see README.md.
 #
@@ -8,8 +10,8 @@
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
 # The digest wins over the tag; update both together when bumping NODE_VERSION.
-ARG NODE_VERSION=26.13.0
-ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
+ARG NODE_VERSION=26.13.1
+ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1
 
 #
 # Build stage: install workspace deps, bundle the entry into a single self-contained
@@ -47,6 +49,15 @@ RUN pnpm build
 #
 FROM ${NODE_IMAGE}
 WORKDIR /code
+
+# AWS RDS global CA bundle, so the Aurora TLS connection verifies. Node does not trust it by default.
+# NODE_EXTRA_CA_CERTS adds it to the default CAs, so the public CAs stay trusted.
+# To update: download the bundle, recompute the hash with sha256sum, and replace the value below.
+#   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
+ADD --checksum=sha256:${RDS_CA_BUNDLE_SHA256} --chmod=0644 \
+    https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds-global-bundle.pem
 
 # Commit hash burned in for incident triage.
 ARG COMMIT_HASH

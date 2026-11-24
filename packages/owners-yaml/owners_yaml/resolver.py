@@ -514,9 +514,9 @@ class OwnersResolver:
             return None
         return Addition(path=new_path, additions=self._merge(new_path).additions)
 
-    def resolve(self, path: str) -> Resolution:
+    def resolve(self, path: str, *, include_added: bool = True) -> Resolution:
         norm = normalize_path(path)
-        return self._build_resolution(norm, self._merge(norm), self._added(norm))
+        return self._build_resolution(norm, self._merge(norm), self._added(norm) if include_added else None)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
         """The root file's ``teams:`` Slack registry (team slug -> its declared channels),

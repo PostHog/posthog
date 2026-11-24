@@ -361,6 +361,17 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
         onChange: (showValuesOnSeries, c) => c.updateInsightFilter({ showValuesOnSeries }),
         changedCount: (c) => c.showValuesOnSeries,
     },
+    funnelSummaryOnDashboards: {
+        dataAttr: 'funnel-summary-on-dashboards',
+        showCondition: (c) => isFunnelsQuery(c.querySource) && !c.isTrendsFunnel,
+        value: (c) => isFunnelsQuery(c.querySource) && c.querySource.funnelsFilter?.showSummaryOnDashboards === true,
+        onChange: (showSummaryOnDashboards, c) => {
+            c.updateInsightFilter({ showSummaryOnDashboards })
+            posthog.capture('funnel dashboard summary toggled', { enabled: showSummaryOnDashboards })
+        },
+        changedCount: (c) =>
+            isFunnelsQuery(c.querySource) && c.querySource.funnelsFilter?.showSummaryOnDashboards === true,
+    },
     lifecyclePercentages: {
         showCondition: (c) => c.showFullDisplayList && c.isLifecycle,
         value: (c) => !!c.showPercentagesOnSeries,

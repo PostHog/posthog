@@ -1,19 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "confidence": {
-            "anyOf": [
-                {
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Discovery confidence in this join, 0-1."
-        },
         "configuration": {
             "description": "Extra join configuration, e.g. a field mapping."
         },

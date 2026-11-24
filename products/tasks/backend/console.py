@@ -47,7 +47,7 @@ class TaskRunLogsTool(ConsoleTool):
     key = RUN_LOGS_TOOL_KEY
     title = "Task run logs"
     owner = AGENT_INFRASTRUCTURE
-    group = "Data"
+    group = "AI"
     description = "Downloads the log of one task run."
 
     def page(self, request: HttpRequest) -> Page:

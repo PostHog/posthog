@@ -1,35 +1,57 @@
 import datetime as dt
 import posixpath
+from string import Formatter
 
-from posthog.temporal.common.logger import get_logger
-
-from products.batch_exports.backend.service import BatchExportModelInput
+from products.batch_exports.backend.facade.contracts import InvalidKeyError
+from products.batch_exports.backend.service import BatchExportModel, BatchExportModelInput
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
 )
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
-
 
 def get_allowed_template_variables(
-    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModelInput | None
-) -> dict[str, str]:
+    data_interval_start: str | None = None,
+    data_interval_end: str | None = None,
+    batch_export_model: BatchExportModelInput | None = None,
+) -> dict[str, str | None]:
     """Derive from inputs a dictionary of supported template variables for key prefixes."""
-    export_datetime = dt.datetime.fromisoformat(data_interval_end)
-
-    return {
-        "second": f"{export_datetime:%S}",
-        "minute": f"{export_datetime:%M}",
-        "hour": f"{export_datetime:%H}",
-        "day": f"{export_datetime:%d}",
-        "month": f"{export_datetime:%m}",
-        "year": f"{export_datetime:%Y}",
+    start = dt.datetime.fromisoformat(data_interval_start) if data_interval_start is not None else None
+    end = dt.datetime.fromisoformat(data_interval_end) if data_interval_end is not None else None
+    variables: dict[str, str | None] = {
         "data_interval_start": data_interval_start or "START",
         "data_interval_end": data_interval_end,
         "table": batch_export_model.name if batch_export_model is not None else "events",
     }
+    for name, fmt in (
+        ("year", "%Y"),
+        ("month", "%m"),
+        ("day", "%d"),
+        ("hour", "%H"),
+        ("minute", "%M"),
+        ("second", "%S"),
+    ):
+        variables[name] = end.strftime(fmt) if end else None
+        variables[f"start_{name}"] = start.strftime(fmt) if start else None
+    return variables
+
+
+_KEY_PREFIX_FIELDS = frozenset(get_allowed_template_variables())
+
+
+def parse_key_prefix(prefix: str) -> list[tuple[str, str | None]]:
+    try:
+        tokens = list(Formatter().parse(prefix))
+    except ValueError as exc:
+        raise InvalidKeyError("Invalid key prefix. Use '{{' and '}}' for literal braces.") from exc
+
+    parts = []
+    for literal, name, spec, conversion in tokens:
+        if name is not None and (name not in _KEY_PREFIX_FIELDS or spec or conversion is not None):
+            raise InvalidKeyError("Invalid key prefix. Use a plain template variable such as {table} or {day}.")
+        parts.append((literal, name))
+    return parts
 
 
 def get_key_prefix(
@@ -41,13 +63,25 @@ def get_key_prefix(
     """Format a key prefix with template variables."""
     template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
 
-    try:
-        return prefix.format(**template_variables)
-    except (KeyError, ValueError) as e:
-        EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
-        )
-        return prefix
+    parts = []
+    for literal, name in parse_key_prefix(prefix):
+        parts.append(literal)
+        if name is not None:
+            value = template_variables[name]
+            if value is None:
+                raise InvalidKeyError("This key prefix uses a start date part, but the export has no start bound.")
+            parts.append(value)
+    return "".join(parts)
+
+
+def render_key_prefix(prefix: str, *, at: dt.datetime, table: str) -> str:
+    """Fill a key prefix the way an S3 batch export does, with `at` as the export time and `table` as `{table}`."""
+    return get_key_prefix(
+        prefix,
+        data_interval_start=None,
+        data_interval_end=at.isoformat(),
+        batch_export_model=BatchExportModel(name=table, schema=None),
+    )
 
 
 def get_absolute_key_prefix(
@@ -77,6 +111,7 @@ def get_manifest_key(
 ) -> str:
     """Generate manifest file key."""
     if file_name_prefix is not None and (data_interval_start is None or data_interval_end is None):
+        parse_key_prefix(prefix)
         return posixpath.join(prefix, f"{file_name_prefix}_manifest.json")
     if data_interval_end is None:
         raise MissingRequiredInputsError("Provide a filename prefix for an export without an end bound.")
@@ -115,6 +150,7 @@ def get_object_key(
 ) -> str:
     """Generate object storage key for batch export files."""
     if file_name_prefix is not None and (data_interval_start is None or data_interval_end is None):
+        parse_key_prefix(prefix)
         key_prefix = prefix
         base_file_name = file_name_prefix
         include_file_number = True

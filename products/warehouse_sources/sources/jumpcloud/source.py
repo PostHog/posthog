@@ -36,6 +36,8 @@ def _schema_description(endpoint: str) -> str | None:
         )
     if endpoint.startswith("system_insights_"):
         return "Device data reported by System Insights, one row per item per device. Requires System Insights to be enabled"
+    if endpoint.startswith("saas_"):
+        return "Applications discovered by JumpCloud SaaS Management. Requires SaaS Management"
     return None
 
 

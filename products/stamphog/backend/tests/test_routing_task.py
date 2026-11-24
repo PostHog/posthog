@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -23,7 +24,9 @@ from products.stamphog.backend.models import PullRequest, ReviewRun, RoutingRun,
 from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
+    queue_routing_after_approval_retracted,
     queue_routing_after_verdict,
+    route_reviewers_after_attestation,
     route_reviewers_after_external_review,
     route_reviewers_after_verdict,
     route_reviewers_safety_net,
@@ -48,6 +51,7 @@ _OWNERS_FILES = {
 }
 _CUT_BETA = {"cuts": [{"owner": "team-beta", "reason": "Only renames an import."}]}
 SAFETY_NET_SCHEDULE = "products.stamphog.backend.tasks.tasks.route_reviewers_safety_net.apply_async"
+ATTESTATION_POLL_SCHEDULE = "products.stamphog.backend.tasks.tasks.route_reviewers_after_attestation.apply_async"
 _RECORD_ROUTING_RUN = "products.stamphog.backend.logic.routing.service.record_routing_run"
 # team-alpha owns a new directory, so it is pinned. The run log says why each owner was or was not asked.
 _LOG_ONE_CUT = {
@@ -199,6 +203,27 @@ def _finish_review(
     # The function post_verdict and mark_review_failed call. Celery runs eagerly in tests.
     queue_routing_after_verdict(
         repo_config, pr_number=PR_NUMBER, head_sha=head_sha, status=status, verdict=verdict, silent=silent
+    )
+
+
+def _save_finished_run(
+    team_id: int, verdict: ReviewVerdict, posted_review_id: int | None = None, head_sha: str = HEAD_SHA
+) -> None:
+    with team_scope(team_id):
+        ReviewRun.objects.for_team(team_id).create(
+            team_id=team_id,
+            pull_request=PullRequest.objects.for_team(team_id).get(pr_number=PR_NUMBER),
+            head_sha=head_sha,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=verdict,
+            posted_review_id=posted_review_id,
+        )
+
+
+def _post_approval(chain: RoutingChain, review_id: int, state: str = "APPROVED") -> None:
+    # Stamphog's own review as GitHub lists it. A maintainer's dismissal on GitHub turns its state to DISMISSED.
+    chain.recorder.pr_reviews.setdefault((REPO, PR_NUMBER), []).append(
+        {"id": review_id, "state": state, "user": {"login": f"{ROUTING_APP_SLUG}[bot]", "type": "Bot"}}
     )
 
 
@@ -447,6 +472,20 @@ def test_fallback_routes_at_once_when_stamphog_will_not_review(
     assert (record["mode"], record["trigger"], record["status"]) == ("fallback", "opened", "done")
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fallback_waits_for_the_verdict_on_a_bot_the_policy_names(team, user, routing_chain, safety_net) -> None:
+    routing_chain.recorder.policy_files[".stamphog/policy.yml"] = (
+        "bot_authors:\n  - {name: renovate, login: 'renovate[bot]', id: 29139614}\n"
+    )
+    _setup(routing_chain, team, user, routing_mode="fallback", author_type="Bot")
+    routing_chain.recorder.prs[(REPO, PR_NUMBER)]["user"] = {"login": "renovate[bot]", "type": "Bot", "id": 29139614}
+
+    _route()
+
+    assert _stored(team.id)["status"] == "waiting"
+    assert _writes(routing_chain, "request_reviewers") == []
+
+
 _HELD_BACK = ("not_requested", "model_kept", "")
 _CUT_SKIPPED_HELD_BACK = ("not_requested", "cut_skipped", "")
 _BETA_CUT = ("cut", "model_cut", "Only renames an import.")
@@ -615,29 +654,34 @@ def test_the_clean_review_switch_waits_for_reviewhog(
 
 
 @pytest.mark.parametrize(
-    "name,push_before_open,status,verdict,live_labels,expect_routed",
+    "name,push_before_open,approved_first,status,verdict,live_labels,expect_routed",
     [
         # A run that fails on a moved head, such as a silent run that a push to an unlabeled PR did not supersede.
-        ("failure_on_a_moved_head", False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("failure_on_a_moved_head", False, False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
         # The opening event ran after the push, so the record waits on the live head, which nothing reviews.
-        ("failure_after_the_record_moved_on", True, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("failure_after_the_record_moved_on", True, False, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
         # An approval of the old head says nothing about the live head, so it routes in full, not pinned only.
-        ("approval_of_a_stale_head", False, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, [], True),
+        ("approval_of_a_stale_head", False, False, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, [], True),
         # The trigger label starts a visible review of the live head, and its verdict routes it.
         (
             "labeled_live_pull_request",
+            False,
             False,
             ReviewRunStatus.FAILED,
             ReviewVerdict.NONE,
             [{"name": "stamphog"}],
             False,
         ),
+        # A labeled re-review of the approved head dismissed the approval, and then the label went and the author pushed.
+        ("failure_after_a_pinned_routing", False, True, ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        ("wait_after_a_pinned_routing", False, True, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, [], True),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
     name: str,
     push_before_open: bool,
+    approved_first: bool,
     status: ReviewRunStatus,
     verdict: ReviewVerdict,
     live_labels: list[dict[str, str]],
@@ -658,10 +702,12 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
         _push(routing_chain, _HEAD_2)
     _route()
     assert _stored(team.id)["status"] == "waiting"
+    if approved_first:
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, silent=True)
     _push(routing_chain, _HEAD_2)
     routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = live_labels
 
-    _finish_review(repo_config, status, verdict, silent=True)
+    _finish_review(repo_config, status, verdict, silent=not approved_first)
 
     record = _stored(team.id)
     if expect_routed:
@@ -672,27 +718,177 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
         assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
 
 
+_LABEL = [{"name": "stamphog"}]
+
+
 @pytest.mark.parametrize(
-    "name,verdict,silent,changed_files,expected_trigger,expected_requests,expected_nets",
+    "name,first_verdict,later_routing_mode,push,live_labels,github_approval,expected",
     [
-        ("approval", ReviewVerdict.APPROVED, False, None, "verdict:approved", (set(), {"team-alpha"}), 0),
+        ("push_without_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, [], None, "routed"),
+        # The trigger label starts a visible review of the live head, and its verdict routes it.
+        ("push_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", True, _LABEL, None, "unchanged"),
+        ("already_routed_in_full", ReviewVerdict.REFUSED, "fallback", True, [], None, "unchanged"),
+        ("always_mode", ReviewVerdict.APPROVED, "always", True, [], None, "unchanged"),
+        # A base retarget keeps the head, and the approving run of that head is no review of the new diff.
+        ("base_retarget", ReviewVerdict.APPROVED, "fallback", False, [], None, "routed"),
+        # The label brings a visible review, so the head waits for it, and the net routes it if a gate refuses it.
+        ("base_retarget_with_the_trigger_label", ReviewVerdict.APPROVED, "fallback", False, _LABEL, None, "waits"),
+        # The dismissed approving run is still the head's latest finished review, so a ready event must not end the
+        # wait with a pinned-only routing.
+        (
+            "base_retarget_then_draft_and_ready",
+            ReviewVerdict.APPROVED,
+            "fallback",
+            False,
+            _LABEL,
+            "DISMISSED",
+            "waits_through_ready",
+        ),
+        # The net fires while the pull request is a draft and finds no live head, so the ready event needs a new net.
+        (
+            "base_retarget_then_net_during_draft",
+            ReviewVerdict.APPROVED,
+            "fallback",
+            False,
+            _LABEL,
+            "DISMISSED",
+            "net_during_draft",
+        ),
+        # A later review approved the live head again, so this retraction is stale.
+        ("stale_retraction", ReviewVerdict.APPROVED, "fallback", False, [], "APPROVED", "unchanged"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
+    name: str,
+    first_verdict: ReviewVerdict,
+    later_routing_mode: str,
+    push: bool,
+    live_labels: list[dict[str, str]],
+    github_approval: str | None,
+    expected: str,
+    team,
+    user,
+    routing_chain,
+    safety_net,
+) -> None:
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback", review_mode=ReviewMode.LABEL)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
+            review_on_clean_external_review=True
+        )
+        repo_config.refresh_from_db()
+    _route()
+    with team_scope(team.id):
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id,
+            pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+            head_sha=HEAD_SHA,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=first_verdict,
+            posted_review_id=901 if github_approval else None,
+        )
+    if github_approval:
+        _post_approval(routing_chain, 901, github_approval)
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, first_verdict, silent=True)
+    requests_before = len(_writes(routing_chain, "request_reviewers"))
+    record_before = _stored(team.id)
+    if push:
+        _push(routing_chain, _HEAD_2)
+    routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = live_labels
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(routing_mode=later_routing_mode)
+        repo_config.refresh_from_db()
+
+    queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
+
+    record = _stored(team.id)
+    if expected == "routed":
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
+        assert (record["head_sha"], record["trigger"], record["scope"], record["status"]) == (
+            _HEAD_2 if push else HEAD_SHA,
+            "approval_retracted",
+            "full",
+            "done",
+        )
+    elif expected in ("waits", "waits_through_ready", "net_during_draft"):
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+        assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
+        if expected == "waits_through_ready":
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = True
+            _route("converted_to_draft")
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = False
+            _route("ready_for_review")
+            assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+            assert _stored(team.id)["status"] == "waiting"
+        if expected == "net_during_draft":
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = True
+            _fire_safety_net(safety_net)
+            assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = False
+            nets_before = safety_net.call_count
+            _route("ready_for_review")
+            assert safety_net.call_count == nets_before + 1
+            assert _stored(team.id)["status"] == "waiting"
+        # No verdict comes, such as when a gate refuses the visible review.
+        _fire_safety_net(safety_net)
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before + 1
+        assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+        record = _stored(team.id)
+        assert (record["head_sha"], record["trigger"], record["scope"], record["status"]) == (
+            HEAD_SHA,
+            "safety_net",
+            "full",
+            "done",
+        )
+    else:
+        assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+        assert record == record_before
+
+
+@pytest.mark.parametrize(
+    "name,verdict,silent,changed_files,drafted,expected_trigger,expected_requests,expected_nets",
+    [
+        ("approval", ReviewVerdict.APPROVED, False, None, False, "verdict:approved", (set(), {"team-alpha"}), 0),
         (
             "refusal",
             ReviewVerdict.REFUSED,
             False,
             None,
+            False,
             "verdict:refused",
             ({"carol"}, {"team-alpha", "team-beta"}),
             0,
         ),
         # Nothing reviews again after a silent WAIT, so the opening event routes it in full instead of waiting.
-        ("silent_wait", ReviewVerdict.WAIT, True, None, "verdict:wait", ({"carol"}, {"team-alpha", "team-beta"}), 0),
+        (
+            "silent_wait",
+            ReviewVerdict.WAIT,
+            True,
+            None,
+            False,
+            "verdict:wait",
+            ({"carol"}, {"team-alpha", "team-beta"}),
+            0,
+        ),
         # The pins come from a partial file list, so the head still owes a full routing from the safety net.
         (
             "approval_on_a_truncated_file_list",
             ReviewVerdict.APPROVED,
             False,
             5000,
+            False,
+            "verdict:approved",
+            (set(), {"team-alpha"}),
+            1,
+        ),
+        # The head waited, then the verdict and its safety net both found the pull request a draft.
+        (
+            "silent_approval_while_a_draft",
+            ReviewVerdict.APPROVED,
+            True,
+            None,
+            True,
             "verdict:approved",
             (set(), {"team-alpha"}),
             1,
@@ -705,6 +901,7 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
     verdict: ReviewVerdict,
     silent: bool,
     changed_files: int | None,
+    drafted: bool,
     expected_trigger: str,
     expected_requests: tuple[set[str], set[str]],
     expected_nets: int,
@@ -715,9 +912,13 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
 ) -> None:
     # A fast verdict beats the opening task, so the verdict task finds no record and drops it.
     repo_config = _setup(routing_chain, team, user, routing_mode="fallback", changed_files=changed_files)
+    live_pr = routing_chain.recorder.prs[(REPO, PR_NUMBER)]
+    if drafted:
+        _route()
+        live_pr["draft"] = True
     with team_scope(team.id):
-        pr_obj = PullRequest.objects.for_team(team.id).create(
-            team_id=team.id, repo_config=repo_config, pr_number=PR_NUMBER
+        pr_obj, _ = PullRequest.objects.for_team(team.id).get_or_create(
+            repo_config=repo_config, pr_number=PR_NUMBER, defaults={"team_id": team.id}
         )
         ReviewRun.objects.for_team(team.id).create(
             team_id=team.id,
@@ -726,11 +927,17 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
             status=ReviewRunStatus.COMPLETED,
             verdict=verdict,
             output={"review_trigger": "reviewhog_clean"} if silent else {},
+            posted_review_id=903 if verdict == ReviewVerdict.APPROVED else None,
         )
+    if verdict == ReviewVerdict.APPROVED:
+        _post_approval(routing_chain, 903)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict, silent=silent)
+    if drafted:
+        _fire_safety_net(safety_net)
+        live_pr["draft"] = False
     assert routing_chain.recorder.github_writes == []
 
-    _route()
+    _route("ready_for_review" if drafted else "opened")
 
     assert safety_net.call_count == expected_nets
     assert _requested(routing_chain) == expected_requests
@@ -745,6 +952,10 @@ _WAIT = ("verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
 _SILENT_WAIT = ("silent_verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
 _PUSH = ("push", _HEAD_2)
 _NET = ("net",)
+# A clean base merge kept the approval of head 1 on head 2, which no verdict routes.
+_RETAINED = ("retained", "active")
+_RETAINED_DISMISSED = ("retained", "dismissed_in_db")
+_RETAINED_DISMISSED_ON_GITHUB = ("retained", "dismissed_on_github")
 
 
 def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -786,8 +997,37 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
         ("same_head_refusal_after_approval", [_APPROVED, _REFUSED, _NET], 2, "verdict:refused", HEAD_SHA, 1),
         # Nothing reviews again after a silent WAIT, so it withdraws the approval like a refusal.
         ("same_head_silent_wait_after_approval", [_APPROVED, _SILENT_WAIT, _NET], 2, "verdict:wait", HEAD_SHA, 1),
+        # A visible re-review that keeps answering WAIT dismissed the approval, so the head waits for a new net.
+        ("same_head_wait_after_approval", [_APPROVED, _WAIT, _WAIT, _NET], 2, "safety_net", HEAD_SHA, 2),
+        ("same_head_wait_then_approval", [_APPROVED, _WAIT, _APPROVED, _NET], 1, "verdict:approved", HEAD_SHA, 2),
         # A verdict for a moved head does nothing, and the safety net routes the current head.
         ("safety_net_routes_the_current_head", [_PUSH, _REFUSED, _NET], 1, "safety_net", _HEAD_2, 1),
+        (
+            "retained_approval_keeps_the_pinned_routing",
+            [_APPROVED, _PUSH, _RETAINED, _NET],
+            1,
+            "verdict:approved",
+            HEAD_SHA,
+            1,
+        ),
+        # A dismissed retained approval leaves head 2 with no approval, so the net routes it.
+        (
+            "dismissed_retained_approval_routes_in_full",
+            [_APPROVED, _PUSH, _RETAINED_DISMISSED, _NET],
+            2,
+            "safety_net",
+            _HEAD_2,
+            1,
+        ),
+        # A maintainer's dismissal on GitHub updates nothing in the product DB.
+        (
+            "retained_approval_dismissed_on_github_routes_in_full",
+            [_APPROVED, _PUSH, _RETAINED_DISMISSED_ON_GITHUB, _NET],
+            2,
+            "safety_net",
+            _HEAD_2,
+            1,
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -810,6 +1050,19 @@ def test_fallback_routes_each_pull_request_once_in_full(
             _finish_review(repo_config, step[2], step[3], head_sha=step[1], silent=step[0] == "silent_verdict")
         elif step[0] == "push":
             _push(routing_chain, step[1])
+        elif step[0] == "retained":
+            with team_scope(team.id):
+                ReviewRun.objects.for_team(team.id).create(
+                    team_id=team.id,
+                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+                    head_sha=HEAD_SHA,
+                    status=ReviewRunStatus.COMPLETED,
+                    verdict=ReviewVerdict.APPROVED,
+                    posted_review_id=902,
+                    approval_dismissed_at=datetime.now(UTC) if step[1] == "dismissed_in_db" else None,
+                    output={"retained_head_shas": [_HEAD_2]},
+                )
+            _post_approval(routing_chain, 902, "DISMISSED" if step[1] == "dismissed_on_github" else "APPROVED")
         else:
             _fire_safety_net(safety_net)
 
@@ -817,6 +1070,484 @@ def test_fallback_routes_each_pull_request_once_in_full(
     assert safety_net.call_count == expected_safety_nets
     record = _stored(team.id)
     assert (record["trigger"], record["head_sha"]) == (expected_trigger, expected_head)
+
+
+_PROOF_APP_ID = 4242
+_PROOF_PUBLISHER = ".github/workflows/dependency-proof.yml"
+_PROOF_ISSUER = "tools/change-prover/issuer.yml"
+_PROOF_ISSUER_MANIFEST = f"paths:\n  - {_PROOF_PUBLISHER}\n  - {_PROOF_ISSUER}\n"
+_ALL_FILES = ["products/alpha/a.py", "products/alpha/new/b.py", "products/beta/b.py", "products/gamma/c.py"]
+
+
+def _proof_policy(paths: str, *, pin: str = f"publisher_files: ['{_PROOF_PUBLISHER}']") -> str:
+    return (
+        "attestations:\n"
+        "  - name: dependency_proof\n"
+        "    check: 'Dependency proof'\n"
+        f"    app_id: {_PROOF_APP_ID}\n"
+        "    lifts: [deps_toolchain]\n"
+        f"    paths: ['{paths}']\n"
+        f"    {pin}\n"
+    )
+
+
+def _proof_check(
+    files: list[str] | None = None, *, conclusion: str = "success", status: str = "completed", head_sha: str = HEAD_SHA
+) -> dict[str, Any]:
+    marker = {
+        "files": _ALL_FILES if files is None else files,
+        "pr": PR_NUMBER,
+        "head_sha": head_sha,
+        "merge_base": "mergebase000",
+        "blobs": {_PROOF_PUBLISHER: "publisher-blob-1", _PROOF_ISSUER: "issuer-blob-1"},
+    }
+    return {
+        "id": 1,
+        "name": "Dependency proof",
+        "app": {"id": _PROOF_APP_ID},
+        "status": status,
+        "conclusion": conclusion,
+        "output": {"summary": f"Every dependency proven.\n<!-- stamphog:v1 {json.dumps(marker)} -->"},
+    }
+
+
+_NOTHING_TO_ATTEST = {**_proof_check(), "output": {"summary": "Nothing to attest"}}
+_CLIENT_LIBRARIES_REQUESTED = ("requested_team", "client-libraries")
+_TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
+_STAMPHOG_APPROVED = ("approved",)
+_STAMPHOG_REFUSED = ("refused",)
+_PROVEN_PUSH = ("proven_push",)
+_SYNCHRONIZE = ("synchronize",)
+_POLL = ("poll",)
+_NEXT_POLL = ("next_poll",)
+_ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
+_FULL_AFTER_POLL = ("done", "full", "attestation", HEAD_SHA)
+_FULL_AT_OPEN = ("done", "full", "opened", HEAD_SHA)
+
+
+@pytest.fixture
+def attestation_poll() -> Iterator[MagicMock]:
+    with patch(ATTESTATION_POLL_SCHEDULE) as schedule:
+        yield schedule
+
+
+_PROVEN = _proof_policy("^products/")
+_FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
+
+
+_ATTESTED_ROUTING_CASES = [
+    (
+        "proven_with_a_pending_request",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
+    (
+        "proven_by_an_issuer_entry",
+        "deny:\n  stamphog_policy:\n    match:\n      extend_paths: ['^tools/change-prover/']\n"
+        + _proof_policy("^products/", pin=f"issuer: {_PROOF_ISSUER}"),
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "proven_without_a_pinned_owner",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "attested_then_refused_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+        ("done", "full", "verdict:refused", _HEAD_2),
+        [1],
+    ),
+    (
+        "attested_with_a_pending_request_then_refused_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "attested_then_approved_on_a_new_head",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.APPROVED)],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "attested_then_pushed_and_approved_again",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), ("approved", _HEAD_2), _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_and_approved_before_the_check",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",), ("approved", _HEAD_2), ("proof", _HEAD_2), _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_and_refused",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), ("refused", _HEAD_2), _NEXT_POLL],
+        ("done", "full", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_without_a_review_to_come",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_STAMPHOG_APPROVED, _POLL, _PROVEN_PUSH, ("retracted",), _NEXT_POLL],
+        ("done", "full", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_pushed_without_a_proof",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",), ("approved", _HEAD_2), ("net",)],
+        ("done", "full", "safety_net", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_with_a_pending_request_then_pushed",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL, "with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, _PROVEN_PUSH, _SYNCHRONIZE, _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_with_a_pending_request_then_pushed_without_a_proof",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), _SYNCHRONIZE, ("net",)],
+        ("done", "full", "safety_net", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "a_stale_net_leaves_the_wait_of_a_pushed_head_alone",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), _SYNCHRONIZE, ("early_net",)],
+        ("waiting", None, "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "attested_then_retargeted_onto_a_diff_the_proof_misses",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("retarget_adds", "products/alpha/extra.py")],
+        _FULL_AFTER_POLL,
+        [1],
+    ),
+    (
+        "proven_on_partial_ownership_data",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("poll_without_kinds",)],
+        _FULL_AFTER_POLL,
+        [1],
+    ),
+    (
+        "attested_then_retargeted_without_a_review_to_come",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+        ("done", "full", "approval_retracted", HEAD_SHA),
+        [1],
+    ),
+    (
+        "attested_then_retargeted_with_a_review_to_come",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_APPROVED, _POLL, ("approval_dismissed",), ("retracted",)],
+        _ATTESTED,
+        [1],
+    ),
+    (
+        "proven_and_approved_after_the_check",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_POLL, _STAMPHOG_APPROVED, _NEXT_POLL],
+        _ATTESTED,
+        [1, 2],
+    ),
+    (
+        "proven_while_stamphog_still_reviews",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_POLL],
+        ("waiting", None, "opened", HEAD_SHA),
+        [1, 2],
+    ),
+    (
+        "proven_and_refused_by_stamphog",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_STAMPHOG_REFUSED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "proven_without_a_reviewer_or_a_review",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [_POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    # An earlier routing made this request, so it is not a reviewer that the pull request keeps on its own.
+    (
+        "proven_with_only_a_request_routing_made",
+        _PROVEN,
+        _proof_check(),
+        {"review_mode": ReviewMode.LABEL},
+        [("routed_before", "team-alpha"), _TEAM_ALPHA_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "nothing_to_attest",
+        _PROVEN,
+        _NOTHING_TO_ATTEST,
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "refused",
+        _PROVEN,
+        _proof_check(conclusion="failure"),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "a_file_the_proof_does_not_name",
+        _PROVEN,
+        _proof_check(_ALL_FILES[:-1]),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    # The files API can answer for a newer head than the one the proof names, so the poll reads the pinned head.
+    (
+        "a_file_only_the_proven_head_changes",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("pinned_head_adds", "products/beta/extra.py"), _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "a_publisher_the_default_branch_changed",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("publisher_changed",), _POLL],
+        *_FULL_AFTER_ONE_POLL,
+    ),
+    (
+        "head_moved",
+        _PROVEN,
+        _proof_check(),
+        {"with_addition": False},
+        [_CLIENT_LIBRARIES_REQUESTED, _PROVEN_PUSH, _POLL, _NEXT_POLL],
+        ("done", "attested", "attestation", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "check_still_running",
+        _PROVEN,
+        _proof_check(status="in_progress"),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+        ("waiting", None, "opened", HEAD_SHA),
+        [1, 2],
+    ),
+    (
+        "poll_of_an_older_wait",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("push",), ("ready",), _POLL],
+        ("waiting", None, "ready_for_review", _HEAD_2),
+        [1, 1],
+    ),
+    (
+        "safety_net_before_the_check",
+        _PROVEN,
+        _proof_check(),
+        {},
+        [_CLIENT_LIBRARIES_REQUESTED, ("net",), _POLL],
+        ("done", "full", "safety_net", HEAD_SHA),
+        [1],
+    ),
+    ("a_file_outside_every_attestation", _proof_policy("^products/alpha/"), _proof_check(), {}, [], _FULL_AT_OPEN, []),
+    ("a_truncated_file_list", _PROVEN, _proof_check(), {"changed_files": 5}, [], _FULL_AT_OPEN, []),
+    ("a_policy_the_engine_refuses", _proof_policy("("), _proof_check(), {}, [], _FULL_AT_OPEN, []),
+]
+
+
+@pytest.mark.parametrize(
+    "name,policy,check,setup_kwargs,steps,expected_record,expected_polls",
+    _ATTESTED_ROUTING_CASES,
+    ids=[case[0] for case in _ATTESTED_ROUTING_CASES],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
+    name: str,
+    policy: str,
+    check: dict[str, Any],
+    setup_kwargs: dict[str, Any],
+    steps: list[tuple[str, ...]],
+    expected_record: tuple[str, str | None, str, str],
+    expected_polls: list[int],
+    team,
+    user,
+    routing_chain,
+    safety_net,
+    attestation_poll,
+    time_machine,
+) -> None:
+    time_machine.move_to(datetime(2026, 11, 19, 10, 0, tzinfo=UTC), tick=False)
+    recorder = routing_chain.recorder
+    recorder.policy_files[".stamphog/policy.yml"] = policy
+    recorder.policy_files[_PROOF_ISSUER] = _PROOF_ISSUER_MANIFEST
+    recorder.check_runs[(REPO, HEAD_SHA)] = [check]
+    recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-1"
+    recorder.default_branch_blob_shas[_PROOF_ISSUER] = "issuer-blob-1"
+    repo_config = _setup(routing_chain, team, user, **setup_kwargs)
+    recorder.compare_files = list(recorder.pr_files[(REPO, PR_NUMBER)])
+    _route()
+    pr = recorder.prs[(REPO, PR_NUMBER)]
+
+    for step in steps:
+        if step[0] == "requested_team":
+            pr["requested_teams"] = [{"slug": step[1]}]
+        elif step[0] == "routed_before":
+            with team_scope(team.id):
+                pr_obj = PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER)
+                pr_obj.routing = {**(pr_obj.routing or {}), "requested_owners": [step[1]]}
+                pr_obj.save(update_fields=["routing"])
+        elif step[0] == "approved":
+            head_sha = step[1] if len(step) > 1 else HEAD_SHA
+            review_id = 902 if head_sha == HEAD_SHA else 903
+            _save_finished_run(team.id, ReviewVerdict.APPROVED, posted_review_id=review_id, head_sha=head_sha)
+            _post_approval(routing_chain, review_id)
+        elif step[0] == "refused":
+            _save_finished_run(team.id, ReviewVerdict.REFUSED, head_sha=step[1] if len(step) > 1 else HEAD_SHA)
+        elif step[0] == "approval_dismissed":
+            for review in recorder.pr_reviews[(REPO, PR_NUMBER)]:
+                review["state"] = "DISMISSED"
+        elif step[0] == "next_poll":
+            latest_poll = attestation_poll.call_args_list[-1].kwargs["kwargs"]
+            route_reviewers_after_attestation.apply(kwargs=latest_poll, throw=True)
+        elif step[0] == "publisher_changed":
+            recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-2"
+        elif step[0] == "pinned_head_adds":
+            recorder.compare_files.append(_file(step[1]))
+        elif step[0] == "push":
+            # GitHub dismisses stamphog's approval of the earlier head.
+            for review in recorder.pr_reviews.get((REPO, PR_NUMBER), []):
+                review["state"] = "DISMISSED"
+            _push(routing_chain, _HEAD_2)
+        elif step[0] == "proven_push":
+            for review in recorder.pr_reviews.get((REPO, PR_NUMBER), []):
+                review["state"] = "DISMISSED"
+            _push(routing_chain, _HEAD_2)
+            recorder.check_runs[(REPO, _HEAD_2)] = [_proof_check(head_sha=_HEAD_2)]
+        elif step[0] == "proof":
+            recorder.check_runs[(REPO, step[1])] = [_proof_check(head_sha=step[1])]
+        elif step[0] == "verdict":
+            _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict(step[1]), head_sha=_HEAD_2)
+        elif step[0] == "retracted":
+            queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
+        elif step[0] == "ready":
+            _route("ready_for_review")
+        elif step[0] == "synchronize":
+            _route("synchronize")
+        elif step[0] == "retarget_adds":
+            recorder.pr_files[(REPO, PR_NUMBER)].append(_file(step[1]))
+            recorder.compare_files = list(recorder.pr_files[(REPO, PR_NUMBER)])
+            route_pull_request_reviewers(
+                payload={**_payload("edited"), "changes": {"base": {"ref": {"from": "release"}}}},
+                delivery_id="delivery-2",
+            )
+        elif step[0] == "net":
+            time_machine.shift(timedelta(seconds=ROUTING_SAFETY_NET_SECONDS))
+            _fire_safety_net(safety_net)
+        elif step[0] == "early_net":
+            _fire_safety_net(safety_net)
+        elif step[0] == "poll":
+            first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
+            route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
+        elif step[0] == "poll_without_kinds":
+            first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
+            with patch(
+                "posthog.ownership.github_files.GitHubFilesFetcher.path_kinds",
+                side_effect=OwnershipUnavailable("tree lookup failed"),
+            ):
+                route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
+        else:
+            raise AssertionError(f"unknown step {step}")
+
+    record = _stored(team.id)
+    assert (record["status"], record.get("scope"), record["trigger"], record["head_sha"]) == expected_record
+    pinned = {"team-alpha"} if setup_kwargs.get("with_addition", True) else set()
+    expected_requested = {
+        "full": ({"carol"}, {"team-alpha", "team-beta"}),
+        "attested": (set(), pinned),
+    }.get(str(expected_record[1]), (set(), set()))
+    assert _requested(routing_chain) == expected_requested
+    assert [call.kwargs["kwargs"]["poll"] for call in attestation_poll.call_args_list] == expected_polls
+    if expected_record[1] == "attested":
+        assert routing_chain.cut_model.calls == []
+        assert record["llm_skipped"] == "attested"
+        # FALLBACK reads this mark as a full routing of the pull request, which an attested run is not.
+        assert "full_routed_head" not in record
+        assert [write["kind"] for write in recorder.github_writes] == (["request_reviewers"] if pinned else [])
+        assert _run_log(team.id) == {
+            **dict.fromkeys(["team-alpha", "team-beta", "@carol"], ("not_requested", "attested", "")),
+            **dict.fromkeys(pinned, ("requested", "new_path", "")),
+        }
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

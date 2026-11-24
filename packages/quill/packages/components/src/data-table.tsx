@@ -60,6 +60,7 @@ declare module '@tanstack/react-table' {
     interface ColumnMeta<TData extends RowData, TValue> {
         align?: 'left' | 'center' | 'right'
         expand?: boolean
+        sticky?: 'left' | 'right'
         /** `data-attr` for the column's sort button. */
         sortDataAttr?: string
     }
@@ -319,7 +320,7 @@ function DataTableHead<TData>({
 }): React.ReactElement {
     const { column, isPlaceholder } = header
     const sorted = column.getIsSorted()
-    const { align, expand, sortDataAttr } = column.columnDef.meta ?? {}
+    const { align, expand, sticky, sortDataAttr } = column.columnDef.meta ?? {}
     const label = isPlaceholder ? null : flexRender(column.columnDef.header, header.getContext())
     const title = column.columnDef.header
     return (
@@ -327,6 +328,7 @@ function DataTableHead<TData>({
             colSpan={header.colSpan}
             align={align}
             expand={expand}
+            sticky={sticky}
             aria-sort={sorted ? ARIA_SORT[sorted] : undefined}
             // While the columns fit their content, this is what holds an expand column at its minimum.
             style={expand && resizable ? { minWidth: column.columnDef.minSize } : undefined}
@@ -433,6 +435,7 @@ function DataTableBodyInner<TData, TValue>({
                                 key={cell.id}
                                 align={cell.column.columnDef.meta?.align}
                                 expand={cell.column.columnDef.meta?.expand}
+                                sticky={cell.column.columnDef.meta?.sticky}
                             >
                                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>

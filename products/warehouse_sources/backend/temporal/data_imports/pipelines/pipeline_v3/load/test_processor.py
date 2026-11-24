@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
+import time_machine
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.test import override_settings
@@ -14,12 +15,14 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
+from prometheus_client import REGISTRY, Histogram
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     HISTORY_NAMING,
     HISTORY_PARTITION_COLUMN,
     LEGACY_HISTORY_NAMING,
@@ -43,6 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
     SUMMARY_EVENT,
     post_load_phase,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_BATCH_ROWS,
+    CDC_FRESHNESS_SECONDS,
+    CDC_MERGE_DURATION_SECONDS,
+    CDC_TABLE_FILE_COUNT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
@@ -53,11 +62,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _finalize_run,
     _get_write_type,
     _mark_job_completed,
+    _oldest_cdc_commit_time,
     _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _record_cdc_load_metrics,
     _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
@@ -586,6 +597,62 @@ class TestMarkJobCompleted:
 
     @parameterized.expand(
         [
+            ("webhook_job_completes", "webhook", "Completed", "run-abc-a2", None, 2),
+            ("webhook_job_absorbed_by_failed", "webhook", "Failed", "run-abc-a2", None, None),
+            ("incremental_job_completes", "incremental", "Completed", "run-abc-a2", None, None),
+            ("run_uuid_without_attempt", "webhook", "Completed", "run-abc", None, None),
+            ("webhook_delete_fails", "webhook", "Completed", "run-abc-a2", OSError("s3 down"), 2),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.delete_consumed_webhook_files", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True)
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
+    @patch(f"{_PROCESSOR}.transaction")
+    @patch(f"{_PROCESSOR}.release_v3_pipeline_lock")
+    @patch(f"{_PROCESSOR}.ExternalDataJob.objects")
+    @patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.ExternalDataSchema.objects")
+    @patch(f"{_PROCESSOR}.update_external_job_status")
+    def test_deletes_webhook_files_only_when_a_webhook_job_completes(
+        self,
+        _case: str,
+        snapshot_sync_type: str,
+        resulting_status: str,
+        run_uuid: str,
+        delete_error: Exception | None,
+        deleted_attempt: int | None,
+        mock_update: MagicMock,
+        _schema_objects: MagicMock,
+        _finish_row_tracking: AsyncMock,
+        mock_job_objects: MagicMock,
+        mock_release: MagicMock,
+        _transaction: MagicMock,
+        _resume: MagicMock,
+        _every_table_completed: MagicMock,
+        mock_delete: AsyncMock,
+    ) -> None:
+        model = MagicMock()
+        model.status = resulting_status
+        model.schema_snapshot = {"sync_type": snapshot_sync_type}
+        mock_update.return_value = model
+        mock_delete.side_effect = delete_error
+        job = MagicMock()
+        job.workflow_run_id = "wf-run-1"
+        mock_job_objects.only.return_value.get.return_value = job
+        signal = self._make_signal(run_uuid=run_uuid)
+        signal.sync_type = "incremental"
+
+        _mark_job_completed(signal)
+
+        if deleted_attempt is not None:
+            mock_delete.assert_awaited_once_with(1, "schema-1", "job-1", deleted_attempt)
+        else:
+            mock_delete.assert_not_awaited()
+        # A failed delete leaves files to read again, so the lock is still released.
+        mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+    @parameterized.expand(
+        [
             (
                 "aged_out_batch_never_loaded",
                 UnfinishedEarlierBatches(count=1, first_batch_index=2, states=("pending",)),
@@ -774,6 +841,138 @@ class TestPostWriteHandleReads:
         written = [call for call in mock_logger.debug.call_args_list if call.args[0] == "batch_written_to_delta_lake"]
         assert len(written) == 1
         assert written[0].kwargs["file_count"] == expected_file_count
+
+
+def _observation_count(histogram: Histogram) -> float:
+    return sum(
+        sample.value for metric in histogram.collect() for sample in metric.samples if sample.name.endswith("_count")
+    )
+
+
+class TestCdcLoadMetrics:
+    _NOW = dt.datetime(2026, 11, 23, 12, 0, tzinfo=dt.UTC)
+
+    @parameterized.expand(
+        [
+            ("cdc_batch", "cdc", "incremental_merge", "both", True, [1, 1, 1, 1], "both"),
+            ("cdc_batch_with_unknown_table_mode", "cdc", "incremental_merge", "x" * 200, True, [1, 1, 1, 1], "unknown"),
+            ("cdc_batch_with_string_commit_times", "cdc", "incremental_merge", "both", False, [0, 1, 1, 1], "both"),
+            ("incremental_batch", "incremental", None, "both", True, [0, 0, 0, 0], "both"),
+            # An incremental history lane writes in scd2_append mode, but its rows are not changes.
+            ("incremental_history_batch", "incremental", "scd2_append", "both", True, [0, 0, 0, 0], "both"),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    @patch(f"{_PROCESSOR}.stage_history_batch", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._handle_partial_data_loading", new_callable=AsyncMock)
+    @patch(f"{_PROCESSOR}.read_parquet")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_only_a_cdc_batch_records_the_cdc_load_metrics(
+        self,
+        _case: str,
+        sync_type: str,
+        cdc_write_mode: str | None,
+        stored_table_mode: str,
+        timestamp_commit_times: bool,
+        expected_observations: list[int],
+        table_mode_label: str,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        mock_read: MagicMock,
+        _partial: AsyncMock,
+        _mark: MagicMock,
+        _analytics: MagicMock,
+        mock_stage_history: AsyncMock,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        # Key 1 changes twice. Resolution keeps its newer row, but the older one sets the freshness.
+        commit_times = [self._NOW - dt.timedelta(seconds=s) for s in (600, 300, 60)]
+        mock_read.return_value = pa.table(
+            {
+                "id": pa.array([1, 2, 1], pa.int64()),
+                CDC_OP_COLUMN: ["U", "I", "U"],
+                CDC_TIMESTAMP_COLUMN: pa.array(commit_times, pa.timestamp("us", tz="UTC"))
+                if timestamp_commit_times
+                else pa.array([t.isoformat() for t in commit_times]),
+            }
+        ).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array([1, 2, 3], pa.int64())
+        )
+        written = MagicMock()
+        written.schema.return_value = pa.schema([_COL_ID])
+        written.version.return_value = 7
+        written.file_uris.return_value = ["a", "b"]
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.latest_known_version.return_value = 7
+        mock_writer_cls.return_value.write = AsyncMock(return_value=written)
+        mock_writer_cls.return_value.deltalite_file_count_change = None
+        mock_stage_history.return_value = written
+        job = MagicMock()
+        job.schema.table = None
+        job.schema.cdc_table_mode = stored_table_mode
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
+        labels = {"table_mode": table_mode_label, "write_mode": "incremental_merge"}
+        sum_names = ("freshness_seconds", "table_file_count", "batch_rows")
+        sums_before = [REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names]
+        histograms = (CDC_FRESHNESS_SECONDS, CDC_MERGE_DURATION_SECONDS, CDC_TABLE_FILE_COUNT, CDC_BATCH_ROWS)
+        counts_before = [_observation_count(histogram) for histogram in histograms]
+
+        process_message(
+            _message(batch_index=0, sync_type=sync_type, cdc_write_mode=cdc_write_mode, is_first_ever_sync=False)
+        )
+
+        counts_after = [_observation_count(histogram) for histogram in histograms]
+        assert mock_writer_cls.return_value.write.await_count + mock_stage_history.await_count == 1
+        assert [after - before for before, after in zip(counts_before, counts_after)] == expected_observations
+        if expected_observations == [1, 1, 1, 1]:
+            sums_after = [
+                REGISTRY.get_sample_value(f"warehouse_load_cdc_{name}_sum", labels) or 0.0 for name in sum_names
+            ]
+            assert [after - before for before, after in zip(sums_before, sums_after)] == [600, 2, 2]
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_a_source_clock_ahead_of_ours_records_zero_freshness(self) -> None:
+        labels = {"table_mode": "consolidated", "write_mode": "incremental_merge"}
+        sum_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) or 0.0
+        count_before = REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) or 0.0
+
+        _record_cdc_load_metrics(
+            schema=MagicMock(cdc_table_mode="consolidated"),
+            cdc_write_mode="incremental_merge",
+            rows=1,
+            write_seconds=None,
+            file_count=None,
+            oldest_commit_time=self._NOW + dt.timedelta(seconds=30),
+        )
+
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_sum", labels) == sum_before
+        assert REGISTRY.get_sample_value("warehouse_load_cdc_freshness_seconds_count", labels) == count_before + 1
+
+    @parameterized.expand(
+        [
+            (
+                "naive_timestamps_read_as_utc",
+                pa.array([dt.datetime(2026, 11, 23, 11, 59), dt.datetime(2026, 11, 23, 11, 58)]),
+                dt.datetime(2026, 11, 23, 11, 58, tzinfo=dt.UTC),
+            ),
+            ("all_null", pa.array([None], pa.timestamp("us", tz="UTC")), None),
+            ("string_commit_times", pa.array(["2026-11-23T11:50:00+00:00"]), None),
+        ]
+    )
+    def test_oldest_commit_time(self, _case: str, commit_times: pa.Array, expected: dt.datetime | None) -> None:
+        assert _oldest_cdc_commit_time(pa.table({CDC_TIMESTAMP_COLUMN: commit_times})) == expected
+
+    def test_a_batch_without_a_commit_time_column_has_no_oldest_commit_time(self) -> None:
+        assert _oldest_cdc_commit_time(pa.table({"id": [1]})) is None
 
 
 class TestFileCountAfterWrite:

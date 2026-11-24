@@ -157,6 +157,11 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                 </div>
 
                 <div className="flex flex-row gap-2">
+                    {sdk.migrationGuideUrl && (
+                        <Link to={sdk.migrationGuideUrl} target="_blank" targetBlankIcon>
+                            Migration guide
+                        </Link>
+                    )}
                     <Link to={links.releases} target="_blank" targetBlankIcon>
                         Releases
                     </Link>

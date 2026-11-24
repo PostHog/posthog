@@ -2589,6 +2589,82 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
+    @parameterized.expand([("current", False), ("cleared", True)])
+    def test_history_returns_each_distinct_value_oldest_first(self, _name: str, cleared: bool) -> None:
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "enterprise")
+        self._set(self.number_def.id, 5)
+        self.text_def.display_type = DisplayType.NUMBER
+        self.text_def.save()
+        self._set(self.text_def.id, 42)
+        if cleared:
+            self._set(self.text_def.id, None)
+
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        history = response.json()
+        self.assertEqual(
+            [("starter", False), ("enterprise", False), (42, not cleared)],
+            [(e["value"], e["is_current"]) for e in history],
+        )
+        self.assertEqual([e["set_at"] for e in history[1:]], [e["replaced_at"] for e in history[:-1]])
+        self.assertIsNone(history[-1]["replaced_at"])
+        group_def = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", target_type=TargetType.GROUP.value, group_type_index=0
+        )
+        for definition_id in (uuid4(), group_def.id):
+            unknown = self.client.get(f"{self.endpoint}history/", {"definition": str(definition_id)})
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, unknown.status_code)
+
+    @parameterized.expand(
+        [
+            ("value_held_before_since", "2024-01-15", [("enterprise", "2024-01-10"), ("growth", "2024-02-01")]),
+            (
+                "repeated_value_keeps_its_first_set",
+                "2024-01-25",
+                [("enterprise", "2024-01-10"), ("growth", "2024-02-01")],
+            ),
+            ("replacement_exactly_at_since", "2024-02-01", [("growth", "2024-02-01")]),
+            ("current_value_set_before_since", "2024-03-01", [("growth", "2024-02-01")]),
+        ]
+    )
+    def test_history_since_starts_with_the_value_held_on_that_date(
+        self, _name: str, since: str, expected: list[tuple[str, str]]
+    ) -> None:
+        writes = [
+            ("2024-01-01", "starter"),
+            ("2024-01-10", "enterprise"),
+            ("2024-01-20", "enterprise"),
+            ("2024-02-01", "growth"),
+        ]
+        for day, plan in writes:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        response = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": since})
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        history = response.json()
+        self.assertEqual(expected, [(e["value"], e["set_at"][:10]) for e in history])
+        self.assertEqual([False] * (len(history) - 1) + [True], [e["is_current"] for e in history])
+
+    def test_history_over_the_limit_asks_for_a_later_since(self) -> None:
+        for day, plan in [("2024-01-01", "starter"), ("2024-01-10", "enterprise"), ("2024-02-01", "growth")]:
+            with time_machine.travel(day, tick=False):
+                self._set(self.text_def.id, plan)
+
+        with patch("products.customer_analytics.backend.logic.custom_property_values.HISTORY_ENTRY_LIMIT", 2):
+            full = self.client.get(f"{self.endpoint}history/", {"definition": str(self.text_def.id)})
+            recent = self.client.get(
+                f"{self.endpoint}history/", {"definition": str(self.text_def.id), "since": "2024-01-15"}
+            )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, full.status_code)
+        self.assertEqual("since", full.json()["attr"])
+        self.assertEqual(["enterprise", "growth"], [e["value"] for e in recent.json()])
+
     @parameterized.expand([("write", "x"), ("clear", None)])
     def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)

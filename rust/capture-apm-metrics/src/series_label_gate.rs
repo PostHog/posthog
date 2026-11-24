@@ -28,7 +28,7 @@ use siphasher::sip::SipHasher13;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use capture_logs::metric_record::KafkaMetricRow;
+use capture_logs::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 
 const REDIS_KEY_PREFIX: &str = "capture-logs:metric-series-labels";
 /// Members are spread over hour buckets so keys expire on their own and no
@@ -43,7 +43,10 @@ const PULL_OVERLAP_SECS: i64 = 60;
 /// that a full seed of millions of series takes hundreds of calls, not tens
 /// of thousands.
 const PULL_PAGE_SIZE: usize = 50_000;
-const WRITER_CHANNEL_CAPACITY: usize = 10_000;
+/// Series waiting for the writer. One remote-write request can carry tens of
+/// thousands of new series, and every one that finds the queue full is never
+/// shared with other pods. 16 bytes each, so this is under 2 MB.
+const WRITER_CHANNEL_CAPACITY: usize = 100_000;
 const WRITER_BATCH_SIZE: usize = 500;
 const WRITER_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(300);
@@ -80,6 +83,8 @@ struct PullStats {
     /// Sum of member lengths: the payload bytes, without RESP framing.
     bytes: u64,
     merged: usize,
+    /// Members this pod already had, moved forward to the pull's `since`.
+    refreshed: u64,
     cache_full: u64,
 }
 
@@ -137,6 +142,13 @@ struct Entry {
 #[must_use = "pass to SeriesLabelGate::commit once the rows are written"]
 pub struct LabelledSeries {
     keys: Vec<u64>,
+    rows: Vec<usize>,
+}
+
+impl LabelledSeries {
+    pub fn new_series_rows(&self) -> &[usize] {
+        &self.rows
+    }
 }
 
 pub struct SeriesLabelGate {
@@ -202,26 +214,72 @@ impl SeriesLabelGate {
     /// rows are written; a failed write drops it, so a retry of the same batch
     /// keeps its labels.
     pub fn decide(&self, token: &str, rows: &mut [KafkaMetricRow]) -> LabelledSeries {
+        let labelled = self.classify(token, rows);
+        self.strip_repeats(rows, &labelled);
+        labelled
+    }
+
+    /// The decision of [`Self::decide`] without the stripping, for a caller
+    /// that reads the labels of every row first. Pass the result to
+    /// [`Self::strip_repeats`].
+    pub fn classify(&self, token: &str, rows: &[KafkaMetricRow]) -> LabelledSeries {
         let now = (self.clock)();
         let mut keys = Vec::new();
+        let mut labelled_rows = Vec::new();
         let mut in_batch = HashSet::new();
         let mut skipped = 0u64;
 
-        for row in rows.iter_mut() {
+        for (index, row) in rows.iter().enumerate() {
             let key = gate_key(token, row.series_fingerprint);
             if self.seen_within_window(key, now) || !in_batch.insert(key) {
                 skipped += 1;
-                if self.enabled {
-                    strip_labels(row);
-                }
                 continue;
             }
             keys.push(key);
+            labelled_rows.push(index);
         }
 
         counter!("capture_metrics_series_labels_sent").increment(keys.len() as u64);
         counter!("capture_metrics_series_labels_skipped").increment(skipped);
-        LabelledSeries { keys }
+        LabelledSeries {
+            keys,
+            rows: labelled_rows,
+        }
+    }
+
+    /// A full cache reports the token's uncached series as new on every row.
+    pub fn cache_full(&self, token: &str) -> bool {
+        self.len.load(Ordering::Acquire) >= self.limits.max_entries
+            || self
+                .per_token
+                .get(&token_key(token))
+                .is_some_and(|count| *count >= self.limits.max_entries_per_token)
+    }
+
+    pub fn strip_repeats(&self, rows: &mut [KafkaMetricRow], labelled: &LabelledSeries) {
+        if !self.enabled {
+            return;
+        }
+        let mut kept = labelled.rows.iter().peekable();
+        for (index, row) in rows.iter_mut().enumerate() {
+            if kept.peek() == Some(&&index) {
+                kept.next();
+            } else {
+                strip_labels(row);
+            }
+        }
+    }
+
+    /// Run [`Self::decide`] and return the billable bytes of `rows` measured before any
+    /// labels are stripped. The meter (RFC #1350: 8 bytes per label) bills the
+    /// labels the customer sent, not the ones this dedup leaves on the wire.
+    pub fn decide_metered(
+        &self,
+        token: &str,
+        rows: &mut [KafkaMetricRow],
+    ) -> (LabelledSeries, u64) {
+        let records_bytes = sum_kafka_metric_row_bytes(rows);
+        (self.decide(token, rows), records_bytes)
     }
 
     /// Record the series that [`Self::decide`] left labelled, after the write
@@ -254,6 +312,7 @@ impl SeriesLabelGate {
             }
         }
 
+        gauge!("capture_metrics_series_cache_size").set(self.len.load(Ordering::Acquire) as f64);
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
@@ -343,22 +402,41 @@ impl SeriesLabelGate {
     /// fill the gap.
     pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
-        match self
+        let before = self.len.load(Ordering::Acquire);
+        let result = self
             .pull_from_redis(client, PullKind::Seed, now - self.window_secs, budget)
-            .await
-        {
-            Ok(merged) => info!("Seeded series label cache with {merged} series from Redis"),
-            Err(PullError::Timeout { merged }) => warn!(
-                "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
-                budget.as_secs()
-            ),
-            Err(e) => warn!("Could not seed series label cache from Redis, starting empty: {e}"),
-        }
+            .await;
+        // Nothing else writes the cache before the seed returns, so its growth
+        // is what the seed merged, including pages read before a failure.
+        let merged = self.len.load(Ordering::Acquire).saturating_sub(before);
+        let outcome = match result {
+            Ok(_) => {
+                info!("Seeded series label cache with {merged} series from Redis");
+                "complete"
+            }
+            Err(PullError::Timeout { .. }) | Err(PullError::Redis(CustomRedisError::Timeout)) => {
+                warn!(
+                    "Series label cache seed timed out within its {}s budget after {merged} series, starting with a partial cache",
+                    budget.as_secs()
+                );
+                "timeout"
+            }
+            Err(e) => {
+                warn!("Could not finish seeding series label cache from Redis, starting with {merged} series: {e}");
+                "error"
+            }
+        };
+        counter!("capture_metrics_series_seed", "outcome" => outcome).increment(1);
+        gauge!("capture_metrics_series_seeded").set(merged as f64);
     }
 
     /// Merge the series with a score at or after `since` into the cache. A
-    /// series this pod already knows keeps its exact local timestamp; a series
-    /// another pod labelled is recorded as seen now. Returns how many were new.
+    /// series another pod labelled is recorded as seen now. A series this pod
+    /// already knows moves forward to `since` when its own timestamp is older:
+    /// some pod labelled it at or after `since`, so the next label is due one
+    /// window after that, not one window after this pod's own label. Without
+    /// that every pod relabels every series once per window on its own clock.
+    /// Returns how many were new.
     ///
     /// Reads in pages and merges each page as it arrives, so a `budget` that
     /// runs out loses only the pages not yet read.
@@ -438,7 +516,7 @@ impl SeriesLabelGate {
                 stats.pages += 1;
                 stats.members_read += page_len as u64;
                 stats.bytes += page.iter().map(|m| m.len() as u64).sum::<u64>();
-                self.merge_members(page, now, stats);
+                self.merge_members(page, since, now, stats);
                 if page_len < page_size {
                     break;
                 }
@@ -448,13 +526,23 @@ impl SeriesLabelGate {
         Ok(())
     }
 
-    fn merge_members(&self, members: Vec<String>, now: i64, stats: &mut PullStats) {
+    fn merge_members(&self, members: Vec<String>, since: i64, now: i64, stats: &mut PullStats) {
         for member in members {
             let Ok(key) = member.parse::<u64>() else {
                 continue;
             };
-            let dashmap::Entry::Vacant(slot) = self.cache.entry(key) else {
-                continue;
+            let slot = match self.cache.entry(key) {
+                dashmap::Entry::Occupied(mut slot) => {
+                    // `since` is a lower bound on the member's score, so this
+                    // never moves a series past its real last label.
+                    let entry = slot.get_mut();
+                    if entry.last_seen < since {
+                        entry.last_seen = since;
+                        stats.refreshed += 1;
+                    }
+                    continue;
+                }
+                dashmap::Entry::Vacant(slot) => slot,
             };
             if self.reserve(None).is_err() {
                 stats.cache_full += 1;
@@ -485,17 +573,21 @@ impl SeriesLabelGate {
             loop {
                 ticker.tick().await;
                 let started = (gate.clock)();
-                match gate
+                let result = gate
                     .pull_from_redis(client.as_ref(), PullKind::Periodic, since, timeout)
-                    .await
-                {
+                    .await;
+                // Advance even when the pull failed or ran out of budget. Pages
+                // are read oldest first, so a `since` left behind makes every
+                // later pull re-read the same old members and run out of budget
+                // before reaching new ones, and pods stop learning each other's
+                // series. Members skipped this way only cost extra labels.
+                since = started - PULL_OVERLAP_SECS;
+                match result {
                     Ok(merged) => {
                         debug!("Pulled {merged} new series from Redis");
                         timeouts.reset();
-                        since = started - PULL_OVERLAP_SECS;
                     }
                     Err(e) => {
-                        // `since` stays put, so the next tick re-reads the gap.
                         debug!("Series label pull from Redis failed: {e}");
                         match &e {
                             PullError::Timeout { .. }
@@ -633,6 +725,8 @@ fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed
         .increment(stats.members_read);
     counter!("capture_metrics_series_redis_pull_bytes", "kind" => kind).increment(stats.bytes);
     counter!("capture_metrics_series_redis_pulled", "kind" => kind).increment(stats.merged as u64);
+    counter!("capture_metrics_series_redis_pull_refreshed", "kind" => kind)
+        .increment(stats.refreshed);
     if stats.cache_full > 0 {
         counter!("capture_metrics_series_cache_full", "source" => "pull", "cap" => Cap::Global.as_str())
             .increment(stats.cache_full);
@@ -726,6 +820,11 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use common_redis::{MockRedisClient, MockRedisValue};
+    use metrics::{
+        Counter, CounterFn, Gauge, GaugeFn, Histogram, Key, KeyName, Metadata, Recorder,
+        SharedString, Unit,
+    };
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -796,6 +895,7 @@ mod tests {
             series_fingerprint,
             has_labels: true,
             retention_days: None,
+            start_timestamp: None,
         }
     }
 
@@ -830,6 +930,28 @@ mod tests {
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+    }
+
+    #[test]
+    fn metered_bytes_count_labels_the_gate_strips() {
+        let (gate, _, _) = gate(true, false);
+
+        // Each row: 24 bytes per point + 8 bytes for each of its 2 labels.
+        let full = 24 + 8 * 2;
+        let mut rows = vec![row(7), row(7), row(8)];
+        let (labelled, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        gate.commit("token-a", labelled);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 3 * full);
+        assert!(sum_kafka_metric_row_bytes(&rows) < records_bytes);
+
+        // A later batch whose series are all known is fully stripped on the
+        // wire but still metered with every label it sent.
+        let mut rows = vec![row(7), row(8)];
+        let (_, records_bytes) = gate.decide_metered("token-a", &mut rows);
+        assert_stripped(&rows[0]);
+        assert_stripped(&rows[1]);
+        assert_eq!(records_bytes, 2 * full);
     }
 
     #[test]
@@ -957,6 +1079,8 @@ mod tests {
         let mut rows = vec![row(2)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+        assert!(gate.cache_full("token-a"));
+        assert!(!gate.cache_full("token-b"));
 
         let mut rows = vec![row(1), row(1)];
         gate.apply("token-b", &mut rows);
@@ -1140,6 +1264,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pull_moves_a_known_series_forward_when_another_pod_relabelled_it() {
+        let (gate, now, _) = gate(true, false);
+        let key = gate_key("token-a", 7);
+        let window = gate.window_for(key);
+
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+
+        // Just past this pod's window, another pod has already relabelled it.
+        // The pull reads members scored at or after `since`, so that label is
+        // no older than `since`.
+        let since = START + window - 30;
+        now.store(START + window + 30, Ordering::SeqCst);
+        let mut client = MockRedisClient::new();
+        for bucket in bucket_keys(since, START + window + 30) {
+            client = client.zrangebyscore_ret(&bucket, vec![]);
+        }
+        let client =
+            client.zrangebyscore_ret(&bucket_key(START + window + 30), vec![key.to_string()]);
+        let merged = gate
+            .pull_from_redis(&client, PullKind::Periodic, since, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(merged, 0);
+        assert_eq!(gate.seen_at(key), Some(since));
+
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_stripped(&rows[0]);
+
+        // One window after `since` it labels again, so the gap between labelled
+        // rows never exceeds the window.
+        now.store(since + window, Ordering::SeqCst);
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+    }
+
+    #[tokio::test]
+    async fn pull_never_moves_a_known_series_backwards() {
+        let (gate, now, _) = gate(true, false);
+        let key = gate_key("token-a", 7);
+        now.store(START + 600, Ordering::SeqCst);
+        let mut rows = vec![row(7)];
+        gate.apply("token-a", &mut rows);
+
+        let mut client = MockRedisClient::new();
+        for bucket in bucket_keys(START, START + 600) {
+            client = client.zrangebyscore_ret(&bucket, vec![]);
+        }
+        let client = client.zrangebyscore_ret(&bucket_key(START + 600), vec![key.to_string()]);
+        gate.pull_from_redis(&client, PullKind::Periodic, START, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(gate.seen_at(key), Some(START + 600));
+    }
+
+    #[tokio::test]
     async fn pull_failure_leaves_cache_unchanged() {
         let (gate, _, _) = gate(true, false);
         let client = MockRedisClient::new();
@@ -1246,6 +1429,197 @@ mod tests {
         let calls = client.get_calls();
         assert!(calls.iter().any(|c| c.op == "heal"));
         assert!(calls.iter().all(|c| c.op == "heal"));
+    }
+
+    /// Captures the last value written per metric name and label set.
+    #[derive(Default)]
+    struct TestRecorder {
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
+    }
+
+    struct TestHandle {
+        key: Key,
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
+    }
+
+    impl TestHandle {
+        fn update(&self, f: impl FnOnce(f64) -> f64) {
+            let mut values = self.values.lock().unwrap();
+            match values.iter_mut().find(|(k, _)| *k == self.key) {
+                Some((_, v)) => *v = f(*v),
+                None => values.push((self.key.clone(), f(0.0))),
+            }
+        }
+    }
+
+    impl CounterFn for TestHandle {
+        fn increment(&self, value: u64) {
+            self.update(|v| v + value as f64);
+        }
+        fn absolute(&self, value: u64) {
+            self.update(|_| value as f64);
+        }
+    }
+
+    impl GaugeFn for TestHandle {
+        fn increment(&self, value: f64) {
+            self.update(|v| v + value);
+        }
+        fn decrement(&self, value: f64) {
+            self.update(|v| v - value);
+        }
+        fn set(&self, value: f64) {
+            self.update(|_| value);
+        }
+    }
+
+    impl Recorder for TestRecorder {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+
+        fn register_counter(&self, key: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_gauge(&self, key: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            Histogram::noop()
+        }
+    }
+
+    type Recorded = Arc<Mutex<Vec<(Key, f64)>>>;
+
+    fn recorded(values: &Recorded, name: &str, label: Option<(&str, &str)>) -> Option<f64> {
+        values
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(key, _)| {
+                key.name() == name
+                    && label
+                        .is_none_or(|(k, v)| key.labels().any(|l| l.key() == k && l.value() == v))
+            })
+            .map(|(_, value)| *value)
+    }
+
+    fn seed_with_metrics(client: &MockRedisClient, budget: Duration) -> Recorded {
+        let (gate, _, _) = gate(true, false);
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(gate.seed_from_redis(client, budget));
+        });
+        snapshotter
+    }
+
+    fn seed_client() -> MockRedisClient {
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into(), "3".into()])
+    }
+
+    #[test]
+    fn cache_size_gauge_follows_each_request() {
+        let (gate, _, _) = gate(true, false);
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
+        let mut rows = vec![row(1), row(2), row(1)];
+
+        metrics::with_local_recorder(&recorder, || gate.apply("token", &mut rows));
+
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_cache_size", None),
+            Some(2.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_complete_seed_and_its_size() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "complete"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(3.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_spent_budget_as_timeout() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::ZERO);
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "timeout"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_redis_failure_as_error() {
+        let snapshotter = seed_with_metrics(&MockRedisClient::new(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_series_merged_before_a_redis_failure() {
+        let first = bucket_keys(START - WINDOW.as_secs() as i64, START).remove(0);
+        let client = MockRedisClient::new().zrangebyscore_ret(&first, vec!["1".into(), "2".into()]);
+
+        let snapshotter = seed_with_metrics(&client, Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(2.0)
+        );
     }
 
     #[test]

@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='resolve_team_persons' */ \n        SELECT pdi.team_id AS \"key_team_id!\", pdi.distinct_id AS \"key_distinct_id!\",\n               p.id, p.uuid, p.team_id::bigint AS \"team_id!\", p.created_at, p.version,\n               p.is_identified,\n               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END AS is_user_id,\n               p.last_seen_at\n        FROM personhog_persondistinctid_tmp pdi\n        JOIN personhog_person_tmp p\n          ON p.team_id = pdi.team_id AND p.id = pdi.person_id\n        WHERE pdi.team_id = $1 AND pdi.distinct_id = ANY($2::text[]) AND pdi.is_deleted = false\n          AND p.team_id = $1 AND p.is_deleted = false\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_team_id!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "key_distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_identified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      true,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "2849bcd4a2d39b55c5d8ff5240c4d26f758e47f6d85d006f035eb209ca640fff"
+}

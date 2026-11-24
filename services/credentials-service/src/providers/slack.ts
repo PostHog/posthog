@@ -5,8 +5,10 @@ import type { ProviderSpec } from './schema'
 const SCOPES = [
     'app_mentions:read',
     'assistant:write',
+    'canvases:read',
     'canvases:write',
     'channels:history',
+    'channels:join',
     'channels:manage',
     'channels:read',
     'chat:write',
@@ -29,7 +31,8 @@ const SCOPES = [
 ]
 
 // `SlackIntegrationScopeInReview`: Slack has not approved these for the public app, so only dev asks for them.
-const SCOPES_IN_REVIEW = ['canvases:read', 'channels:join']
+// Empty while no scope waits on review. Keep it for the next scope that needs review.
+const SCOPES_IN_REVIEW: string[] = []
 
 export const slack: ProviderSpec = {
     kind: 'slack',

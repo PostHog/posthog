@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -12,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
@@ -59,6 +60,45 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     user_access_level: AccessControlLevel.Editor,
     ...overrides,
 })
+
+const [TRIGGER, EXIT] = makeWorkflow().actions
+const VALID_TRIGGER = {
+    ...TRIGGER,
+    config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+} as HogFlow['actions'][number]
+
+const SANDBOX_EMAIL = {
+    id: 'sandbox_email',
+    type: 'email_sandbox',
+    name: 'Email',
+    description: '',
+    created_at: 0,
+    updated_at: 0,
+    config: {
+        inputs: {
+            email: {
+                templating: 'liquid',
+                value: { to: { email: 'ops@example.com' }, subject: 'Hi', text: 'Hi', html: '<p>Hi</p>' },
+            },
+        },
+    },
+} as HogFlow['actions'][number]
+// A step id ending in ":own" stays on the team's own sender; the sender control keeps the id when it switches.
+const withSandboxEmail = (
+    actions: HogFlow['actions'],
+    stepIds: string[] = [SANDBOX_EMAIL.id]
+): Pick<HogFlow, 'actions' | 'edges'> => {
+    const [trigger, exit] = actions
+    const steps = stepIds.map((stepId) => {
+        const [id, sender] = stepId.split(':')
+        return { ...SANDBOX_EMAIL, id, type: sender === 'own' ? 'function_email' : 'email_sandbox' }
+    }) as HogFlow['actions']
+    const chain = [trigger, ...steps, exit]
+    return {
+        actions: chain,
+        edges: chain.slice(1).map((step, index) => ({ from: chain[index].id, to: step.id, type: 'continue' })),
+    }
+}
 
 describe('workflowLogic auto-save', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -138,6 +178,58 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.isAutoSave).toBe(false)
             expect(updateCalls).toBe(1)
         })
+
+        it.each([
+            {
+                case: 'a clean workflow',
+                actions: [VALID_TRIGGER, EXIT],
+                editedWhileSaving: null,
+                message: 'Workflow saved',
+                kind: 'success-toast',
+            },
+            {
+                case: 'a workflow with a step error',
+                actions: workflow.actions,
+                editedWhileSaving: null,
+                message: 'Workflow saved. These steps still need work: Trigger',
+                kind: 'warning-toast',
+            },
+            {
+                case: 'a step error fixed only after the save was sent',
+                actions: workflow.actions,
+                editedWhileSaving: [VALID_TRIGGER, EXIT],
+                message: 'Workflow saved. These steps still need work: Trigger',
+                kind: 'warning-toast',
+            },
+        ])(
+            'a manual save of $case says whether steps still need work',
+            async ({ actions, editedWhileSaving, message, kind }) => {
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                useMocks({
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async () => {
+                            await held
+                            return [200, makeWorkflow({ actions })]
+                        },
+                    },
+                })
+                showToasts()
+                logic.actions.setWorkflowValues({ actions })
+
+                logic.actions.saveWorkflow(logic.values.workflow)
+                if (editedWhileSaving) {
+                    logic.actions.setWorkflowValues({ actions: editedWhileSaving })
+                }
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+                expect(await toastShown(message)).toBe(kind)
+                cleanup()
+            }
+        )
 
         it('keeps edits made while the save request is in flight and saves them next', async () => {
             jest.useFakeTimers()
@@ -276,6 +368,28 @@ describe('workflowLogic auto-save', () => {
             await jest.advanceTimersByTimeAsync(3500)
 
             expect(logic.values.workflowHasErrors).toBe(true)
+            expect(updateCalls).toBe(0)
+        })
+
+        it('does not auto-save edits from a user with view access only', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                        user_access_level: AccessControlLevel.Viewer,
+                    }),
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+
+            logic.actions.setWorkflowValue('name', 'Edited by a viewer')
+            await jest.advanceTimersByTimeAsync(3500)
+
+            expect(logic.values.isAutoSavePending).toBe(false)
             expect(updateCalls).toBe(0)
         })
 
@@ -489,6 +603,338 @@ describe('workflowLogic auto-save', () => {
             const enabledCalls = captureSpy.mock.calls.filter(([event]) => event === 'workflow enabled')
             expect(enabledCalls).toEqual([['workflow enabled', { workflow_id: WORKFLOW_ID, entry_source: 'survey' }]])
             captureSpy.mockRestore()
+        })
+
+        describe('enabling on the test sender', () => {
+            const ENABLE_DIALOG = 'Enable on the PostHog test sender?'
+            const withSandbox = withSandboxEmail(activeWorkflow.actions)
+            const withoutSandbox = { actions: activeWorkflow.actions, edges: activeWorkflow.edges }
+            const LAYOUTS = {
+                live: [withSandbox, null],
+                staged: [withoutSandbox, withSandbox],
+                'live-staged-off': [withSandbox, withoutSandbox],
+                none: [withoutSandbox, null],
+            } as const
+
+            const loadedWith = (layout: keyof typeof LAYOUTS): HogFlow => {
+                const [live, staged] = LAYOUTS[layout]
+                return {
+                    ...activeWorkflow,
+                    status: 'draft',
+                    ...live,
+                    ...(staged ? { draft: staged, draft_updated_at: '2026-05-02T00:00:00.000Z' } : {}),
+                } as HogFlow
+            }
+            // A change from another tab advances the stored revision, as the server does.
+            const serverCopy = (loaded: HogFlow, server: 'sandbox' | 'own' | null): HogFlow =>
+                server
+                    ? {
+                          ...loaded,
+                          ...(server === 'sandbox' ? withSandbox : withoutSandbox),
+                          updated_at: '2026-05-01T00:10:00.000Z',
+                      }
+                    : loaded
+            // Registered after the load, so only requests made after the page loaded see the server's copy.
+            const serverMocks = (stored: HogFlow): Parameters<typeof useMocks>[0] => ({
+                get: { '/api/projects/:team_id/hog_flows/:id/': stored },
+                patch: {
+                    // The server's revision check: a write based on an older copy is refused.
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        return body.base_updated_at === stored.updated_at
+                            ? [200, { ...stored, ...body }]
+                            : [409, { detail: 'This workflow was updated elsewhere' }]
+                    },
+                },
+            })
+            const mountEditor = async (): Promise<void> => {
+                initKeaTests()
+                logic = workflowLogic({ id: WORKFLOW_ID })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            }
+            const enableFromEditor = async (): Promise<void> => {
+                await expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+            }
+
+            afterEach(() => {
+                cleanup()
+                // LemonDialog.open mounts its own root on the body, which cleanup() does not remove.
+                document.body.innerHTML = ''
+            })
+
+            it.each([
+                ['live on the test sender', 'live', null],
+                ['staging a move off the test sender only', 'live-staged-off', null],
+                ['moved to the test sender since the page loaded', 'none', 'sandbox'],
+            ] as const)('asks before enabling a workflow %s (%s, server %s)', async (_, layout, server) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                useMocks(serverMocks(serverCopy(loaded, server)))
+                await enableFromEditor()
+                expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
+                expect(patchBodies).toEqual([])
+
+                await userEvent.click(screen.getByText('Enable anyway'))
+                await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
+                await expectLogic(logic).toDispatchActions([server ? 'saveWorkflowFailure' : 'saveWorkflowSuccess'])
+
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: true }])
+                // The editor saves against the copy it loaded, so a newer server copy gets the conflict banner.
+                expect(logic.values.externallyEdited).toBe(!!server)
+                expect(logic.values.originalWorkflow?.status).toBe(server ? 'draft' : 'active')
+            })
+
+            const EDITED_ELSEWHERE = 'This workflow was edited somewhere else. Review it, then enable it again.'
+            const archived = (loaded: HogFlow): HogFlow =>
+                ({ ...loaded, status: 'archived', updated_at: '2026-05-01T00:10:00.000Z' }) as HogFlow
+
+            it('enables nothing when the server has archived the workflow', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                useMocks(serverMocks(archived(loaded)))
+                showToasts()
+                await enableFromEditor()
+
+                expect(await toastShown(EDITED_ELSEWHERE)).toBe('warning-toast')
+                expect(patchBodies).toEqual([])
+            })
+
+            it.each([
+                ['while the check runs', 'none'],
+                ['while the dialog is open', 'live'],
+            ] as const)('enables nothing when the editor loads an archived copy %s', async (when, layout) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                let reads = 0
+                useMocks(serverMocks(archived(loaded)))
+                useMocks({
+                    get: {
+                        // The check's read is held and sees the copy before the archive; the editor's reload sees it after.
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            reads += 1
+                            if (reads > 1) {
+                                return [200, archived(loaded)]
+                            }
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+                showToasts()
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await checking
+                if (when === 'while the check runs') {
+                    await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions([
+                        'loadWorkflowSuccess',
+                    ])
+                    release()
+                } else {
+                    release()
+                    await screen.findByText(ENABLE_DIALOG)
+                    await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions([
+                        'loadWorkflowSuccess',
+                    ])
+                    await userEvent.click(screen.getByText('Enable anyway'))
+                }
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(await toastShown(EDITED_ELSEWHERE)).toBe('warning-toast')
+                expect(patchBodies).toEqual([])
+                expect(logic.values.originalWorkflow?.status).toBe('archived')
+            })
+
+            it('keeps a workflow on the test sender disabled after "Cancel"', async () => {
+                useMocks(activeMocks(loadedWith('live')))
+                await mountEditor()
+                await enableFromEditor()
+
+                await userEvent.click(await screen.findByText('Cancel'))
+                await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(patchBodies).toEqual([])
+                expect(logic.values.originalWorkflow?.status).toBe('draft')
+            })
+
+            it.each([
+                // Enabling resumes the stored live config, so a staged test sender step goes live only on publish.
+                ['staging a test sender step only', 'staged', null],
+                ['moved off the test sender since the page loaded', 'live', 'own'],
+            ] as const)('enables a workflow %s (%s, server %s) without asking', async (_, layout, server) => {
+                const loaded = loadedWith(layout)
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                useMocks(serverMocks(serverCopy(loaded, server)))
+                await enableFromEditor()
+
+                expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+                // Without the warning, the server refuses the enable if the steps moved after this check.
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: false }])
+                expect(logic.values.externallyEdited).toBe(!!server)
+                expect(logic.values.originalWorkflow?.status).toBe(server ? 'draft' : 'active')
+            })
+
+            it("keeps a workflow disabled when the server's copy can't be read", async () => {
+                useMocks(activeMocks(loadedWith('none')))
+                await mountEditor()
+                useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [500, { detail: 'Server error' }] } })
+                showToasts()
+                await enableFromEditor()
+
+                expect(
+                    await toastShown("Couldn't check this workflow's email steps. Refresh the page and try again.")
+                ).toBe('error-toast')
+                expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+                expect(patchBodies).toEqual([])
+                expect(logic.values.originalWorkflow?.status).toBe('draft')
+            })
+
+            it('opens one dialog when Enable is clicked again while the check runs', async () => {
+                useMocks(activeMocks(loadedWith('live')))
+                await mountEditor()
+                // Calls through, so the dialog still renders. Each dialog renders on its own root outside
+                // act(), so counting the rendered copies can miss the second one.
+                const opened = jest.spyOn(LemonDialog, 'open')
+                await expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+
+                expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
+                expect(opened).toHaveBeenCalledTimes(1)
+                opened.mockRestore()
+            })
+
+            it('asks nothing when the editor closes while the enable check runs', async () => {
+                const loaded = loadedWith('live')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+
+                const enabling = expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+                await checking
+                logic.unmount()
+                release()
+                await enabling
+                await act(async () => {})
+
+                expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+                expect(patchBodies).toEqual([])
+            })
+
+            it('sends one write when Enable is clicked again while the first enable saves', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markWriting: () => void = () => {}
+                const writing = new Promise<void>((resolve) => {
+                    markWriting = resolve
+                })
+                useMocks({
+                    get: { '/api/projects/:team_id/hog_flows/:id/': loaded },
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                            const body = (await request.json()) as Record<string, any>
+                            patchBodies.push(body)
+                            markWriting()
+                            await held
+                            return [200, { ...loaded, ...body }]
+                        },
+                    },
+                })
+
+                showToasts()
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await writing
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: false }])
+                expect(logic.values.originalWorkflow?.status).toBe('active')
+                expect(screen.queryByText(EDITED_ELSEWHERE)).toBeNull()
+            })
+
+            it('keeps a rename typed while the enable check runs', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markChecking: () => void = () => {}
+                const checking = new Promise<void>((resolve) => {
+                    markChecking = resolve
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/hog_flows/:id/': async () => {
+                            markChecking()
+                            await held
+                            return [200, loaded]
+                        },
+                    },
+                })
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await checking
+                // The button shows the read as loading while it runs.
+                expect(logic.values.checkingSandboxSender).toBe(true)
+                logic.actions.setWorkflowValue(
+                    'actions',
+                    renameExit(logic.values.workflow.actions, 'Renamed during check')
+                )
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+                // The status write comes first; the kept rename saves after it.
+                expect(logic.values.checkingSandboxSender).toBe(false)
+                expect(patchBodies[0]).toMatchObject({ status: 'active' })
+                expect(logic.values.workflow.actions.find((action) => action.id === 'exit_node')?.name).toBe(
+                    'Renamed during check'
+                )
+            })
         })
 
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
@@ -850,11 +1296,11 @@ describe('workflowLogic auto-save', () => {
                 ...(draft ? { draft, draft_updated_at: '2026-05-01T00:01:00.000Z' } : {}),
             })
 
-        const mountLoaded = async (): Promise<void> => {
+        const mountLoaded = async (id = WORKFLOW_ID): Promise<void> => {
             initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic = workflowLogic({ id })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
         }
 
         it('blocks the trigger while only the draft carries the new trigger type', async () => {
@@ -877,39 +1323,96 @@ describe('workflowLogic auto-save', () => {
 
         it.each([
             {
+                case: 'a workflow edited by a viewer',
+                served: { user_access_level: AccessControlLevel.Viewer },
+                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(viewer\)/,
+            },
+            {
+                case: 'a workflow served without an access level to a project viewer',
+                served: { user_access_level: undefined },
+                projectAccess: AccessControlLevel.Viewer,
+                reason: /^You don't have sufficient permissions for this workflow\. Your access level \(viewer\)/,
+            },
+            { case: 'a disabled workflow', served: { status: 'draft' as const }, reason: /^Must enable workflow/ },
+            { case: 'unsaved edits', served: {}, edit: true, reason: /^Save changes first$/ },
+        ])('blocks the trigger for $case', async ({ served, projectAccess, edit, reason }) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                resource_access_control: { [AccessControlResourceType.Workflow]: projectAccess },
+            } as AppContext
+            try {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': { ...activeWorkflow(), ...served } } })
+                await mountLoaded()
+                if (edit) {
+                    logic.actions.setWorkflowValue('name', 'Unsaved edit')
+                }
+
+                expect(logic.values.manualTriggerDisabledReason).toMatch(reason)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+        })
+
+        it.each([
+            {
                 case: 'reports a run the API queued',
+                id: WORKFLOW_ID,
                 status: 200,
                 body: { status: 'queued', invocation_id: 'run-1' },
-                shown: 'Workflow triggered',
-                kind: 'success-toast',
+                toasts: { 'Triggering workflow...': 'info-toast', 'Workflow triggered': 'success-toast' },
                 absent: /^Error triggering workflow/,
+                runs: [{ variables: { plan: 'paid' } }],
             },
             {
                 case: 'reports a refused trigger instead of claiming the workflow ran',
+                id: WORKFLOW_ID,
                 status: 403,
                 body: { detail: 'No access' },
-                shown: 'Error triggering workflow: No access',
-                kind: 'error-toast',
+                toasts: {
+                    'Triggering workflow...': 'info-toast',
+                    'Error triggering workflow: No access': 'error-toast',
+                },
                 absent: /^Workflow triggered$/,
+                runs: [{ variables: { plan: 'paid' } }],
             },
-        ])('$case', async ({ status, body, shown, kind, absent }) => {
+            {
+                case: 'refuses to run a workflow that was never saved',
+                id: 'new',
+                status: 200,
+                body: {},
+                toasts: { 'You need to save the workflow before triggering it manually.': 'error-toast' },
+                absent: /^Triggering workflow/,
+                runs: [],
+            },
+        ])('$case', async ({ id, status, body, toasts, absent, runs }) => {
+            const posted: Record<string, any>[] = []
             useMocks({
                 get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
                 post: {
-                    '/api/projects/:team_id/hog_flows/:id/run/': ({ params }: MockResolverInfo) =>
-                        params.id === WORKFLOW_ID ? [status, body] : [404, { detail: 'Not found.' }],
+                    '/api/projects/:team_id/hog_flows/:id/run/': async ({ params, request }: MockResolverInfo) => {
+                        posted.push((await request.json()) as Record<string, any>)
+                        return params.id === WORKFLOW_ID ? [status, body] : [404, { detail: 'Not found.' }]
+                    },
                 },
             })
-            await mountLoaded()
+            await mountLoaded(id)
             showToasts()
 
             await expectLogic(logic, () => {
-                logic.actions.triggerManualWorkflow({})
+                logic.actions.triggerManualWorkflow({ plan: 'paid' })
             }).toFinishAllListeners()
 
-            expect(await toastShown('Triggering workflow...')).toBe('info-toast')
-            expect(await toastShown(shown)).toBe(kind)
+            for (const [shown, kind] of Object.entries(toasts)) {
+                expect(await toastShown(shown)).toBe(kind)
+            }
             expect(screen.queryByText(absent)).toBeNull()
+            expect(posted).toEqual(runs)
+            if (runs.length) {
+                await act(async () => fireEvent.click(await screen.findByText('View logs')))
+                expect(router.values.location.pathname).toBe(`/project/997${urls.workflow(WORKFLOW_ID, 'logs')}`)
+            }
+            cleanup()
         })
     })
 
@@ -978,31 +1481,375 @@ describe('workflowLogic auto-save', () => {
             })
 
             afterEach(() => {
+                cleanup()
+                // LemonDialog.open mounts its own root on the body, which cleanup() does not remove.
+                document.body.innerHTML = ''
                 jest.restoreAllMocks()
             })
 
-            it('publishes with the token its impact preview minted, then reloads the workflow', async () => {
-                useMocks(
-                    serverMocks({
-                        [PUBLISH_URL]: recordPublish((body) => [200, { ...preview, published: !!body.confirm }]),
-                    })
-                )
-                const successToast = jest.spyOn(lemonToast, 'success')
+            it('publishes with the token its impact preview minted, then shows the published workflow', async () => {
+                jest.mocked(LemonDialog.open).mockRestore()
+                let published = false
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => [
+                            200,
+                            published ? { ...staged, draft: null, draft_updated_at: null } : staged,
+                        ],
+                    },
+                    post: {
+                        [PUBLISH_URL]: recordPublish((body) => {
+                            // The server publishes only with the token its preview issued.
+                            if (body.confirm && body.confirm_token !== preview.confirm_token) {
+                                return [409, { detail: 'stale' }]
+                            }
+                            published = !!body.confirm
+                            return [200, { ...preview, published }]
+                        }),
+                    },
+                })
+                showToasts()
 
                 logic.actions.publishDraft()
-                expect(logic.values.draftActionPending).toBe('publish')
-                await expectLogic(logic).toFinishAllListeners()
-                expect(publishBodies).toEqual([{ confirm: false }])
-                expect(logic.values.draftActionPending).toBeNull()
-
-                clickConfirm('Publish staged changes?')
+                await userEvent.click(await screen.findByText('Publish'))
+                await waitFor(() => expect(screen.queryByText('Publish staged changes?')).toBeNull())
                 await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
-                expect(publishBodies).toEqual([{ confirm: false }, { confirm: true, confirm_token: 'preview-token' }])
-                expect(successToast).toHaveBeenCalledWith('Changes published')
-                expect(reloads).toBe(1)
-                expect(logic.values.draftActionPending).toBeNull()
+                expect(publishBodies).toEqual([
+                    { confirm: false },
+                    { confirm: true, confirm_token: 'preview-token', sandbox_sender_warned: false },
+                ])
+                expect(await toastShown('Changes published')).toBe('success-toast')
+                expect(logic.values.hasStagedDraft).toBe(false)
             })
+
+            // The server judges whether the publish moves steps onto the test sender; the dialog shows its answer
+            // and sends back what it showed, so the server can refuse a move it didn't warn about.
+            const stagedAddingSandbox = {
+                ...staged,
+                draft: { name: 'Autosave test', ...withSandboxEmail([VALID_TRIGGER, EXIT]) },
+            } as HogFlow
+            // The editor's copy shows the step live already, while the API may have moved the live step off it.
+            const stagedKeepingSandbox = {
+                ...stagedAddingSandbox,
+                ...withSandboxEmail([VALID_TRIGGER, EXIT]),
+            } as HogFlow
+            it.each([
+                ['the preview warns', true, staged, true],
+                ['the preview does not warn', false, staged, false],
+                // A worker from before the field existed answers without it while the deploy rolls out.
+                [
+                    'an older preview omits the field and the draft adds a test sender step',
+                    undefined,
+                    stagedAddingSandbox,
+                    true,
+                ],
+                [
+                    'an older preview omits the field and the draft keeps a test sender step',
+                    undefined,
+                    stagedKeepingSandbox,
+                    true,
+                ],
+                // Another tab can enable the workflow while the preview runs, and the editor's copy still says draft.
+                [
+                    'an older preview omits the field and the editor still shows the workflow disabled',
+                    undefined,
+                    { ...stagedAddingSandbox, status: 'draft' } as HogFlow,
+                    true,
+                ],
+                ['an older preview omits the field and the draft adds no test sender step', undefined, staged, false],
+            ] as const)(
+                'shows the test sender warning when %s, and confirms once with what it showed',
+                async (_, field, loaded, warns) => {
+                    jest.mocked(LemonDialog.open).mockRestore()
+                    useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': loaded } })
+                    initKeaTests()
+                    logic = workflowLogic({ id: WORKFLOW_ID })
+                    logic.mount()
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+                    useMocks(
+                        serverMocks({
+                            [PUBLISH_URL]: recordPublish((body) => [
+                                200,
+                                { ...preview, moves_to_sandbox_sender: field, published: !!body.confirm },
+                            ]),
+                        })
+                    )
+
+                    const captureSpy = jest.spyOn(posthog, 'capture')
+                    await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                    expect(await screen.findByText('Publish staged changes?')).toBeTruthy()
+                    expect(!!screen.queryByText(/These changes put email steps on the PostHog test sender/)).toBe(warns)
+
+                    // The dialog stays clickable while it animates closed, so a double click lands twice.
+                    await userEvent.dblClick(screen.getByText('Publish'))
+                    await waitFor(() => expect(screen.queryByText('Publish staged changes?')).toBeNull())
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+                    expect(publishBodies).toEqual([
+                        { confirm: false },
+                        { confirm: true, confirm_token: 'preview-token', sandbox_sender_warned: warns },
+                    ])
+                    const confirmed = captureSpy.mock.calls.filter(
+                        ([event]) => event === 'workflows sandbox sender enabled anyway'
+                    )
+                    expect(confirmed).toHaveLength(warns ? 1 : 0)
+                }
+            )
+
+            const NEWER_DRAFT = '2026-05-01T00:05:00.000Z'
+
+            // The token then covers the newer draft, while the editor still shows the one it loaded.
+            it.each([
+                ['minutes later', NEWER_DRAFT],
+                // The server stores microseconds, which a millisecond date compare reads as the same draft.
+                ['within the same millisecond', '2026-05-01T00:01:00.000400Z'],
+            ])('shows the newer draft instead of publishing when it was edited somewhere else %s', async (_, newer) => {
+                jest.mocked(LemonDialog.open).mockRestore()
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/hog_flows/:id/': {
+                            ...staged,
+                            draft: { ...staged.draft, name: 'Edited in another tab' },
+                            draft_updated_at: newer,
+                        },
+                    },
+                    post: {
+                        [PUBLISH_URL]: recordPublish(() => [200, { ...preview, draft_updated_at: newer }]),
+                    },
+                })
+                showToasts()
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toDispatchActions(['loadWorkflowSuccess'])
+
+                expect(
+                    await toastShown('The staged changes were edited somewhere else. Review them, then publish again.')
+                ).toBe('warning-toast')
+                expect(screen.queryByText('Publish staged changes?')).toBeNull()
+                expect(publishBodies).toEqual([{ confirm: false }])
+                expect(logic.values.workflow.name).toBe('Edited in another tab')
+            })
+
+            it.each([
+                // The conflict banner then asks which version to keep.
+                [
+                    'the draft moved',
+                    NEWER_DRAFT,
+                    'The staged changes were edited somewhere else. Review them, then publish again.',
+                    true,
+                ],
+                [
+                    'nothing else changed',
+                    staged.draft_updated_at,
+                    'Save your changes first, then publish again.',
+                    false,
+                ],
+            ])('keeps edits typed while publish loads when %s', async (_, serverDraft, message, conflictBanner) => {
+                jest.mocked(LemonDialog.open).mockRestore()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                useMocks({
+                    get: { '/api/projects/:team_id/hog_flows/:id/': { ...staged, draft_updated_at: serverDraft } },
+                    post: {
+                        [PUBLISH_URL]: recordPublish(async () => {
+                            await held
+                            return [200, { ...preview, draft_updated_at: serverDraft }]
+                        }),
+                    },
+                })
+                showToasts()
+
+                logic.actions.publishDraft()
+                logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                release()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(await toastShown(message)).toBe('warning-toast')
+                expect(screen.queryByText('Publish staged changes?')).toBeNull()
+                expect(logic.values.externallyEdited).toBe(conflictBanner)
+                expect(logic.values.workflow.name).toBe('Renamed while publishing')
+            })
+
+            // A conflict means the server's draft changed, so the edits wait behind the conflict banner. A
+            // validation error changed nothing, so they stay without it.
+            it.each([
+                ['a conflict', 409, 'Publishing failed. Review the staged changes and try again.', true],
+                ['a validation error', 400, 'Fix the email step first.', false],
+            ] as const)(
+                'keeps edits typed while a publish confirm runs that fails with %s',
+                async (_, status, message, conflictBanner) => {
+                    let release: () => void = () => {}
+                    const held = new Promise<void>((resolve) => {
+                        release = resolve
+                    })
+                    useMocks(
+                        serverMocks({
+                            [PUBLISH_URL]: recordPublish(async (body) => {
+                                if (!body.confirm) {
+                                    return [200, preview]
+                                }
+                                await held
+                                return [status, { detail: status === 400 ? message : 'stale' }]
+                            }),
+                        })
+                    )
+                    showToasts()
+                    jest.mocked(LemonDialog.open).mockRestore()
+
+                    await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                    await userEvent.click(await screen.findByText('Publish'))
+                    logic.actions.setWorkflowValues({ name: 'Renamed while publishing' })
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(await toastShown(message)).toBe('error-toast')
+                    expect(publishBodies).toMatchObject([{ confirm: false }, { confirm: true }])
+                    expect(logic.values.externallyEdited).toBe(conflictBanner)
+                    expect(logic.values.workflow.name).toBe('Renamed while publishing')
+                }
+            )
+
+            it('keeps edits typed while an invalid publish confirm ran when an edit from elsewhere arrives', async () => {
+                resourceEditedLogic.mount()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markConfirming: () => void = () => {}
+                const confirming = new Promise<void>((resolve) => {
+                    markConfirming = resolve
+                })
+                let served = staged
+                useMocks({
+                    ...serverMocks({
+                        [PUBLISH_URL]: recordPublish(async (body) => {
+                            if (!body.confirm) {
+                                return [200, preview]
+                            }
+                            markConfirming()
+                            await held
+                            return [400, { detail: 'Fix the email step first.' }]
+                        }),
+                    }),
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => {
+                            reloads += 1
+                            return [200, served]
+                        },
+                    },
+                })
+                jest.mocked(LemonDialog.open).mockRestore()
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+                await userEvent.click(await screen.findByText('Publish'))
+                await confirming
+                // An unsaved edit keeps the refused confirm from reloading, so only the replay can load the copy.
+                logic.actions.setWorkflowValues({ description: 'Edited while publishing' })
+                served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
+                resourceEditedLogic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'HogFlow',
+                    resource_id: WORKFLOW_ID,
+                    updated_at: '2027-01-01T00:00:00.000Z',
+                    actor_user_id: 2,
+                })
+                const reloadsBefore = reloads
+                release()
+                await expectLogic(logic).toFinishAllListeners()
+
+                // The edit from elsewhere waits for the save of the typed edits, so it can't drop them.
+                expect({
+                    reloads: reloads - reloadsBefore,
+                    description: logic.values.workflow.description,
+                    banner: logic.values.externallyEdited,
+                }).toEqual({ reloads: 0, description: 'Edited while publishing', banner: false })
+            })
+
+            it.each([
+                [
+                    'applies',
+                    null,
+                    false,
+                    { reloads: 1, name: 'Renamed elsewhere', description: undefined, dialogs: [] },
+                ],
+                [
+                    'waits with typed edits for',
+                    'Edited while previewing',
+                    false,
+                    { reloads: 0, name: 'Autosave test', description: 'Edited while previewing', dialogs: [] },
+                ],
+                [
+                    'applies, once typed edits are discarded,',
+                    'Edited while previewing',
+                    true,
+                    {
+                        reloads: 1,
+                        name: 'Renamed elsewhere',
+                        description: undefined,
+                        dialogs: ['Discard changes'],
+                    },
+                ],
+            ])(
+                '%s an edit from elsewhere that arrived while a failed publish preview ran',
+                async (_, typed, discard, expected) => {
+                    resourceEditedLogic.mount()
+                    let release: () => void = () => {}
+                    const held = new Promise<void>((resolve) => {
+                        release = resolve
+                    })
+                    let markPreviewing: () => void = () => {}
+                    const previewing = new Promise<void>((resolve) => {
+                        markPreviewing = resolve
+                    })
+                    let served = staged
+                    useMocks({
+                        ...serverMocks({
+                            [PUBLISH_URL]: recordPublish(async () => {
+                                markPreviewing()
+                                await held
+                                return [500, { detail: 'boom' }]
+                            }),
+                        }),
+                        get: {
+                            '/api/environments/:team_id/hog_flows/:id/': () => {
+                                reloads += 1
+                                return [200, served]
+                            },
+                        },
+                    })
+
+                    logic.actions.publishDraft()
+                    await previewing
+                    if (typed) {
+                        logic.actions.setWorkflowValues({ description: typed })
+                    }
+                    served = { ...staged, draft: { ...staged.draft!, name: 'Renamed elsewhere' } }
+                    resourceEditedLogic.actions.resourceEdited({
+                        notification_type: 'resource_edited',
+                        team_id: 1,
+                        resource_type: 'HogFlow',
+                        resource_id: WORKFLOW_ID,
+                        updated_at: '2027-01-01T00:00:00.000Z',
+                        actor_user_id: 2,
+                    })
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
+                    if (discard) {
+                        logic.actions.discardChanges()
+                        clickConfirm('Discard changes')
+                        await expectLogic(logic).toFinishAllListeners()
+                    }
+
+                    expect({
+                        reloads,
+                        name: logic.values.workflow.name,
+                        description: logic.values.workflow.description,
+                        dialogs: dialogs.map((dialog) => dialog.title),
+                    }).toEqual(expected)
+                }
+            )
 
             it('shows no publish dialog and frees the buttons when the preview fails', async () => {
                 useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
@@ -1017,18 +1864,31 @@ describe('workflowLogic auto-save', () => {
                 expect(logic.values.discardDisabledReason).toBeUndefined()
             })
 
-            it('reloads to show the current draft when the confirmed publish is refused', async () => {
+            it.each([
                 // A refused confirm is usually a stale token: the draft moved after the preview.
-                useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [409, { detail: 'stale' }]) }))
-                const errorToast = jest.spyOn(lemonToast, 'error')
+                ['a stale token', 409, 'stale', 'Publishing failed. Review the staged changes and try again.'],
+                [
+                    'an invalid draft',
+                    400,
+                    "Can't publish these changes. Step 'Send': This field is required.",
+                    "Can't publish these changes. Step 'Send': This field is required.",
+                ],
+            ])(
+                'reloads to show the current draft when the confirmed publish is refused for %s',
+                async (_, status, detail, toast) => {
+                    useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [status, { detail }]) }))
+                    const errorToast = jest.spyOn(lemonToast, 'error')
 
-                logic.actions.confirmPublishDraft('old-token')
-                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+                    logic.actions.confirmPublishDraft('old-token', false)
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
-                expect(errorToast).toHaveBeenCalledWith('Publishing failed. Review the staged changes and try again.')
-                expect(reloads).toBe(1)
-                expect(logic.values.draftActionPending).toBeNull()
-            })
+                    expect(errorToast).toHaveBeenCalledWith(toast, {
+                        capturedMessage: 'Publishing failed. Review the staged changes and try again.',
+                    })
+                    expect(reloads).toBe(1)
+                    expect(logic.values.draftActionPending).toBeNull()
+                }
+            )
 
             it('sends one publish and starts no other draft action while a publish is in flight', async () => {
                 let release: () => void = () => {}
@@ -1044,8 +1904,8 @@ describe('workflowLogic auto-save', () => {
                     })
                 )
 
-                logic.actions.confirmPublishDraft('preview-token')
-                logic.actions.confirmPublishDraft('preview-token')
+                logic.actions.confirmPublishDraft('preview-token', false)
+                logic.actions.confirmPublishDraft('preview-token', false)
                 expect(logic.values.draftActionPending).toBe('publish')
                 expect(logic.values.discardDisabledReason).toBe('Publishing is in progress')
                 logic.actions.publishDraft()
@@ -1055,7 +1915,9 @@ describe('workflowLogic auto-save', () => {
                 release()
                 await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
-                expect(publishBodies).toEqual([{ confirm: true, confirm_token: 'preview-token' }])
+                expect(publishBodies).toEqual([
+                    { confirm: true, confirm_token: 'preview-token', sandbox_sender_warned: false },
+                ])
             })
 
             it.each([
@@ -1155,6 +2017,111 @@ describe('workflowLogic auto-save', () => {
 
             expect(logic.values.publishDisabledReason).toBeUndefined()
             expect(logic.values.discardDisabledReason).toBeUndefined()
+        })
+
+        describe('a refused publish', () => {
+            let publishRequests: number
+            let draftActions: HogFlow['actions']
+
+            beforeEach(() => {
+                publishRequests = 0
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/hog_flows/:id/': () => [
+                            200,
+                            { ...staged, draft: { ...staged.draft, actions: draftActions } },
+                        ],
+                    },
+                    post: {
+                        '/api/environments/:team_id/hog_flows/:id/publish/': () => {
+                            publishRequests += 1
+                            return [200, { published: false, confirm_token: 'preview-token', impact: null }]
+                        },
+                    },
+                })
+            })
+
+            const loadStaged = async (actions: HogFlow['actions']): Promise<void> => {
+                draftActions = actions
+                logic.actions.loadWorkflow()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+                showToasts()
+            }
+
+            it('names the staged steps with errors and reveals their field messages', async () => {
+                const emailWithoutSubject = {
+                    id: 'email_node',
+                    type: 'function_email',
+                    name: 'Send email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: {
+                        template_id: 'template-email',
+                        inputs: {
+                            email: {
+                                value: {
+                                    to: { email: 'recipient@example.com' },
+                                    from: { integrationId: 1, email: 'sender@example.com' },
+                                    subject: '',
+                                    html: '<p>Hello</p>',
+                                },
+                                templating: 'liquid',
+                            },
+                        },
+                    },
+                } as HogFlow['actions'][number]
+                await loadStaged([VALID_TRIGGER, emailWithoutSubject, EXIT])
+                expect(logic.values.actionValidationErrorsById['email_node']?.emailErrors).toBeUndefined()
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                expect(publishRequests).toBe(0)
+                expect(await toastShown('Fix these steps before publishing: Send email')).toBe('error-toast')
+                expect(logic.values.actionValidationErrorsById['email_node']?.emailErrors).toMatchObject({
+                    subject: 'Add a subject line',
+                })
+                cleanup()
+            })
+
+            it('waits for unsaved edits, so the check describes the draft that would go live', async () => {
+                await loadStaged([VALID_TRIGGER, EXIT])
+                logic.actions.setWorkflowValue('name', 'Still typing')
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                expect(publishRequests).toBe(0)
+                expect(await toastShown('Save your changes first')).toBe('warning-toast')
+                cleanup()
+            })
+        })
+
+        it('keeps the plain save toast when disabling sends the stored copy, not the broken form', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        ...staged,
+                        draft: { ...staged.draft, actions: [VALID_TRIGGER, EXIT] },
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => [
+                        200,
+                        makeWorkflow({ status: 'draft', draft: null, draft_updated_at: null }),
+                    ],
+                },
+            })
+            logic.actions.loadWorkflow()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            showToasts()
+            logic.actions.setWorkflowValues({ actions: [TRIGGER, EXIT] })
+
+            await expectLogic(logic, () => logic.actions.saveWorkflowPartial({ status: 'draft' }))
+                .toDispatchActions(['saveWorkflowSuccess'])
+                .toFinishAllListeners()
+
+            expect(await toastShown('Workflow saved')).toBe('success-toast')
+            cleanup()
         })
 
         it('still stages content when a queued save undoes the edit the previous save wrote', async () => {

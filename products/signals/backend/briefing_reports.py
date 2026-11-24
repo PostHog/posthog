@@ -19,7 +19,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalReport, SignalReportAssignment
 from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
-from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_claims import reports_claimed_for_user, reports_with_active_claim
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
@@ -117,6 +117,14 @@ def _relation_to_person(team_id: int, user: User) -> Case:
         When(names_me & Q(status=SignalReport.Status.READY), then=Value(BriefingReportRelation.SUGGESTED_REVIEWER)),
     ]
     return Case(*branches, default=Value(None), output_field=CharField())
+
+
+def reports_needing_person(team_id: int, user: User) -> Q:
+    """Reports waiting on this person's input or claimed by them: the personal ranking's `needs you` facts
+    other than suggested reviewer, for the list's `needs_you` filter."""
+    return (_names_person(team_id, user) & Q(status=SignalReport.Status.PENDING_INPUT)) | reports_claimed_for_user(
+        team_id=team_id, user_id=user.id
+    )
 
 
 def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:

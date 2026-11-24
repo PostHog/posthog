@@ -27,6 +27,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,6 +275,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
 dependencies = [
  "objc2",
+]
+
+[[package]]
+name = "brotli"
+version = "9.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9071f285ed78f04f37d675abaaef5de7689e2f30a216c8dc6795465d81910a13"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc031cd87c6529082b0b65c604e86af0ed7744841b17ccfe60b1e31fa606179e"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -2096,8 +2132,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "posthog"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a038e44eec8208eb593caa557588f9deed995a602ab0529b8a24f03fbe0f301"
+dependencies = [
+ "backtrace",
+ "brotli",
+ "bytes",
+ "chrono",
+ "derive_builder",
+ "findshlibs",
+ "flate2",
+ "os_info",
+ "regex",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tracing",
+ "uuid",
+ "zstd 0.14.4",
+]
+
+[[package]]
 name = "posthog-cli"
-version = "0.19.3"
+version = "0.20.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2113,7 +2174,7 @@ dependencies = [
  "miette",
  "open",
  "plist",
- "posthog-rs",
+ "posthog",
  "posthog-symbol-data",
  "proguard",
  "ratatui",
@@ -2138,29 +2199,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip 2.4.2",
- "zstd",
-]
-
-[[package]]
-name = "posthog-rs"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b1f11e52e4f7f78fff94c1f68d1cec3d762911dc3ed27d7862e242435a792cf"
-dependencies = [
- "backtrace",
- "chrono",
- "derive_builder",
- "findshlibs",
- "flate2",
- "os_info",
- "regex",
- "reqwest 0.13.4",
- "semver",
- "serde",
- "serde_json",
- "sha1",
- "tracing",
- "uuid",
+ "zstd 0.13.5",
 ]
 
 [[package]]
@@ -2171,7 +2210,7 @@ checksum = "b26f92cc8a5b55b540bd4e8f18d579da035a2541b6e9dd876db905264d4ee1fd"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
- "zstd",
+ "zstd 0.13.5",
 ]
 
 [[package]]
@@ -3109,7 +3148,7 @@ dependencies = [
  "thiserror 2.0.17",
  "wasmparser",
  "zip 7.2.0",
- "zstd",
+ "zstd 0.13.5",
 ]
 
 [[package]]
@@ -4245,27 +4284,45 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.13.3"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+checksum = "50adf04cf3ec914b0b9905c9dde90c80fe74bfd701e331fc80a39c512c525278"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 7.4.1",
+]
+
+[[package]]
+name = "zstd"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5020ab8f27bfc0024ad0a07aed6bf022a16208f479686fbed4fdd0c85eb0b3"
+dependencies = [
+ "zstd-safe 8.3.0",
 ]
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "7.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "498d94ad68720c89b4fbe41b9090850651e68cb2dd9210ce7ffbff3a94653819"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "8.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a9ea9cc2576c2fcc104e9cec04f46e3ede564f4fbc206831e4ef7e859a4140d"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+version = "2.1.3+zstd.1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "f729a06d0257428fd9d997ac8db7e1407bd0262ab016b085b36bc52957c0052d"
 dependencies = [
  "cc",
  "pkg-config",

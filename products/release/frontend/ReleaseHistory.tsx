@@ -84,7 +84,7 @@ export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
     return (
         <Card data-attr="release-timeline-card">
             <CardHeader>
-                <CardTitle>Timeline</CardTitle>
+                <CardTitle>Activity</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">

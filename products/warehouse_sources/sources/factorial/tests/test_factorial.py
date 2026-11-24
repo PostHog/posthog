@@ -78,6 +78,11 @@ class TestEndpointParams:
                 "/api/2026-07-01/resources/finance/cost_center_memberships",
                 {"only_active": "false"},
             ),
+            (
+                "shift_management_shifts",
+                "/api/2026-07-01/resources/shift_management/shifts",
+                {"split_overnight_shifts": "false", "only_published": "false"},
+            ),
         ],
     )
     def test_static_params_sent_on_every_page(

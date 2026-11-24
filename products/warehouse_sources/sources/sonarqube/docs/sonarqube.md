@@ -16,13 +16,13 @@ import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
-Sync code-quality data from your self-hosted [SonarQube Server](https://www.sonarsource.com/products/sonarqube/) into the PostHog data warehouse — projects, their analyses, branches, and pull requests, metric definitions and values, metric history, quality gates and their status per project, coding rules, issues and their change history, security hotspots, and users — so you can trend technical debt, reliability, coverage, and issue counts across your projects over time.
+Sync code-quality data from your self-hosted [SonarQube Server](https://www.sonarsource.com/products/sonarqube/) into the PostHog data warehouse — projects, their analyses, branches, and pull requests, metric definitions and values, metric history, quality gates and their status per project, quality profiles and the profile each project uses, coding rules, languages, directories and files, issues and their change history, security hotspots, and users and user groups — so you can trend technical debt, reliability, coverage, and issue counts across your projects over time.
 
 ## Prerequisites
 
 - A running SonarQube Server instance reachable from the public internet. For SonarQube Cloud (`sonarcloud.io` or `sonarqube.us`), use the Sonar Cloud source instead.
 - A user token generated in SonarQube. The token inherits the permissions of the user who created it, so it can read the projects, issues, and rules that user can see.
-- To sync the **users** table, the token's user needs the _Administer System_ permission. All other tables only need normal browse access.
+- To sync the **users**, **user groups**, and **user group members** tables, the token's user needs the _Administer System_ permission. All other tables only need normal browse access.
 
 ## Adding a data source
 
@@ -41,6 +41,10 @@ You'll need:
 
 **Component measures** holds one row per metric for every project, directory, and file, so it can grow large on big codebases. It is off by default; turn it on when you need file-level values. For project-level trends, use **measures history**.
 
+**Components** holds one row for every directory and file of each project's main branch, so it is off by default.
+
+**Project quality profiles** holds the quality profile that each project uses for each language. This includes the default profile when no profile is set on the project.
+
 **Issue changelog** needs one request per issue, because SonarQube returns the history of one issue at a time. On an instance with many issues, a sync takes a long time. It is off by default.
 
 **Project pull requests** only have data on Developer Edition and above. Community Build does not analyze pull requests, so this table stays empty there.
@@ -58,7 +62,7 @@ You'll need:
 ## Troubleshooting
 
 - **Setup rejects a SonarQube Cloud URL.** This source reads SonarQube Server. Cloud needs an organization key on every request, so connect it with the Sonar Cloud source instead.
-- **The users table fails to sync.** `/api/users/search` requires the _Administer System_ permission. Either grant it to the token's user or leave the users table unselected — it's off by default.
+- **The users or user group tables fail to sync.** `/api/users/search` and the `/api/user_groups` endpoints require the _Administer System_ permission. Either grant it to the token's user or leave these tables unselected — they're off by default.
 - **Fewer issues than expected on a large project.** SonarQube caps issue search at 10,000 results per query window. PostHog automatically pages past this by re-windowing on the issue creation date, so all issues are synced; if you still see gaps, check that the token can browse the affected projects.
 
 <TroubleshootingLink />

@@ -84,42 +84,19 @@ class TestEnrichmentWriter(BaseTest):
             properties={"enrichment_company_type": "STARTUP", "enrichment_founded_year": 2019},
         )
 
-    def test_legacy_clay_score_still_writes_its_own_keys(self):
-        # The clay score keeps its exact master behavior: same keys, same version stamp,
-        # same person mirror — its threshold-tuned consumers must not notice this PR.
+    def test_fit_writes_its_own_key_family(self):
         pha_client = MagicMock()
         write_organization_enrichment(
             organization_id=str(self.organization.id),
             fields=EnrichmentFields(company_type="STARTUP"),
             pha_client=pha_client,
-            icp_score=12,
-            mirror_distinct_id="signer",
-        )
-
-        record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_score"] == 12
-        assert record.data["icp_score_version"] == "clay-parity-2"
-        properties = pha_client.group_identify.call_args.kwargs["properties"]
-        assert properties["icp_score"] == 12
-        pha_client.set.assert_called_once_with(
-            distinct_id="signer", properties={"icp_score": 12, "icp_score_version": "clay-parity-2"}
-        )
-
-    def test_fit_writes_its_own_key_family_next_to_the_clay_score(self):
-        pha_client = MagicMock()
-        write_organization_enrichment(
-            organization_id=str(self.organization.id),
-            fields=EnrichmentFields(company_type="STARTUP"),
-            pha_client=pha_client,
-            icp_score=9,
             fit=_fit(),
             fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
             fit_evaluated_at=dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC),
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        # The two families never share a key.
-        assert record.data["icp_score"] == 9
+        assert "icp_score" not in record.data
         assert record.data["icp_fit_score"] == 72
         assert record.data["icp_fit_version"] == "v0.7"
         assert record.data["icp_fit_status"] == "scored"
@@ -137,7 +114,7 @@ class TestEnrichmentWriter(BaseTest):
             "nonprofit_flag": False,
         }
         properties = pha_client.group_identify.call_args.kwargs["properties"]
-        assert properties["icp_score"] == 9
+        assert "icp_score" not in properties
         assert properties["icp_fit_score"] == 72
         assert properties["icp_fit_version"] == "v0.7"
         assert properties["icp_fit_status"] == "scored"
@@ -194,8 +171,8 @@ class TestEnrichmentWriter(BaseTest):
         assert record.data["icp_fit_input_versions"] == {}
         assert record.data["icp_fit_input_hash"] == "second-input-hash"
 
-    def test_fit_only_write_carries_no_field_or_clay_keys(self):
-        # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
+    def test_fit_only_write_carries_no_field_keys(self):
+        # The fit backfill passes fields=None: only icp_fit_* keys move.
         pha_client = MagicMock()
         write_organization_enrichment(
             organization_id=str(self.organization.id),
@@ -223,7 +200,7 @@ class TestEnrichmentWriter(BaseTest):
                 "icp_fit_input_versions": {"enrichment/business_model": "previous-result"},
                 "icp_fit_input_hash": "previous-input-hash",
                 "icp_fit_projected_input_hash": "previous-input-hash",
-                "icp_score": 6,  # clay key must survive fit stripping
+                "icp_score": 6,  # a legacy key on an existing record must survive fit stripping
                 "work_email": True,
             },
         )

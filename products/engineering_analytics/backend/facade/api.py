@@ -48,6 +48,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequest,
     QuarantineRequestResult,
     RepoOverview,
+    RevertOutcomes,
     RunFailureLogs,
     TeamCIActivity,
     TeamCIHealthList,
@@ -745,6 +746,22 @@ def get_repo_overview(
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
+    )
+
+
+def get_revert_outcomes(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> RevertOutcomes:
+    return logic.build_revert_outcomes(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

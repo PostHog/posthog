@@ -67,7 +67,7 @@ class EventsRetentionTool(ConsoleTool):
     key = "events-retention"
     title = "Events retention"
     owner = CLICKHOUSE
-    group = "Data"
+    group = "Data deletion"
     description = "Deletion retention per team, and the month the monthly cleanup deletes up to."
 
     def page(self, request: HttpRequest) -> Page:

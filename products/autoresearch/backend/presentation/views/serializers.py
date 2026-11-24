@@ -4,7 +4,7 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.fields import empty
 from rest_framework.request import Request
@@ -42,6 +42,7 @@ POPULATION_KINDS = api.POPULATION_KINDS
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
 TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
 VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+VALIDATION_ERROR_CODE_CHOICES = api.VALIDATION_ERROR_CODE_CHOICES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
@@ -533,6 +534,24 @@ class TrainingTrendPointSerializer(DataclassSerializer):
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Parent Task ID of the run's sandbox. Null for a run that an external agent opened.",
+    )
+    task_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Task run ID of the run's sandbox, which holds its log, cost and failure reason. "
+            "Null for a run that an external agent opened."
+        ),
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the run's Task detail page. Null for a run that an external agent opened.",
+    )
     iteration_budget = serializers.IntegerField(read_only=True, help_text="Maximum experiments allowed for this run.")
     experiment_count = serializers.IntegerField(
         read_only=True, help_text="Experiments the agent has recorded so far in this run."
@@ -561,6 +580,9 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         dataclass = LiveTrainingRun
         fields = [
             "id",
+            "task_id",
+            "task_run_id",
+            "task_url",
             "iteration_budget",
             "experiment_count",
             "best_holdout_score",
@@ -2025,6 +2047,17 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
     )
+    error_code = serializers.ChoiceField(
+        choices=VALIDATION_ERROR_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. 'invalid_definition': a query error in the "
+            "definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this "
+            "project's data, so a retry fails the same way; narrow the population, for example to people who "
+            "performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth "
+            "a retry."
+        ),
+    )
 
 
 class StartTrainingRequestSerializer(serializers.Serializer):
@@ -2049,6 +2082,30 @@ class TrainingRunCapReachedSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the next training run can start. Null when training runs are turned off for the project.",
     )
+
+
+class TrainingBudgetReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    code = serializers.CharField(
+        help_text="Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code."
+    )
+    spent_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, across all its pipelines. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    limit_usd = serializers.IntegerField(
+        help_text="The project's monthly training budget, in whole US dollars. 0 means training is turned off."
+    )
+    resets_at = serializers.DateTimeField(help_text="When the budget resets: the start of the next UTC calendar month.")
+
+
+START_TRAINING_REFUSED_SERIALIZER = PolymorphicProxySerializer(
+    component_name="StartTrainingRefused",
+    serializers=[TrainingRunCapReachedSerializer, TrainingBudgetReachedSerializer],
+    resource_type_field_name=None,
+)
 
 
 def _limit_source_field(limit: str) -> serializers.ChoiceField:
@@ -2088,9 +2145,25 @@ class ProjectLimitsSerializer(DataclassSerializer):
     live_pipelines = serializers.IntegerField(
         help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
+    max_training_spend_usd_per_month = serializers.IntegerField(
+        help_text=(
+            "The project's monthly training budget, in whole US dollars. A training run is refused once "
+            "training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off."
+        )
+    )
+    training_spend_usd = serializers.FloatField(
+        help_text=(
+            "Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar "
+            "month, a run in progress included. A run whose cost is not recorded yet counts as 0."
+        )
+    )
+    training_spend_resets_at = serializers.DateTimeField(
+        help_text="When training_spend_usd resets to 0: the start of the next UTC calendar month."
+    )
     max_training_runs_per_day_source = _limit_source_field("max_training_runs_per_day")
     max_iterations_per_run_source = _limit_source_field("max_iterations_per_run")
     max_live_pipelines_source = _limit_source_field("max_live_pipelines")
+    max_training_spend_usd_per_month_source = _limit_source_field("max_training_spend_usd_per_month")
 
     class Meta:
         dataclass = ProjectLimits
@@ -2101,9 +2174,13 @@ class ProjectLimitsSerializer(DataclassSerializer):
             "max_iterations_per_run",
             "max_live_pipelines",
             "live_pipelines",
+            "max_training_spend_usd_per_month",
+            "training_spend_usd",
+            "training_spend_resets_at",
             "max_training_runs_per_day_source",
             "max_iterations_per_run_source",
             "max_live_pipelines_source",
+            "max_training_spend_usd_per_month_source",
         ]
 
 

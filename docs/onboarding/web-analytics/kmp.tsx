@@ -16,25 +16,10 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        Screen views are off by default. Set `captureScreenViews = true` to capture them automatically –
-                        screen views on Android and iOS, pageviews on the web:
+                        Screen views are captured automatically – screen views on Android and iOS, pageviews on the web
+                        (not on JVM or macOS). A Compose Multiplatform app usually has one activity or view controller,
+                        so capture each Compose screen yourself from shared code:
                     </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'kotlin',
-                                file: 'Kotlin',
-                                code: dedent`
-                                    PostHogConfig(
-                                        projectToken = "<ph_project_token>",
-                                        host = "<ph_client_api_host>",
-                                        captureScreenViews = true,
-                                    )
-                                `,
-                            },
-                        ]}
-                    />
-                    <Markdown>You can also capture a screen view yourself from shared code:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -53,6 +38,10 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
+                    <Markdown>
+                        To send only the screen views you capture yourself, set `captureScreenViews = false` in your
+                        `PostHogConfig`.
+                    </Markdown>
                 </>
             ),
         },

@@ -81,7 +81,7 @@ ORDER BY status, hours_since_sync DESC
 `system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
 
 - `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`, `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the whole project, and never use `external-data-sources-list` for the schema sweep — each source there embeds all its schemas, so the response is many MB on a large project.**
-- `external-data-sources-retrieve {source_id}` — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
+- `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
 
 If `Failed` schemas span _many_ sources in the same window, suspect a platform/warehouse incident — one finding naming the shared cause.
 
@@ -121,7 +121,7 @@ The active-failure view does not flag this — it's where you earn your keep. Th
 
 #### Broken webhook behind a green status
 
-For `sync_type: webhook` schemas, the bulk-sync safety net can keep the status `Completed` while the push channel is silently dead, so real-time data lands hours late. Check the source with `external-data-sources-webhook-info-retrieve {source_id}`: `exists: false` (never registered or deleted), `external_status.error` set (remote revoked/deleted it), or `external_status.status` ≠ `enabled` (remote disabled it after delivery failures) each mean the push path is down. This never shows on `external-data-schemas-list`.
+For `sync_type: webhook` schemas, the bulk-sync safety net can keep the status `Completed` while the push channel is silently dead, so real-time data lands hours late. Check the source with `external-data-sources-webhook-info-retrieve {id}`: `exists: false` (never registered or deleted), `external_status.error` set (remote revoked/deleted it), or `external_status.status` ≠ `enabled` (remote disabled it after delivery failures) each mean the push path is down. This never shows on `external-data-schemas-list`.
 
 #### Row-volume cliff
 
@@ -204,7 +204,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `pattern:data_warehouse:watchlist` — _"High-value imports: source `Stripe` (Postgres CDC, 12 armed schemas), schema `public.orders` (1hour, ~2M rows, the revenue join), webhook schema `stripe.charges`. Check these first."_
 - key `pattern:data_warehouse:orders-freshness` — _"`public.orders` syncs hourly, baseline freshness < 90 min, ~2M rows. Only a multi-hour staleness or a Failed status matters."_
 - key `noise:data_warehouse:onboarding-mirror-sources` — _"Sources labelled `onboarding-*`, `posthog-<customer>`, `inc-*` are throwaway demo/incident mirrors that fail by design — never findings; confirm by label and skip."_
-- key `dedupe:data_warehouse:stripe-cdc-slot` — _"Filed CDC replication-slot invalidation on source `Stripe` 2026-06-30 (12 schemas dead, slot exceeded max reserved size). Skip unless the error class changes or it recovers then breaks again."_ One stable key per issue — update it in place, don't mint a dated variant.
+- key `dedupe:data_warehouse:stripe-cdc-slot` — _"Filed CDC replication-slot invalidation on source `Stripe` 2026-06-30 (12 schemas dead, slot exceeded max reserved size). Skip unless the error class changes or it recovers then breaks again."_ One stable key per issue — update it in place, don't mint a dated variant. Set `expires_at` about two weeks past the last failing read: a source healthy that long that breaks again is a new incident.
 - key `addressed:data_warehouse:hubspot-billing-limit` — _"Team aware: Hubspot schemas capped at the row quota on purpose. Don't re-file BillingLimitReached."_
 - key `report:data_warehouse:stripe` — _"Report `019f0a96-…` covers the `Stripe` source-level Error cascade. Edit it (`append_evidence` with the fresh numbers / blast radius) while it persists and the report is still live; if it was resolved and the source later re-breaks, that's a fresh report."_
 - key `reviewer:data_warehouse:stripe` — _"`Stripe` source owned by `alice` (GitHub login) — route its reports there."_
@@ -269,7 +269,7 @@ The sweep is SQL over the metadata system tables; REST is per-candidate drill-do
 REST (per-candidate detail the system tables don't carry):
 
 - `external-data-schemas-list` (`search=<name>`) — one schema's `sync_frequency`, `incremental_field`, full `latest_error`. **Never page it unfiltered; never use `external-data-sources-list` for the schema sweep (embeds all schemas, many MB).**
-- `external-data-sources-retrieve {source_id}` — the source's connection-level `status` (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
+- `external-data-sources-retrieve {id}` — the source's connection-level `status` (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
 - `external-data-schemas-retrieve` — one schema's columns / `sync_type_config` when the sweep's `latest_error` is null but the schema is `Failed`.
 - `external-data-sources-webhook-info-retrieve` — per-source webhook registration + remote status for `sync_type: webhook` schemas; the only place push-channel health shows.
 - `view-list` / `view-run-history` — materialized-view `latest_error` and the run trail when a `system.data_modeling_views` row is `Failed`.
