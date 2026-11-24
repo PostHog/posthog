@@ -1,5 +1,7 @@
 ---
 name: grouping-noisy-errors
+metadata:
+  audience: customer
 description: >
   Consolidate PostHog error tracking issues that are the same actual
   error reported under different fingerprints. Use when the user asks

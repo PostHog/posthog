@@ -1,5 +1,7 @@
 ---
 name: investigate-metric
+metadata:
+  audience: customer
 description: >
   Diagnose why a product metric changed (dropped, spiked, or plateaued) by
   orchestrating breakdowns, actors, paths, lifecycle, retention, and annotations

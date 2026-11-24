@@ -15,7 +15,7 @@ compatibility: >
   Deliberately on neither output channel -
   see "Why this scout files no reports".
 metadata:
-  audience: internal
+  audience: scout
   owner_team: workflows
   scope: workflows
 ---

@@ -1,5 +1,7 @@
 ---
 name: managing-self-driving-spend
+metadata:
+  audience: customer
 description: >
   Explains and controls what Self-driving (Inbox) costs. Use when the user asks what they spent on
   Self-driving, which signal sources or scouts drive that spend, how spend changes day to day,

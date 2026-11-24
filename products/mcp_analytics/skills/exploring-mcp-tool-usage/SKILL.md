@@ -1,5 +1,7 @@
 ---
 name: exploring-mcp-tool-usage
+metadata:
+  audience: customer
 description: >
   Starting point for exploring how a PostHog MCP server's tools are used —
   routes a broad question to the typed tool that answers it. Use when the user

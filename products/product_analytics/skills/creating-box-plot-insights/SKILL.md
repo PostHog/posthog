@@ -1,5 +1,7 @@
 ---
 name: creating-box-plot-insights
+metadata:
+  audience: customer
 description: >-
   Creates product analytics or SQL-backed box plot insights in PostHog. Use when a user asks to create, build, or save a box plot, visualize a numeric distribution, compare quartiles or medians across dates or groups, or turn SQL results into a box plot. Chooses between a standard Trends box plot and a SQL insight, validates the distribution data, saves the insight, and verifies it.
 ---

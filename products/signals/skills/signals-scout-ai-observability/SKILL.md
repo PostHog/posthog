@@ -17,7 +17,7 @@ allowed_tools:
 scout-tags:
   - ai-observability
 metadata:
-  audience: internal
+  audience: scout
   owner_team: signals
   scope: llm_analytics
 scout-precheck-query: |

@@ -1,5 +1,7 @@
 ---
 name: creating-experiments
+metadata:
+  audience: customer
 description: "Guides agents through experiment creation: reading the project's setup with experiment-setup-context, defining the hypothesis, configuring rollout and bucketing, setting up analytics and running time, and reporting which choices are guesses. Delegates rollout decisions to configuring-experiment-rollout and metric setup to configuring-experiment-analytics.\nTRIGGER when: user asks to create a new experiment or A/B test, OR when you are about to call experiment-create.\nDO NOT TRIGGER when: user is updating an existing experiment, managing lifecycle, or only browsing experiments."
 ---
 

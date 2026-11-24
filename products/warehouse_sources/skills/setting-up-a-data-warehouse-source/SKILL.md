@@ -1,5 +1,7 @@
 ---
 name: setting-up-a-data-warehouse-source
+metadata:
+  audience: customer
 description: >
   Guide the user through connecting a new data warehouse source, including databases, SaaS tools, and bucket files.
   Use when the user wants to "connect Stripe", "import data from Postgres", "import files from a bucket",

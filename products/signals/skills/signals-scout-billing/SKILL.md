@@ -20,7 +20,7 @@ compatibility: >
   project has it. A missing tool is a close-out. A denial is not: the scout reports
   the access gap once and falls back to this project's event volume.
 metadata:
-  audience: internal
+  audience: scout
   owner_team: billing
   scope: billing
 scout-precheck-query: |

@@ -13,6 +13,7 @@ description: >
   "how is my <x> scout performing", "show me recent scout runs", "why did this scout find/report
   nothing", "what has the fleet learned", "explore scout run <id>", "is my scout working".
 metadata:
+  audience: customer
   owner_team: signals
 ---
 

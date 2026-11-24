@@ -1,5 +1,7 @@
 ---
 name: modeling-activation-metrics
+metadata:
+  audience: customer
 description: >
   Build reusable activation models — an activation-rate metric and a per-user/per-account activated flag —
   on either PostHog data-warehouse views (HogQL) or an external dbt project. Use when the user wants to

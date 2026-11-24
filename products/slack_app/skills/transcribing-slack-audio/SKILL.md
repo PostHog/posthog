@@ -1,5 +1,8 @@
 ---
 name: transcribing-slack-audio
+metadata:
+  audience: customer
+  consumers: slack
 description: >-
   Transcribe a Slack voice message or audio attachment (M4A, MP3, OGG/Opus, WAV, WebM) on the
   local machine with ffmpeg and whisper.cpp, so the agent can act on what the user said. Use
