@@ -274,6 +274,8 @@ reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
+The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
+
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
 worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
