@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -47,6 +47,62 @@ export const MessagingSendPushCreateBody = () => zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe("Values for the template's {{ variables.\* }} placeholders, keyed by variable name."),
+})
+
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const MessagingSendPushBatchCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax = 400
+
+export const messagingSendPushBatchCreateBodyRecipientsMax = 100
+
+export const MessagingSendPushBatchCreateBody = () => zod.object({
+    template_id: zod
+        .string()
+        .describe(
+            "ID of a push template made transactional, which holds the notification's title, body and push channels."
+        ),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Values for the template's {{ variables.\* }} placeholders that every recipient shares, keyed by variable name."
+        ),
+    recipients: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax)
+                    .describe(
+                        "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends."
+                    ),
+                message_data: zod
+                    .record(zod.string(), zod.unknown())
+                    .optional()
+                    .describe(
+                        "Values for this recipient's {{ variables.\* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there."
+                    ),
+                idempotency_key: zod
+                    .string()
+                    .describe(
+                        "A unique key for this recipient's notification, 1 to 255 visible ASCII characters, different for each recipient of the batch. Retrying with the same key and the same notification within 24 hours sends nothing new and returns the first send's `message_id`, also when the first send was a single send."
+                    ),
+            })
+        )
+        .max(messagingSendPushBatchCreateBodyRecipientsMax)
+        .describe(
+            'Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.'
+        ),
 })
 
 export const MessagingTemplatesCreateParams = () => zod.object({

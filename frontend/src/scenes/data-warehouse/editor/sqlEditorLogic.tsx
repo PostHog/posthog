@@ -3954,6 +3954,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         source: {
                             ...normalizeRawQuerySource(query.source),
                             filters: normalizeFiltersForUrl(query.source.filters),
+                            variables: query.source.variables ?? {},
                         },
                     })
                 const currentQuery = { ...sourceQuery, source: { ...sourceQuery.source, query: queryInput } }

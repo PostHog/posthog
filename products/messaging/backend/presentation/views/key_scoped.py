@@ -119,7 +119,7 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
         email = code_email(data) if "template_key" in data else None
         try:
             recipients = check_email_batch(data["recipients"], message_data=data["message_data"], email=email)
-            reserve_units(transactional_email_throttles(), request, self, len(recipients) - 1)
+            reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
             if email is not None:
                 self._require_code_email_access(email.key)
                 sent = send_code_email_batch(self.team, email, recipients)

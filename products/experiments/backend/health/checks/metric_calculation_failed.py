@@ -14,6 +14,7 @@ from datetime import UTC
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
+from posthog.errors import internal_ch_error_user_message
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 
 from products.experiments.backend.facade.contracts import (
@@ -110,6 +111,9 @@ _VALIDATION_ERROR = re.compile(
 # pydantic's text for a stored definition that its schema rejects. The rest of the text quotes the stored values.
 _SCHEMA_ERROR = re.compile(r"^\d+ validation errors? for (?P<model>\w+)")
 _TYPE_MISMATCH = re.compile(r"There is no supertype for types|Cannot convert string .* to type")
+_TYPE_MISMATCH_MESSAGES = frozenset(
+    internal_ch_error_user_message(code) for code in ("NO_COMMON_TYPE", "TYPE_MISMATCH", "CANNOT_CONVERT_TYPE")
+)
 _NO_DATA = re.compile(r"No control variant found|No exposures for the '.*' variant yet")
 # Django's text when the query names a cohort that was deleted. It names no cohort, so the wording can't say where.
 _DELETED_COHORT = re.compile(r"Cohort matching query does not exist")
@@ -453,7 +457,7 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
             "A filter uses a cohort that doesn't exist anymore. Check the cohorts in the metric's filters, the "
             "exposure criteria and the project's test account filters.",
         )
-    if _TYPE_MISMATCH.search(message):
+    if message in _TYPE_MISMATCH_MESSAGES or _TYPE_MISMATCH.search(message):
         return _setting(
             "type_mismatch",
             "A filter or an expression of the metric compares values of different types, such as text with a "

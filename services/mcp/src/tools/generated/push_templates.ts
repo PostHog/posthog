@@ -212,10 +212,91 @@ const workflowsSendPushExecute = (): ToolBase<typeof WorkflowsSendPushSchemaExec
     },
 })
 
+const WorkflowsSendPushBatchSchema = () => {
+    const MessagingSendPushBatchCreateBody = orvalSchemas.MessagingSendPushBatchCreateBody()
+    return MessagingSendPushBatchCreateBody
+}
+
+const WorkflowsSendPushBatchSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const workflowsSendPushBatchPrepare = (): ToolBase<
+    ReturnType<typeof WorkflowsSendPushBatchSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'workflows-send-push-batch-prepare',
+    schema: WorkflowsSendPushBatchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendPushBatchSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'workflows-send-push-batch',
+            inputSchema: WorkflowsSendPushBatchSchema(),
+            actionLabel: 'send push notifications',
+            messageTemplate:
+                "About to send push template '{template_id}' to every device of each recipient listed. Reply 'confirm' to send it.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const workflowsSendPushBatchExecute = (): ToolBase<
+    typeof WorkflowsSendPushBatchSchemaExecute,
+    Schemas.SendPushBatchResponse
+> => ({
+    name: 'workflows-send-push-batch-execute',
+    schema: WorkflowsSendPushBatchSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof WorkflowsSendPushBatchSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendPushBatchSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'workflows-send-push-batch',
+                inputSchema: WorkflowsSendPushBatchSchema(),
+                codec: __runtime.codec,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.template_id !== undefined) {
+            body['template_id'] = params.template_id
+        }
+        if (params.message_data !== undefined) {
+            body['message_data'] = params.message_data
+        }
+        if (params.recipients !== undefined) {
+            body['recipients'] = params.recipients
+        }
+        const result = await context.api.request<Schemas.SendPushBatchResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/push_batch/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create-push-template': workflowsCreatePushTemplate,
     'workflows-make-push-template-transactional-prepare': workflowsMakePushTemplateTransactionalPrepare,
     'workflows-make-push-template-transactional-execute': workflowsMakePushTemplateTransactionalExecute,
     'workflows-send-push-prepare': workflowsSendPushPrepare,
     'workflows-send-push-execute': workflowsSendPushExecute,
+    'workflows-send-push-batch-prepare': workflowsSendPushBatchPrepare,
+    'workflows-send-push-batch-execute': workflowsSendPushBatchExecute,
 }

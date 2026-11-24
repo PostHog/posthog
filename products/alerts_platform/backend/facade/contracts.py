@@ -36,6 +36,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
     TRACES = "traces"
+    ERROR_TRACKING = "error_tracking"
 
 
 @frozen
@@ -669,6 +670,35 @@ class LegacyHistoryCopyRun:
         )
         alerts = self.unfinished if unfinished_only else self.alerts
         return (*(alert.summary for alert in alerts), totals)
+
+
+@frozen
+class LegacyRowSwitchOff:
+    """One team's run: how many alerts the platform owns, and how many of their source rows were on."""
+
+    team_id: int
+    owned_alerts: int
+    switched_off: int
+
+
+@frozen
+class LegacyRowSwitchOffRun:
+    teams: tuple[LegacyRowSwitchOff, ...]
+    failed_team_ids: tuple[int, ...]
+
+    def report(self, source: SourceKind, *, applied: bool) -> tuple[str, ...]:
+        verb = "switched off" if applied else "to switch off"
+        lines = tuple(
+            f"Team {team.team_id}: {team.owned_alerts} platform-owned alerts, {team.switched_off} rows {verb}"
+            for team in self.teams
+            if team.switched_off
+        )
+        totals = (
+            f"{source.value}: {len(self.teams)} teams, {sum(team.owned_alerts for team in self.teams)} "
+            f"platform-owned alerts, {sum(team.switched_off for team in self.teams)} rows {verb}"
+            + ("" if applied else " (dry run)")
+        )
+        return (*lines, totals)
 
 
 @frozen

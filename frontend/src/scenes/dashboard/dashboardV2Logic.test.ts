@@ -223,9 +223,12 @@ describe('dashboardV2Logic', () => {
 
     describe('board stream', () => {
         const streamBoard = (
-            run: (send: (event: Record<string, unknown>) => void, params: URLSearchParams) => Promise<void>
+            run: (send: (event: Record<string, unknown>) => void, params: URLSearchParams) => Promise<void>,
+            response = (): Response =>
+                new Response(null, { headers: { 'X-Request-ID': '11111111-1111-4111-8111-111111111111' } })
         ): void => {
             boardStream.mockImplementation(async (url, options) => {
+                options.onOpen?.(response())
                 await run(
                     (event) => options.onMessage({ id: '', event: '', data: JSON.stringify(event) }),
                     new URL(url, 'http://localhost').searchParams
@@ -245,62 +248,134 @@ describe('dashboardV2Logic', () => {
         const capturedEvents = (capture: jest.SpyInstance, name: string): Record<string, any>[] =>
             capture.mock.calls.filter(([event]) => event === name).map(([, properties]) => properties)
 
-        it('paints every cached result at once, stale ones too, and replaces them as tiles finish', async () => {
-            setDashboardV2(true)
-            let release!: () => void
-            const blocked = new Promise<void>((resolve) => {
-                release = resolve
-            })
-            let cachedSent!: () => void
-            const painted = new Promise<void>((resolve) => {
-                cachedSent = resolve
-            })
-            let requested: URLSearchParams | undefined
-            streamBoard(async (send, params) => {
-                requested = params
-                send({
-                    type: 'cached',
-                    tiles: [
-                        { id: firstScreen[0].id, status: 'hit', stale: true, insight: { result: ['stale'] } },
-                        { id: firstScreen[1].id, status: 'hit', stale: false, insight: { result: ['fresh'] } },
-                        ...firstScreen.slice(2).map((tile) => ({ id: tile.id, status: 'miss' })),
-                    ],
-                    pending: [firstScreen[0].id, ...firstScreen.slice(2).map((tile) => tile.id)],
-                })
-                cachedSent()
-                await blocked
-                for (const tile of [firstScreen[0], ...firstScreen.slice(2)]) {
-                    send(computedTile(tile))
+        it.each(['11111111-1111-4111-8111-111111111111', null])(
+            'paints cached results then reports each final arrival with response request ID %s',
+            async (requestId) => {
+                setDashboardV2(true)
+                let clock = 100
+                const now = jest.spyOn(performance, 'now').mockImplementation(() => clock)
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                try {
+                    let release!: () => void
+                    const blocked = new Promise<void>((resolve) => {
+                        release = resolve
+                    })
+                    let cachedSent!: () => void
+                    const painted = new Promise<void>((resolve) => {
+                        cachedSent = resolve
+                    })
+                    let requested: URLSearchParams | undefined
+                    streamBoard(
+                        async (send, params) => {
+                            requested = params
+                            clock = 250
+                            send({
+                                type: 'cached',
+                                tiles: [
+                                    {
+                                        id: firstScreen[0].id,
+                                        status: 'hit',
+                                        stale: true,
+                                        insight: { result: ['stale'] },
+                                    },
+                                    {
+                                        id: firstScreen[1].id,
+                                        status: 'hit',
+                                        stale: false,
+                                        insight: { result: ['fresh'] },
+                                    },
+                                    ...firstScreen.slice(2).map((tile) => ({ id: tile.id, status: 'miss' })),
+                                ],
+                                pending: [firstScreen[0].id, ...firstScreen.slice(2).map((tile) => tile.id)],
+                            })
+                            cachedSent()
+                            await blocked
+                            clock = 400
+                            for (const tile of [firstScreen[0], ...firstScreen.slice(2)]) {
+                                clock += 100
+                                send(computedTile(tile))
+                            }
+                            send(computedTile(firstScreen[0]))
+                            clock = 5000
+                            send({ type: 'complete' })
+                        },
+                        () => {
+                            clock = 150
+                            return new Response(null, { headers: requestId ? { 'X-Request-ID': requestId } : {} })
+                        }
+                    )
+
+                    logic = dashboardLogic({ id: 21 })
+                    logic.mount()
+                    await painted
+
+                    expect(resultOf(firstScreen[0].id)).toEqual(['stale'])
+                    expect(resultOf(firstScreen[1].id)).toEqual(['fresh'])
+                    expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({ queued: true })
+                    expect(logic.values.refreshStatus[firstScreen[1].insight!.short_id]).toMatchObject({
+                        refreshed: true,
+                    })
+
+                    expect(capturedEvents(capture, 'dashboard insight refreshed')).toEqual([
+                        expect.objectContaining({ insight_short_id: 'long-1', request_ms: 150, was_cached: true }),
+                    ])
+
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(resultOf(firstScreen[0].id)).toEqual(['computed'])
+                    expect(resultOf(firstScreen[11].id)).toEqual(['computed'])
+                    expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({
+                        refreshed: true,
+                    })
+                    expect(refreshInsight).not.toHaveBeenCalled()
+                    expect(boardStream).toHaveBeenCalledTimes(1)
+                    expect(requested?.get('tile_ids')).toEqual(firstScreen.map((tile) => tile.id).join(','))
+                    expect(requested?.get('cached_first')).toEqual('true')
+                    expect(requested?.get('refresh')).toEqual('blocking')
+                    expect(v2Logic().values.deferredTileIds).toEqual(tiles.slice(12).map((tile) => tile.id))
+                    const tileEvents = capturedEvents(capture, 'dashboard insight refreshed')
+                    expect(tileEvents).toHaveLength(firstScreen.length)
+                    expect(tileEvents.map((event) => event.request_ms)).toEqual([
+                        150,
+                        ...Array.from({ length: 11 }, (_, index) => 400 + index * 100),
+                    ])
+                    expect(new Set(tileEvents.map((event) => event.insight_short_id)).size).toBe(firstScreen.length)
+                    for (const event of tileEvents) {
+                        expect(event).toMatchObject({
+                            dashboard_v2_ui: true,
+                            stream_fallback: false,
+                            request_timing_scope: 'stream_start_to_result',
+                            queue_wait_ms: 0,
+                        })
+                        expect(event.http_request_id).toBe(requestId ?? undefined)
+                        for (const field of [
+                            'request_total_ms',
+                            'body_read_ms',
+                            'resource_ttfb_ms',
+                            'resource_timing_status',
+                        ]) {
+                            expect(event).not.toHaveProperty(field)
+                        }
+                    }
+                } finally {
+                    now.mockRestore()
                 }
-                send({ type: 'complete' })
-            })
-
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            await painted
-
-            expect(resultOf(firstScreen[0].id)).toEqual(['stale'])
-            expect(resultOf(firstScreen[1].id)).toEqual(['fresh'])
-            expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({ queued: true })
-            expect(logic.values.refreshStatus[firstScreen[1].insight!.short_id]).toMatchObject({ refreshed: true })
-
-            release()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(resultOf(firstScreen[0].id)).toEqual(['computed'])
-            expect(resultOf(firstScreen[11].id)).toEqual(['computed'])
-            expect(logic.values.refreshStatus[firstScreen[0].insight!.short_id]).toMatchObject({ refreshed: true })
-            expect(refreshInsight).not.toHaveBeenCalled()
-            expect(boardStream).toHaveBeenCalledTimes(1)
-            expect(requested?.get('tile_ids')).toEqual(firstScreen.map((tile) => tile.id).join(','))
-            expect(requested?.get('cached_first')).toEqual('true')
-            expect(requested?.get('refresh')).toEqual('blocking')
-            expect(v2Logic().values.deferredTileIds).toEqual(tiles.slice(12).map((tile) => tile.id))
-        })
+            }
+        )
 
         it('falls back to one request per tile for the tiles a failed stream did not deliver, and says so', async () => {
             setDashboardV2(true)
             const capture = jest.spyOn(posthog, 'capture').mockClear()
+            const fallbackRequestId = '22222222-2222-4222-8222-222222222222'
+            refreshInsight.mockImplementation(async (_teamId, insight, _dashboardId, _queryId, _refresh, options) => {
+                options?.onRequestTiming?.({
+                    request_total_ms: 37,
+                    http_request_id: fallbackRequestId,
+                    resource_timing_status: 'not_found',
+                })
+                return insight
+            })
             streamBoard(async (send) => {
                 send({
                     type: 'cached',
@@ -326,9 +401,40 @@ describe('dashboardV2Logic', () => {
             expect(
                 Object.fromEntries(tileEvents.map((event) => [event.insight_short_id, event.stream_fallback]))
             ).toEqual(Object.fromEntries(firstScreen.map((tile, index) => [tile.insight!.short_id, index >= 2])))
+            for (const event of tileEvents.filter((event) => event.stream_fallback)) {
+                expect(event).toMatchObject({
+                    http_request_id: fallbackRequestId,
+                    request_ms: 37,
+                    request_total_ms: 37,
+                })
+                expect(event).not.toHaveProperty('request_timing_scope')
+            }
             expect(capturedEvents(capture, 'dashboard refreshed')).toEqual([
                 expect.objectContaining({ board_stream: true, stream_fallback: true, stream_failed: true }),
             ])
+        })
+
+        it('does not report results delivered after a stream is cancelled', async () => {
+            setDashboardV2(true)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            streamBoard(async (send) => {
+                logic.actions.cancelDashboardRefresh()
+                send({
+                    type: 'cached',
+                    tiles: [{ id: firstScreen[0].id, status: 'hit', insight: { result: ['cached'] } }],
+                    pending: [],
+                })
+                send(computedTile(firstScreen[1]))
+                send({ type: 'complete' })
+            })
+
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(boardStream.mock.calls[0][1].signal?.aborted).toBe(true)
+            expect(capturedEvents(capture, 'dashboard insight refreshed')).toEqual([])
+            expect(refreshInsight).not.toHaveBeenCalled()
         })
 
         it('leaves a tile the organization had no capacity for to the per-tile path', async () => {

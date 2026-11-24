@@ -300,6 +300,13 @@ class BatchRecipient:
 
 
 @frozen
+class PushBatchRecipient:
+    distinct_id: str
+    idempotency_key: str
+    message_data: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
 class EmailNotQueued:
     message_id: str
     error: TransactionalEmailError | DeliveryUnavailable

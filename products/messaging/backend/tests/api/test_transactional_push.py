@@ -3,11 +3,15 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog import rate_limit
 from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
@@ -15,8 +19,12 @@ from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.presentation.views.message_templates import TRANSACTIONAL_PUSH_API_FLAG
+from products.messaging.backend.presentation.views.message_templates import (
+    TRANSACTIONAL_PUSH_API_FLAG,
+    TransactionalEmailTeamBurstThrottle,
+)
 from products.messaging.backend.services.transactional_email import make_transactional
+from products.messaging.backend.services.transactional_email_status import keyed_run_id
 from products.workflows.backend.facade.models import HogFlow
 
 
@@ -329,3 +337,173 @@ class TestTransactionalPushSend(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert capture.call_args.kwargs["properties"]["outcome"] in ("rejected", "unavailable")
+
+
+def _cdp_answer(cdp_status: int, body: dict[str, Any]) -> MagicMock:
+    return MagicMock(status_code=cdp_status, json=lambda: body)
+
+
+@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post")
+class TestTransactionalPushBatchSend(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        firebase = Integration.objects.create(team=self.team, kind="firebase", integration_id="my-app")
+        self.template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Order shipped",
+            type="push",
+            content={"push": {"title": "Shipped", "body": "On its way", "channels": [firebase.id]}},
+        )
+        self.hog_flow_id = make_transactional(
+            self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
+        )
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="push",
+            secure_value=hash_key_value(raw_token),
+            scopes=["transactional_push:write"],
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        self.psak = APIClient()
+        self.psak.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+        self.url = f"/api/projects/{self.team.id}/messaging/send/push_batch/"
+
+    def _id(self, key: str) -> str:
+        return str(keyed_run_id(self.team.id, "transactional-push", key))
+
+    def _recipients(self, count: int) -> list[dict[str, Any]]:
+        return [{"distinct_id": f"user-{index}", "idempotency_key": f"key-{index}"} for index in range(count)]
+
+    def _batch(self, recipients: list[dict[str, Any]], **fields: Any) -> Any:
+        body = {"template_id": str(self.template.id), "recipients": recipients, **fields}
+        return self.psak.post(self.url, body, format="json")
+
+    def _answer_by_key(self, answers: dict[str, MagicMock]) -> Any:
+        def answer(url: str, json: dict[str, Any], **kwargs: Any) -> MagicMock:
+            return answers.get(json["idempotency_key"]) or _cdp_answer(
+                202, {"invocation_id": self._id(json["idempotency_key"])}
+            )
+
+        return answer
+
+    def test_each_recipient_is_sent_on_its_own_and_fails_only_its_own_result(self, mock_post, _flag, capture):
+        mock_post.side_effect = self._answer_by_key(
+            {
+                "key-1": _cdp_answer(422, {"error": "idempotency_key_reused"}),
+                "key-2": _cdp_answer(500, {"error": "internal_error"}),
+                "key-3": _cdp_answer(202, {"invocation_id": self._id("key-3"), "replayed": True}),
+            }
+        )
+        recipients = self._recipients(4)
+        recipients[0]["message_data"] = {"order": "own"}
+
+        response = self._batch(recipients, message_data={"order": "shared", "eta": "today"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "results": [
+                {"message_id": self._id("key-0"), "status": "queued", "replayed": False},
+                {
+                    "message_id": self._id("key-1"),
+                    "error": {
+                        "code": "idempotency_key_reused",
+                        "detail": response.json()["results"][1]["error"]["detail"],
+                        "status": 422,
+                        "retryable": False,
+                    },
+                },
+                {
+                    "message_id": self._id("key-2"),
+                    "error": {
+                        "code": "delivery_unavailable",
+                        "detail": response.json()["results"][2]["error"]["detail"],
+                        "status": 503,
+                        "retryable": True,
+                    },
+                },
+                {"message_id": self._id("key-3"), "status": "queued", "replayed": True},
+            ]
+        }
+        payloads = sorted((call.kwargs["json"] for call in mock_post.call_args_list), key=lambda p: p["distinct_id"])
+        assert payloads[0] == {
+            "distinct_id": "user-0",
+            "variables": {"order": "own", "eta": "today"},
+            "idempotency_key": "key-0",
+        }
+        assert payloads[1]["variables"] == {"order": "shared", "eta": "today"}
+        assert all(
+            call.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/transactional_push")
+            for call in mock_post.call_args_list
+        )
+        outcomes = sorted(call.kwargs["properties"]["outcome"] for call in capture.call_args_list)
+        assert outcomes == ["queued", "rejected", "replayed", "unavailable"]
+
+    @parameterized.expand(
+        [
+            ("quota", 429, {"error": "quota_limited"}, status.HTTP_429_TOO_MANY_REQUESTS, "quota_limited"),
+            ("pipeline_down", 500, {"error": "internal_error"}, status.HTTP_503_SERVICE_UNAVAILABLE, None),
+        ]
+    )
+    def test_a_refusal_every_recipient_gets_refuses_the_whole_batch(
+        self, mock_post, _flag, _capture, _name, cdp_status, body, expected_status, code
+    ):
+        mock_post.return_value = _cdp_answer(cdp_status, body)
+
+        response = self._batch(self._recipients(3))
+
+        assert response.status_code == expected_status, response.json()
+        assert "results" not in response.json()
+        if code:
+            assert response.json()["code"] == code
+
+    def test_a_turned_off_workflow_refuses_the_batch_without_sending(self, mock_post, _flag, _capture):
+        HogFlow.objects.filter(id=self.hog_flow_id).update(status="draft")
+
+        response = self._batch(self._recipients(2))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "transactional_push_paused"
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "duplicate_key",
+                [{"distinct_id": "a", "idempotency_key": "k"}, {"distinct_id": "b", "idempotency_key": "k"}],
+            ),
+            ("missing_key", [{"distinct_id": "a"}]),
+            ("too_many", [{"distinct_id": f"u{i}", "idempotency_key": f"k{i}"} for i in range(101)]),
+            ("empty", []),
+        ]
+    )
+    def test_refuses_a_batch_with_invalid_recipients(self, mock_post, _flag, _capture, _name, recipients):
+        response = self._batch(recipients)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        mock_post.assert_not_called()
+
+    def test_a_batch_spends_one_send_per_recipient(self, mock_post, _flag, _capture):
+        mock_post.side_effect = self._answer_by_key({})
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+        self.addCleanup(rate_limit.is_rate_limit_enabled.cache_clear)
+        self.addCleanup(rate_limit.get_team_allow_list.cache_clear)
+
+        with (
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            patch.object(TransactionalEmailTeamBurstThrottle, "rate", "5/minute"),
+        ):
+            spent = self._batch(self._recipients(3))
+            refused = self._batch(self._recipients(3))
+
+        assert spent.status_code == status.HTTP_200_OK, spent.json()
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_post.call_count == 3

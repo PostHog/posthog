@@ -50,6 +50,8 @@ INGESTED_SOURCE = """(
         'user-1' AS distinct_id,
         generateUUIDv4() AS person_id,
         %(properties)s AS properties,
+        CAST([], 'Array(String)') AS `_headers.name`,
+        CAST([], 'Array(String)') AS `_headers.value`,
         now() AS _timestamp,
         0 AS _offset,
         0 AS _partition
@@ -128,7 +130,7 @@ class TraceEventsMixin:
         }
         columns = ", ".join(row[0] for row in sync_execute(f"DESCRIBE TABLE (SELECT {mv_select})", params))
         sync_execute(
-            f"INSERT INTO sharded_ai_events ({columns}, retention_days) SELECT *, 10000 FROM (SELECT {mv_select})",
+            f"INSERT INTO sharded_ai_events ({columns}) SELECT * REPLACE (10000 AS retention_days) FROM (SELECT {mv_select})",
             params,
             flush=False,
         )

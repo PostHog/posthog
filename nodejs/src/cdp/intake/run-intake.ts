@@ -7,7 +7,7 @@ import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invoc
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
-import { IntakeMode, IntakeProducer, PublishSettlement } from './intake-producer'
+import { IntakeMode, IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
 import { RunKind, claimFingerprint } from './message'
 
 export type Run = {
@@ -35,6 +35,16 @@ export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolea
     invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true
 
 export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
+
+const producedOf = (outcome: IntakeProduceOutcome): Produced =>
+    outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
+
+const intakeRunOf = (run: Run): IntakeRun => ({
+    kind: run.kind,
+    invocation: run.invocation,
+    fingerprint: run.claim?.fingerprint,
+    reply: run.claim?.reply,
+})
 
 // In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
 export const ASYNC_RECALL_BUDGET_MS = 250
@@ -126,17 +136,19 @@ export class RunIntake {
     }
 
     async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {
-        const outcome = await this.deps.intake!.producer.produce(
-            {
-                kind: run.kind,
-                invocation: run.invocation,
-                fingerprint: run.claim?.fingerprint,
-                reply: run.claim?.reply,
-            },
-            'async',
-            settlement
+        return producedOf(await this.deps.intake!.producer.produce(intakeRunOf(run), 'async', settlement))
+    }
+
+    // Publishes none of the runs when encoding them all ends past `publishBy`, a `performance.now()` time.
+    async produceAllBy(runs: Run[], publishBy: number): Promise<Produced[] | 'deadline_exceeded'> {
+        const producer = this.deps.intake!.producer
+        const encoded = runs.map((run) => producer.encode(intakeRunOf(run), 'async'))
+        if (performance.now() > publishBy) {
+            return 'deadline_exceeded'
+        }
+        return Promise.all(
+            encoded.map(async (run) => producedOf(typeof run === 'string' ? run : await producer.publish(run)))
         )
-        return outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
     }
 
     async launch(runs: Run[], options: { wait: 'committed'; settlement?: PublishSettlement }): Promise<Committed[]> {
