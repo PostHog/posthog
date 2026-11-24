@@ -201,7 +201,13 @@ fi
 
 SMOKE_STAGE="migrate_clickhouse"
 echo "==> Running ClickHouse migrations against the data node..."
-python manage.py migrate_clickhouse
+bin/migrate-clickhouse-with-prod-grants
+
+# The run above only proves the migrations pass. Check the migrations user still has the prod revokes.
+SMOKE_STAGE="verify_prod_grants"
+out=$(dc exec -T clickhouse-data clickhouse-client --user migrations --password migrationspass \
+    --query "OPTIMIZE TABLE posthog.sharded_events" 2>&1 || true)
+grep -q "Code: 497" <<<"$out" || { echo "migrations user was not refused OPTIMIZE: $out" >&2; exit 1; }
 
 SMOKE_STAGE="verify"
 echo "==> Verifying per-node table layout..."
