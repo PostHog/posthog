@@ -3,6 +3,9 @@ from django.db import models
 
 from products.feature_flags.backend.facade.request_lists import MAX_LISTED_HOST_LENGTH, MAX_LISTED_IP_LENGTH
 
+# The columns that the team metadata cache carries to the flags service.
+REQUEST_LIST_FIELDS = ("blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips")
+
 
 class TeamFeatureFlagPolicyConfig(models.Model):
     """Customer-editable feature flag rules for a team.

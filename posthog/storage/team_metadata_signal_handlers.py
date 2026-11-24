@@ -25,7 +25,10 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import clear_team_metadata_cache
 
 from products.cohorts.backend.models.team_access import RealtimeCohortTeamAccess
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    REQUEST_LIST_FIELDS,
+    TeamFeatureFlagPolicyConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -93,9 +96,6 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
     _enqueue_team_metadata_update_on_commit(instance.id)
 
 
-_REQUEST_LIST_FIELDS = frozenset({"blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips"})
-
-
 def update_team_metadata_cache_on_flag_policy_save(
     sender: type[TeamFeatureFlagPolicyConfig], instance: TeamFeatureFlagPolicyConfig, created: bool, **kwargs: Any
 ) -> None:
@@ -104,9 +104,9 @@ def update_team_metadata_cache_on_flag_policy_save(
         return
     # The first read of Team.feature_flag_policy_config creates an empty row, and the cache
     # already holds empty lists for a team without a row.
-    if created and not any(getattr(instance, field) for field in _REQUEST_LIST_FIELDS):
+    if created and not any(getattr(instance, field) for field in REQUEST_LIST_FIELDS):
         return
-    if not _any_field_may_have_changed(kwargs.get("update_fields"), _REQUEST_LIST_FIELDS):
+    if not _any_field_may_have_changed(kwargs.get("update_fields"), frozenset(REQUEST_LIST_FIELDS)):
         return
 
     _enqueue_team_metadata_update_on_commit(instance.team_id)

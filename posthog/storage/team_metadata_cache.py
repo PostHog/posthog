@@ -66,7 +66,10 @@ from posthog.storage.hypercache_manager import (
 )
 
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
-from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.models.team_feature_flag_policy_config import (
+    REQUEST_LIST_FIELDS,
+    TeamFeatureFlagPolicyConfig,
+)
 from products.feature_flags.backend.models.team_feature_flags_config import (
     CACHED_SETTING_DEFAULTS,
     TeamFeatureFlagsConfig,
@@ -166,19 +169,16 @@ MISSING_KEY_DEFAULTS: dict[str, Any] = {
 }
 
 
-_REQUEST_LIST_COLUMNS = ("blocked_hosts", "blocked_ips", "allowed_hosts", "allowed_ips")
-
-
 def _load_request_lists(team_ids: list[int]) -> dict[int, dict[str, list[str]]]:
     """Map each team id to its request list cache fields, with empty lists when it has no policy row."""
     request_lists: dict[int, dict[str, list[str]]] = {
-        team_id: {f"flags_{column}": [] for column in _REQUEST_LIST_COLUMNS} for team_id in team_ids
+        team_id: {f"flags_{field}": [] for field in REQUEST_LIST_FIELDS} for team_id in team_ids
     }
     for team_id, *values in TeamFeatureFlagPolicyConfig.objects.filter(team_id__in=team_ids).values_list(
-        "team_id", *_REQUEST_LIST_COLUMNS
+        "team_id", *REQUEST_LIST_FIELDS
     ):
         request_lists[team_id] = {
-            f"flags_{column}": value for column, value in zip(_REQUEST_LIST_COLUMNS, values, strict=True)
+            f"flags_{field}": value for field, value in zip(REQUEST_LIST_FIELDS, values, strict=True)
         }
     return request_lists
 
