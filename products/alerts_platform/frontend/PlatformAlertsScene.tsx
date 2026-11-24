@@ -71,7 +71,7 @@ function listColumns(
                 const { configuration } = row
                 if (row.kind === 'group') {
                     return (
-                        <span className="block w-0 min-w-full break-all pl-7 font-mono text-xs" translate="no">
+                        <span className="block w-0 min-w-full break-words pl-7 font-mono text-xs" translate="no">
                             {describeGroup(row.group, configuration.grouping.keys ?? [])}
                         </span>
                     )
