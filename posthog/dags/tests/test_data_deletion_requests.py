@@ -523,6 +523,23 @@ _MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feat
             False,
             id="no-events-read",
         ),
+        pytest.param(
+            "SELECT q.uuid FROM (SELECT uuid, flag_evaluation_person_id FROM posthog.flag_evaluations "
+            "UNION ALL SELECT uuid AS a, uuid AS b FROM events) AS q(flag_evaluation_person_id, uuid)",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="column-aliases-rename-a-union",
+        ),
+        pytest.param(
+            "SELECT q.flag_evaluation_person_id FROM (SELECT uuid, flag_evaluation_person_id FROM "
+            "posthog.flag_evaluations UNION ALL SELECT uuid AS a, uuid AS b FROM events) "
+            "AS q(flag_evaluation_person_id, uuid)",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="column-aliases-rename-a-union-to-flag-uuid",
+        ),
     ],
 )
 def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_only_in_flag_evaluations(

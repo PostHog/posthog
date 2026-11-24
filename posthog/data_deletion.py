@@ -126,7 +126,7 @@ def _misses_flag_calls_only_in_flag_evaluations(
         return False
     if _uses_non_union_set_operator(prepared_ast):
         return True
-    sources = _column_sources(query_type, next(iter(query_type.columns)), seen=set())
+    sources = _column_sources(query_type, _column_names(query_type)[0], seen=set())
     return not any(isinstance(table, FlagEvaluationsTable) and field == "uuid" for table, field in sources)
 
 
@@ -148,6 +148,14 @@ def _uses_non_union_set_operator(prepared_ast: ast.AST) -> bool:
     finder = _NonUnionSetOperatorFinder()
     finder.visit(prepared_ast)
     return finder.found
+
+
+def _column_names(source: ast.SelectQueryType | ast.SelectSetQueryType) -> list[str]:
+    """The output column names of a query in order. A set query takes them from its first branch, because column
+    aliases such as `AS q(a, b)` rename the first branch and leave the set query's own `columns` unchanged."""
+    if isinstance(source, ast.SelectSetQueryType):
+        return _column_names(source.types[0])
+    return list(source.columns)
 
 
 def _column_sources(source: ast.Type, name: str, *, seen: set[tuple[int, str]]) -> Iterator[tuple[Table, str]]:
@@ -177,12 +185,12 @@ def _column_sources(source: ast.Type, name: str, *, seen: set[tuple[int, str]]) 
                 yield from _column_sources(column.table_type, column.name, seen=seen)
         case ast.SelectSetQueryType():
             # A set query matches its branches' columns by position, not by name.
-            names = list(source.columns)
+            names = _column_names(source)
             if name not in names:
                 return
             position = names.index(name)
             for branch in source.types:
-                branch_names = list(branch.columns)
+                branch_names = _column_names(branch)
                 if position < len(branch_names):
                     yield from _column_sources(branch, branch_names[position], seen=seen)
 
