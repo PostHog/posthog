@@ -94,6 +94,17 @@ export function formatPercent(share: number): string {
     return `${percent >= 10 || percent === 0 ? Math.round(percent) : percent.toFixed(1)}%`
 }
 
+/** A success rate that never rounds up to a perfect 100% while any call failed. */
+export function formatSuccessRate(rate: number): string {
+    if (rate >= 1) {
+        return '100%'
+    }
+    if (rate >= 0.99) {
+        return `${Math.min(99.9, Math.floor(rate * 1000) / 10)}%`
+    }
+    return formatPercent(rate)
+}
+
 export function formatDuration(ms: number): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`
 }
@@ -156,7 +167,7 @@ export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
     if (topTool) {
         tiles.push({ label: 'Top tool', value: topTool.tool })
     }
-    tiles.push({ label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
+    tiles.push({ label: 'Error-free calls', value: formatSuccessRate(cards.reliability.success_rate) })
     const topApp = cards.apps?.shares.find((share) => share.name !== OTHER)
     if (topApp) {
         tiles.push({ label: 'Top app', value: topApp.name })

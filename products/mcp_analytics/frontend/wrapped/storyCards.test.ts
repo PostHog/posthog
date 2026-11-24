@@ -5,6 +5,7 @@ import {
     storyCardKeys,
     chartMonths,
     formatCallCount,
+    formatSuccessRate,
     peakMultiple,
     rushHourLine,
 } from './storyCards'
@@ -103,5 +104,14 @@ describe('storyCards', () => {
         [5, 23, false, 'Your agents worked the night shift.'],
     ])('describes weekday %i at hour %i (night shift %s)', (weekday, hour, nightShift, expected) => {
         expect(rushHourLine(weekday, hour, nightShift)).toBe(expected)
+    })
+
+    it.each([
+        [1, '100%'],
+        [0.9999, '99.9%'],
+        [0.996, '99.6%'],
+        [0.964, '96%'],
+    ])('shows a success rate of %d as %s', (rate, expected) => {
+        expect(formatSuccessRate(rate)).toBe(expected)
     })
 })
