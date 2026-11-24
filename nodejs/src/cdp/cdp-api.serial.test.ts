@@ -2956,6 +2956,13 @@ describe('CDP API', () => {
 
             it.each([
                 ['refuses a sensitive send with 503 and produces nothing when sealing is off', false, false, 503, 0],
+                [
+                    'refuses a keyed sensitive send with 503 and produces nothing when sealing is off',
+                    false,
+                    true,
+                    503,
+                    0,
+                ],
                 ['produces a sensitive send when sealing is on and the send is keyed', true, true, 202, 1],
                 ['produces a sensitive send when sealing is on and the send has no key', true, false, 202, 1],
             ])('%s', async (_name, sealing, keyed, status, produced) => {
