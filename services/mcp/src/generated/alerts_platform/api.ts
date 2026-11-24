@@ -4835,6 +4835,9 @@ export const platformAlertsPartialUpdateBodyOneCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyTwoNameMax = 255
 
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdNameDefault = ``
+export const platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdNameMax = 255
+
 export const platformAlertsPartialUpdateBodyTwoSourceConfigOneSkipWeekendDefault = false
 export const platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsDefault = 0
 export const platformAlertsPartialUpdateBodyTwoSourceConfigOneEvaluationDelayIntervalsMin = 0
@@ -5192,6 +5195,11 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                                 .describe(
                                     'How the value is compared: as it is, or as an increase or decrease from the previous interval.'
                                 ),
+                            threshold_name: zod
+                                .string()
+                                .max(platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdNameMax)
+                                .default(platformAlertsPartialUpdateBodyTwoSourceConfigOneConditionThresholdNameDefault)
+                                .describe("The threshold's name, shown with its bounds on the insight."),
                             detector: zod
                                 .union([zod.record(zod.string(), zod.unknown()), zod.null()])
                                 .optional()

@@ -2877,62 +2877,6 @@ describe('CDP API', () => {
             jest.restoreAllMocks()
         })
 
-        describe('with its team in intake shadow mode', () => {
-            const intakeMessages = (): { key: unknown; value: Buffer }[] =>
-                produceOutput.mock.calls
-                    .filter(([output]) => output === 'cdp_intake_msk_transactional_email')
-                    .map(([, message]) => message)
-
-            beforeEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-            })
-
-            afterEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = ''
-            })
-
-            it('answers from its own insert and produces the run to the intake topic, keyed by its run id', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([expect.objectContaining({ key: res.body.invocation_id })])
-                expect(parseJSON(intakeMessages()[0].value.toString())).toMatchObject({
-                    kind: 'transactional-email',
-                    job: { id: res.body.invocation_id, state: { state: { event: { event: '$transactional_email' } } } },
-                })
-            })
-
-            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toHaveLength(1)
-            })
-
-            it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(await api['hogflowQueue'].findIdempotencyKey(res.body.invocation_id)).toEqual({
-                    fingerprint: res.body.invocation_id,
-                })
-            })
-
-            it('keeps its answer when the broker refuses the run', async () => {
-                produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_msk_transactional_email'
-                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-                        : Promise.resolve()
-                )
-
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            })
-        })
-
         describe('with its team in intake async mode', () => {
             const authorized = () => ({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
             const producedTo = (prefix: string) =>
@@ -5338,16 +5282,7 @@ describe('CDP API', () => {
                 const pass = () => (holding = false)
                 return { reached, release, pass }
             }
-            const setIntakeModes = ({
-                shadow = '',
-                async = '',
-                sealing = true,
-            }: {
-                shadow?: string
-                async?: string
-                sealing?: boolean
-            }) => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
+            const setIntakeModes = ({ async = '', sealing = true }: { async?: string; sealing?: boolean }) => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
                 api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
             }
@@ -5657,11 +5592,10 @@ describe('CDP API', () => {
             }
 
             it.each([
-                ['in intake mode off', 'off', true, 409, 'batch_unavailable', 'batch_unavailable'],
-                ['in intake mode shadow', 'shadow', true, 409, 'batch_unavailable', 'batch_unavailable'],
+                ['in intake mode off', false, true, 409, 'batch_unavailable', 'batch_unavailable'],
                 [
                     'in intake mode async, on a pod that does not seal',
-                    'async',
+                    true,
                     false,
                     503,
                     expect.any(String),
@@ -5669,8 +5603,8 @@ describe('CDP API', () => {
                 ],
             ])(
                 'refuses a whole batch for a team %s, and sends nothing',
-                async (_name, mode, sealing, status, error, outcome) => {
-                    setIntakeModes({ [mode]: String(team.id), sealing })
+                async (_name, onAsync, sealing, status, error, outcome) => {
+                    setIntakeModes({ async: onAsync ? String(team.id) : '', sealing })
                     const countedBefore = await batchRequestsCounted(outcome)
 
                     const res = await sendBatch(TEMPLATE, {

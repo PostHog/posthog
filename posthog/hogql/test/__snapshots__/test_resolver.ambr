@@ -13625,6 +13625,8 @@
                       }
                     },
                     filter: None,
+                    filter_positions: (),
+                    filter_source_length: 0,
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,

@@ -1,31 +1,11 @@
 import { type SpanContext, TraceFlags } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
-import type { Task } from "../types";
 import { AgentServer } from "./agent-server";
-import { codexAuthFromGatewayEnv } from "./gateway-env";
+import { codexAuthFromGatewayEnv, type GatewayEnvInput } from "./gateway-env";
 
 interface TestableServer {
-  configureEnvironment(args?: {
-    runSpanContext?: SpanContext;
-    isInternal?: boolean;
-    originProduct?: Task["origin_product"] | null;
-    signalReportId?: string | null;
-    aiStage?: string | null;
-    aiAgentName?: string | null;
-    taskId?: string | null;
-    taskRunId?: string | null;
-    taskUserId?: number | null;
-    taskTitle?: string | null;
-    taskOriginKey?: string | null;
-    repositories?: string[];
-    runtimeAdapter?: string | null;
-    sandboxEnvironmentId?: string | null;
-    snapshotKind?: string | null;
-    prewarmed?: boolean | null;
-    executionEnvironment?: "local" | "cloud";
-    sharedPromptCache?: boolean;
-  }): GatewayEnv;
+  configureEnvironment(args?: GatewayEnvInput): GatewayEnv;
 }
 
 const RUN_SPAN_CONTEXT: SpanContext = {
@@ -282,6 +262,7 @@ describe("AgentServer.configureEnvironment", () => {
       sandboxEnvironmentId: "environment-123",
       snapshotKind: "filesystem",
       prewarmed: false,
+      runPolicySource: "origin",
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -304,6 +285,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-task_execution_environment: cloud",
+        "x-posthog-property-task_run_policy_source: origin",
         "X-PostHog-Task-Run-Id: run-xyz",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
