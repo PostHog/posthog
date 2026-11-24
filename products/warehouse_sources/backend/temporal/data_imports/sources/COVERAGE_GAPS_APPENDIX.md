@@ -2772,7 +2772,7 @@ Note (2026-11-19): Parsed the v3 reference page (one large HTML file) and listed
 
 ## CampaignMonitor — gaps
 
-Today (30): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_email_client_usage`, `campaign_lists`, `campaign_opens`, `campaign_recipients`, `campaign_segments`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `draft_campaigns`, `journey_email_bounces`, `journey_email_clicks`, `journey_email_opens`, `journey_email_recipients`, `journey_email_summary`, `journey_email_unsubscribes`, `journeys`, `list_custom_fields`, `list_stats`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `templates`, `unsubscribed_subscribers`
+Today (34): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_email_client_usage`, `campaign_lists`, `campaign_opens`, `campaign_recipients`, `campaign_segments`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `deleted_subscribers`, `draft_campaigns`, `journey_email_bounces`, `journey_email_clicks`, `journey_email_opens`, `journey_email_recipients`, `journey_email_summary`, `journey_email_unsubscribes`, `journeys`, `list_custom_fields`, `list_stats`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `tags`, `templates`, `transactional_messages`, `unconfirmed_subscribers`, `unsubscribed_subscribers`
 
 Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 
@@ -2784,12 +2784,12 @@ Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 - [x] `Campaign lists and segments (/campaigns/{id}/listsandsegments)` — lookup joining campaigns we sync to the lists and segments they targeted (high). The one body carries two independent collections, so it feeds two join tables — `campaign_lists` and `campaign_segments` — rather than one row of nested arrays.
 - [x] `Campaign email client usage (/campaigns/{id}/emailclientusage)` — breakdown dimension on opens (client/device), a standard email reporting cut (medium)
 - [x] `List stats (/lists/{id}/stats)` — per-list growth, unsubscribe, and bounce totals (medium). Audited as totals "over time"; the endpoint serves no history, only a snapshot of the counters at request time (totals plus today/yesterday/week/month/year buckets), so each sync replaces the previous snapshot.
-- [ ] `Transactional statistics and Message timeline (/transactional/statistics, /transactional/messages)` — message-level transactional sends and their engagement — a whole product currently invisible (medium)
-- [ ] `Unconfirmed and deleted subscribers (/lists/{id}/unconfirmed, /lists/{id}/deleted)` — completes the subscriber state coverage alongside active/bounced/unsubscribed that we already sync (medium)
-- [ ] `Getting a subscriber's history (/subscribers/history)` — per-subscriber event history across campaigns, for lifecycle analysis (medium)
-- [ ] `Getting tags (/clients/{id}/tags)` — lookup resolving the tags applied to campaigns and clients (low)
+- [x] `Transactional statistics and Message timeline (/transactional/statistics, /transactional/messages)` — message-level transactional sends and their engagement — a whole product currently invisible (medium). The message timeline is synced as `transactional_messages` (full refresh: it takes only a message-id cursor, no date filter). `/transactional/statistics` is not synced: it returns one aggregate over a caller-chosen date window, and its counts derive from `transactional_messages`.
+- [x] `Unconfirmed and deleted subscribers (/lists/{id}/unconfirmed, /lists/{id}/deleted)` — completes the subscriber state coverage alongside active/bounced/unsubscribed that we already sync (medium)
+- [ ] `Getting a subscriber's history (/subscribers/history)` — per-subscriber event history across campaigns, for lifecycle analysis (medium). Skipped: one request per subscriber email, capped at 60 opens/clicks per campaign; the same events are already synced by the campaign_opens and campaign_clicks tables.
+- [x] `Getting tags (/clients/{id}/tags)` — lookup resolving the tags applied to campaigns and clients (low)
 
-Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, and the Journeys (automation) product and campaign_recipients are now synced. None of the four lookup endpoints above accepts a `date` filter, so all five tables ship full refresh like the rest of the source. The transactional product remains absent.
+Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, and the Journeys (automation) product and campaign_recipients are now synced. None of the four lookup endpoints above accepts a `date` filter, so those five tables ship full refresh like the rest of the source. Four more tables are now synced, all as full refresh: `unconfirmed_subscribers` and `deleted_subscribers` (both accept a `date` filter, which the connector sends as an early date to read the full history), `tags` (no filter), and `transactional_messages` (no date filter, only a message-id cursor).
 
 ## Campayn — adequate
 
@@ -11122,10 +11122,10 @@ Diffed against: <https://apidocs.pabbly.com/pabbly/subscription-billing>
 - [x] `/commissions` — affiliate commission records, the revenue-share ledger (high). Added as `commissions`.
 - ~~`/mrrsubscription/` — vendor's headline MRR metric endpoint (high)~~ — skipped: it is a `POST` report over a relative interval such as `last_30_days` for one product, and its rows carry no subscription or customer id to key on
 - ~~`/revenuetransaction/` — net-revenue / ARPU report rows (high)~~ — skipped: it is a `POST` report over a relative interval for one product, and its rows repeat the invoices, refunds and transactions this source already syncs
-- [ ] `/commissions/clicks` — affiliate click events - the top of the partner funnel (medium)
-- [ ] `/affiliate/links` — lookup resolving affiliate link ids on commissions and clicks (medium)
-- [ ] `/scheduledchanges/{subscription_id}` — pending plan changes; needed for forward-looking churn/upgrade analysis (medium)
-- [ ] `/api/v2/getdashboardstats` — account-level summary metrics (MRR, churn, active subscriptions) in one row (medium)
+- [x] `/commissions/clicks` — affiliate click events - the top of the partner funnel (medium). Added as `affiliate_clicks`.
+- [x] `/affiliate/links` — lookup resolving affiliate link ids on commissions and clicks (medium). Added as `affiliate_links`.
+- [x] `/scheduledchanges/{subscription_id}` — pending plan changes; needed for forward-looking churn/upgrade analysis (medium). Added as `scheduled_changes` (one row per subscription with a pending change).
+- [ ] `/api/v2/getdashboardstats` — account-level summary metrics (MRR, churn, active subscriptions) in one row (medium). Skipped: it is a `POST` report over a relative interval for one product, its one row has no key, and its totals derive from tables this source already syncs.
 - [ ] `/products/{product_id}/licenses/{license_id}/codes` — individual license codes under the licenses we already sync (medium)
 - [ ] `/customer/purchase-info/{customer_id}` — per-customer purchase rollup (lifetime value style fields) (low)
 - [ ] `/customfields/{plan_id}` — custom field definitions for plans, to interpret subscription custom fields (low)
@@ -12469,7 +12469,7 @@ Re-audited 2026-11-19 against <https://api.replicate.com/openapi.json>: no new g
 
 ## ReplyIo — gaps
 
-Today (19): `account_lists`, `accounts`, `contact_lists`, `contacts`, `custom_fields`, `email_accounts`, `email_activity`, `email_template_folders`, `email_templates`, `inbox_threads`, `linkedin_accounts`, `meetings`, `sequence_contacts`, `sequence_folder_sequences`, `sequence_folders`, `sequence_steps`, `sequences`, `tasks`, `team_users`
+Today (23): `account_lists`, `accounts`, `call_activity`, `contact_lists`, `contacts`, `custom_fields`, `email_accounts`, `email_activity`, `email_template_folders`, `email_templates`, `inbox_categories`, `inbox_messages`, `inbox_threads`, `linkedin_accounts`, `linkedin_activity`, `meetings`, `sequence_contacts`, `sequence_folder_sequences`, `sequence_folders`, `sequence_steps`, `sequences`, `tasks`, `team_users`
 
 Diffed against: <https://docs.reply.io/llms.txt>
 
@@ -12479,10 +12479,10 @@ Diffed against: <https://docs.reply.io/llms.txt>
 - [x] `reports/list-meetings` — booked meetings, the outcome metric outreach performance is judged on (high). Added as `meetings`, a full refresh of the all-time report including meetings booked outside sequences. The report has no row ID, so the key is the user, booking time, contact name and channel
 - ~~`sequences/get-stats-for-all-sequences` — vendor-computed per-sequence delivery and reply rates (high)~~ — skipped: the endpoint accepts only a window of 31 days or less (`lastWeek`, `lastMonth`, or `from`/`to`), so each sync would overwrite the table with a rolling total, and the email figures already follow from `email_activity`
 - [x] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high). Added as `team_users`, one row per user per team
-- [ ] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium)
-- [ ] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium)
-- [ ] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium)
-- [ ] `reports/list-linkedin-activity` — LinkedIn connect/message/InMail events for multichannel sequences (medium)
+- [x] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium). Added as `inbox_messages`, one walk per thread at 100 messages a page. LinkedIn messages have a null `messageId`, so the key is the thread, time and direction
+- [x] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium). Added as `inbox_categories`
+- [x] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium). Added as `call_activity`, a full refresh of the all-time report including calls outside sequences
+- [x] `reports/list-linkedin-activity` — LinkedIn connect/message/InMail events for multichannel sequences (medium). Added as `linkedin_activity`, a full refresh of the all-time report. The report has no row ID, so the key is the sender account, contact profile URL, action time and action type
 - [x] `sequence-folders/list-all-sequence-folders` — lookup grouping sequences into folders for team-level rollups (medium). Added as `sequence_folders`. Reply lists only the folders of the user who owns the API key
 - [x] `sequence-folders/list-sequences-in-a-folder` — membership table joining folders to sequences; sequence rows carry no folder ID, so the folder lookup cannot be joined without it. Added as `sequence_folder_sequences`, one walk per folder
 - [x] `linkedin-accounts/list-linkedin-accounts` — sending-account dimension for LinkedIn, mirroring email_accounts which is already synced (medium). Added as `linkedin_accounts`
@@ -12750,10 +12750,10 @@ Today (12): `audit_logs`, `catalog_categories`, `catalog_events`, `catalog_prope
 
 Diffed against: <https://www.rudderstack.com/docs/llms.txt>
 
-- [ ] `Event metrics usage (GET /v2/organizations/usage/event-metrics)` — Billing usage: event counts per source and day, the headline volume and cost metric for the account (high)
-- [ ] `Tracking plan events (GET /v2/catalog/tracking-plans/{id}/events)` — Rules for each event in each tracking plan, to audit schema governance (medium)
-- [ ] `Custom types (GET /v2/catalog/custom-types)` — Reusable type definitions that catalog properties can reference (medium)
-- [ ] `Regulations (GET /v2/regulations)` — User deletion and suppression requests with status, a compliance audit trail (medium)
+- [x] `Event metrics usage (GET /v2/organizations/usage/event-metrics)` — Billing usage: event counts per source and day, the headline volume and cost metric for the account (high). Added as `event_metrics_usage` (daily buckets, incremental merge on `bucket`).
+- [x] `Tracking plan events (GET /v2/catalog/tracking-plans/{id}/events)` — Rules for each event in each tracking plan, to audit schema governance (medium). Added as `tracking_plan_events`.
+- [x] `Custom types (GET /v2/catalog/custom-types)` — Reusable type definitions that catalog properties can reference (medium). Added as `custom_types`.
+- [x] `Regulations (GET /v2/regulations)` — User deletion and suppression requests with status, a compliance audit trail (medium). Added as `regulations`.
 - [ ] `Tracking plan sources (GET /v2/catalog/tracking-plans/{id}/sources)` — Join table linking tracking plans to the sources they validate (low)
 - [ ] `Transformation versions (GET /transformations/{id}/versions)` — Revision history of each transformation, with publish state (low)
 - [ ] `Library versions (GET /libraries/{id}/versions)` — Revision history of each library (low)

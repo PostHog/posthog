@@ -142,7 +142,11 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
-            task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
+            update_fields = ["status", "error_message", "completed_at", "updated_at"]
+            if input.status == TaskRun.Status.IN_PROGRESS:
+                task_run.agent_status = None
+                update_fields.append("agent_status")
+            task_run.save(update_fields=update_fields)
     except TaskRun.DoesNotExist:
         # The row was hard-deleted mid-run (team/org deletion cascades bypass the model
         # delete() guards). Nothing can ever terminalize this run again, so fail the
