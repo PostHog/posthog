@@ -378,3 +378,27 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert f"Cannot depend on flag (ID: {new_dependency.id})" in response.json()["detail"]
         assert "new_dependency" not in response.json()["detail"]
+
+    def test_stale_write_checks_dependencies_against_the_runtime_it_saves(self) -> None:
+        dependency = self._flag("dependency", "server")
+        flag = self._flag("flag", "server")
+        stale_flag = {"evaluation_runtime": "server", "filters": flag.filters}
+        flag.evaluation_runtime = "client"
+        flag.version = 2
+        flag.save()
+
+        response = self._patch(
+            flag,
+            {
+                "version": 1,
+                "evaluation_runtime": "server",
+                "filters": _depends_on(dependency.id),
+                "original_flag": stale_flag,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "client-side only" in response.json()["detail"] or "server-side only" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.evaluation_runtime == "client"
+        assert flag.filters == stale_flag["filters"]

@@ -1977,7 +1977,7 @@ class FeatureFlagSerializer(
 
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         stored_dependency_ids = set(flag_dependency_ids(stored_filters))
-        checked_ids = set(flag_dependency_ids(attrs.get("get_filters", stored_filters) or {}))
+        checked_ids = set(flag_dependency_ids(attrs.get("get_filters", attrs.get("filters", stored_filters)) or {}))
         reactivating = (
             self.instance is not None
             and self._reactivates_flag(attrs)
@@ -3237,7 +3237,11 @@ class FeatureFlagSerializer(
                         raise Conflict(
                             f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
                         )
-                    validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
+                    reconciled = self._discard_unchanged_stale_fields(validated_data, original_flag)
+                    if reconciled != validated_data:
+                        # Dropping a stale field changes what the write saves, so check the dependencies against that.
+                        self._validate_dependency_runtimes(reconciled)
+                    validated_data = reconciled
 
                 if not self._v2_write:
                     rollback = rollback_input.validated_data
