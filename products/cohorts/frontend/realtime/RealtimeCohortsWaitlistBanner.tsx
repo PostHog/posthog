@@ -18,19 +18,13 @@ import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
 const DISMISS_KEY = 'realtime-cohorts-waitlist'
-// pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
 const BETA_DISMISS_KEY = 'realtime-cohorts-beta-opt-in'
 
-// A waitlist sign-up also hides the beta opt-in, and the person still gets the beta. When the feature moves to
-// beta, the server turns on enrollment matching for the flag, so this stored enrollment turns the flag on for the
-// person. realtimeCohortsJoinLogic then joins the project the next time flags load, without a click.
 function joinedWaitlistInThisBrowser(): boolean {
     const storedPersonProps = posthog.get_property('$stored_person_properties') as Record<string, unknown> | undefined
     return !!storedPersonProps?.[`$feature_enrollment/${FEATURE_FLAGS.REALTIME_COHORTS}`]
 }
 
-// Each stage has its own dismiss key, so a person who closed "coming soon" still sees that they can join.
-// A move back to concept brings the waitlist back without a deploy.
 function bannerFor(
     feature: EnrichedEarlyAccessFeature,
     waitlistDismissed: boolean,
@@ -59,8 +53,6 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     // A team with realtime cohort targeting sees "Realtime" tags in the table below; a waitlist
     // above them would contradict the page.
     const alreadyHasRealtimeCohorts = useRealtimeCohortsServing()
-    // Self-hosted instances discard the flag that enrollment turns on, so neither the waitlist nor the opt-in
-    // would do anything there.
     const hidden =
         (waitlistDismissed && betaDismissed) ||
         !areClientFeatureFlagsHonored(preflight) ||
@@ -68,9 +60,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
         setupStatus !== 'has-data' ||
         joinedWaitlistInThisBrowser()
 
-    // The loader forces a fresh request, so skip it when `hidden` rules out both banners. The stage is only known
-    // from the response, so a visit at a stage with no banner, or at concept with only the waitlist dismissed,
-    // still makes the request.
+    // The loader forces a fresh request, so only ask when the banner could render.
     useEffect(() => {
         if (!hidden) {
             loadEarlyAccessFeatures()
