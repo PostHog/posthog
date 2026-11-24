@@ -1,7 +1,10 @@
 import time
 import uuid
-from contextlib import contextmanager
+import dataclasses
+from collections.abc import AsyncIterator
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -23,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     build_buffer_file_name,
     get_buffer_prefix,
+    measures_backlog_this_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import BUFFER_LANE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import MemoryObjectStore
@@ -121,9 +125,18 @@ def _make_schema(cdc_mode="streaming", name="users"):
     schema.cdc_mode = cdc_mode
     schema.cdc_table_mode = "consolidated"
     schema.enabled_columns = None
+    schema.sync_frequency_interval = timedelta(minutes=5)
     schema.incremental_field = None
     schema.save = MagicMock()
     return schema
+
+
+class _UnreachableStore(MemoryObjectStore):
+    async def _iterdir(self, bucket: str, delimiter: str = "/", prefix: str = "") -> AsyncIterator[dict[str, Any]]:
+        entries: tuple[dict[str, Any], ...] = ()
+        for entry in entries:
+            yield entry
+        raise OSError("S3 is unreachable")
 
 
 def _put_buffer_file(store: MemoryObjectStore, schema, *, seq: int, size: int, age: timedelta) -> None:
@@ -215,10 +228,8 @@ class TestExtractionMetricsSmoke:
         with _extract_patches(source, [streaming, snapshotting], [], store=store, lag_bytes=4096) as reader:
             if fails:
                 reader.read_changes.side_effect = RuntimeError("boom")
-            try:
+            with pytest.raises(RuntimeError) if fails else nullcontext():
                 env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
-            except RuntimeError:
-                assert fails
 
         values = _last_values(buffer.retrieve_updates())
         assert values["cdc_wal_lag_bytes"] == 4096
@@ -226,6 +237,53 @@ class TestExtractionMetricsSmoke:
         assert 7200 <= values["cdc_buffer_backlog_oldest_age_seconds"] < 7260
         assert values["cdc_wal_lag_observed_at_seconds"] >= observed_from
         assert values["cdc_buffer_backlog_observed_at_seconds"] >= observed_from
+
+    @pytest.mark.parametrize("stopped_by", ["unreachable_source", "worker_shutdown"])
+    def test_run_skips_the_lag_login_it_cannot_use(self, metric_env, stopped_by):
+        env, buffer = metric_env
+        source = _make_source()
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with _extract_patches(source, [_make_schema()], [], lag_bytes=4096) as reader:
+            if stopped_by == "unreachable_source":
+                reader.connect.side_effect = RuntimeError("connection refused")
+                with pytest.raises(RuntimeError):
+                    env.run(cdc_extract_activity, inputs)
+            else:
+                env.run(lambda: CDCExtractActivity(inputs, should_stop=lambda: True).run())
+
+        values = _last_values(buffer.retrieve_updates())
+        assert "cdc_wal_lag_bytes" not in values
+        # The backlog needs no source login, so only a shutdown skips it.
+        assert ("cdc_buffer_backlog_files" in values) == (stopped_by == "unreachable_source")
+
+    @pytest.mark.parametrize("in_slot", [True, False], ids=["in_its_slot", "outside_its_slot"])
+    def test_run_measures_the_backlog_only_in_its_slot(self, metric_env, in_slot):
+        env, buffer = metric_env
+        source = _make_source()
+        interval = timedelta(minutes=5)
+        starts = [datetime(2026, 1, 1, tzinfo=UTC) + k * interval for k in range(6)]
+        start = next(s for s in starts if measures_backlog_this_run(str(source.id), s, interval) == in_slot)
+        env.info = dataclasses.replace(env.info, workflow_id=f"cdc-extraction-{source.id}-{start:%Y-%m-%dT%H:%M:%SZ}")
+
+        with _extract_patches(source, [_make_schema()], [], lag_bytes=4096):
+            env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
+
+        values = _last_values(buffer.retrieve_updates())
+        assert values["cdc_wal_lag_bytes"] == 4096
+        assert ("cdc_buffer_backlog_observed_at_seconds" in values) == in_slot
+
+    def test_failed_backlog_listing_keeps_the_run_and_its_lag(self, metric_env):
+        env, buffer = metric_env
+        source = _make_source()
+        store = _UnreachableStore()
+
+        with _extract_patches(source, [_make_schema()], [], store=store, lag_bytes=4096):
+            env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
+
+        values = _last_values(buffer.retrieve_updates())
+        assert values["cdc_wal_lag_bytes"] == 4096
+        assert "cdc_buffer_backlog_observed_at_seconds" not in values
 
     def test_no_changes_run_emits_duration(self, metric_env):
         env, buffer = metric_env

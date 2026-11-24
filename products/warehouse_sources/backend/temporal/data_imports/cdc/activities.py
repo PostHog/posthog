@@ -9,6 +9,7 @@ validate_cdc_prerequisites_activity: Wraps prerequisite validator for Temporal.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 import typing
@@ -72,8 +73,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BufferBacklog,
     CDCBufferWriter,
     measure_buffer_backlog,
+    measures_backlog_this_run,
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -102,6 +105,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     captures_to_buffer,
     has_queued_batches,
+    serves_buffered_lane,
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, ChangeEvent
@@ -169,6 +173,18 @@ CDC_MAX_CHANGES_LIMIT_CAP = 800_000
 CDC_READ_SOFT_DEADLINE_SECONDS = 90 * 60
 # Heartbeat at most this often while fetching WAL rows (the activity heartbeat timeout is 10m).
 CDC_READ_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+
+# A schedule names each workflow it starts after the schedule and the run's nominal start time.
+_SCHEDULED_START_RE = re.compile(r"-(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$")
+
+
+def _scheduled_start() -> dt.datetime | None:
+    """The nominal start of the scheduled run, or None outside a scheduled workflow."""
+    if not activity.in_activity():
+        return None
+    match = _SCHEDULED_START_RE.search(activity.info().workflow_id or "")
+    return dt.datetime.fromisoformat(match.group(1)) if match else None
 
 
 @dataclasses.dataclass
@@ -257,6 +273,7 @@ class CDCExtractActivity:
         # Tables whose reset waits for a sync that can still hand over. The reset re-snapshots them, so
         # this run drops their changes.
         self._tables_awaiting_reset: set[str] = set()
+        self._reader_connected = False
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -282,49 +299,56 @@ class CDCExtractActivity:
         measurement must not change the run's outcome.
         """
         assert self.source is not None
+        # A worker that is shutting down hands the source over now, so it skips the extra round trips.
+        if self._should_stop is not None and self._should_stop():
+            return
         team_id, source_id = self.inputs.team_id, str(self.inputs.source_id)
         observed: dict[str, typing.Any] = {}
-        try:
-            with self.adapter.management_connection(self.source, connect_timeout=10) as conn:
-                lag = self.adapter.get_lag(conn, self.source)
-            if lag is not None:
-                metrics.record_wal_lag(team_id, source_id, lag.behind_bytes)
-                observed["wal_lag_bytes"] = lag.behind_bytes
-        except Exception as exc:
-            observed["wal_lag_error"] = str(exc)[:200]
+        # A source this run could not reach would only refuse the lag check's login a second time.
+        if self._reader_connected:
+            try:
+                with self.adapter.management_connection(self.source, connect_timeout=10) as conn:
+                    lag = self.adapter.get_lag(conn, self.source)
+                if lag is not None:
+                    metrics.record_wal_lag(team_id, source_id, lag.behind_bytes)
+                    observed["wal_lag_bytes"] = lag.behind_bytes
+            except Exception as exc:
+                observed["wal_lag_error"] = str(exc)[:200]
 
-        # A snapshotting table's changes wait in the buffer until its snapshot lands, so only
-        # streaming tables count as backlog.
-        streaming_ids = [
-            str(schema.id)
-            for schema in self.cdc_schemas
-            if captures_to_buffer(schema) and schema.cdc_mode != "snapshot"
-        ]
         try:
-            backlog = measure_buffer_backlog(team_id, streaming_ids) if streaming_ids else None
-            oldest_age_seconds = 0
-            if backlog is not None and backlog.oldest_written_at is not None:
-                age = dt.datetime.now(tz=dt.UTC) - backlog.oldest_written_at
-                oldest_age_seconds = max(0, int(age.total_seconds()))
-            metrics.record_buffer_backlog(
-                team_id,
-                source_id,
-                files=backlog.files if backlog else 0,
-                size_bytes=backlog.bytes if backlog else 0,
-                oldest_age_seconds=oldest_age_seconds,
-            )
-            observed.update(
-                backlog_files=backlog.files if backlog else 0,
-                backlog_bytes=backlog.bytes if backlog else 0,
-                backlog_oldest_age_s=oldest_age_seconds,
-                backlog_oldest_schema_id=backlog.oldest_schema_id if backlog else None,
-            )
+            consumed_ids = [str(schema.id) for schema in self.cdc_schemas if serves_buffered_lane(schema)]
+            if self._measures_backlog_this_run():
+                backlog = measure_buffer_backlog(team_id, consumed_ids) if consumed_ids else BufferBacklog.empty()
+                oldest_age_seconds = 0
+                if backlog.oldest_written_at is not None:
+                    age = dt.datetime.now(tz=dt.UTC) - backlog.oldest_written_at
+                    oldest_age_seconds = max(0, int(age.total_seconds()))
+                metrics.record_buffer_backlog(
+                    team_id,
+                    source_id,
+                    files=backlog.files,
+                    size_bytes=backlog.bytes,
+                    oldest_age_seconds=oldest_age_seconds,
+                )
+                observed.update(
+                    backlog_files=backlog.files,
+                    backlog_bytes=backlog.bytes,
+                    backlog_oldest_age_s=oldest_age_seconds,
+                    backlog_oldest_schema_id=backlog.oldest_schema_id,
+                )
         except Exception as exc:
             observed["backlog_error"] = str(exc)[:200]
 
         if self._run_started_at is not None:
             observed["duration_s"] = round(time.monotonic() - self._run_started_at, 1)
         self.log.info("cdc_extract_observed", **observed)
+
+    def _measures_backlog_this_run(self) -> bool:
+        scheduled_start = _scheduled_start()
+        if scheduled_start is None:
+            return True
+        interval = data_warehouse_api.cdc_min_interval(schema.sync_frequency_interval for schema in self.cdc_schemas)
+        return measures_backlog_this_run(str(self.inputs.source_id), scheduled_start, interval)
 
     def _confirm_position(self, lsn: str) -> None:
         """Advance the replication slot, recording success/failure metrics."""
@@ -506,11 +530,13 @@ class CDCExtractActivity:
             self.log.warning("cdc_setup_transient_app_db_error", exc_info=True)
             raise NonReportableError(str(exc)) from exc
 
+        completed = False
         try:
             self._prepare_buffer()
             self._require_configured_slot()
             self._finish_pending_resets()
             self.reader.connect()
+            self._reader_connected = True
             # Taken before the peek, so anything committed after it stays above this position and
             # is decoded by a later run.
             self._pre_read_position = self.reader.current_position()
@@ -534,6 +560,7 @@ class CDCExtractActivity:
             self._final_flush()
             self._advance_slot_after_run()
             self._update_log_positions()
+            completed = True
 
         except Exception as exc:
             if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
@@ -548,9 +575,12 @@ class CDCExtractActivity:
         finally:
             if self.reader is not None:
                 self.reader.close()
-            self._observe_source()
+            # Every other outcome has recorded its duration by now. A completed run records it below.
+            if not completed:
+                self._observe_source()
 
         self._finalize_success()
+        self._observe_source()
         self.log.info("cdc_extract_completed", event_count=self.event_count)
 
     # ------------------------------------------------------------------
