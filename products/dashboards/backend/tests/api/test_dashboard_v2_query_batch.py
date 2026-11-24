@@ -545,7 +545,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
                         await asyncio.wait_for(disconnected.get(), timeout=5)
                     await asyncio.to_thread(
                         wait_until,
-                        lambda: query_batch_module._org_batches.get(self.team.organization_id, 0) == 0,
+                        lambda: not query_batch_module._org_batches,
                     )
                     return await asyncio.wait_for(consume(batches[3]), timeout=10)
             finally:
@@ -645,9 +645,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
                     release_cleanup = None
                     await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), timeout=5)
                     self.assertTrue(cleanup_complete.is_set())
-                    await asyncio.to_thread(
-                        wait_until, lambda: query_batch_module._org_batches.get(self.team.organization_id, 0) == 0
-                    )
+                    await asyncio.to_thread(wait_until, lambda: not query_batch_module._org_batches)
                     with override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=60):
                         fresh = await consume(batches[2])
                     self.assertEqual(fresh[0]["result"]["result"]["results"], _matrix(0)["data"])
