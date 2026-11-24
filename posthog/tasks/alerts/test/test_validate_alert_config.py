@@ -287,6 +287,15 @@ class TestValidateAlertConfig:
                 r"series_index 1 is out of range \(query has 1 series\)",
             ),
             (
+                "series_index_negative",
+                _base_query(series_count=2),
+                _base_condition(),
+                _base_config(series_index=-1),
+                None,
+                "daily",
+                r"series_index -1 is out of range \(query has 2 series\)",
+            ),
+            (
                 "series_index_out_of_range_on_calendar_heatmap",
                 {
                     "kind": "TrendsQuery",
