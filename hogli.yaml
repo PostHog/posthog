@@ -212,7 +212,7 @@ devbox:
         description: Revoke access to your devbox from other users
     devbox:cleanup:disk:
         click: hogli_commands.devbox.cli:devbox_cleanup_disk
-        description: Free disk space by cleaning caches and build artifacts
+        description: Free disk space on your devbox with `hogli doctor:disk`
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
