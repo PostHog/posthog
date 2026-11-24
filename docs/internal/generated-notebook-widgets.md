@@ -16,7 +16,9 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
 
-**Publish release** captures the layout, source markdown, title, input defaults, saved run references, and bounded previews. The oldest displayed calculation's completion time records how fresh those results were when published. A failed check keeps the previous release available. **Restore previous release** in the preview restores its sources and results while preserving the editable draft. Apps published before releases existed continue to resolve against their notebook until republished.
+Python cells can look up any notebook variable at runtime. Changing any default requires a new run for Python outputs in the app and results that depend on them. DuckDB cells need a new run when one of their bound parameters changes. Older single-cell results without an input snapshot may need one new run before publication.
+
+**Publish release** captures the layout, source markdown, title, input defaults, saved run references, and bounded previews. The oldest displayed calculation's completion time records how fresh those results were when published. A failed check keeps the previous release available. Each notebook keeps its current and previous releases. **Restore previous release** in the preview restores its sources and results while preserving the editable draft. Apps published before releases existed continue to resolve against their notebook until republished.
 
 The app builder requires `notebook-app-builder`. When the notebook API cannot resolve the flag locally, it checks the flag service and reuses the result for that user and project for 30 seconds. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
 

@@ -4,12 +4,15 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 
 LAYOUT = {
@@ -196,12 +199,22 @@ class TestNotebookAppLayout(APIBaseTest):
         assert self.client.get(release_url).json() == release
         assert self.client.patch(url, {"app_revision": 2, "app_published": LAYOUT}, format="json").status_code == 200
         assert self.client.get(release_url).json()["has_previous"]
+        other = Notebook.objects.create(team=self.team, title="Another app")
+        other_release = NotebookAppRelease.objects.for_team(self.team.id).create(
+            team_id=self.team.id, notebook=other, revision=1, layout=LAYOUT
+        )
         restore = {"app_revision": 2, "restore_previous_app_release": True}
         assert self.client.patch(url, restore, format="json").status_code == 409
         response = self.client.patch(url, {**restore, "app_revision": 3}, format="json")
         assert response.status_code == 200, response.json()
         assert response.json()["app_draft"]["title"] == "Draft"
         assert self.client.get(release_url).json()["variables"] == variables
+        releases = NotebookAppRelease.objects.for_team(self.team.id)
+        assert list(releases.filter(notebook=notebook).order_by("revision").values_list("revision", flat=True)) == [
+            3,
+            4,
+        ]
+        assert releases.filter(pk=other_release.pk).exists()
         assert self.client.patch(url, {"app_revision": 4, "app_published": None}, format="json").status_code == 200
         assert self.client.get(release_url).status_code == 404
 
@@ -248,6 +261,85 @@ class TestNotebookAppLayout(APIBaseTest):
         assert "stale" in preview["problems"][0]
         assert self.client.patch(url, {"app_revision": 1, "app_published": layout}, format="json").status_code == 400
         assert self.client.get(url + "app_release/").json() == release
+
+    @parameterized.expand(
+        [
+            ("python_single", "PythonV2", "print(amount)", "number", 4, "number", 5),
+            ("builtin", "PythonV2", "print(max)", "number", 4, "number", 5),
+            ("dynamic_lookup", "PythonV2", "print(globals()['amount'])", "number", 4, "number", 5),
+            ("type_change", "PythonV2", "print(amount)", "boolean", True, "number", 1),
+            ("deletion", "PythonV2", "print(amount)", "number", 4, None, None),
+            ("duckdb_single", "SQLV2", "select {amount}", "number", 4, "number", 5),
+        ]
+    )
+    def test_release_checks_the_inputs_bound_by_a_single_cell(
+        self,
+        case: str,
+        tag: str,
+        code: str,
+        kind: str,
+        value: Any,
+        new_kind: str | None,
+        new_value: Any,
+    ) -> None:
+        name = "max" if case == "builtin" else "amount"
+        notebook = Notebook.objects.create(team=self.team, variables=[{"name": name, "type": kind, "value": value}])
+        cell = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=notebook,
+            node_id="output",
+            node_type="python" if tag == "PythonV2" else "duckdb",
+            code=code.replace("{amount}", "$amount"),
+            status="done",
+            bound_variables={name: value},
+        )
+        notebook.content = build_markdown_notebook_content(
+            f'<{tag} nodeId="output" code="{code}" runId="{cell.pk}" result={{{{}}}} />'
+        )
+        notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
+        layout = {**LAYOUT, "blocks": [{"id": "result", "kind": "cell", "tab_id": "overview", "node_id": "output"}]}
+        assert self.client.post(url + "app_preview/", layout, format="json").json()["problems"] == []
+        notebook.variables = [{"name": name, "type": new_kind, "value": new_value}] if new_kind else []
+        notebook.save(update_fields=["variables"])
+        assert "stale" in self.client.post(url + "app_preview/", layout, format="json").json()["problems"][0]
+        assert self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json").status_code == 400
+
+    def test_release_reads_only_run_metadata_for_visible_results_and_their_dependencies(self) -> None:
+        notebook = Notebook.objects.create(team=self.team)
+        runs = NotebookNodeRun.objects.for_team(self.team.id)
+        nodes = {
+            node_id: runs.create(
+                team=self.team,
+                notebook=notebook,
+                node_id=node_id,
+                node_type="python",
+                code=code,
+                status="done",
+                bound_variables={},
+                envelope={"stdout": "output"},
+            )
+            for node_id, code in [("upstream", "frame = 1"), ("visible", "print(frame)"), ("excluded-cell", "print(0)")]
+        }
+        visible_id = nodes["visible"].id
+        notebook.content = build_markdown_notebook_content(
+            '<PythonV2 nodeId="upstream" code="frame = 1" returnVariable="frame" />\n\n'
+            f'<PythonV2 nodeId="visible" code="print(frame)" returnVariable="shown" runId="{visible_id}" result={{{{}}}} />\n\n'
+            '<PythonV2 nodeId="excluded-cell" code="print(0)" />'
+        )
+        notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/app_preview/"
+        layout = {**LAYOUT, "blocks": [{"id": "result", "kind": "cell", "tab_id": "overview", "node_id": "visible"}]}
+        with CaptureQueriesContext(connection) as captured:
+            preview = self.client.post(url, layout, format="json").json()
+        assert preview["problems"] == []
+        reads = [query["sql"] for query in captured.captured_queries if "posthog_notebooknoderun" in query["sql"]]
+        assert reads
+        for sql in reads:
+            assert '"envelope"' not in sql and "excluded-cell" not in sql, sql
+            assert "upstream" in sql and "visible" in sql, sql
+        runs.filter(notebook=notebook, node_id="upstream").update(bound_variables=None)
+        assert "stale" in self.client.post(url, layout, format="json").json()["problems"][0]
 
     def test_layout_patch_cannot_address_a_notebook_in_another_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

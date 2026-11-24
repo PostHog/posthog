@@ -362,6 +362,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Whether `code` went to the connection verbatim instead of being compiled from HogQL. Set,
     # it means `code` is the engine's own dialect and the HogQL parser can't read it.
     send_raw_query = models.BooleanField(default=False, db_default=False)
+    # Null for a kernel run whose inputs predate snapshots; an empty object means it bound no variables.
+    bound_variables: JSONField = JSONField(null=True, blank=True)
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)

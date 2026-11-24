@@ -8,7 +8,6 @@ from rest_framework.exceptions import ValidationError
 from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
-from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_state import (
     MAX_ADDRESSABLE_PROSE_BLOCKS,
     NotebookCellState,
@@ -17,6 +16,7 @@ from products.notebooks.backend.sql_v2_state import (
     extract_cells,
 )
 from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
     build_notebook_variables,
     python_variable_bindings,
     substitute_duckdb_variables,
@@ -50,7 +50,8 @@ def read_release(team_id: int, notebook_id: UUID, *, previous: bool = False) -> 
 
 def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = False) -> None:
     notebook = Notebook.objects.get(team_id=team_id, pk=notebook_id)
-    restore = releases_for(notebook)[1:2].first() if restore_previous else None
+    releases = releases_for(notebook)
+    restore = releases[1:2].first() if restore_previous else None
     markdown = get_markdown_notebook_markdown(notebook.content) or ""
     layout = notebook.app_published
     if not layout:
@@ -64,7 +65,7 @@ def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = 
             raise ValidationError({"app_published": review.problems})
         results_as_of = review.results_as_of
 
-    NotebookAppRelease.objects.for_team(notebook.team_id).create(
+    releases.create(
         notebook=notebook,
         team_id=notebook.team_id,
         revision=notebook.app_revision,
@@ -74,6 +75,7 @@ def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = 
         title=restore.title if restore else notebook.title or "",
         layout=layout,
     )
+    releases.exclude(pk__in=releases.values("pk")[:2]).delete()
 
 
 def review_release(team_id: int, notebook_id: UUID, blocks: list[AppBlockSource]) -> AppReleaseReview:
@@ -89,32 +91,15 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         )
     }
     variables = {variable["name"] for variable in notebook.variables or []}
-    cells = extract_cells(notebook.content)
-    build_dependency_edges(cells)
-    annotate_run_state(cells, notebook.team_id, notebook)
-    states = {cell.node_id: cell for cell in cells}
-    runs = {
-        str(run.pk): run
-        for run in NotebookNodeRun.objects.for_team(notebook.team_id)
-        .filter(notebook=notebook, id__in=[cell.last_run["run_id"] for cell in cells if cell.last_run])
-        .only("id", "connection_id", "send_raw_query", "node_type", "notebook_run__variables")
-        .select_related("notebook_run")
+    result_ids = {
+        block.node_id
+        for block in blocks
+        if block.kind == "cell"
+        and block.display != "source"
+        and block.node_id in sources
+        and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
     }
-    stale_ids = {
-        cell.node_id
-        for cell in cells
-        if cell.status != "done"
-        or (
-            cell.last_run
-            and ((run := runs.get(cell.last_run["run_id"])) is None or not inputs_match(cell, run, notebook))
-        )
-    }
-    pending = list(stale_ids)
-    while pending:
-        for dependent in states[pending.pop()].dependents:
-            if dependent not in stale_ids:
-                stale_ids.add(dependent)
-                pending.append(dependent)
+    states = release_cell_states(notebook, result_ids)
     problems: list[str] = []
     completed: list[datetime] = []
     for block in blocks:
@@ -126,9 +111,9 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         node_id = block.node_id
         if node_id not in sources:
             problems.append(f"{name}: the source cell is missing.")
-        elif block.display != "source" and sources[node_id].tag_name in ("SQLV2", "PythonV2"):
+        elif block.display != "source" and node_id in result_ids:
             cell = states.get(node_id)
-            if not cell or not cell.last_run or node_id in stale_ids:
+            if not cell or not cell.last_run or cell.status != "done":
                 status = cell.status if cell and cell.status != "done" else "stale"
                 problems.append(f"{name}: run the notebook to refresh this result ({status}).")
                 continue
@@ -144,22 +129,49 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
     )
 
 
-def inputs_match(cell: NotebookCellState, run: NotebookNodeRun, notebook: Notebook) -> bool:
+def release_cell_states(notebook: Notebook, result_ids: set[str]) -> dict[str, NotebookCellState]:
+    if not result_ids:
+        return {}
+    cells = extract_cells(notebook.content)
+    build_dependency_edges(cells)
+    states = {cell.node_id: cell for cell in cells}
+    required: dict[str, NotebookCellState] = {}
+    pending = list(result_ids.intersection(states))
+    while pending:
+        node_id = pending.pop()
+        if node_id not in required:
+            required[node_id] = states[node_id]
+            pending.extend(states[node_id].depends_on)
+    runs = annotate_run_state(list(required.values()), notebook.team_id, notebook, for_release=True)
+    variables = build_notebook_variables(notebook.variables or [])
+    for cell in required.values():
+        if cell.status == "done" and not inputs_match(cell, runs[cell.node_id], variables):
+            cell.status = "stale"
+    pending = [node_id for node_id, cell in required.items() if cell.status != "done"]
+    while pending:
+        for dependent in required[pending.pop()].dependents:
+            if dependent in required and required[dependent].status == "done":
+                required[dependent].status = "stale"
+                pending.append(dependent)
+    return required
+
+
+def inputs_match(cell: NotebookCellState, run: NotebookNodeRun, current: list[NotebookVariable]) -> bool:
     if (
         str(run.connection_id) if run.connection_id else None
     ) != cell.connection_id or run.send_raw_query != cell.send_raw_query:
         return False
     if run.node_type not in (NotebookNodeRun.NodeType.PYTHON, NotebookNodeRun.NodeType.DUCKDB):
         return True
-    current = build_notebook_variables(notebook.variables or [])
-    previous = build_notebook_variables(run.notebook_run.variables if run.notebook_run else [])
-    current_values = python_variable_bindings(current)
-    previous_values = python_variable_bindings(previous)
-    if run.node_type == NotebookNodeRun.NodeType.PYTHON:
-        names = set(analyze_python_globals(cell.code).used) & (current_values.keys() | previous_values.keys())
-    else:
-        names = set(substitute_duckdb_variables(cell.code, current)[1])
-    return all(
-        name in current_values and name in previous_values and current_values[name] == previous_values[name]
-        for name in names
+    python = run.node_type == NotebookNodeRun.NodeType.PYTHON
+    # Python can read any bound name dynamically, including names that shadow builtins.
+    expected = python_variable_bindings(current) if python else substitute_duckdb_variables(cell.code, current)[1]
+    previous = run.bound_variables
+    if previous is None:
+        if run.notebook_run is None:
+            return not python and not expected
+        old_namespace = python_variable_bindings(build_notebook_variables(run.notebook_run.variables))
+        previous = old_namespace if python else {key: old_namespace[key] for key in expected if key in old_namespace}
+    return expected.keys() == previous.keys() and all(
+        type(value) is type(previous[name]) and value == previous[name] for name, value in expected.items()
     )
