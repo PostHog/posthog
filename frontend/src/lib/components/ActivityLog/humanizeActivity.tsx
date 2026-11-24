@@ -148,6 +148,7 @@ export function humanize(
         if (description !== null) {
             const workload = parseWorkloadAttribution(logItem)
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
+            const projectKeyName = projectKeyActorName(logItem)
             logLines.push({
                 id: logItem.id,
                 email: actorEmailForLogItem(logItem),
@@ -156,8 +157,8 @@ export function humanize(
                     ? workloadActorLabel(workload)
                     : logItem.was_impersonated
                       ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
-                      : (projectKeyActorName(logItem) ?? impersonatedUserName),
-                isSystem: logItem.is_system && logItem.credential_type !== 'project_secret_key',
+                      : (projectKeyName ?? impersonatedUserName),
+                isSystem: logItem.is_system && !projectKeyName,
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
                 description,
@@ -174,7 +175,10 @@ export function humanize(
 }
 
 function projectKeyActorName(logItem: ActivityLogItem): string | undefined {
-    if (logItem.credential_type === 'project_secret_key') {
+    if (
+        logItem.credential_type === 'project_secret_key' &&
+        (logItem.scope === ActivityScope.SCORE_DEFINITION || logItem.scope === ActivityScope.TRACE_REVIEW)
+    ) {
         return logItem.credential_id ? `Project key ${logItem.credential_id}` : 'Project key'
     }
     return undefined

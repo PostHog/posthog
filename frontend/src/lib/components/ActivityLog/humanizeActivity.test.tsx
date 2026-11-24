@@ -7,6 +7,7 @@ import {
     Describer,
     Description,
     defaultDescriber,
+    humanize,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -267,6 +268,23 @@ describe('humanizeActivity', () => {
         ).toBe(expected)
     })
 
+    it.each([
+        [ActivityScope.SCORE_DEFINITION, false, 'Project key example-key-id', false],
+        [ActivityScope.TRACE_REVIEW, true, 'Project key example-key-id', false],
+        [ActivityScope.PERSON, true, 'PostHog', true],
+    ] as const)('renders the project-key actor for %s', (scope, storedAsSystem, expectedName, displayedAsSystem) => {
+        const logItem = makeLogItem({
+            scope,
+            is_system: storedAsSystem,
+            credential_type: 'project_secret_key',
+            credential_id: 'example-key-id',
+        })
+        const [row] = humanize([logItem], () => defaultDescriber)
+
+        expect(render(<ActivityLogUserName logItem={logItem} />).container.textContent).toBe(expectedName)
+        expect(row.isSystem).toBe(displayedAsSystem)
+    })
+
     describe('userNameForLogItem', () => {
         it.each([
             [
@@ -286,11 +304,6 @@ describe('humanizeActivity', () => {
             ],
             ['falls back to the placeholder when there is no user', {}, 'A user'],
             ['renders system activity as PostHog', { is_system: true }, 'PostHog'],
-            [
-                'identifies the project key even on older system-classified rows',
-                { is_system: true, credential_type: 'project_secret_key' as const, credential_id: 'example-key-id' },
-                'Project key example-key-id',
-            ],
             [
                 'falls back to email for impersonated actors with a blank name',
                 { was_impersonated: true, user: { first_name: '', last_name: '', email: 'ada@posthog.com' } },

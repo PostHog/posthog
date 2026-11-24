@@ -13,6 +13,7 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiRespo
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -432,6 +433,14 @@ class ScoreDefinitionViewSet(
             )
         return definitions
 
+    def _get_locked_definition(self) -> ScoreDefinition:
+        # The current version determines which inputs the caller must be allowed to see.
+        get_object_or_404(
+            ScoreDefinition.objects.filter(team_id=self.team_id).select_for_update().values_list("pk", flat=True),
+            pk=self.kwargs["pk"],
+        )
+        return self.get_object()
+
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
@@ -596,9 +605,14 @@ class ScoreDefinitionViewSet(
         )
 
     @transaction.atomic
-    def _create_definition_version(
-        self, definition: ScoreDefinition, validated_data: dict[str, Any]
-    ) -> ScoreDefinition:
+    def _create_definition_version(self, request: Request) -> ScoreDefinition:
+        definition = self._get_locked_definition()
+        serializer = ScoreDefinitionNewVersionSerializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
+        )
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
         composition = validated_data.get("composition")
         CompositeScorers.validate(
             composition=composition,
@@ -608,9 +622,6 @@ class ScoreDefinitionViewSet(
             team_id=self.team_id,
             user_access_control=self.reference_access_control,
         )
-        definition.refresh_from_db(
-            from_queryset=ScoreDefinition.objects.filter(team_id=self.team_id).select_for_update()
-        )
         previous_editor_id = definition.updated_by_id
         definition.create_new_version(
             config=validated_data["config"],
@@ -619,7 +630,6 @@ class ScoreDefinitionViewSet(
             base_version=validated_data.get("base_version"),
             composition=composition,
         )
-        # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
         definition.refresh_from_db()
         changed_fields = self._update_definition_metadata(
             definition,
@@ -688,10 +698,7 @@ class ScoreDefinitionViewSet(
     )
     @transaction.atomic
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        definition = self.get_object()
-        definition.refresh_from_db(
-            from_queryset=ScoreDefinition.objects.filter(team_id=self.team_id).select_for_update()
-        )
+        definition = self._get_locked_definition()
         previous_editor_id = definition.updated_by_id
         changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
         self._audit_scorer_edit(definition, changed_fields, previous_editor_id)
@@ -763,15 +770,8 @@ class ScoreDefinitionViewSet(
         required_scopes=["llm_analytics:write"],
     )
     def new_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        definition = self.get_object()
-        serializer = ScoreDefinitionNewVersionSerializer(
-            data=request.data,
-            context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
-        )
-        serializer.is_valid(raise_exception=True)
-
         try:
-            definition = self._create_definition_version(definition, dict(serializer.validated_data))
+            definition = self._create_definition_version(request)
         except StaleScoreDefinitionVersion as err:
             return Response(
                 {
