@@ -136,13 +136,15 @@ pub(super) async fn attach_distinct_ids(
     Ok(outcomes)
 }
 
-/// Caps how long a batch waits for one row lock. Every row's dead-person and
-/// mark checks read the snapshot that the statement takes when it starts.
-/// While the statement waits on a row of one call, a delete saga can mark
-/// and destroy the person of another call, which leaves a live mapping to a
-/// dead person. The cap keeps that window short. A batch that times out
-/// reruns each call alone, and a lone call waits as long as it needs.
-const SET_BATCH_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '100ms'";
+/// Caps how long a batch waits for one row lock, and for all of them
+/// together. Every row's dead-person and mark checks read the snapshot that
+/// the statement takes when it starts. While the statement waits on a row of
+/// one call, a delete saga can mark and destroy the person of another call,
+/// which leaves a live mapping to a dead person. The caps keep that window
+/// short. A batch that times out reruns each call alone, and a lone call
+/// waits as long as it needs.
+const SET_BATCH_TIMEOUTS: &str = "SELECT set_config('lock_timeout', '100ms', true), \
+     set_config('statement_timeout', '250ms', true)";
 
 /// The attaches of several persons in one statement, with the same guards
 /// and per-row outcomes as [`attach_distinct_ids`]. A batch of one attach
@@ -239,12 +241,9 @@ pub(super) async fn attach_batch(
     };
     let mut conn = pools.acquire(Lane::Heavy).await?;
     let mut tx = sqlx::Connection::begin(&mut *conn).await?;
-    sqlx::query(&query_tag!(
-        "attach_batch_lock_timeout",
-        SET_BATCH_LOCK_TIMEOUT
-    ))
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query(&query_tag!("attach_batch_timeouts", SET_BATCH_TIMEOUTS))
+        .execute(&mut *tx)
+        .await?;
     let rows = sqlx::query(&tagged)
         .bind(&team_ids)
         .bind(&person_ids)

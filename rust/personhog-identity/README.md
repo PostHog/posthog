@@ -38,7 +38,7 @@ With workers on, pool and query metrics for stub creation carry `client="batched
 A MergePersons call that attaches personless distinct ids writes them in one autocommit statement, so each call pays its own commit.
 `ATTACH_WORKERS` above 0 runs every attach on its own set of worker tasks, with the same batching, rerun and refusal rules as stub creation: `ATTACH_MAX_BATCH_DISTINCT_IDS` (default 50) caps the distinct ids of one statement, and `ATTACH_MAX_QUEUED_CALLS` (default 1000) caps the calls that wait.
 A batch of more than one call runs as one `attach_batch_mappings` statement (`attach_batch_mappings_with_outbox` with outbox writes on), with the same per-row guards and outcomes as a lone attach.
-That statement waits at most 100 ms for a row lock, because every row's guards read the snapshot from when the statement started; a batch that times out reruns each call alone.
+That statement waits at most 100 ms for one row lock and runs at most 250 ms in total, because every row's guards read the snapshot from when the statement started; a batch that times out reruns each call alone.
 A batch of one runs the lone `attach_mappings` statement.
 A refused attach fails its MergePersons call with INTERNAL, as a heavy-pool acquire timeout does.
 The default, `ATTACH_WORKERS=0`, runs each attach on the calling task.

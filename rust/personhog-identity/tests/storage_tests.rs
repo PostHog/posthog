@@ -1269,6 +1269,64 @@ async fn a_batch_blocked_on_one_row_stops_waiting_at_the_lock_timeout() {
     ctx.cleanup().await.ok();
 }
 
+// Each wait ends before the lock timeout, so only the statement-wide cap
+// stops the batch. A slow runner can stretch one wait past the lock timeout,
+// which also ends the batch, so either timeout passes.
+#[tokio::test]
+async fn a_batch_that_waits_on_row_after_row_stops_at_the_statement_timeout() {
+    let ctx = TestContext::new().await;
+    let owner = ctx.insert_person_with_distinct_id("waits-owner").await;
+    let held_ids: Vec<String> = (0..6).map(|i| format!("waits-held-{i}")).collect();
+    let mut holders = Vec::new();
+    for distinct_id in &held_ids {
+        let mut held = ctx.pool.begin().await.expect("begin held tx");
+        sqlx::query(
+            "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) \
+             VALUES ($1, $2, $3, 0)",
+        )
+        .bind(distinct_id)
+        .bind(owner)
+        .bind(ctx.team_id as i32)
+        .execute(&mut *held)
+        .await
+        .expect("hold the mapping row");
+        holders.push(held);
+    }
+    let releases = tokio::spawn(async move {
+        for held in holders {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            held.rollback().await.expect("release one held row");
+        }
+    });
+
+    let attempt = tokio::time::timeout(
+        Duration::from_secs(5),
+        ctx.storage.attach_distinct_ids_batch(&[
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: owner,
+                distinct_ids: vec!["waits-free".to_string()],
+            },
+            PersonAttach {
+                team_id: ctx.team_id,
+                person_id: owner,
+                distinct_ids: held_ids.clone(),
+            },
+        ]),
+    )
+    .await
+    .expect("the batch outlived its statement timeout");
+    releases.await.expect("release the held rows");
+
+    assert!(
+        matches!(attempt, Err(StorageError::Timeout { .. })),
+        "expected a timeout, got {attempt:?}"
+    );
+    assert_eq!(ctx.distinct_id_state("waits-free").await, None);
+
+    ctx.cleanup().await.ok();
+}
+
 /// (distinct_id, owner uuid, version) of every live mapping of this team.
 async fn live_mappings(ctx: &TestContext) -> BTreeSet<(String, Uuid, i64)> {
     let rows: Vec<(String, Uuid, i64)> = sqlx::query_as(
