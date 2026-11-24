@@ -1,10 +1,11 @@
 import json
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -243,6 +244,19 @@ class TestPrinter(BaseTest):
             sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
         assert f"greater({floored_column}, minus(now" in sql
+
+    @parameterized.expand([("applied", True, True), ("deletion_path", False, False)])
+    def test_flag_evaluations_coverage_floor(self, _name: str, apply_events_retention_floor: bool, floored: bool):
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, apply_events_retention_floor=apply_events_retention_floor
+        )
+        with (
+            time_machine.travel(datetime(2026, 11, 24, 12, tzinfo=UTC), tick=False),
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+        ):
+            sql = self._select("select count() from posthog.flag_evaluations", context=context)
+        floor = "greaterOrEquals(flag_evaluations.timestamp, toDateTime64('2026-08-25 00:00:00.000000', 6, 'UTC'))"
+        assert (floor in sql) == floored
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):

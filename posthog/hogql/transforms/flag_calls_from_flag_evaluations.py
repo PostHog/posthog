@@ -286,7 +286,7 @@ def _resolve_with_swaps(
         rewritten = clone_expr(node)
         clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
-            now=datetime.now(UTC),
+            now=context.flag_calls_now(),
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
             flag_key_compares_as_string=compares_as_string,

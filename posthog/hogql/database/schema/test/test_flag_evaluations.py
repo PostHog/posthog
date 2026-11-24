@@ -1863,7 +1863,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("FROM flag_evaluations" in rewritten.clickhouse) is swaps
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
-        self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)
+        # The printed coverage floor is a date, so the snapshot needs a fixed clock.
+        with time_machine.travel(datetime(2026, 11, 24, 12, tzinfo=UTC), tick=False):
+            printed = self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse
+        self.assertQueryMatchesSnapshot(printed)
 
     def _create_lazy_join_sources(self) -> None:
         # Each join can reach both calls. Only the events-only call is in events, and only the setUp row is in
