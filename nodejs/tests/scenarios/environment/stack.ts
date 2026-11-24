@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
+import net from 'net'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
 import { Client, DatabaseError } from 'pg'
@@ -399,7 +400,22 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export type ProbeFailure = { name: string; reason: string; unanswered: boolean }
+// The kernel completes a connect to a listening socket without the server's event loop, so a busy runner that hosts
+// the provider edge cannot make it look gone.
+export async function accepts(url: string): Promise<void> {
+    const { hostname, port } = new URL(url)
+    await new Promise<void>((resolve, reject) => {
+        const socket = net.connect({ host: hostname, port: Number(port) })
+        socket.setTimeout(PROBE_TIMEOUT_MS, () => socket.destroy(new Error(`connect to ${hostname}:${port} timed out`)))
+        socket.once('connect', () => {
+            socket.destroy()
+            resolve()
+        })
+        socket.once('error', reject)
+    })
+}
+
+export type ProbeFailure = { name: string; reason: string; unanswered: boolean; hostLimit?: string }
 
 export type Probes = Record<string, () => Promise<unknown>>
 
@@ -414,11 +430,17 @@ export function dependencyProbes(
         redis: () => pingRedis(STACK.redis),
         'ses-rate-limiter-valkey': () => pingRedis(sesValkey),
         personhog: () => expectOk(STACK.personhogReadinessUrl),
-        'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
+        'provider-edge': () => (edgeUrl ? accepts(edgeUrl) : Promise.reject(new Error('not started'))),
     }
 }
 
 const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
+
+const HOST_LIMITS: Record<string, string> = {
+    EADDRNOTAVAIL: 'local ports',
+    EMFILE: 'file descriptors',
+    ENFILE: 'file descriptors',
+}
 
 const TIMER_SLACK_MS = 10
 
@@ -431,6 +453,10 @@ const isTypedAnswer = (error: unknown): boolean =>
 const isAnswer = (error: unknown): boolean =>
     isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
 
+const hostLimitOf = (error: unknown): string | undefined =>
+    HOST_LIMITS[String(codeOf(error))] ??
+    (error instanceof Error ? HOST_LIMITS[String(codeOf(error.cause))] : undefined)
+
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
         Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
@@ -441,7 +467,13 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
             } catch (error) {
                 const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
-                return { name, reason, unanswered: ranOutItsClock && !isAnswer(error) }
+                const hostLimit = hostLimitOf(error)
+                return {
+                    name,
+                    reason,
+                    unanswered: ranOutItsClock && !isAnswer(error),
+                    ...(hostLimit ? { hostLimit } : {}),
+                }
             }
         })
     )

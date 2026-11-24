@@ -8,7 +8,8 @@ export type DependencyLoss = {
     at: number
     reason: string
     runnerBusy: number
-    kind: 'gone' | 'unheard' | 'recovered'
+    kind: 'gone' | 'unheard' | 'host-limit' | 'recovered'
+    hostLimit?: string
 }
 
 type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
@@ -27,23 +28,41 @@ async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
 }
 
-// The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
-// out against healthy services.
+// The probes run on their own thread, but a host busy enough to saturate the runner's loop can still starve that
+// thread. So a probe that ran out its budget without an answer while the runner was busy is a harness limit.
 const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
+
+const limited = (failure: ProbeFailure, attempt: Attempt): boolean =>
+    failure.hostLimit !== undefined || excused(failure, attempt)
+
+function kindOf(
+    failure: ProbeFailure,
+    again: ProbeFailure | undefined,
+    first: Attempt,
+    second: Attempt
+): DependencyLoss['kind'] {
+    if (again === undefined) {
+        return 'recovered'
+    }
+    if (!limited(failure, first) || !limited(again, second)) {
+        return 'gone'
+    }
+    return (failure.hostLimit ?? again.hostLimit) ? 'host-limit' : 'unheard'
+}
 
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
     return first.failures.map((failure) => {
         const again = second.failures.find(({ name }) => name === failure.name)
-        const kind =
-            again === undefined ? 'recovered' : excused(failure, first) && excused(again, second) ? 'unheard' : 'gone'
         const last = again ?? failure
+        const hostLimit = again?.hostLimit ?? failure.hostLimit
         return {
             name: failure.name,
             at: first.at,
             reason: last.reason,
             runnerBusy: Math.max(first.runnerBusy, second.runnerBusy),
-            kind,
+            kind: kindOf(failure, again, first, second),
+            ...(hostLimit ? { hostLimit } : {}),
         }
     })
 }
@@ -111,12 +130,23 @@ function unheardReasonOf(unheard: readonly DependencyLoss[], steps: readonly Ste
     return `the runner's event loop was too busy to check ${each} (busy ${busy}% of the check), a harness limit: the run cannot tell whether they stayed up`
 }
 
+function hostLimitReasonOf(limited: readonly DependencyLoss[], steps: readonly StepWindow[]): string {
+    return limited
+        .map(
+            ({ name, at, reason, hostLimit }) =>
+                `the run host ran out of ${hostLimit} to check ${name} ${whenOf(at, steps)} (${reason}), a harness limit: the run cannot tell whether it stayed up`
+        )
+        .join('; ')
+}
+
 export function dependencyReasonOf(down: readonly DependencyLoss[], steps: readonly StepWindow[]): string | undefined {
     const gone = firstOfEach(down.filter(({ kind }) => kind === 'gone'))
     const unheard = firstOfEach(down.filter(({ kind }) => kind === 'unheard'))
+    const hostLimited = firstOfEach(down.filter(({ kind }) => kind === 'host-limit'))
     const reasons = [
         ...(gone.length > 0 ? [goneReasonOf(gone, steps)] : []),
         ...(unheard.length > 0 ? [unheardReasonOf(unheard, steps)] : []),
+        ...(hostLimited.length > 0 ? [hostLimitReasonOf(hostLimited, steps)] : []),
     ]
     return reasons.length > 0 ? reasons.join('; ') : undefined
 }

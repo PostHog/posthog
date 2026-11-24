@@ -3,7 +3,8 @@ import net, { AddressInfo } from 'net'
 
 import { defaultConfig } from '~/common/config/config'
 
-import { PROBE_TIMEOUT_MS, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
+import { startProbeProcess } from '../environment/probe-process'
+import { PROBE_TIMEOUT_MS, ProbeFailure, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
@@ -54,15 +55,15 @@ describe('dependency watch', () => {
         return { 'provider-edge': providerEdge, postgres }
     }
 
-    const watched = async (
-        probes: Probes,
+    const watching = async (
+        failing: () => Promise<ProbeFailure[]>,
         runnerBlocksMs = 0
     ): Promise<{ losses: DependencyLoss[]; reason?: string }> => {
         const startedAt = Date.now()
         const saturating = runnerBlocksMs > 0 ? setInterval(() => busyFor(runnerBlocksMs), 5) : undefined
         try {
-            const check = (): ReturnType<typeof failedProbes> => {
-                const checking = failedProbes(probes)
+            const check = (): Promise<ProbeFailure[]> => {
+                const checking = failing()
                 busyFor(runnerBlocksMs)
                 return checking
             }
@@ -74,19 +75,53 @@ describe('dependency watch', () => {
         }
     }
 
-    it('names a harness limit at the step when the runner is too busy to hear healthy dependencies', async () => {
-        const { reason } = await watched(edgeAndPostgres(POSTGRES), RUNNER_BLOCKS_MS)
+    const watched = (probes: Probes, runnerBlocksMs = 0): ReturnType<typeof watching> =>
+        watching(() => failedProbes(probes), runnerBlocksMs)
+
+    const watchedFromProcess = async (
+        edgeUrl: string,
+        postgresUrl: string,
+        runnerBlocksMs = 0
+    ): ReturnType<typeof watching> => {
+        const probes = startProbeProcess({
+            edgeUrl,
+            postgresUrl,
+            sesValkey: VALKEY,
+            only: ['provider-edge', 'postgres'],
+        })
+        try {
+            return await watching(() => probes.check(), runnerBlocksMs)
+        } finally {
+            probes.close()
+        }
+    }
+
+    it('hears healthy dependencies from its own process while the runner is too busy to answer', async () => {
+        const { losses } = await watchedFromProcess(edge.url, POSTGRES, RUNNER_BLOCKS_MS)
+
+        expect(losses).toEqual([])
+    }, 30_000)
+
+    it('names dependencies that went away from its own process, with their step and error', async () => {
+        const closed = await startProviderEdge({ port: 0 })
+        await closed.close()
+
+        const { reason } = await watchedFromProcess(closed.url, UNREACHABLE_POSTGRES)
 
         expect(reason).toMatch(
-            /^the runner's event loop was too busy to check provider-edge in the 320x step, postgres in the 320x step \(busy \d+% of the check\), a harness limit: the run cannot tell whether they stayed up$/
+            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\), provider-edge in the 320x step \(connect ECONNREFUSED .*\)$/
         )
     }, 30_000)
 
-    it('names a dependency that went away while the runner was idle, with its step and error', async () => {
-        const { reason } = await watched(edgeAndPostgres(UNREACHABLE_POSTGRES))
+    it('names a harness limit when the run host has no local port left to check a dependency', async () => {
+        const noPort = Object.assign(new Error('connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)'), {
+            code: 'EADDRNOTAVAIL',
+        })
 
-        expect(reason).toMatch(
-            /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\)$/
+        const { reason } = await watched({ 'provider-edge': () => Promise.reject(noPort) })
+
+        expect(reason).toBe(
+            'the run host ran out of local ports to check provider-edge in the 320x step (connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)), a harness limit: the run cannot tell whether it stayed up'
         )
     })
 
