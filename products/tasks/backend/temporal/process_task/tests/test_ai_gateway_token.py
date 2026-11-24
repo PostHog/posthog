@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 
 class TestResolveSandboxAiProduct:
-    """Must agree with resolveAiProduct/resolveGatewayProduct in
+    """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
     routed run mint no token (degrades to Python) or mint an unused token."""
 
@@ -157,14 +157,10 @@ class TestSharedRoutingContract:
         "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
     )
     def test_resolve_matches_contract(self, case):
-        assert (
-            resolve_sandbox_ai_product(
-                case["origin_product"],
-                case["ai_stage"],
-                internal=case["internal"],
-            )
-            == case["expected"]
-        )
+        assert [
+            resolve_sandbox_ai_product(case["origin_product"], None, internal=case["internal"]),
+            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"]),
+        ] == [case["product"], case["expected"]]
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
