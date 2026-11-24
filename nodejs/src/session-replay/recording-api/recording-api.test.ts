@@ -789,6 +789,103 @@ describe('RecordingApi', () => {
         })
     })
 
+    describe('staff tokens', () => {
+        const STAFF_SECRET = 'recording-api-staff-test-secret'
+        const KEY = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
+        let app: express.Application
+        let server: Server
+
+        const staffToken = (claims: Record<string, unknown> = {}): string =>
+            `Bearer ${new JWT(STAFF_SECRET).sign(
+                { team_id: 1, op: 'read', actor: 'staff@example.com', reason: 'ticket 1', ...claims },
+                PosthogJwtAudience.RECORDING_API_STAFF,
+                { expiresIn: '15m' }
+            )}`
+
+        beforeEach(async () => {
+            const recordingApi = new RecordingApi(
+                {
+                    RECORDING_API_JWT_SECRET: 'recording-api-test-secret',
+                    RECORDING_API_STAFF_JWT_SECRET: STAFF_SECRET,
+                } as RecordingApiConfig,
+                mockPostgres,
+                mockOutputs
+            )
+            await recordingApi.start(mockService)
+            app = express()
+            app.use(express.json())
+            app.use('/', recordingApi.router())
+            server = app.listen(0, () => {})
+            mockService.listBlocks.mockResolvedValue([
+                { key: KEY, start_byte: 0, end_byte: 999, start_timestamp: '', end_timestamp: '' },
+            ])
+            mockService.getBlockByRef.mockResolvedValue({ ok: true, data: Buffer.from('{"type":2}') })
+            mockService.encryptBlocks.mockResolvedValue({ ok: true, blocks: [Buffer.from('sealed')] })
+        })
+
+        afterEach(() => {
+            server.close()
+        })
+
+        it('reads a block by its ref', async () => {
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/blocks/v1.abc')
+                .set('Authorization', staffToken())
+
+            expect(res.status).toBe(200)
+            expect(mockService.getBlockByRef).toHaveBeenCalledWith(
+                1,
+                'session-123',
+                'v1.abc',
+                expect.any(Function),
+                expect.any(Number)
+            )
+        })
+
+        it('refuses to read a block by raw key', async () => {
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/block')
+                .query({ key: KEY, start_byte: '0', end_byte: '100' })
+                .set('Authorization', staffToken())
+
+            expect(res.status).toBe(403)
+            expect(mockService.getBlock).not.toHaveBeenCalled()
+        })
+
+        it('lists blocks', async () => {
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/blocks')
+                .set('Authorization', staffToken())
+
+            expect(res.status).toBe(200)
+        })
+
+        it.each([
+            [
+                'the encrypt route',
+                () => supertest(app).post('/api/projects/1/recordings/session-123/encrypt').send({}),
+                401,
+            ],
+            [
+                'a GET route that is not a block route',
+                () => supertest(app).get('/api/projects/1/recordings/session-123'),
+                403,
+            ],
+        ])('refuses %s', async (_, request, expectedStatus) => {
+            const res = await request().set('Authorization', staffToken())
+
+            expect(res.status).toBe(expectedStatus)
+        })
+
+        it('refuses a token issued in the future', async () => {
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/blocks')
+                .set('Authorization', staffToken({ iat: Math.floor(Date.now() / 1000) + 3600 }))
+
+            expect(res.status).toBe(403)
+        })
+    })
+
     describe('browser block route', () => {
         const JWT_SECRET = 'recording-api-test-secret'
         const BLOCKS_JWT_SECRET = 'recording-api-blocks-test-secret'
