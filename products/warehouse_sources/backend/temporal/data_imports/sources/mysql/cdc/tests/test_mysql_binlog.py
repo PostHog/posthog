@@ -26,9 +26,21 @@ def _execute(conn, *statements):
 
 
 class TestVisiblePosition:
-    def test_waits_for_a_writing_transaction_open_when_the_position_was_read(self, mysql_server, root_conn, table):
+    @pytest.mark.parametrize(
+        "open_statements,finish",
+        [
+            (["BEGIN"], "COMMIT"),
+            # A transaction prepared before the pin has its rows before it and its XA COMMIT after it, so the
+            # pin must wait for the commit, and the snapshot after the pin reads its rows.
+            (["XA START 'pinned'", "XA END 'pinned'", "XA PREPARE 'pinned'"], "XA COMMIT 'pinned'"),
+        ],
+        ids=["transaction", "prepared_xa_transaction"],
+    )
+    def test_waits_for_a_writing_transaction_open_when_the_position_was_read(
+        self, mysql_server, root_conn, table, open_statements, finish
+    ):
         writer = connect(mysql_server)
-        _execute(writer, "BEGIN", f"INSERT INTO {table} VALUES (1, 'a')")
+        _execute(writer, open_statements[0], f"INSERT INTO {table} VALUES (1, 'a')", *open_statements[1:])
         result: list[BinlogPosition] = []
         reader = threading.Thread(target=lambda: result.append(binlog.visible_position(root_conn, epoch=0)))
         reader.start()
@@ -36,7 +48,7 @@ class TestVisiblePosition:
             reader.join(timeout=1)
             assert reader.is_alive()
         finally:
-            _execute(writer, "COMMIT")
+            _execute(writer, finish)
             writer.close()
         reader.join(timeout=10)
         assert not reader.is_alive()
