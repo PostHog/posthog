@@ -938,7 +938,7 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
 
 
 def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
-    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments}
+    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments, "reply_headers": email.reply_headers}
     return next((field for field, value in fields.items() if value), None)
 
 

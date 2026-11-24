@@ -34,7 +34,14 @@ from posthog.rate_limit import is_rate_limit_enabled
 from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.messaging.backend.facade.transactional_email import report_first_code_send
+from products.messaging.backend.facade.contracts import SandboxFieldsUnsupported
+from products.messaging.backend.facade.transactional_email import (
+    CodeEmail,
+    EmailTracking,
+    ReplyHeaders,
+    report_first_code_send,
+    send_code_email,
+)
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -1902,6 +1909,27 @@ class TestTransactionalEmail(APIBaseTest):
         assert (body["type"], body["code"], body["attr"]) == ("invalid_request", "sandbox_fields_unsupported", field)
         assert self._setup_url(None) in body["detail"]
         assert self._sandbox_senders() == []
+        assert pipeline.queued == []
+
+    def test_refuses_a_reply_the_sandbox_sender_cannot_thread(self, mock_post, _flag, _capture):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        reply = CodeEmail(
+            key="support-reply",
+            subject="Re: help",
+            html="<p>Hi</p>",
+            text="Hi",
+            sender=None,
+            reply_to=(),
+            tracking=EmailTracking(),
+            reply_headers=ReplyHeaders(in_reply_to="<parent@example.com>"),
+        )
+
+        with pytest.raises(SandboxFieldsUnsupported) as refused:
+            send_code_email(self.team, reply, to="customer@example.com", distinct_id=None)
+
+        assert refused.value.attr == "reply_headers"
         assert pipeline.queued == []
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
