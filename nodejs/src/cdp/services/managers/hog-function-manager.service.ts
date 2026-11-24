@@ -36,6 +36,11 @@ const HOG_FUNCTION_FIELDS = [
 
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
 
+// Transformations rewrite events at ingestion, such as to drop personal data, so they keep running for a
+// deactivated organization.
+const runsForDeactivatedOrganizations = (hogFunction: Pick<HogFunctionType, 'type'>): boolean =>
+    hogFunction.type === 'transformation'
+
 // /**
 //  * Sorts HogFunctions by their execution_order and creation date.
 //  * Functions with no execution_order are placed at the end.
@@ -206,7 +211,11 @@ export class HogFunctionManagerService {
 
         const hogFunctionsByTeam: Record<string, HogFunctionTeamInfo[]> = {}
 
-        for (const item of withoutDeactivatedOrganizations('hog_function', response.rows)) {
+        for (const item of withoutDeactivatedOrganizations(
+            'hog_function',
+            response.rows,
+            runsForDeactivatedOrganizations
+        )) {
             const teamId = item.team_id.toString()
             if (!hogFunctionsByTeam[teamId]) {
                 hogFunctionsByTeam[teamId] = []
@@ -227,7 +236,11 @@ export class HogFunctionManagerService {
             'fetchHogFunctions'
         )
 
-        const hogFunctions = withoutDeactivatedOrganizations('hog_function', response.rows)
+        const hogFunctions = withoutDeactivatedOrganizations(
+            'hog_function',
+            response.rows,
+            runsForDeactivatedOrganizations
+        )
 
         this.sanitize(hogFunctions)
 

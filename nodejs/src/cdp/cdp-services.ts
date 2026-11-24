@@ -151,7 +151,6 @@ export interface CdpCoreServices {
 
 export type CdpCoreServicesConfig = Pick<
     CommonConfig,
-    | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
     | 'REDIS_URL'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'
@@ -162,6 +161,7 @@ export type CdpCoreServicesConfig = Pick<
     UsageIngestionConfig &
     Pick<
         CdpConfig,
+        | 'CDP_SKIP_DEACTIVATED_ORGANIZATIONS'
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
