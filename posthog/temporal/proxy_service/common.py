@@ -17,6 +17,7 @@ from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
+from posthog.models.proxy_record import CLOUDFLARE_RECOVERY_STATES, CloudflareActivationState
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import a_schedule_exists
@@ -105,13 +106,18 @@ def _update_record(*, proxy_record_id: uuid.UUID, message: str | None, status: s
         updates["message"] = message
     if status is not None:
         updates["status"] = status
-    if status == ProxyRecord.Status.VALID and records.filter(needs_activation_recovery=True).exists():
+    if (
+        status == ProxyRecord.Status.VALID
+        and records.filter(cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES).exists()
+    ):
         from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
 
-        # Cleanup must see the final status if it runs after recovery clears the flag.
+        # Cleanup must see the final status if it runs after recovery completes.
         with cloudflare_proxy_lock(proxy_record_id):
-            active_records = records.filter(cloudflare_deprovisioned=False).exclude(organization__is_active=False)
-            if active_records.update(**updates, needs_activation_recovery=False):
+            active_records = records.filter(
+                cloudflare_activation_state=CloudflareActivationState.RECOVERY_PENDING
+            ).exclude(organization__is_active=False)
+            if active_records.update(**updates, cloudflare_activation_state=CloudflareActivationState.IDLE):
                 return
 
     # A failed deletion and late provisioning updates must not erase deletion intent.
