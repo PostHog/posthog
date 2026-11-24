@@ -206,7 +206,7 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         thread: z
-            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).readonly() })
+            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).max(100).readonly() })
             .strict()
             .readonly()
             .optional(),

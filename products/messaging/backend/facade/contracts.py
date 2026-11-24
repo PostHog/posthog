@@ -191,7 +191,7 @@ class EmailAttachment:
 
 @frozen
 class ReplyHeaders:
-    """Message-IDs, each in angle brackets, that thread a reply under the message it answers."""
+    """Message-IDs, each in angle brackets, that thread a reply under the message it answers. At most 100 references."""
 
     in_reply_to: str
     references: tuple[str, ...] = ()
