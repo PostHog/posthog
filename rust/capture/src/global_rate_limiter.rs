@@ -125,6 +125,9 @@ struct LimiterSpec<'a> {
     dry_run: bool,
     /// Counter a dry run increments for each check it would have limited.
     dry_run_metric: &'static str,
+    /// Write the dry-run warn line once per key per window instead of once per
+    /// check. The counter still counts every check.
+    log_dry_run_once_per_window: bool,
 }
 
 /// The window the AI byte budget is enforced over, and the env var that
@@ -154,6 +157,9 @@ pub struct GlobalRateLimiter {
     dry_run: bool,
     dry_run_metric: &'static str,
     metrics_scope: Arc<str>,
+    /// Keys that already wrote a dry-run warn line in this window. `None` logs
+    /// every check.
+    dry_run_logged: Option<moka::sync::Cache<String, ()>>,
 }
 
 impl GlobalRateLimiter {
@@ -186,6 +192,7 @@ impl GlobalRateLimiter {
                 enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
                 dry_run: config.global_rate_limit_dry_run,
                 dry_run_metric: DRY_RUN_METRIC,
+                log_dry_run_once_per_window: false,
             },
         )
     }
@@ -217,6 +224,9 @@ impl GlobalRateLimiter {
                 // limiter enforces under the shared one.
                 dry_run: config.global_rate_limit_dry_run || config.global_rate_limit_token_dry_run,
                 dry_run_metric: TOKEN_DRY_RUN_METRIC,
+                // One over-limit token is a whole project, so a log line per
+                // event would write at that project's event rate.
+                log_dry_run_once_per_window: true,
             },
         )
     }
@@ -263,6 +273,7 @@ impl GlobalRateLimiter {
                 enable_dynamic_source: false,
                 dry_run: config.ai_byte_limit_dry_run,
                 dry_run_metric: DRY_RUN_METRIC,
+                log_dry_run_once_per_window: false,
             },
         )
     }
@@ -383,6 +394,12 @@ impl GlobalRateLimiter {
         };
 
         let dry_run = spec.dry_run;
+        let dry_run_logged = (dry_run && spec.log_dry_run_once_per_window).then(|| {
+            moka::sync::Cache::builder()
+                .max_capacity(spec.local_cache_max_entries)
+                .time_to_live(Duration::from_secs(spec.window_secs))
+                .build()
+        });
 
         let limiter = match CommonGlobalRateLimiterImpl::new(grl_config, redis_instances) {
             Ok(l) => l,
@@ -404,6 +421,7 @@ impl GlobalRateLimiter {
             dry_run,
             dry_run_metric: spec.dry_run_metric,
             metrics_scope: Arc::from(spec.metrics_scope),
+            dry_run_logged,
         })
     }
 
@@ -441,18 +459,27 @@ impl GlobalRateLimiter {
                     "key_type" => if response.is_custom_limited { "custom" } else { "global" },
                 )
                 .increment(1);
-                warn!(
-                    scope = &*self.metrics_scope,
-                    key = key,
-                    current_count = response.current_count,
-                    threshold = response.threshold,
-                    is_custom_limited = response.is_custom_limited,
-                    dry_run = true,
-                    "global rate limiter would have limited (dry run)"
-                );
+                if self.should_log_dry_run(key) {
+                    warn!(
+                        scope = &*self.metrics_scope,
+                        key = key,
+                        current_count = response.current_count,
+                        threshold = response.threshold,
+                        is_custom_limited = response.is_custom_limited,
+                        dry_run = true,
+                        "global rate limiter would have limited (dry run)"
+                    );
+                }
                 None
             }
             (result, _) => result,
+        }
+    }
+
+    fn should_log_dry_run(&self, key: &str) -> bool {
+        match &self.dry_run_logged {
+            None => true,
+            Some(logged) => logged.entry_by_ref(key).or_insert(()).is_fresh(),
         }
     }
 
@@ -605,6 +632,7 @@ impl GlobalRateLimiter {
             dry_run: false,
             dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
+            dry_run_logged: None,
         }
     }
 
@@ -634,6 +662,7 @@ impl GlobalRateLimiter {
             dry_run: false,
             dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
+            dry_run_logged: None,
         }
     }
 
@@ -649,6 +678,7 @@ impl GlobalRateLimiter {
             dry_run: true,
             dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
+            dry_run_logged: None,
         }
     }
 
@@ -967,6 +997,11 @@ mod tests {
             })
             .collect();
         assert_eq!(counters.get(TOKEN_DRY_RUN_METRIC), Some(&2));
+        assert!(
+            !limiter.should_log_dry_run("phc_flood"),
+            "a token already logged in this window must not log again"
+        );
+        assert!(limiter.should_log_dry_run("phc_other"));
         assert_eq!(
             counters.get(DRY_RUN_METRIC),
             None,
