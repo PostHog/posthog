@@ -60,7 +60,7 @@ _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
 # send to, so nobody passes until someone replaces it.
 _NOBODY: dict[str, Any] = {"key": "false", "type": "hogql", "value": None}
 _AUDIENCE_ID = "cio_audience"
-SEGMENT_TRIGGER_TYPES = frozenset({"seg_attr", "behavioral"})
+SEGMENT_TRIGGER_TYPES = ("seg_attr", "behavioral")
 STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
