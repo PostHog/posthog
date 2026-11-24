@@ -32,7 +32,7 @@ import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
-import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from '~/layout/today/todayRailItems'
+import { TODAY_PANES } from '~/layout/today/todayRailItems'
 import { TODAY_RAIL_PANES, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { membersLogic } from '~/models/membersLogic'
@@ -716,7 +716,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): SearchItem[] =>
                 featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
-                    ? [...TODAY_RAIL_PANES, ...TODAY_RAIL_FOOTER_PANES]
+                    ? // Settings opens from the account menu rather than a rail tile, but it is still a pane to search for.
+                      [...TODAY_RAIL_PANES, 'settings' as const]
                           .filter((pane) => isTodayPaneEnabled(pane, featureFlags))
                           .map((pane) => {
                               const { label, title, icon } = TODAY_PANES[pane]
