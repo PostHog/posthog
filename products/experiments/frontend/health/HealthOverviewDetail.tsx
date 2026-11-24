@@ -13,6 +13,7 @@ import type {
     ExperimentHealthExposureSetupApi,
     ExperimentHealthSetupApi,
 } from '../generated/api.schemas'
+import { healthAnalysisReadings } from './healthAnalysisReadings'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
 import type { HealthReading } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
@@ -218,6 +219,12 @@ export function HealthOverviewDetail({
             {setup && (
                 <HealthPanelSection title="Setup">
                     <HealthReadingList readings={setupReadings} />
+                </HealthPanelSection>
+            )}
+            {/* A server from before the analysis was reported sends none, for example while a deploy rolls out. */}
+            {setup?.analysis && (
+                <HealthPanelSection title="Analysis">
+                    <HealthReadingList readings={healthAnalysisReadings(setup.analysis)} />
                 </HealthPanelSection>
             )}
         </div>

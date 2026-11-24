@@ -7684,6 +7684,10 @@
         "BookActivityMatrixCell": {
             "additionalProperties": false,
             "properties": {
+                "agentUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through AI agents, such as MCP tool calls."
+                },
                 "column": {
                     "type": "string"
                 },
@@ -7693,8 +7697,13 @@
                 "series": {
                     "type": "string"
                 },
+                "uiUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product in the app."
+                },
                 "users": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through any channel. Each person counts once."
                 }
             },
             "required": ["row", "column", "series", "users"],
@@ -8162,6 +8171,10 @@
                         "$ref": "#/definitions/BookActivityPersonAction"
                     },
                     "type": "array"
+                },
+                "agentCalls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "AI agent calls, such as MCP tool calls, that qualified this person for the product."
                 },
                 "column": {
                     "description": "Bucket start, the same as `AccountActivityMatrixColumn.key`.",
@@ -27408,6 +27421,7 @@
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
+            "deprecated": "Use `ErrorTrackingIssueTagsFilter`.",
             "properties": {
                 "applied": {
                     "description": "True matches the issues the tag is applied to. False matches every other issue.",
@@ -27419,6 +27433,26 @@
                 }
             },
             "required": ["key", "applied"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "has": {
+                    "description": "Keys of tag definitions. Keeps the issues that have all of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hasNot": {
+                    "description": "Keys of tag definitions. Keeps the issues that have none of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "ErrorTrackingOrderBy": {
@@ -27538,7 +27572,18 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+                    "deprecated": "Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`."
+                },
+                "issueTags": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagsFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",

@@ -1,48 +1,35 @@
 """
 Temporal registration wiring for batch_exports.
 
-Re-exports what core registers with Temporal: the worker bootstrap commands
-(``start_temporal_worker``, ``start_temporal_workflow``, ``execute_temporal_workflow``)
-take ``WORKFLOWS`` and ``ACTIVITIES``, and ``posthog/temporal/common/worker.py`` takes the
-metrics interceptor.
+``TEMPORAL`` is the declaration that core's Temporal loaders read by name
+(``load_registrations``: the worker, the scheduler and the catalog). It is assigned here, and the
+module defines no ``__getattr__``, so a static reader sees what it registers. Building it imports
+every destination's vendor SDK (databricks, snowflake, bigquery, ...), so this module may only be
+imported where those loaders run, never on the startup path;
+``posthog/test/repo_invariants/test_startup_import_budget.py`` holds that.
 
-Names resolve lazily (PEP 562), mirroring ``backend/temporal/__init__.py``. Eager imports
-here would put every destination's vendor SDK (databricks, snowflake, bigquery, ...) on
-the import path of anything that touches this facade, which the startup import budget
-forbids — see ``posthog/test/repo_invariants/test_startup_import_budget.py``.
+The worker bootstrap commands (``start_temporal_workflow``, ``execute_temporal_workflow``) take
+``WORKFLOWS`` from here.
 """
 
-from typing import TYPE_CHECKING, Any
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
 
-if TYPE_CHECKING:
-    from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-    from products.batch_exports.backend.temporal.workflows import ACTIVITIES, WORKFLOWS
+from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor as _MetricsInterceptor
+from products.batch_exports.backend.temporal.workflows import (
+    ACTIVITIES as _ACTIVITIES,
+    WORKFLOWS,
+)
 
-_B = "products.batch_exports.backend.temporal."
+__all__ = ["WORKFLOWS"]
 
-_LAZY = {
-    "ACTIVITIES": "workflows",
-    "WORKFLOWS": "workflows",
-    "BatchExportsMetricsInterceptor": "metrics",
-    # Only core's Temporal loaders read TEMPORAL, so it stays out of __all__.
-    "TEMPORAL": "registration",
-}
-
-__all__ = [
-    "ACTIVITIES",
-    "WORKFLOWS",
-    "BatchExportsMetricsInterceptor",
-]
-
-
-def __getattr__(name: str) -> Any:
-    module = _LAZY.get(name)
-    if module is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    import importlib
-
-    return getattr(importlib.import_module(_B + module), name)
-
-
-def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(__all__))
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="SYNC_BATCH_EXPORTS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(_ACTIVITIES)
+        ),
+        QueueBinding(
+            queue_setting="BATCH_EXPORTS_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(_ACTIVITIES)
+        ),
+    ),
+    interceptors=(_MetricsInterceptor,),
+)

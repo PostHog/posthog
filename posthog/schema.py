@@ -1778,6 +1778,20 @@ class ErrorTrackingIssueTagFilter(BaseModel):
     key: str = Field(..., description="Key of the tag definition.")
 
 
+class ErrorTrackingIssueTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have all of these tags."),
+    )
+    hasNot: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have none of these tags."),
+    )
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5594,10 +5608,18 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
@@ -11794,6 +11816,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int
@@ -37126,10 +37152,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
-    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+    issueTag: ErrorTrackingIssueTagFilter | None = None
+    issueTags: ErrorTrackingIssueTagsFilter | None = Field(
         default=None,
         description=(
-            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+            "Filter by issue tags. Get the keys from the issue tag definitions. The"
+            " query ignores a key whose tag is off for the project."
         ),
     )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"

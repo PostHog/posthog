@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_SERVER_TOO_OLD_MESSAGE,
+    _MONGO_SRV_RECORD_MISSING_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
@@ -205,6 +206,16 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 # mongodb+srv:// URI's SRV DNS record doesn't exist at all.
                 ConfigurationError("The DNS query name does not exist: _mongodb._tcp.cluster.abc.mongodb.net."),
                 _MONGO_HOST_UNRESOLVED_MESSAGE,
+                False,
+            ),
+            (
+                # dnspython's NoAnswer, wrapped by pymongo as ConfigurationError, when the host
+                # resolves but publishes no `_mongodb._tcp` SRV record at all.
+                ConfigurationError(
+                    "The DNS response does not contain an answer to the question: "
+                    "_mongodb._tcp.cluster.abc.mongodb.net. IN SRV"
+                ),
+                _MONGO_SRV_RECORD_MISSING_MESSAGE,
                 False,
             ),
             (
