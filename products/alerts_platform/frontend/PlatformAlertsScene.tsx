@@ -32,7 +32,7 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
         render: (_, configuration) => {
             const { label, iconType } = SOURCE_KINDS[configuration.source_kind]
             return (
-                <Tooltip title={label}>
+                <Tooltip title={label} placement="top-start">
                     <span
                         className="group/colorful-product-icons colorful-product-icons-true flex text-xl"
                         role="img"
