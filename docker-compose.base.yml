@@ -824,7 +824,6 @@ services:
             - POSTGRES_SEEDS=db
             - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
             - ENABLE_ES=false
-            - TEMPORAL_VERSION_CHECK_DISABLED=1
         image: temporalio/auto-setup:1.26.2
         labels:
             kompose.volume.type: configMap
@@ -838,6 +837,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
+            - TEMPORAL_VERSION_CHECK_DISABLED=1
         depends_on:
             elasticsearch:
                 condition: service_healthy
