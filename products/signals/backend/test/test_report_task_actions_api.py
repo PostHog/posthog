@@ -27,6 +27,7 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalScoutConfig,
     SignalScoutRun,
+    SignalTeamConfig,
 )
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.report_claims import get_active_claim
@@ -416,6 +417,8 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
     ) -> None:
         report = self._report()
         self._judge(report, "immediately_actionable")
+        image_id = uuid4()
+        SignalTeamConfig.objects.create(team=self.team, implementation_custom_image_id=image_id)
 
         with _desktop_access(), patch("products.signals.backend.views.report_user_action") as capture:
             response = self._run(
@@ -428,6 +431,7 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
         run = TaskRun.objects.get(id=body["run_id"])
         assert task.repository == "example/app"
         assert run.mode == "background"
+        assert run.state["custom_image_id"] == str(image_id)
         assert task.description.startswith(f"{create_pr_report_prompt(report)}\n\n{BACKGROUND_RUN_INSTRUCTIONS}")
         assert "Additional feedback from the user (take this into account):\nKeep the fix in the API layer" in (
             task.description

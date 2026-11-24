@@ -10590,6 +10590,7 @@ def run_task(
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
         implementation_access_repositories,
+        implementation_custom_image_id,
         is_report_implementation_task,
     )
     from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
@@ -11037,6 +11038,10 @@ def run_task(
             extra_state["github_access_repositories"] = list(
                 dict.fromkeys([*cloned_repositories, *access_repositories])
             )
+    if is_implementation and not resume_from_run_id and custom_image_id is None:
+        default_custom_image_id = implementation_custom_image_id(team_id=team_id)
+        if default_custom_image_id is not None:
+            extra_state["custom_image_id"] = default_custom_image_id
     for key, value in run_state_values.items():
         if value is not None:
             extra_state[key] = value.value if hasattr(value, "value") else value
