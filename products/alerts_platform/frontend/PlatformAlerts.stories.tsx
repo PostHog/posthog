@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -278,8 +279,7 @@ export const ListIntervalTooltipOpen: Story = {
     play: async ({ canvasElement }) => {
         const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
         const interval = within(name.closest('tr') as HTMLElement).getByText('1d')
-        interval.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-        interval.dispatchEvent(new MouseEvent('mouseenter'))
+        await userEvent.hover(interval)
         await within(document.body).findByText('Every day at 09:00')
     },
 }
