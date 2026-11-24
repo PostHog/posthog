@@ -36,6 +36,7 @@ Transitions draft → running. Activates the feature flag and sets `start_date`.
 
 - **Preconditions**: must be in draft, flag needs 2-20 multivariate variants (no specific key required; the baseline defaults to "control" when present, else the first variant)
 - **Pre-launch checklist**: has at least one metric? Variants correct? Flag implemented in code?
+- **Findings at launch**: the result can start with `pre_launch_health`, the findings of the draft's configuration checks, read just before the launch. A finding does not stop the launch. Tell the user each finding and its fix. Some of these checks run only on a draft, so `experiment-health-get` on the running experiment does not return those findings again.
 - **Variants**: users start being bucketed into variants based on the configured split
 - **Analysis**: data collection begins from `start_date`
 
