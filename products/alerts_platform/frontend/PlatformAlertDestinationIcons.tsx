@@ -1,5 +1,5 @@
 import { IconNotification } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { destinationTypeLabel } from './destinations/platformAlertDestinations'
 import { DestinationTypeEnumApi } from './generated/api.schemas'
@@ -20,34 +20,23 @@ export function PlatformAlertDestinationIcons({
     enabled: boolean
 }): JSX.Element {
     if (!types.length) {
-        // An enabled alert that notifies nobody is a likely mistake. A disabled one is not.
-        return <span className={enabled ? 'text-warning' : 'text-muted'}>None</span>
-    }
-    const counts = new Map<DestinationTypeEnumApi, number>()
-    for (const type of types) {
-        counts.set(type, (counts.get(type) ?? 0) + 1)
+        // Only a warning, not an error: team-wide routes or unconverted HogFunctions can still notify.
+        return <span className={enabled ? 'text-warning' : 'text-muted'}>No direct destinations</span>
     }
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            {[...counts].map(([type, count]) => {
+            {types.map((type) => {
                 const label = destinationTypeLabel(type)
                 const iconUrl = ICON_URLS[type]
-                const title = count > 1 ? `${count} ${label}` : label
                 return (
-                    <Tooltip key={type} title={title}>
-                        <span
-                            className="flex h-[22px] items-center gap-1 rounded border border-primary px-1 text-xs text-secondary"
-                            role="img"
-                            aria-label={title}
-                            data-attr={`platform-alert-destination-${type}`}
-                        >
+                    <Tooltip key={type} title={label}>
+                        <LemonTag role="img" aria-label={label} data-attr={`platform-alert-destination-${type}`}>
                             {iconUrl ? (
                                 <img src={iconUrl} alt="" className="size-3.5 rounded-sm object-contain" />
                             ) : (
                                 <IconNotification className="text-sm" />
                             )}
-                            {count > 1 && <span>{count}</span>}
-                        </span>
+                        </LemonTag>
                     </Tooltip>
                 )
             })}
