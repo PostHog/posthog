@@ -641,6 +641,21 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         }
     }
 
+    // waitForExpect sleeps on setTimeout, which the fake clock freezes, so this polls on real time instead.
+    async function whileTheClockHolds<T>(check: () => Promise<T>, withinMs = 10_000): Promise<T> {
+        const gaveUpAt = performance.now() + withinMs
+        for (;;) {
+            try {
+                return await check()
+            } catch (error) {
+                if (performance.now() >= gaveUpAt) {
+                    throw error
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+        }
+    }
+
     async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
         for (;;) {
             try {
@@ -691,14 +706,16 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(stopReturned).toBe(false)
         await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
         expect(stopReturned).toBe(false)
-        await rowLock.releaseToTheWaitingWrite()
+        await rowLock.release()
+        await whileTheClockHolds(async () => {
+            const row = await jobRow(running)
+            expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
+                status: 'available',
+                retries: 1,
+            })
+        })
         await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
 
-        const row = await jobRow(running)
-        expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
-            status: 'available',
-            retries: 1,
-        })
         expect(delivered()).toEqual([])
     })
 
@@ -816,7 +833,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     async function lockJobRow(
         id: string
-    ): Promise<{ waiting: () => Promise<number>; releaseToTheWaitingWrite: () => Promise<unknown> }> {
+    ): Promise<{ waiting: () => Promise<number>; release: () => Promise<unknown> }> {
         const holder = new Client({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
         await holder.connect()
         lockHolders.push(holder)
@@ -831,12 +848,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                         [rows[0].pid]
                     )
                 ).rows[0].waiting,
-            // The write that waited on the lock takes the row first, so locking it again returns only once that
-            // write committed. The fake clock then moves only after the write is in.
-            releaseToTheWaitingWrite: async () => {
-                await holder.query('ROLLBACK')
-                await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
-            },
+            release: () => holder.query('ROLLBACK'),
         }
     }
 

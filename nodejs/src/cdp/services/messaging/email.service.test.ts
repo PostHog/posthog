@@ -4,6 +4,8 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
+import { createServer, request as httpRequest } from 'node:http'
+import { AddressInfo } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import { v5 as uuidv5 } from 'uuid'
@@ -2715,13 +2717,50 @@ describe('EmailService', () => {
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             const halfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
-            // The send clock moves only when the test moves it, by the row's step at the held download. Timers and
+            type HeldCall = { holding: () => Promise<void>; release: () => void; close?: () => Promise<void> }
+            const theDownload = (): Promise<HeldCall> => {
+                bucket.answer = 'hold'
+                return Promise.resolve(bucket)
+            }
+            const theSesAnswer = async (emailService: EmailService): Promise<HeldCall> => {
+                let heard!: () => void
+                const asked = new Promise<void>((resolve) => (heard = resolve))
+                let release!: () => void
+                const released = new Promise<void>((resolve) => (release = resolve))
+                const server = createServer((request, response) => {
+                    heard()
+                    const upstream = httpRequest(
+                        new URL(request.url!, ses.endpoint),
+                        { method: request.method, headers: request.headers },
+                        (answer) =>
+                            void released.then(() =>
+                                answer.pipe(response.writeHead(answer.statusCode!, answer.headers))
+                            )
+                    )
+                    upstream.on('error', () => response.destroy())
+                    request.pipe(upstream)
+                })
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                emailService.sesV2Client = sesClientFor(ses, {
+                    endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+                })
+                return {
+                    holding: () => asked,
+                    release,
+                    close: () => {
+                        server.closeAllConnections()
+                        return new Promise((resolve) => server.close(() => resolve()))
+                    },
+                }
+            }
+            // The send clock moves only when the test moves it, by the row's step at the held call. Timers and
             // I/O run for real, so time a slow runner spends on them cannot carry a send past its deadline.
             it.each([
                 [
                     'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
                     () => Promise.resolve(pdf),
                     undefined,
+                    theDownload,
                     19_000,
                     retriedLoad,
                     0,
@@ -2730,14 +2769,34 @@ describe('EmailService', () => {
                     'a download answered after 19 s, a small send under a configured 30 s deadline, sends',
                     () => Promise.resolve(pdf),
                     30_000,
+                    theDownload,
                     19_000,
                     sent,
                     1,
                 ],
                 [
+                    'a download answered after 46 s, a small send under a configured 50 s deadline, which stops at 45 s, sends nothing and retries',
+                    () => Promise.resolve(pdf),
+                    50_000,
+                    theDownload,
+                    46_000,
+                    retriedLoad,
+                    0,
+                ],
+                [
                     'a download answered after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
                     halfTheSizeLimit,
                     undefined,
+                    theDownload,
+                    20_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'an SES answer that comes after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
+                    halfTheSizeLimit,
+                    undefined,
+                    theSesAnswer,
                     20_000,
                     sent,
                     1,
@@ -2746,24 +2805,35 @@ describe('EmailService', () => {
                     'a download answered after 24 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends nothing and retries',
                     aFifthOfTheSizeLimit,
                     undefined,
+                    theDownload,
                     24_000,
                     retriedLoad,
                     0,
                 ],
                 [
-                    'a download answered after 22 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
+                    'a download answered after 32 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
                     halfTheSizeLimit,
                     20_000,
-                    22_000,
+                    theDownload,
+                    32_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'a download answered after 18 s, a send of half the size limit under a configured 10 s deadline, which grows to 18.2 s, sends',
+                    halfTheSizeLimit,
+                    10_000,
+                    theDownload,
+                    18_000,
                     sent,
                     1,
                 ],
             ])(
                 'on the send deadline, given %s',
-                async (_case, file, attachmentSendDeadlineMs, answeredAfterMs, expected, deliveries) => {
+                async (_case, file, attachmentSendDeadlineMs, holdCall, answeredAfterMs, expected, deliveries) => {
                     send([await file()])
                     const emailService = sender({ attachmentSendDeadlineMs })
-                    bucket.answer = 'hold'
+                    const held = await holdCall(emailService)
                     pinDate(Date.now())
                     const pending: { endsAt: number; controller: AbortController }[] = []
                     const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
@@ -2783,15 +2853,20 @@ describe('EmailService', () => {
                     }
                     try {
                         const outcome = emailService.executeSendEmail(invocation).then(outcomeOf)
-                        await bucket.holding()
+                        const heldBeforeTheSendReturned = await Promise.race([
+                            held.holding().then(() => true),
+                            outcome.then(() => false),
+                        ])
+                        expect(heldBeforeTheSendReturned).toBe(true)
                         advanceSendClock(answeredAfterMs)
-                        bucket.release()
+                        held.release()
 
                         expect(await outcome).toEqual(expected)
                         expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
                     } finally {
                         timeouts.mockRestore()
                         jest.useRealTimers()
+                        await held.close?.()
                     }
                 }
             )

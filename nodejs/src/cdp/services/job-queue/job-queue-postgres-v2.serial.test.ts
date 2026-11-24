@@ -5,7 +5,7 @@ import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
 import { defaultConfig } from '~/common/config/config'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import * as posthogUtils from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -65,6 +65,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
+    let limiterValkey: RedisV2
     let limiter: RateLimiterService
 
     const dbUrl = (host: string, port: number): string => {
@@ -77,21 +78,23 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         admin = new Pool({
             connectionString: `postgres://posthog:posthog@${CYCLOTRON_DB.host}:${CYCLOTRON_DB.port}/${CYCLOTRON_DB.database}`,
         })
-        const limiterValkey = createRedisV2PoolFromConfig({
+        limiterValkey = createRedisV2PoolFromConfig({
             connection: defaultConfig.CDP_REDIS_HOST
                 ? {
                       url: defaultConfig.CDP_REDIS_HOST,
                       options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
                   }
                 : { url: defaultConfig.REDIS_URL },
-            poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
+            poolMinSize: 1,
+            poolMaxSize: 1,
         })
         limiter = new RateLimiterService(limiterValkey, { name: 'job-queue-test' })
     })
 
     afterAll(async () => {
         await admin.end()
+        // RedisV2 exposes no close, so the pool holds one client and the test quits that one.
+        await limiterValkey.useClient({ name: 'close-limiter-pool' }, (client) => client.quit())
     })
 
     beforeEach(async () => {
