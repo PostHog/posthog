@@ -131,8 +131,10 @@ export function createJudge({
         }
     }
 
-    const pullToHead = async (signal?: AbortSignal): Promise<void> => {
+    const pullToHead = async (signal?: AbortSignal): Promise<{ runRecordsPastHead: boolean }> => {
         let head: number | undefined
+        let runRecordsPastHead = false
+        const isRunRecord = ofThisRun()
         try {
             if (signal?.aborted) {
                 throw new Error('the run was stopped')
@@ -148,12 +150,14 @@ export function createJudge({
                 }
                 const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
                 const records = page.records.filter(({ seq }) => seq > cursor && seq <= head!)
+                runRecordsPastHead ||= page.records.some((record) => record.seq > head! && isRunRecord(record))
                 if (records.length === 0) {
                     throw new Error(`the edge answered no records past ${cursor}`)
                 }
                 truth.push(...records)
                 cursor = records.at(-1)!.seq
             }
+            return { runRecordsPastHead }
         } catch (error) {
             const at = head === undefined ? cursor : `${cursor} of ${head}`
             throw new Error(`the truth read hit a harness limit at record ${at}: ${messageOf(error)}`)
@@ -164,8 +168,8 @@ export function createJudge({
         await pullToHead(signal)
         for (let pass = 2; pass <= FINAL_PASSES; pass++) {
             const settled = runRecords()
-            await pullToHead(signal)
-            if (runRecords() === settled) {
+            const { runRecordsPastHead } = await pullToHead(signal)
+            if (runRecords() === settled && !runRecordsPastHead) {
                 return
             }
         }
@@ -198,10 +202,12 @@ export function createJudge({
             .map(({ unitId }) => unitId)
     }
 
-    const runRecords = (): number => {
+    const ofThisRun = (): ((record: TruthRecord) => boolean) => {
         const units = new Set(journal.map(({ unitId }) => unitId))
-        return truth.filter(({ unitId }) => unitId !== undefined && units.has(unitId)).length
+        return ({ unitId }) => unitId !== undefined && units.has(unitId)
     }
+
+    const runRecords = (): number => truth.filter(ofThisRun()).length
 
     return {
         async open(seed) {

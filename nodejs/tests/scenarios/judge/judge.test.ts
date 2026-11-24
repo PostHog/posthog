@@ -665,13 +665,12 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', ...expected })
     })
 
-    const resendingOnTheFinalRead = async (): Promise<void> => {
-        await deliver('run-b-1')
-        duringFinalPage = async () => {
-            duringFinalPage = undefined
-            await deliver(UNIT)
+    const onFinalPages =
+        (...sends: Array<() => Promise<unknown>>) =>
+        async (): Promise<void> => {
+            await deliver('run-b-1')
+            duringFinalPage = () => sends.shift()?.() ?? Promise.resolve()
         }
-    }
 
     it.each<[string, () => Promise<unknown>, () => Promise<unknown>, object]>([
         [
@@ -684,20 +683,23 @@ describe('judge', () => {
                 missing: [UNIT],
             },
         ],
-        ...(['a resend', 'a resend the edge accepts while the final read runs'] as const).map(
-            (story): [string, () => Promise<unknown>, () => Promise<unknown>, object] => [
-                story,
-                () => deliver(UNIT),
-                story === 'a resend' ? () => deliver(UNIT) : resendingOnTheFinalRead,
-                {
-                    passed: false,
-                    observed: 1,
-                    violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
-                    missing: [],
-                    extra: [UNIT],
-                },
-            ]
-        ),
+        ...(
+            [
+                ['a resend', () => deliver(UNIT)],
+                ['a resend the edge accepts while the final read runs', onFinalPages(() => deliver(UNIT))],
+            ] as const
+        ).map(([story, after]): [string, () => Promise<unknown>, () => Promise<unknown>, object] => [
+            story,
+            () => deliver(UNIT),
+            after,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ]),
     ])(
         'counts a send after the recovery horizon as extra, never as delivered: %s',
         async (_story, before, after, expected) => {
@@ -775,6 +777,18 @@ describe('judge', () => {
             },
             NO_RESETS,
             'the run reached no recovery horizon: the last convergence read failed: The operation was aborted due to timeout',
+        ],
+        [
+            'the edge accepted a resend of this run while a later final read ran, past the head that read took',
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await onFinalPages(
+                    () => deliver('run-b-2'),
+                    () => deliver(UNIT)
+                )()
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
         ],
         [
             "the edge kept accepting this run's sends through every final read",
