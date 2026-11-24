@@ -149,6 +149,23 @@ class TestSafeServerSelector(SimpleTestCase):
 
         assert len(result) == 1
 
+    @parameterized.expand(
+        [
+            ("direct_connection", "mongodb://user:pw@127.0.0.1:1/db?tls=true&directConnection=true", ""),
+            ("lone_host", "mongodb://user:pw@127.0.0.1:1/db?tls=true", ""),
+            ("load_balanced_from_dns", "mongodb+srv://user:pw@cluster0.example.com/db", "loadBalanced=true"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_client_refuses_an_internal_host_the_selector_never_sees(self, _name, connection_string, txt_options):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
+        resolver.return_value.get_options.return_value = txt_options
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with pytest.raises(HostNotAllowedError):
+                with mongo_client(connection_string, team_id=999):
+                    pass
+
 
 class TestProcessNestedValue(SimpleTestCase):
     CANONICAL_UUID_STR = "00000015-af12-f829-04fe-1f5e8f1a5230"

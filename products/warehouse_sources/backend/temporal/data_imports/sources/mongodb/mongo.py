@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
     HostNotAllowedError,
+    TemporaryHostResolutionError,
     _is_host_safe,
     log_connection_open,
 )
@@ -427,6 +428,27 @@ def _checked_connection_string(connection_string: str) -> str:
     return checked
 
 
+def _check_single_seed(client: MongoClient, team_id: int) -> None:
+    """Refuse a client whose only seed is a host the outbound policy forbids.
+
+    pymongo never calls a custom server selector for a Single or LoadBalanced topology, so
+    `_make_safe_server_selector` never sees those servers. Only a client with one seed can end up
+    in either topology: directConnection, loadBalanced (also from a DNS TXT record), or a lone
+    standalone server. pymongo resolves a `mongodb+srv` host when the client opens, so the seeds
+    here are the resolved hosts.
+    """
+    seeds = list(client.topology_description.server_descriptions())
+    if len(seeds) != 1:
+        return
+    host = seeds[0][0]
+    is_safe, error = _is_host_safe(host, team_id)
+    if is_safe:
+        return
+    if (error or "").startswith(TEMPORARY_HOST_RESOLUTION_PREFIX):
+        raise TemporaryHostResolutionError(host)
+    raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}")
+
+
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> Iterator[MongoClient]:
     """Open a client for one source. `tls_ca_file` replaces the public CA bundle, for a server whose
@@ -459,6 +481,7 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
     }
     client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
     try:
+        _check_single_seed(client, team_id)
         yield client
     finally:
         client.close()
