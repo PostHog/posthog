@@ -142,6 +142,21 @@ class TestMySQLCDCStreamReader:
         assert "raw" not in events[0].column_types
         assert events[0].timestamp.tzinfo == dt.UTC
 
+    def test_a_zero_timestamp_reads_as_null_like_the_snapshot(self, source, root_conn):
+        _execute(
+            root_conn,
+            "SET SESSION sql_mode = ''",
+            f"INSERT INTO {_TABLE} (id, created_at) VALUES (1, '0000-00-00 00:00:00')",
+            "SET SESSION sql_mode = DEFAULT",
+        )
+        reader = _reader(source)
+        try:
+            [event] = _read(reader)
+        finally:
+            reader.close()
+
+        assert event.columns["created_at"] is None
+
     def test_a_savepoint_keeps_its_transaction_at_one_commit_position(self, source, root_conn):
         _execute(
             root_conn,
@@ -168,6 +183,12 @@ class TestMySQLCDCStreamReader:
             "CREATE DATABASE other",
             "CREATE TABLE other.orders (id INT PRIMARY KEY)",
             "INSERT INTO other.orders VALUES (7)",
+            # Another database's prepared XA transaction holds none of the captured rows.
+            "XA START 'other'",
+            "INSERT INTO other.orders VALUES (8)",
+            "XA END 'other'",
+            "XA PREPARE 'other'",
+            "XA COMMIT 'other'",
             f"INSERT INTO {_TABLE} (id) VALUES (1)",
         )
         try:
@@ -180,6 +201,24 @@ class TestMySQLCDCStreamReader:
             _execute(root_conn, "DROP DATABASE other")
 
         assert [event.table_name for event in events] == [_TABLE]
+
+    def test_a_one_phase_xa_commit_reads_like_a_transaction(self, source, root_conn):
+        _execute(
+            root_conn,
+            "XA START 'x1'",
+            f"INSERT INTO {_TABLE} (id) VALUES (1), (2)",
+            "XA END 'x1'",
+            "XA COMMIT 'x1' ONE PHASE",
+            f"INSERT INTO {_TABLE} (id) VALUES (3)",
+        )
+        reader = _reader(source)
+        try:
+            events = _read(reader)
+        finally:
+            reader.close()
+
+        assert _row_ids(events) == [1, 2, 3]
+        assert events[0].position_serialized == events[1].position_serialized != events[2].position_serialized
 
     @pytest.mark.parametrize(
         "statements",

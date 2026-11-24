@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import pymysql
 import structlog
 from pymysqlreplication import BinLogStreamReader
-from pymysqlreplication.event import QueryEvent, XidEvent
+from pymysqlreplication.event import QueryEvent, XAPrepareEvent, XidEvent
 from pymysqlreplication.row_event import (
     DeleteRowsEvent,
     PartialUpdateRowsEvent,
@@ -65,7 +65,7 @@ _DUMP_EXCLUDED_KWARGS = ("database", "init_command")
 _IDENTIFIER = r"`(?:[^`]|``)+`|[\w$]+"
 _TRUNCATE = re.compile(rf"^TRUNCATE\s+(?:TABLE\s+)?(?P<name>{_IDENTIFIER})(?:\s*\.\s*(?P<table>{_IDENTIFIER}))?", re.I)
 # Statements inside a transaction. MySQL writes each with its name or id, so they are matched by prefix.
-_IN_TRANSACTION = ("BEGIN", "SAVEPOINT", "ROLLBACK TO", "RELEASE SAVEPOINT")
+_IN_TRANSACTION = ("BEGIN", "SAVEPOINT", "ROLLBACK TO", "RELEASE SAVEPOINT", "XA START", "XA END")
 
 
 def _without_comments(query: str) -> str:
@@ -194,6 +194,7 @@ class MySQLCDCStreamReader:
             only_events=[
                 QueryEvent,
                 XidEvent,
+                XAPrepareEvent,
                 WriteRowsEvent,
                 UpdateRowsEvent,
                 PartialUpdateRowsEvent,
@@ -223,16 +224,20 @@ class MySQLCDCStreamReader:
                         self._buffer.add(change)
                     continue
 
+                if isinstance(event, XAPrepareEvent) and not event.one_phase:
+                    if len(self._buffer):
+                        # A prepared XA transaction commits later, after other transactions, which one read
+                        # position can't hold. Prepared rows of other databases were never buffered.
+                        raise MySQLUnsupportedBinlogError("XA transactions aren't supported by change data capture")
+                    continue
+
                 if isinstance(event, QueryEvent):
                     query = _without_comments(event.query)
                     statement = query.upper()
                     if statement.startswith(_IN_TRANSACTION):
                         continue
-                    if statement.startswith("XA "):
-                        # A prepared XA transaction commits later, after other transactions, which one read
-                        # position can't hold.
-                        raise MySQLUnsupportedBinlogError("XA transactions aren't supported by change data capture")
-                    if statement != "COMMIT":
+                    # XA COMMIT and XA ROLLBACK of a prepared transaction hold no rows of their own.
+                    if statement != "COMMIT" and not statement.startswith(("XA COMMIT", "XA ROLLBACK")):
                         # Any other statement is DDL, which MySQL commits on its own.
                         table = truncated_table(query, _decode(event.schema))
                         if table is not None:
