@@ -23,7 +23,7 @@ export interface GatewayModel {
   // Free-tier model gate: authenticated fetches mark models outside the
   // caller's plan. Absence (anonymous fetch or older gateway) means allowed.
   allowed?: boolean;
-  // Request formats the Go gateway accepts; absent on Python gateway rows.
+  // Request formats the Go gateway accepts; absent on the static fallback rows.
   api_shapes?: string[];
 }
 
@@ -80,8 +80,8 @@ function detectFamily(model: GatewayModel): ModelFamily {
   return "anthropic";
 }
 
-// Go labels every PostHog-hosted model "posthog"; each keeps the API the
-// Python gateway's listing serves it on.
+// Go labels every PostHog-hosted model "posthog", so the family comes from the
+// preferred API: Anthropic Messages for Modal ids, chat completions otherwise.
 function servedModelFamily(model: GatewayModel): ModelFamily {
   const accepts = (shape: string) =>
     !model.api_shapes || model.api_shapes.includes(shape);

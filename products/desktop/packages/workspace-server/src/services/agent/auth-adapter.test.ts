@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFetch = vi.hoisted(() => vi.fn());
 
-vi.mock("@posthog/agent/posthog-api", () => ({
-  getLlmGatewayUrl: vi.fn(() => "https://gateway.example.com"),
-}));
-
 vi.stubGlobal("fetch", mockFetch);
 
 import { configureCustomCloud } from "@posthog/shared";
@@ -120,7 +116,7 @@ describe("AgentAuthAdapter", () => {
   describe("ensureGatewayProxy", () => {
     function withSource(getRoute: ReturnType<typeof vi.fn>) {
       const authProxy = {
-        start: vi.fn().mockResolvedValue("http://127.0.0.1:9999/legacy"),
+        start: vi.fn().mockResolvedValue("http://127.0.0.1:9999/forward"),
         startGatewaySession: vi
           .fn()
           .mockResolvedValue("http://127.0.0.1:9999/session"),
@@ -150,7 +146,7 @@ describe("AgentAuthAdapter", () => {
         1,
       );
 
-      expect(result.mode).toBe("go");
+      expect(result.proxyUrl).toBe("http://127.0.0.1:9999/session");
       expect(authProxy.startGatewaySession).toHaveBeenCalled();
       expect(authProxy.start).not.toHaveBeenCalled();
     });
@@ -167,10 +163,7 @@ describe("AgentAuthAdapter", () => {
       );
 
       expect(getRoute).toHaveBeenCalledWith(1, { awaitRecheck: true });
-      expect(result).toEqual({
-        proxyUrl: "http://127.0.0.1:9999/session",
-        mode: "go",
-      });
+      expect(result).toEqual({ proxyUrl: "http://127.0.0.1:9999/session" });
       expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
         projectId: 1,
         aiGatewayUrl: "https://ai-gateway.us.posthog.com",
@@ -202,30 +195,33 @@ describe("AgentAuthAdapter", () => {
         }),
       ],
       ["a failing source", vi.fn().mockRejectedValue(new Error("boom"))],
-    ])(
-      "keeps a session target on %s, never legacy",
-      async (_label, getRoute) => {
-        const { withGo, authProxy } = withSource(getRoute);
+    ])("keeps a session target on %s", async (_label, getRoute) => {
+      const { withGo, authProxy } = withSource(getRoute);
 
-        const result = await withGo.ensureGatewayProxy(
-          "https://app.posthog.com",
-          1,
-        );
+      const result = await withGo.ensureGatewayProxy(
+        "https://app.posthog.com",
+        1,
+      );
 
-        expect(result).toEqual({
-          proxyUrl: "http://127.0.0.1:9999/session",
-          mode: "go",
-        });
-        expect(authProxy.start).not.toHaveBeenCalled();
-      },
-    );
+      expect(result).toEqual({ proxyUrl: "http://127.0.0.1:9999/session" });
+      expect(authProxy.start).not.toHaveBeenCalled();
+    });
 
-    it("stays on legacy without a project", async () => {
-      const { withGo } = withSource(vi.fn());
+    it("gives a session with no project a session target without a route lookup", async () => {
+      const getRoute = vi.fn();
+      const { withGo, authProxy } = withSource(getRoute);
 
-      expect(
-        (await withGo.ensureGatewayProxy("https://app.posthog.com", null)).mode,
-      ).toBe("legacy");
+      const result = await withGo.ensureGatewayProxy(
+        "https://app.posthog.com",
+        null,
+      );
+
+      expect(result).toEqual({ proxyUrl: "http://127.0.0.1:9999/session" });
+      expect(getRoute).not.toHaveBeenCalled();
+      expect(authProxy.startGatewaySession).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: null }),
+      );
+      expect(authProxy.start).not.toHaveBeenCalled();
     });
   });
 
@@ -551,16 +547,14 @@ describe("AgentAuthAdapter", () => {
     expect(configuration.policies).toEqual([]);
   });
 
-  it("configures environment using the gateway proxy and current token", async () => {
+  it("configures environment using the current token", async () => {
     const pathBefore = process.env.PATH;
 
     await adapter.configureProcessEnv({
       credentials: baseCredentials,
-      proxyUrl: "http://127.0.0.1:9999",
       claudeCliPath: "/mock/claude-cli.js",
     });
 
-    expect(process.env.LLM_GATEWAY_URL).toBe("http://127.0.0.1:9999");
     expect(process.env.CLAUDE_CODE_EXECUTABLE).toBe("/mock/claude-cli.js");
     expect(process.env.POSTHOG_PROJECT_ID).toBe("1");
     // The node-shim era prepended a shim dir here; PATH must stay untouched.
@@ -595,7 +589,6 @@ describe("AgentAuthAdapter", () => {
 
       await adapter.configureProcessEnv({
         credentials: baseCredentials,
-        proxyUrl: "http://127.0.0.1:9999",
         claudeCliPath: "/mock/claude-cli.js",
         rtkEnabled,
       });

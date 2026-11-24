@@ -1,7 +1,7 @@
 # Running evals locally and remotely
 
 Use this reference to prepare a machine for the standalone eval harness and choose between local Docker sandboxes and remote Modal sandboxes.
-Both providers keep the eval database, Django server, LLM gateway, MCP server, Temporal, personhog, case setup, and scoring on the machine running `hogli evals`.
+Both providers keep the eval database, Django server, AI gateway, MCP server, Temporal, personhog, case setup, and scoring on the machine running `hogli evals`.
 The provider changes only where the coding-agent sandbox runs.
 Prefer remote Modal for multi-case sandboxed evals when its prerequisites are available.
 Remote sandboxes run in parallel without consuming local Docker memory, which usually shortens the run substantially.
@@ -107,8 +107,8 @@ tailscale up
 ```
 
 Funnel additionally needs the `funnel` node attribute granted to the tailnet and this node in the [admin console](https://login.tailscale.com/admin/acls), and HTTPS certificates enabled for the tailnet.
-The harness then exposes the local Django API, LLM gateway, and MCP server over Tailscale Funnel for the duration of the run, one service per Funnel public port (`443`, `8443`, `10000`).
-Do not manually set `SANDBOX_API_URL`, `SANDBOX_LLM_GATEWAY_URL`, or `SANDBOX_MCP_URL` for an eval run.
+The harness then exposes the local Django API, AI gateway, and MCP server over Tailscale Funnel for the duration of the run, one service per Funnel public port (`443`, `8443`, `10000`).
+Do not manually set `SANDBOX_API_URL`, `SANDBOX_AI_GATEWAY_URL`, or `SANDBOX_MCP_URL` for an eval run.
 
 Funnel serves only those three public ports, so the harness refuses to start when your tailnet node already serves one of them rather than clobbering it.
 Free the port first — `tailscale funnel --https=443 off`, and likewise for `8443` and `10000`.

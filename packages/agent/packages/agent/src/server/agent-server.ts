@@ -2115,7 +2115,7 @@ export class AgentServer {
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
             gatewayConfigured: Boolean(
-              process.env.LLM_GATEWAY_URL || this.config.apiUrl,
+              process.env.AI_GATEWAY_URL && process.env.AI_GATEWAY_TOKEN,
             ),
             errorType:
               error instanceof Error && error.name === "TimeoutError"
@@ -2285,6 +2285,11 @@ export class AgentServer {
       executionEnvironment: "cloud",
       sharedPromptCache: launch.sharedPromptCache,
       runPolicySource: launch.policySource,
+      ownSubscription:
+        runtimeAdapter === "codex"
+          ? this.config.codexModelAccess === "own-subscription"
+          : runtimeAdapter === "claude" &&
+            this.config.claudeModelAccess === "own-subscription",
     });
 
     // Only that stamped header makes the run id a trace the generations land

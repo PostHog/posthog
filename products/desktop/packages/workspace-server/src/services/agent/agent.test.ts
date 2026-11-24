@@ -129,10 +129,6 @@ vi.mock("@posthog/agent", () => ({
   },
 }));
 
-vi.mock("@posthog/agent/posthog-api", () => ({
-  getLlmGatewayUrl: vi.fn(() => "https://gateway.example.com"),
-}));
-
 vi.mock("@posthog/agent/resume", () => ({
   resumeFromLog: mockResumeFromLog,
   formatConversationForResume: mockFormatConversationForResume,
@@ -227,7 +223,6 @@ function createMockDependencies() {
       gatewayProjectId: vi.fn().mockReturnValue(1),
       ensureGatewayProxy: vi.fn().mockResolvedValue({
         proxyUrl: "http://127.0.0.1:9999",
-        mode: "legacy",
       }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -959,21 +954,6 @@ describe("AgentService", () => {
         expect.any(String),
         "run-1",
       );
-    });
-
-    it("pins the session to the gateway mode chosen at start", async () => {
-      deps.agentAuthAdapter.ensureGatewayProxy.mockResolvedValueOnce({
-        proxyUrl: "http://127.0.0.1:9998",
-        mode: "go",
-      });
-
-      const session = await service.startSession(baseSessionParams);
-
-      expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
-        baseSessionParams.apiHost,
-        baseSessionParams.projectId,
-      );
-      expect(session?.gatewayMode).toBe("go");
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

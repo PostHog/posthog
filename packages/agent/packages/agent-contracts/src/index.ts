@@ -68,7 +68,6 @@ export {
   type GatewayModel,
   getAiGatewayUrl,
   getClaudeModelRecency,
-  getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
   isAnthropicModelId,

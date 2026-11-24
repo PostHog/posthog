@@ -192,7 +192,7 @@ def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient:
     # The Messages `metadata.user_id` goes upstream to the provider; capture identity comes from
     # the X-PostHog-Distinct-Id header this sets, so without it the team is not attributed.
     return _MessagesClient(
-        build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
+        build_anthropic_client(ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
     )
 
 

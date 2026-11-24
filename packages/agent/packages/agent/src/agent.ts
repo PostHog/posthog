@@ -81,7 +81,7 @@ export class Agent {
       throw new Error("gatewayUrl override requires gatewayApiKey");
     }
     try {
-      const gatewayUrl = overrideUrl ?? this.posthogAPI.getLlmGatewayUrl();
+      const gatewayUrl = overrideUrl ?? this.posthogAPI.getAiGatewayUrl();
       const apiKey = overrideApiKey ?? (await this.posthogAPI.getApiKey());
       return { gatewayUrl, apiKey };
     } catch (error) {

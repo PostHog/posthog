@@ -15,7 +15,7 @@ _MODULE = "products.review_hog.backend.reviewer.sandbox.direct_llm"
 
 
 def _api_error(status: int) -> APIStatusError:
-    request = httpx.Request("POST", "http://gateway/review_hog/v1/messages")
+    request = httpx.Request("POST", "http://gateway/v1/messages")
     return APIStatusError("boom", response=httpx.Response(status, request=request), body=None)
 
 
@@ -46,7 +46,7 @@ async def _call() -> IssueDeduplication:
 async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     # The one-shot value proposition rides on this request shape: dropping the model/effort pin
     # silently falls back to the gateway default, dropping output_format loses the schema guarantee,
-    # and dropping the stage header makes the call unattributable in dumps and cost queries.
+    # and dropping the stage label makes the call unattributable in dumps and cost queries.
     parsed = IssueDeduplication(duplicates=[])
     client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=parsed)))
 
@@ -54,8 +54,8 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
         result = await _call()
 
     assert result is parsed
-    assert mock_get.call_args.kwargs["product"] == "review_hog"
     assert mock_get.call_args.kwargs["ai_product"] == "review_hog"
+    assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
     assert mock_get.call_args.kwargs["team_id"] == 1
     kwargs = client.messages.stream.call_args.kwargs
     assert kwargs["model"] == ONESHOT_MODEL
@@ -64,7 +64,6 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     assert kwargs["thinking"] == {"type": "adaptive"}
     assert kwargs["system"] == "the system prompt"
     assert kwargs["messages"] == [{"role": "user", "content": "the prompt"}]
-    assert kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
 
 
 @pytest.mark.asyncio
@@ -153,17 +152,6 @@ async def test_truncated_json_validation_error_becomes_a_compact_application_err
 
     assert exc_info.value.non_retryable is False
     assert "dedup" in str(exc_info.value)
-
-
-@pytest.mark.asyncio
-async def test_stage_labels_both_gateway_dialects() -> None:
-    client = _mock_client(AsyncMock(return_value=MagicMock(parsed_output=IssueDeduplication(duplicates=[]))))
-
-    with patch(f"{_MODULE}.build_async_anthropic_client", return_value=client) as mock_get:
-        await _call()
-
-    assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
-    assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
 
 
 def _openai_client(content: str | None, finish_reason: str | None) -> MagicMock:

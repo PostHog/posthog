@@ -99,27 +99,6 @@ const MODEL_FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 const PROVIDER_PREFIXES = ["anthropic/", "openai/", "google-vertex/"];
 const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
 
-export function getCloudTaskGatewayUrl(posthogHost: string): string {
-  const url = new URL(posthogHost);
-  let gatewayBaseUrl: string;
-  const custom = getCustomCloud();
-
-  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
-    gatewayBaseUrl = custom.gatewayUrl;
-  } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-    gatewayBaseUrl = `${url.protocol}//localhost:3308`;
-  } else if (url.hostname === "host.docker.internal") {
-    gatewayBaseUrl = `${url.protocol}//host.docker.internal:3308`;
-  } else if (url.hostname === "app.dev.posthog.dev") {
-    gatewayBaseUrl = "https://gateway.dev.posthog.dev";
-  } else {
-    const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1] ?? "us";
-    gatewayBaseUrl = `https://gateway.${region}.posthog.com`;
-  }
-
-  return `${gatewayBaseUrl}/posthog_code`;
-}
-
 /**
  * The Go AI gateway origin for a PostHog host, with no path. A custom cloud's
  * own gateway wins for its host, because a PostHog Cloud gateway cannot

@@ -89,7 +89,7 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_fails_when_gateway_not_configured(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_get_client.side_effect = ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+        mock_get_client.side_effect = ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",

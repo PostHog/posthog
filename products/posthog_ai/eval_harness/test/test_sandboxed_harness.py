@@ -509,18 +509,17 @@ def _modal_provider() -> SandboxProviderStrategy:
 
 @parameterized.expand(
     [
-        ("docker", _docker_provider, "http://localhost:18080", "http://host.docker.internal:18080"),
-        ("modal", _modal_provider, "https://gateway.funnel.example.com", "https://gateway.funnel.example.com"),
+        ("docker", _docker_provider, "http://localhost:18080"),
+        ("modal", _modal_provider, "https://gateway.funnel.example.com"),
     ]
 )
 def test_provider_routes_worker_and_sandbox_to_the_eval_gateway(
-    _name: str, build: Callable[[], SandboxProviderStrategy], sandbox_gateway_url: str, fallback_url: str
+    _name: str, build: Callable[[], SandboxProviderStrategy], sandbox_gateway_url: str
 ) -> None:
     overrides = build().settings_overrides()
 
     assert overrides["SANDBOX_AI_GATEWAY_WORKER_URL"] == "http://localhost:18080"
     assert overrides["SANDBOX_AI_GATEWAY_URL"] == sandbox_gateway_url
-    assert overrides["SANDBOX_LLM_GATEWAY_URL"] == fallback_url
 
 
 class TestAgentRunFailureDetection:

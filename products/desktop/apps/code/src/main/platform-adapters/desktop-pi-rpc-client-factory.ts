@@ -6,7 +6,6 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type CloudRegion,
@@ -53,7 +52,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly mcpServerSource: McpServerConnectionSource,
     @inject(AGENT_MCP_APPS) private readonly mcpApps: AgentMcpApps,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
-    // Required: an unbound source would silently keep Pi on legacy.
+    // Required: without a source Pi cannot reach a model.
     @inject(GATEWAY_CREDENTIAL_SOURCE)
     private readonly gatewaySource: GatewayCredentialSource,
   ) {}
@@ -171,7 +170,6 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     const { proxyUrl } = await resolveGatewayProxy({
       authProxy: this.authProxy,
       source: this.gatewaySource,
-      legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion(region)),
       aiGatewayUrl: getAiGatewayUrl(getCloudUrlFromRegion(region)),
       projectId,
       headers: buildPosthogScopedPropertyHeaderRecord(

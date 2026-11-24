@@ -654,7 +654,7 @@ class TestModalSandboxAgentServer:
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
 
@@ -1822,7 +1822,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -1885,7 +1885,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             if "cpu_loop_ms" in command:
                 raise SandboxTimeoutError(
@@ -1928,7 +1928,7 @@ class TestStartupFailureDiagnostics:
                 return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -3120,25 +3120,20 @@ class TestSessionInitProbeHosts:
         assert expected_host in hosts
         assert unused_host not in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
-        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",
-    )
-    def test_includes_both_configured_gateway_hosts(self):
-        # Routed products call the ai-gateway during session init; if the probe
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+    def test_includes_configured_gateway_host(self):
+        # The agent calls the ai-gateway during session init; if the probe
         # omits its host, a blocked ai-gateway diagnoses as "no egress block
         # detected" (the exact failure class this probe exists to name).
         hosts = _session_init_probe_hosts()
-        assert "gateway.dev.posthog.dev" in hosts
         assert "ai-gateway.dev.posthog.dev" in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
-        SANDBOX_AI_GATEWAY_URL=None,
-    )
-    def test_deduplicates_against_static_hosts_and_skips_unset(self):
-        hosts = _session_init_probe_hosts()
-        assert hosts.count("gateway.us.posthog.com") == 1
+    @pytest.mark.parametrize("gateway_url", ["https://ai-gateway.us.posthog.com", None])
+    def test_deduplicates_against_static_hosts_and_skips_unset(self, gateway_url: str | None):
+        with override_settings(SANDBOX_AI_GATEWAY_URL=gateway_url):
+            hosts = _session_init_probe_hosts()
+        assert hosts.count("ai-gateway.us.posthog.com") == 1
+        assert None not in hosts
 
 
 def _socks_rate_limit() -> Exception:

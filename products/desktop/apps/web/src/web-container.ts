@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -780,10 +779,8 @@ container
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(webTitleGeneratorLogger(scoped()));
-// LLM gateway (task title/summary generation, etc.). The portable core service
-// runs in the browser directly — the gateway is CORS-open — over a web host
-// that authenticates with AuthService and builds the same gateway URLs the
-// desktop main process uses.
+// LLM gateway service (task title/summary generation, usage). Usage reads the
+// PostHog API through AuthService; prompts are refused by the token host below.
 container.load(llmGatewayModule);
 container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(AUTH_SERVICE);
@@ -795,14 +792,12 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
         url,
         init,
       ),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
-// The Go gateway sends no CORS headers and the web host has no loopback
-// proxy, so helper prompts stay on the legacy gateway here.
+// Go allows browser origins only on its model list, and the web host has no
+// loopback proxy, so helper prompts are refused here.
 container
   .bind(GATEWAY_TOKEN_HOST)
   .toConstantValue({ goEnabled: false, override: null });

@@ -1201,8 +1201,8 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
         assert spend.llm_failed_stages == (["safety"] if failure == "invalid_json" else [])
         assert spend.accounting_failed is (failure == "invalid_json")
 
-    @parameterized.expand([("gateway",), ("legacy",)])
-    async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self, mode: str) -> None:
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self) -> None:
         drivers = [str(uuid4()), str(uuid4())]
         attempts: dict[str, int] = {}
 
@@ -1243,12 +1243,6 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
             )
 
         with (
-            override_settings(
-                AI_GATEWAY_URL="" if mode == "legacy" else "https://gateway.example.com/v1",
-                AI_GATEWAY_API_KEY="" if mode == "legacy" else "phs_test",
-                LLM_GATEWAY_URL="https://legacy.example.com",
-                LLM_GATEWAY_API_KEY="test-key",
-            ),
             patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
             patch(
                 "products.signals.backend.llm_spend.fetch_gateway_cost",
@@ -1261,10 +1255,10 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
         rows = await database_sync_to_async(lambda: list(SignalSpend.objects.for_team(self.team.id).values()))()
         assert await database_sync_to_async(
             lambda: signal_spend_totals(team_id=self.team.id, signal_ids=drivers)
-        )() == {drivers[0]: 0.0246 if mode == "gateway" else 0, drivers[1]: 0.0123 if mode == "gateway" else 0}
+        )() == {drivers[0]: 0.0246, drivers[1]: 0.0123}
         assert len(rows) == 2
         assert {str(row["signal_id"]) for row in rows} == set(drivers)
-        assert all(row["accounting_failed"] is (mode != "gateway") for row in rows)
+        assert all(row["accounting_failed"] is False for row in rows)
 
     @parameterized.expand(
         [
@@ -1323,7 +1317,6 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
                         self.team.id,
                         output,
                         "Is this actionable? {description}",
-                        gateway_mode=True,
                         system_one_prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
                     )
                     is request_id_available

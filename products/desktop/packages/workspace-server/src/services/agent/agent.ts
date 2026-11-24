@@ -379,7 +379,6 @@ interface ManagedSession {
   steering?: string;
   /** Adapter's negotiated side-question capability from initialize (`_meta.posthog.sideQuestion`). */
   sideQuestion?: boolean;
-  gatewayMode: "legacy" | "go";
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
   /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
@@ -1070,7 +1069,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     const [, contextWiki] = await Promise.all([
       this.agentAuthAdapter.configureProcessEnv({
         credentials,
-        proxyUrl,
         claudeCliPath: this.getClaudeCliPath(),
         rtkEnabled: config.rtkEnabled,
       }),
@@ -1471,7 +1469,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         configOptions,
         steering,
         sideQuestion,
-        gatewayMode: gatewayProxy.mode,
         inFlightMcpToolCalls: new Map(),
         pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
@@ -2488,7 +2485,6 @@ For git operations while detached:
       configOptions: session.configOptions,
       steering: session.steering,
       sideQuestion: session.sideQuestion,
-      gatewayMode: session.gatewayMode,
     };
   }
 

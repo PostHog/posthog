@@ -169,7 +169,7 @@ describe("AuthProxyService", () => {
   });
 });
 
-describe("AuthProxyService legacy hardening", () => {
+describe("AuthProxyService forward hardening", () => {
   let authFetch: ReturnType<typeof vi.fn>;
   let logs: unknown[][];
   let service: AuthProxyService;
@@ -598,21 +598,8 @@ describe("AuthProxyService gateway sessions", () => {
     }
   });
 
-  it("strips a leading product slug from the path", async () => {
-    goFetch.mockResolvedValue(new Response("ok"));
-    const proxyUrl = await session();
-
-    await fetch(`${proxyUrl}/posthog_code/v1/chat/completions`, {
-      method: "POST",
-      body: "{}",
-    });
-
-    expect(goFetch.mock.calls[0]?.[0]).toBe(
-      "https://ai-gateway.us.posthog.com/v1/chat/completions",
-    );
-  });
-
   it.each([
+    "/posthog_code/v1/chat/completions",
     "/v1/usage/posthog_code",
     "/internal/teams/2/reported-spend",
     "/v1/tokens",
@@ -1186,6 +1173,28 @@ describe("AuthProxyService gateway sessions", () => {
     );
     expect(callInit(0).headers).toEqual({ accept: "application/json" });
     expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("lists models but refuses inference with no project selected", async () => {
+    goFetch.mockResolvedValue(new Response('{"data":[]}'));
+    const proxyUrl = await service.startGatewaySession({
+      projectId: null,
+      aiGatewayUrl: "https://ai-gateway.us.posthog.com",
+    });
+
+    const models = await fetch(`${proxyUrl}/v1/models`);
+    const message = await fetch(`${proxyUrl}/v1/messages`, {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(models.status).toBe(200);
+    expect(goFetch).toHaveBeenCalledOnce();
+    expect(message.status).toBe(403);
+    expect(
+      ((await message.json()) as { error: { code: string } }).error.code,
+    ).toBe("no_project");
+    expect(source.getRoute).not.toHaveBeenCalled();
   });
 
   const blocked = (reason: string, status: 401 | 402 | 403 | 429 | 503) => () =>

@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 class TestResolveSandboxAiProduct:
     """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
-    routed run mint no token (degrades to Python) or mint an unused token."""
+    routed run mint no token (the run fails) or mint an unused token."""
 
     @pytest.mark.parametrize(
         "origin_product,ai_stage,expected",
@@ -893,7 +893,6 @@ class TestProvisioningBoundaries:
 
         if task.is_scout_experiment:
             assert out == {
-                "LLM_GATEWAY_URL": "",
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",

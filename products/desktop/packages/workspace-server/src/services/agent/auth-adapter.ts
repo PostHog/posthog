@@ -3,7 +3,6 @@ import {
   type McpToolApprovals,
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   getAiGatewayUrl,
   isCustomCloudHost,
@@ -74,7 +73,6 @@ export type McpToolInstallations = Record<string, McpToolInstallationRef>;
 
 interface ConfigureProcessEnvInput {
   credentials: Credentials;
-  proxyUrl: string;
   claudeCliPath: string;
   /** rtk command-output compression for the session; false opts out. */
   rtkEnabled?: boolean;
@@ -93,7 +91,7 @@ export class AgentAuthAdapter {
     private readonly mcpProxy: McpProxyService,
     @inject(AGENT_LOGGER)
     loggerFactory: AgentLogger,
-    // Required: an unbound source would silently keep every session on legacy.
+    // Required: without a source no session can reach a model.
     @inject(GATEWAY_CREDENTIAL_SOURCE)
     private readonly gatewaySource: GatewayCredentialSource,
   ) {
@@ -247,7 +245,6 @@ export class AgentAuthAdapter {
     return resolveGatewayProxy({
       authProxy: this.authProxy,
       source: this.gatewaySource,
-      legacyGatewayUrl: getLlmGatewayUrl(apiHost),
       aiGatewayUrl: getAiGatewayUrl(apiHost),
       projectId,
       awaitRecheck: options.awaitRecheck,
@@ -289,13 +286,11 @@ export class AgentAuthAdapter {
 
   async configureProcessEnv({
     credentials,
-    proxyUrl,
     claudeCliPath,
     rtkEnabled,
   }: ConfigureProcessEnvInput): Promise<void> {
     await this.getValidToken();
 
-    process.env.LLM_GATEWAY_URL = proxyUrl;
     process.env.CLAUDE_CODE_EXECUTABLE = claudeCliPath;
     process.env.POSTHOG_API_URL = credentials.apiHost;
     process.env.POSTHOG_PROJECT_ID = String(credentials.projectId);

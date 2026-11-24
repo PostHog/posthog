@@ -19,12 +19,15 @@ import {
   isCloudflareModel,
   isOpenAIModel,
 } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import { type Adapter, customModelMeta } from "@posthog/shared";
+import {
+  type Adapter,
+  customModelMeta,
+  getAiGatewayUrl,
+} from "@posthog/shared";
 
 // Web port of AgentService.getPreviewConfigOptions (workspace-server). The
 // desktop host runs this in the Node main process; the browser can run the exact
-// same logic because it's a plain fetch to the PostHog LLM gateway (CORS-open,
+// same logic because it's a plain fetch to the Go gateway's model list (CORS-open,
 // access-control-allow-origin: *) plus pure option-building. Kept here in the
 // host so the web router stays a thin forward and packages/* are untouched.
 export async function getWebPreviewConfigOptions(
@@ -32,7 +35,7 @@ export async function getWebPreviewConfigOptions(
   adapter: Adapter = "claude",
   allHarnessModels = false,
 ): Promise<SessionConfigOption[]> {
-  const gatewayUrl = getLlmGatewayUrl(apiHost);
+  const gatewayUrl = getAiGatewayUrl(apiHost);
   const gatewayModels = await fetchGatewayModels({ gatewayUrl });
 
   const modelFilter =

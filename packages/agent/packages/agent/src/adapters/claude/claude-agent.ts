@@ -3201,10 +3201,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private routedModelId<T extends string | undefined>(model: T): T {
-    return modelIdForGatewayRoute(
-      model,
-      this.options?.gatewayEnv?.isAiGateway ?? false,
-    );
+    return this.options?.gatewayEnv ? modelIdForGatewayRoute(model) : model;
   }
 
   private startupFailure(

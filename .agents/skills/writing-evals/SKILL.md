@@ -10,7 +10,7 @@ description: >
 # Writing and running evals
 
 The harness under `products/posthog_ai/eval_harness/` runs two kinds of suites: **sandboxed** suites execute the real coding agent inside a real sandbox against a seeded Hedgebox project and score what it did, and **one-shot** suites score a single in-process model invocation per case.
-Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, LLM gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
+Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, AI gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
 
 Read before writing anything:
 

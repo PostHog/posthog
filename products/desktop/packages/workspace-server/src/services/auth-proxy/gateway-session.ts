@@ -29,11 +29,19 @@ import {
 
 type GoCredential = Extract<GatewayCredential, { mode: "go" }>;
 
+const NO_PROJECT_ROUTE: GatewayCredential = {
+  mode: "blocked",
+  reason: "no_project",
+  detail: "Select a PostHog project to use PostHog AI.",
+  status: 403,
+};
+
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface SessionTarget {
   kind: "session";
-  projectId: number;
+  /** Null with no project selected: the route is blocked, but models still list. */
+  projectId: number | null;
   /** Go gateway origin that lists models while the route is blocked. */
   aiGatewayUrl: string;
   headers: Record<string, string>;
@@ -104,7 +112,7 @@ export class GatewaySessionHandler {
     res.on("close", () => {
       if (!res.writableEnded) abort.abort();
     });
-    const path = subPath.replace(/^\/posthog_code(?=\/|$)/, "") || "/";
+    const path = subPath || "/";
     if (!SESSION_PATHS.has(path)) {
       this.deps.log.warn(
         "Rejected gateway session request outside the allowlist",
@@ -141,15 +149,18 @@ export class GatewaySessionHandler {
       body = read;
     }
 
-    const credential: GatewayCredential = await this.deps
-      .source()
-      .getRoute(target.projectId)
-      .catch(() => ({
-        mode: "blocked",
-        reason: "route_failed",
-        detail: GATEWAY_TRANSIENT_DETAIL,
-        status: 503,
-      }));
+    const credential: GatewayCredential =
+      target.projectId === null
+        ? NO_PROJECT_ROUTE
+        : await this.deps
+            .source()
+            .getRoute(target.projectId)
+            .catch(() => ({
+              mode: "blocked",
+              reason: "route_failed",
+              detail: GATEWAY_TRANSIENT_DETAIL,
+              status: 503,
+            }));
     if (abort.signal.aborted) return;
     this.noteMode(
       target,
@@ -171,7 +182,6 @@ export class GatewaySessionHandler {
     }
 
     await this.forward(
-      target,
       credential,
       {
         path,
@@ -229,7 +239,6 @@ export class GatewaySessionHandler {
   }
 
   private async forward(
-    target: SessionTarget,
     initial: GoCredential,
     request: {
       path: string;
@@ -287,14 +296,14 @@ export class GatewaySessionHandler {
       if (refusal.reason) {
         const source = this.deps.source();
         const fresh = await source
-          .remint(refusal.reason, credential.token, target.projectId)
+          .remint(refusal.reason, credential.token, credential.projectId)
           .catch(() => null);
         if (fresh?.mode === "go") {
           credential = fresh;
           response = await send(credential);
           bufferedBody = null;
           if (response.status === 401 && refusal.reason === "unauthorized") {
-            source.fallBack(credential.token, target.projectId);
+            source.fallBack(credential.token, credential.projectId);
           }
         }
       }

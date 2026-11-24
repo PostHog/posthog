@@ -1,6 +1,3 @@
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import type { AuthService } from "@posthog/core/auth/auth";
-import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import { TEAM_SKILLS_SERVICE } from "@posthog/core/skills/identifiers";
 import type { TeamSkillsService } from "@posthog/core/skills/teamSkillsService";
 import { resolveService } from "@posthog/di/container";
@@ -16,6 +13,7 @@ import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import {
   CLOUD_REGIONS,
   type CloudRegion,
+  getAiGatewayUrl,
   getCloudUrlFromRegion,
   tabsSnapshotSchema,
   tabViewStateSchema,
@@ -142,16 +140,10 @@ const agentStubRouter = router({
   resetAll: publicProcedure.mutation(() => undefined),
   getPiModelCatalog: publicProcedure
     .input(z.object({ apiHost: z.string(), region: z.enum(CLOUD_REGIONS) }))
-    .query(async ({ input }) => {
-      const auth = resolveService<AuthService>(AUTH_SERVICE);
-      const { accessToken } = await auth.getValidAccessToken();
-      return fetchPosthogPiModelCatalog(
-        getLlmGatewayUrl(input.apiHost),
-        input.region,
-        accessToken,
-        auth.getState().currentProjectId ?? undefined,
-      );
-    }),
+    // Go serves its model list without auth, so the browser sends no token.
+    .query(({ input }) =>
+      fetchPosthogPiModelCatalog(getAiGatewayUrl(input.apiHost), input.region),
+    ),
   // Unreachable in practice: the UI gates "/btw" on sessionSupportsSideQuestion,
   // which is false for cloud sessions. Present so SessionTrpc stays satisfied.
   sideQuestion: publicProcedure
@@ -160,8 +152,9 @@ const agentStubRouter = router({
       throw new Error("Side questions require a local session");
     }),
   // Model/mode/effort options for the task-input preview + cloud run creation
-  // (a cloud run requires a model). Real: fetched from the CORS-open PostHog LLM
-  // gateway, same logic the desktop main process runs (see web-agent-config.ts).
+  // (a cloud run requires a model). Real: fetched from the Go gateway's
+  // CORS-open model list, same logic the desktop main process runs (see
+  // web-agent-config.ts).
   getPreviewConfigOptions: publicProcedure
     .input(
       z.object({

@@ -7,7 +7,6 @@ import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { AuthService } from "@posthog/core/auth/auth";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import {
@@ -574,8 +573,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     authenticatedFetch: (url: string, init?: RequestInit) =>
       auth().authenticatedFetch(fetch, url, init),
     fetch: (url: string, init?: RequestInit) => fetch(url, init),
-    messagesUrl: (apiHost: string) =>
-      `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
