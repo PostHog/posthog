@@ -6,17 +6,20 @@ export function WizardCard({
     description,
     badge,
     onClick,
+    'data-attr': dataAttr,
 }: {
     icon?: React.ReactNode
     name: string
     description: string
     badge?: string
     onClick: () => void
+    'data-attr'?: string
 }): JSX.Element {
     return (
         <button
             type="button"
             onClick={onClick}
+            data-attr={dataAttr}
             className={clsx(
                 'group relative text-left rounded-lg border border-border bg-bg-light transition-all cursor-pointer p-5 w-full',
                 'hover:border-border-bold hover:shadow-sm',
