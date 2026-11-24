@@ -854,6 +854,26 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         # the caller's token only had this team in scope, so stripping it revokes the token
         assert not OAuthAccessToken.objects.filter(token=token).exists()
 
+    def test_remove_keeps_mapping_and_scope_when_key_deletion_fails(self) -> None:
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"application": access_token.application}
+        )
+
+        with patch(
+            "ee.api.agentic_provisioning.views.resources.delete_provisioned_pats",
+            side_effect=RuntimeError("key deletion failed"),
+        ):
+            res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
+
+        assert res.status_code == 500
+        assert TeamProvisioningConfig.objects.filter(team=self.team).exists()
+        access_token.refresh_from_db()
+        assert self.team.id in access_token.scoped_teams
+
 
 class TestCreateProvisionedPat(ProvisioningTestBase):
     def _minting_app(self) -> OAuthApplication:

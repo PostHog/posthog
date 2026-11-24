@@ -938,24 +938,27 @@ class ResourceRemoveView(StripeResourceAPIView):
 
         team_id = self.parse_resource_team_id(resource_id, access_token)
 
-        try:
-            # Clear the mapping only if it is unclaimed or owned by the caller's
-            # application; an in-scope partner must not delete another partner's
-            # provisioning mapping for the same team.
-            # TODO: latent gap - when the config is owned by another application
-            # the delete is silently skipped, yet the team is still stripped
-            # from token scopes and "removed" is returned, so the mapping
-            # survives with no signal to the caller.
-            config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
-            if config is not None and config.application_id in (None, access_token.application_id):
-                config.delete()
-        except Exception:
-            capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
-            capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
-            raise SpecError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
-
-        # One transaction, so a failed key deletion undoes the scope change and a retry passes the scope check.
+        # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
+        # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
         with transaction.atomic():
+            try:
+                # Clear the mapping only if it is unclaimed or owned by the caller's
+                # application; an in-scope partner must not delete another partner's
+                # provisioning mapping for the same team.
+                # TODO: latent gap - when the config is owned by another application
+                # the delete is silently skipped, yet the team is still stripped
+                # from token scopes and "removed" is returned, so the mapping
+                # survives with no signal to the caller.
+                config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+                if config is not None and config.application_id in (None, access_token.application_id):
+                    config.delete()
+            except Exception:
+                capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+                capture_provisioning_event(
+                    "resource_removed", "error", team_id=team_id, error_code="remove_config_failed"
+                )
+                raise SpecError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
+
             remove_team_from_token_scopes(access_token, team_id)
 
             # After the scope change, so a mint that locked a token before it has committed its key.
