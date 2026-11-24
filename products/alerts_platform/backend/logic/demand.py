@@ -1,6 +1,8 @@
 import datetime as dt
 from collections.abc import Mapping
 
+from django.db.models import F
+
 from products.alerts_platform.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
 from products.alerts_platform.backend.logic.platform_lifecycle import due_q, slot_of, suppressed
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -22,6 +24,8 @@ def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | No
     # Discovery is cross-team by definition, so it opts out of team scoping rather than running
     # once per team. Oldest due first, so a key the bound leaves out grows more overdue and wins a
     # later tick; any stable ordering that is not by due time starves the same keys every tick.
+    # A never-checked configuration has a NULL due time and belongs to this tick, so it sorts first.
+    # Postgres sorts NULL last by default, which would hold it behind every overdue key.
     due = (
         PlatformAlertConfiguration.objects.unscoped()
         .filter(enabled=True)
@@ -29,7 +33,7 @@ def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | No
         # A broken or snoozed alert would otherwise mint a key every tick that its own evaluation
         # then drops.
         .exclude(suppressed())
-        .order_by("next_check_at", "id")
+        .order_by(F("next_check_at").asc(nulls_first=True), "id")
         .values_list("source_kind", "team_id", "next_check_at")
     )
 

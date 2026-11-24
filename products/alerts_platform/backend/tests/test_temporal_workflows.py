@@ -666,22 +666,23 @@ class TestDemandDiscovery(APIBaseTest):
         # Two configurations, one key: a key is a team and a minute, not an alert.
         assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(2), self._key(1)]}
 
-    def test_the_bound_keeps_the_oldest_due_keys_and_counts_the_rest(self) -> None:
-        self._configuration(minutes_ago=1, name="newer")
-        self._configuration(minutes_ago=5, name="oldest")
+    @parameterized.expand(
+        [
+            ("oldest_due_wins", 1, 5),
+            ("never_checked_wins", 5, None),
+        ]
+    )
+    def test_the_bound_keeps_the_oldest_due_keys_and_counts_the_rest(
+        self, _name: str, left_out_minutes_ago: int, kept_minutes_ago: int | None
+    ) -> None:
+        self._configuration(minutes_ago=left_out_minutes_ago, name="left out")
+        self._configuration(minutes_ago=kept_minutes_ago, name="kept")
 
         bounded = demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 1})
 
-        # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
-        assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
+        # A never-checked configuration belongs to this tick, so its key is the tick's own minute.
+        assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(kept_minutes_ago or 0)]}
         assert bounded.omitted_by_source == {SourceKind.LOGS: 1}
-
-    def test_a_configuration_never_checked_belongs_to_this_tick(self) -> None:
-        self._configuration(minutes_ago=None, name="never checked")
-
-        discovered = demand.discover_demand(self.tick.isoformat())
-
-        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(0)]}
 
     @parameterized.expand([("invalid",), ("2026-09-16T10:00:00",)])
     def test_discovery_rejects_invalid_cutoff(self, cutoff: str) -> None:
