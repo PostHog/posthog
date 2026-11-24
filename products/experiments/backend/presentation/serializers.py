@@ -62,12 +62,12 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import (
     EXPERIMENT_EXPOSURE_EVENT,
-    LLM_METRIC_TEMPLATE_NAMES,
     RUNNING_TIME_METRIC_TYPES,
     ExperimentResultConfigurationStatus,
     MetricSourceRole,
 )
 from products.experiments.backend.facade.exposure import resolve_team_default_exposure_event
+from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.facade.metrics import refresh_action_names_in_metric
 from products.experiments.backend.facade.recalculation import (
     METRICS_RECALCULATION_REQUEST_TRIGGER_CHOICES,
@@ -1855,13 +1855,13 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         ),
     )
     templates = serializers.ListField(
-        child=serializers.ChoiceField(choices=LLM_METRIC_TEMPLATE_NAMES),
+        child=serializers.ChoiceField(choices=TEMPLATE_NAMES),
         min_length=1,
-        max_length=len(LLM_METRIC_TEMPLATE_NAMES),
+        max_length=len(TEMPLATE_NAMES),
         help_text=(
             "One or more metric templates to attach as primary metrics. "
             "Each template becomes one metric on the experiment. "
-            f"Allowed values: {', '.join(LLM_METRIC_TEMPLATE_NAMES)}."
+            f"Allowed values: {', '.join(TEMPLATE_NAMES)}."
         ),
     )
     name = serializers.CharField(

@@ -9,7 +9,7 @@ from posthog.constants import AvailableFeature
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.facade.contracts import EVALUATION_GRADED_MARKER, EVALUATION_PASSED_MARKER
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
-from products.experiments.backend.facade.enums import LLM_METRIC_TEMPLATE_NAMES
+from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -59,13 +59,13 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         keys = [t["key"] for t in body]
-        self.assertEqual(set(keys), set(LLM_METRIC_TEMPLATE_NAMES))
+        self.assertEqual(set(keys), set(TEMPLATE_NAMES))
         for entry in body:
             self.assertIn("label", entry)
             self.assertIn("description", entry)
 
     @parameterized.expand(
-        [(name, n) for name in LLM_METRIC_TEMPLATE_NAMES for n in (2, 3, 5)],
+        [(name, n) for name in TEMPLATE_NAMES for n in (2, 3, 5)],
         name_func=lambda fn, _i, p: f"{fn.__name__}_{p.args[0]}_n{p.args[1]}",
     )
     def test_happy_path(self, template_name: str, n: int) -> None:
@@ -126,7 +126,7 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
 
     def test_multiple_templates_creates_one_metric_each(self) -> None:
         # Pick all available templates so we exercise both mean and ratio shapes.
-        templates = list(LLM_METRIC_TEMPLATE_NAMES)
+        templates = list(TEMPLATE_NAMES)
         response = self._post(templates=templates)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 

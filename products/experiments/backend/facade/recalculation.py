@@ -26,8 +26,7 @@ __all__ = [
     "start_timeseries_recalculation_workflow",
 ]
 
-# The model's choices, as (value, label) pairs. A serializer field with exactly these pairs keeps the OpenAPI enum name
-# that the model's choices class gives them.
+# Exact (value, label) pairs of the model choices, so that OpenAPI keeps the enum name that the choices class gives.
 METRICS_RECALCULATION_STATUS_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in ExperimentMetricsRecalculation.Status.choices
 ]
@@ -38,7 +37,6 @@ AGENT_MCP_RECALCULATION_TRIGGER: str = ExperimentMetricsRecalculation.Trigger.AG
 
 
 def _get_experiment(team_id: int, experiment_id: int) -> Experiment:
-    # The recalculation paths read the team and the flag of the experiment.
     return Experiment.objects.select_related("team", "feature_flag").get(team_id=team_id, id=experiment_id)
 
 

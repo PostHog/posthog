@@ -1201,8 +1201,6 @@ class RecalculationStart:
 
 @frozen
 class MetricRecalculationResult:
-    """One metric's result row in a metrics recalculation run."""
-
     metric_uuid: str
     status: Literal["pending", "completed", "failed"]
     # The ExperimentQueryResponse shape. None while the metric is pending, and when it failed.
@@ -1231,14 +1229,11 @@ class MetricsRecalculationJob:
 
 @frozen
 class RequestedMetricsRecalculation(MetricsRecalculationJob):
-    # True when an active or fresh run already existed, so the request created no run.
     is_existing: bool
 
 
 @frozen
 class MetricsRecalculationRun(MetricsRecalculationJob):
-    """A metrics recalculation run with its per-metric results, retry state and live query progress."""
-
     metric_retries: dict[str, Any]
     results: tuple[MetricRecalculationResult, ...]
     # Live ClickHouse progress of an in-progress run. None for any other run, and when the progress read fails.
@@ -1258,7 +1253,6 @@ class LatestMetricsRecalculation(MetricsRecalculationRun):
 
     active_run: ActiveMetricsRecalculation | None
     result_source: Literal["recalculation", "timeseries_fallback"]
-    # The experiment started too long ago for a new recalculation. Its saved results stay readable.
     exceeds_recalculation_age_limit: bool
 
 

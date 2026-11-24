@@ -24,17 +24,11 @@ class ExposuresPath(StrEnum):
     DIRECT_SCAN = "direct_scan"
 
 
-# The dedicated exposure event that replaces $feature_flag_called as the default, gated per team by the
-# `experiment-exposure-event` flag while it rolls out.
+# Replaces $feature_flag_called as the default exposure event for a team that has the `experiment-exposure-event` flag.
 EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 
-# The metric types that the running time calculator sizes.
 RunningTimeMetricType = Literal["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"]
 RUNNING_TIME_METRIC_TYPES: tuple[str, ...] = get_args(RunningTimeMetricType)
-
-# The LLM metric templates that an experiment created from a prompt can attach. llm_metric_templates has one builder
-# for each name.
-LLM_METRIC_TEMPLATE_NAMES = ("cost", "latency", "eval_pass_rate")
 
 
 class MetricSourceRole(StrEnum):

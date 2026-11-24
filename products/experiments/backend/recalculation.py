@@ -353,8 +353,7 @@ def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: i
             )
         )
     except Exception:
-        # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-        # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+        # The team filter stops the rollback from reaching another team's row, whatever the source of the id.
         ExperimentTimeseriesRecalculation.objects.filter(team_id=team_id, id=recalculation_id).update(
             status=ExperimentTimeseriesRecalculation.Status.FAILED
         )
@@ -887,10 +886,8 @@ def build_latest_payload(experiment: Experiment) -> dict | None:
     if recalc is not None:
         payload = build_run_payload(recalc)
     else:
-        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
-        # placeholder so the user sees results immediately, even while a first run is active (its pending
-        # payload would blank them out); an active run still rides along for polling. Pure read, no
-        # workflow start.
+        # The timeseries placeholder wins over an active first run, because the pending payload of that run would
+        # show no results until the run completes.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
             payload = fallback

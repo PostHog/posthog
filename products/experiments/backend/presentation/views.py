@@ -1651,8 +1651,7 @@ class EnterpriseExperimentsViewSet(
         result = request_metrics_recalculation(
             team_id=self.team.id, experiment_id=experiment.id, user=cast(User, request.user), trigger=trigger
         )
-        # The serializer surfaces is_existing on the response so clients can detect the idempotent-reuse path
-        # without inspecting the HTTP status code. A rejected run is new but already FAILED, so it gets a 201.
+        # A rejected run is new but already FAILED, so it gets a 201.
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if result.is_existing else 201,
