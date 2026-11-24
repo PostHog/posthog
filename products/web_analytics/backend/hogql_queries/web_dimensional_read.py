@@ -410,6 +410,11 @@ class _HostSetFilterRewriter(CloningVisitor):
         )
 
     def visit_and(self, node: ast.And) -> ast.And:
+        # The host filters match against every host of the session, and the other filters match the one value the row
+        # stores for the session. Live requires one event to match all of them. So a session that viewed host A from
+        # one country and host B from another can match "host B and the first country", which live excludes. Only
+        # sessions with more than one host and a second value of a per-event dimension (mostly viewport and geoip)
+        # are affected, and only bounce rate and duration, because the counts come from the stats table.
         host_exprs = [expr for expr in node.exprs if self._host_only(expr)]
         other_exprs = [self.visit(expr) for expr in node.exprs if not self._host_only(expr)]
         if not host_exprs:
