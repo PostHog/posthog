@@ -3,6 +3,7 @@
 Only the tool's own image hosts are read, over https, and redirects are not followed.
 """
 
+import re
 import time
 import hashlib
 from collections.abc import Iterable, Mapping
@@ -21,6 +22,9 @@ from products.workflows.backend.facade.contracts import EmailImageSource, ImageB
 
 logger = structlog.get_logger(__name__)
 
+_AUTHORITY_END = re.compile(r"[/?#]")
+# Postgres refuses these in the copy's file name.
+_UNSTORABLE = re.compile("[\x00\ud800-\udfff]")
 _MAX_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 10
 # The timeout above restarts with every byte, so a host that drips them needs a limit on the whole image.
@@ -35,8 +39,10 @@ def is_hosted(url: str, source: EmailImageSource) -> bool:
         host, port = (parts.hostname or "").lower(), parts.port
     except ValueError:
         return False
-    # Only the path may hold anything else, such as an accented file name, which the request encodes.
-    if not url.isprintable() or not parts.netloc.isascii() or "\\" in parts.netloc:
+    # Only the path may hold anything else, such as an accented file name, which the request encodes. Read from the
+    # URL itself, because `urlsplit` drops tabs and line breaks.
+    authority = _AUTHORITY_END.split(url.partition("//")[2], maxsplit=1)[0]
+    if not authority.isascii() or not authority.isprintable() or "\\" in authority or _UNSTORABLE.search(url):
         return False
     return (
         parts.scheme == "https"
@@ -56,7 +62,7 @@ def copy_images(
     # Anyone with media access can upload under these names, so only copies this user saved count as the import's own.
     for media in (
         UploadedMedia.objects.filter(
-            team=team,
+            team_id=team.pk,
             created_by=user,
             purpose=MEDIA_PURPOSE_EMAIL,
             file_name__in=set(names.values()),
@@ -71,7 +77,7 @@ def copy_images(
     # Staff took these down, whoever copied them, so they are neither shown nor copied again.
     taken_down = set(
         UploadedMedia.objects.filter(
-            team=team,
+            team_id=team.pk,
             purpose=MEDIA_PURPOSE_EMAIL,
             file_name__in=set(names.values()),
             serving_disabled_at__isnull=False,
