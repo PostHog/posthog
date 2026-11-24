@@ -271,24 +271,23 @@ type SendAttempt = { onItsOwnConnection: boolean; connectionOpened: boolean; ses
 
 const currentSendAttempt = new AsyncLocalStorage<SendAttempt>()
 
-// An attempt that refuses a retry once its connection opened must not start on an idle pooled
-// connection: SES can close that connection just as the attempt starts, and the reset would then fail
-// an email that SES never read. Such an attempt opens its own connection, and every other request
-// keeps the SDK's default pool.
-const sesRequestHandler = (): Pick<NodeHttpHandler, 'handle' | 'destroy'> => {
-    const pooledConnections = new NodeHttpHandler()
+const withOwnConnectionsForSendsWithFiles = (client: SESv2Client): SESv2Client => {
+    const pooledConnections = client.config.requestHandler
     const ownConnections = new NodeHttpHandler({
         httpAgent: new HttpAgent({ keepAlive: false }),
         httpsAgent: new HttpsAgent({ keepAlive: false }),
     })
-    return {
-        handle: (...args) =>
-            (currentSendAttempt.getStore()?.onItsOwnConnection ? ownConnections : pooledConnections).handle(...args),
+    client.config.requestHandler = {
+        handle: (request, options) =>
+            currentSendAttempt.getStore()?.onItsOwnConnection
+                ? ownConnections.handle(request, options)
+                : pooledConnections.handle(request, options),
         destroy: () => {
-            pooledConnections.destroy()
+            pooledConnections.destroy?.()
             ownConnections.destroy()
         },
     }
+    return client
 }
 
 const markTheAttemptOnceItsConnectionOpens = ({ request }: { request: ClientRequest }): void => {
@@ -779,11 +778,12 @@ export class EmailService {
         private attachmentStore: AttachmentStore | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
-            ? new SESv2Client({
-                  region: this.sesConfig.sesRegion,
-                  endpoint: this.sesConfig.sesEndpoint || undefined,
-                  requestHandler: sesRequestHandler(),
-              })
+            ? withOwnConnectionsForSendsWithFiles(
+                  new SESv2Client({
+                      region: this.sesConfig.sesRegion,
+                      endpoint: this.sesConfig.sesEndpoint || undefined,
+                  })
+              )
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)

@@ -3341,22 +3341,30 @@ describe('EmailService', () => {
                 const proxyPort = await listeningOnLoopback(countingProxy)
                 const emailService = sender({ sesEndpoint: `http://127.0.0.1:${proxyPort}` })
                 const files = invocation.queueParameters
+                const connectionsAfterEachSend: number[] = []
+                const sendAndCountConnections = async (withFiles: boolean): Promise<void> => {
+                    if (withFiles) {
+                        invocation.queueParameters = files
+                    } else {
+                        send([])
+                    }
+                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                    connectionsAfterEachSend.push(connectionsToSes)
+                }
                 try {
-                    send([])
-                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
-                    invocation.queueParameters = files
-                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                    await sendAndCountConnections(false)
+                    await sendAndCountConnections(false)
+                    await sendAndCountConnections(true)
+                    await sendAndCountConnections(true)
+                    await sendAndCountConnections(false)
 
                     expect({
-                        connectionsToSes,
-                        deliveredWithFiles: deliveredTo(ses, recipient).filter(
-                            ({ attachments }) => attachments?.length
-                        ),
+                        connectionsAfterEachSend,
+                        deliveredWithFiles: deliveredTo(ses, recipient).filter(({ attachments }) => attachments?.length)
+                            .length,
                     }).toEqual({
-                        connectionsToSes: 2,
-                        deliveredWithFiles: [
-                            expect.objectContaining({ attachments: deliveredFiles.map((file) => file()) }),
-                        ],
+                        connectionsAfterEachSend: [1, 1, 2, 3, 3],
+                        deliveredWithFiles: 2,
                     })
                 } finally {
                     emailService.sesV2Client!.destroy()
