@@ -39,7 +39,9 @@ const HeatCell = ({ cell }: { cell: EngineTopicCell }): JSX.Element =>
                 )}
             >
                 <span className="font-semibold">{percentage(cell.rate, 0)}</span>{' '}
-                <span className="text-xs">of {humanFriendlyNumber(cell.answers)}</span>
+                <span className="text-xs">
+                    of <span translate="no">{humanFriendlyNumber(cell.answers)}</span>
+                </span>
             </span>
         </Tooltip>
     )

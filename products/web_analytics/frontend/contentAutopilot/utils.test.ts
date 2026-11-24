@@ -2,9 +2,25 @@ import { AI_LAB_SHADES, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabSha
 
 import type { AEOPromptEngineCheckApi, ContentAutopilotOpportunityApi } from '../generated/api.schemas'
 import { EXAMPLE_OPPORTUNITIES, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
-import { draftableOpportunity, engineColor, engineMark, promptSearches } from './utils'
+import { draftableOpportunity, engineColor, engineMark, promptSearches, rankingsReviewCardShown } from './utils'
 
 describe('utils', () => {
+    describe('rankingsReviewCardShown', () => {
+        it.each([
+            ['a full report', { answers: 3, engine: null, topic: null, branded: 'all' }, true, true],
+            [
+                'a filter with no answers',
+                { answers: 0, engine: 'exa-answer', topic: null, branded: 'all' },
+                true,
+                false,
+            ],
+            ['no answers to one side', { answers: 0, engine: null, topic: null, branded: 'non_branded' }, true, false],
+            ['a finished review', { answers: 3, engine: null, topic: null, branded: 'all' }, false, false],
+        ] as const)('%s', (_, rankings, reviewShown, expected) => {
+            expect(rankingsReviewCardShown(rankings, reviewShown)).toBe(expected)
+        })
+    })
+
     describe('engine identity', () => {
         it.each([
             ['claude-web-search', 'Claude', AI_LAB_SHADES.Anthropic[MAIN_LAB_SHADE]],

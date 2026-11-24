@@ -745,6 +745,8 @@ export const aeoPromptsCitationsQueryLimitMax = 100
 
 export const aeoPromptsCitationsQuerySearchMax = 1000
 
+export const aeoPromptsCitationsQueryTopicMax = 200
+
 export const aeoPromptsCitationsQueryUrlMax = 2048
 
 export const AeoPromptsCitationsQueryParams = () => zod.object({
@@ -801,6 +803,13 @@ export const AeoPromptsCitationsQueryParams = () => zod.object({
         .optional()
         .describe(
             "List the answers whose engine ran this web search. Case and repeated spaces are ignored, as in the overview's top_searches."
+        ),
+    topic: zod
+        .string()
+        .max(aeoPromptsCitationsQueryTopicMax)
+        .optional()
+        .describe(
+            'Only list answers to prompts that had this topic when they ran. An empty value lists the answers to prompts that had no topic. Pass the topic the overview or rankings used so the list matches their counts.'
         ),
     url: zod
         .string()

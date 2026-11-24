@@ -23,7 +23,12 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     posthog_feature_flag_enabled,
 )
-from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
+from posthog.rate_limit import (
+    AEOPromptSuggestionsBurstRateThrottle,
+    AEOPromptSuggestionsSustainedRateThrottle,
+    AEOSetReadBurstRateThrottle,
+    AEOSetReadSustainedRateThrottle,
+)
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -170,6 +175,9 @@ def date_to_field() -> serializers.CharField:
         max_length=32,
         help_text=f"Last day of the window, included. {DATE_FORMAT_HELP} Default today. A later day is read as today.",
     )
+
+
+SET_READ_THROTTLES = [AEOSetReadBurstRateThrottle, AEOSetReadSustainedRateThrottle]
 
 
 @contextmanager
@@ -1316,6 +1324,15 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
         max_length=64,
         help_text="Only list answers from this answer engine, for example 'claude-web-search'.",
     )
+    topic = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text=(
+            "Only list answers to prompts that had this topic when they ran. An empty value lists the answers to "
+            "prompts that had no topic. Pass the topic the overview or rankings used so the list matches their counts."
+        ),
+    )
     include_answer_text = serializers.BooleanField(
         default=False,
         help_text="Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.",
@@ -1539,7 +1556,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOPromptSetOverviewSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"], pagination_class=None)
+    @action(detail=False, methods=["get"], pagination_class=None, throttle_classes=SET_READ_THROTTLES)
     def overview(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         with date_range_errors():
             overview = get_prompt_set_overview(
@@ -1567,7 +1584,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOPromptSetRankingsSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"], pagination_class=None)
+    @action(detail=False, methods=["get"], pagination_class=None, throttle_classes=SET_READ_THROTTLES)
     def rankings(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         with date_range_errors():
             rankings = get_prompt_set_rankings(
@@ -1598,7 +1615,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOPromptSetMoversSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"], pagination_class=None)
+    @action(detail=False, methods=["get"], pagination_class=None, throttle_classes=SET_READ_THROTTLES)
     def movers(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         with date_range_errors():
             movers = get_prompt_set_movers(
@@ -1646,6 +1663,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 domain=data.get("domain"),
                 search=data.get("search"),
                 engine=data.get("engine"),
+                topic=data.get("topic"),
                 branded=BrandedSegment(data["branded"]),
                 include_answer_text=data["include_answer_text"],
             )

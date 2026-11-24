@@ -29,7 +29,14 @@ import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
+import {
+    brandedAnswersNote,
+    filtersHeading,
+    rankingsReviewCardShown,
+    rankingsSegmentEmpty,
+    segmentPrompts,
+    windowRange,
+} from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
@@ -86,6 +93,9 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     if (!rankings) {
         return <ContentAutopilotRankingsSkeleton />
     }
+    const narrowed = rankings.engine !== null || rankings.topic !== null
+    const segmentEmpty = rankingsSegmentEmpty(rankings)
+    const reviewCardShown = rankingsReviewCardShown(rankings, reviewShown)
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
@@ -98,7 +108,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                             Competitors are the ones you confirmed in{' '}
                             <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
-                    ) : reviewShown ? (
+                    ) : reviewCardShown ? (
                         // The review card below the header offers the same action.
                         'Competitors are guessed from the sites the engines cite most.'
                     ) : (
@@ -117,8 +127,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
             </div>
         </div>
     )
-    const narrowed = rankings.engine !== null || rankings.topic !== null
-    if (rankings.answers === 0 && (narrowed || rankings.branded !== 'all')) {
+    if (segmentEmpty) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-rankings">
                 {header}

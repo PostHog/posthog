@@ -15,12 +15,16 @@ export const ContentAutopilotPageMoversTable = ({
     dateFrom,
     dateTo,
     branded,
+    engine,
+    topic,
 }: {
     rows: AEOPageMoverApi[]
     days: number
     dateFrom: string
     dateTo: string
     branded: BrandedSegmentEnumApi
+    engine: string | null
+    topic: string | null
 }): JSX.Element => (
     <LemonTable<AEOPageMoverApi>
         size="small"
@@ -40,7 +44,7 @@ export const ContentAutopilotPageMoversTable = ({
                         <span className="block truncate font-semibold" title={url}>
                             {answers_citing > 0 ? (
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded }}
+                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded, engine, topic }}
                                     source="overview-movers"
                                     // A button sizes to its text, so it needs the cell's width to truncate.
                                     className="block w-full truncate"

@@ -246,3 +246,23 @@ export const filtersHeading = ({
         engine ? engineLabel(engine) : 'all engines',
         ...(topic === null || topic === undefined ? [] : [topic ? `topic ${topic}` : 'prompts with no topic']),
     ].join(', ')
+
+/** A filtered report with no answers, which shows an empty notice in place of the rankings. */
+export const rankingsSegmentEmpty = ({
+    answers,
+    engine,
+    topic,
+    branded,
+}: {
+    answers: number
+    engine: string | null
+    topic: string | null
+    branded: BrandedSegmentEnumApi
+}): boolean => answers === 0 && (engine !== null || topic !== null || branded !== 'all')
+
+/** Whether the competitor review card shows on the rankings tab. It renders only below a full report, so the
+ *  empty notice keeps the settings link. */
+export const rankingsReviewCardShown = (
+    rankings: Parameters<typeof rankingsSegmentEmpty>[0],
+    reviewShown: boolean
+): boolean => reviewShown && !rankingsSegmentEmpty(rankings)

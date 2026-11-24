@@ -3485,6 +3485,11 @@ export type AeoPromptsCitationsParams = {
      */
     search?: string
     /**
+     * Only list answers to prompts that had this topic when they ran. An empty value lists the answers to prompts that had no topic. Pass the topic the overview or rankings used so the list matches their counts.
+     * @maxLength 200
+     */
+    topic?: string
+    /**
      * List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.
      * @minLength 1
      * @maxLength 2048
