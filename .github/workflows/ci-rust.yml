@@ -967,7 +967,17 @@ jobs:
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              env:
+                  BINSTALL_ARCHIVE: ${{ runner.temp }}/cargo-binstall-1.26.2.tgz
+              run: |
+                  set -euo pipefail
+                  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 \
+                      -o "$BINSTALL_ARCHIVE" \
+                      https://github.com/cargo-bins/cargo-binstall/releases/download/v1.26.2/cargo-binstall-x86_64-unknown-linux-musl.tgz
+                  echo "9e0e064f189a9abb9f8df5fb93c3c810ef5cc19e7212d998c7a64c9e4d3527d5  $BINSTALL_ARCHIVE" | sha256sum --check
+                  mkdir -p "$CARGO_HOME/bin"
+                  tar -xzf "$BINSTALL_ARCHIVE" -C "$CARGO_HOME/bin" cargo-binstall
+                  "$CARGO_HOME/bin/cargo-binstall" -V
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
