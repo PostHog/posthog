@@ -492,7 +492,9 @@ describe('shared-image publication', () => {
     ['a list with a repeated channel', [], [requested('worker'), requested('other'), requested('worker')], 'Bootstrap requires each channel once: seed 2 repeats posthog-cloud/worker'],
     ['a list with a seed with an extra key', [], [requested('worker'), {...requested('other'), extra: true}], 'digest in seed 1 (posthog-cloud/other)'],
     ['a list with a digest inside an array', [], [requested('worker'), {...requested('other'), digest: [requested('other').digest]}], 'digest in seed 1 (posthog-cloud/other)'],
-    ['a list with a revision inside an array', [], [requested('worker'), {...requested('other'), revision: [requested('other').revision]}], 'digest in seed 1 (posthog-cloud/other)']
+    ['a list with a revision inside an array', [], [requested('worker'), {...requested('other'), revision: [requested('other').revision]}], 'digest in seed 1 (posthog-cloud/other)'],
+    ['a list with force for another channel', ['posthog-cloud/other'], [requested('worker')], 'Bootstrap requires an empty force list'],
+    ['a list with a revision object that cannot become a string', [], [requested('worker'), {...requested('other'), revision: {toString: 7}}], 'digest in seed 1 (posthog-cloud/other)']
   ])('request validation rejects %s', (_name, force, bootstrap, message = String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires') => {
     expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(message)
   })
