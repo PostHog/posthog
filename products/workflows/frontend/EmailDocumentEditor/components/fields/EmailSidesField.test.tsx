@@ -48,4 +48,42 @@ describe('EmailSidesField', () => {
         expect(saved).toEqual(EVEN)
         expect(screen.getByLabelText('Padding Right')).toBeTruthy()
     })
+
+    it.each([
+        ['same sides from uneven', UNEVEN, ['Same on all sides'], [{ top: 1, right: 1, bottom: 1, left: 1 }]],
+        ['same sides when they are already equal', EVEN, ['Set each side', 'Same on all sides'], []],
+        ['each side', EVEN, ['Set each side'], []],
+        ['each side when it is already selected', UNEVEN, ['Set each side'], []],
+        ['same sides when it is already selected', EVEN, ['Same on all sides'], []],
+    ])('switching to %s writes only what it must', (_, start, clicks, writes) => {
+        const onChange = jest.fn()
+        function Switched(): JSX.Element {
+            const [value, setValue] = useState<EmailSides | undefined>(start)
+            return (
+                <EmailSidesField
+                    label="Padding"
+                    value={value}
+                    placeholder={EVEN}
+                    onChange={(next) => {
+                        onChange(next)
+                        setValue(next)
+                    }}
+                />
+            )
+        }
+        render(<Switched />)
+        clicks.forEach((name) => fireEvent.click(screen.getByLabelText(name)))
+        expect(onChange.mock.calls.map(([next]) => next)).toEqual(writes)
+        expect(!!screen.queryByLabelText('Padding Top')).toBe(clicks[clicks.length - 1] === 'Set each side')
+    })
+
+    it('does not keep four sides open after clicking the already selected each side', () => {
+        const field = (value: EmailSides): JSX.Element => (
+            <EmailSidesField label="Padding" value={value} placeholder={EVEN} onChange={() => {}} />
+        )
+        const { rerender } = render(field(UNEVEN))
+        fireEvent.click(screen.getByLabelText('Set each side'))
+        rerender(field(EVEN))
+        expect(screen.queryByLabelText('Padding Top')).toBeNull()
+    })
 })

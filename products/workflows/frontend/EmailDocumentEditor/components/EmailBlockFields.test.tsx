@@ -34,7 +34,7 @@ describe('EmailBlockFields', () => {
         const { container, rerender } = render(<EmailBlockFields editor={editor} />)
         const find = (attr: string): HTMLInputElement | null => container.querySelector(`[data-attr="${attr}"]`)
         if (find('email-editor-block-padding')) {
-            fireEvent.click(find('email-editor-block-padding-toggle')!)
+            fireEvent.click(find('email-editor-block-padding-each')!)
         }
         expect(find('email-editor-block-padding-top')).toBeTruthy()
 
