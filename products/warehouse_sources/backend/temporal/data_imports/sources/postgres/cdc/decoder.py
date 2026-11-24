@@ -36,6 +36,7 @@ from dataclasses import (
 from datetime import UTC, datetime
 from typing import IO, Any
 
+import orjson
 import pyarrow as pa
 
 from posthog.dataclasses import frozen
@@ -689,7 +690,9 @@ def _decode_tuple(data: bytes, relation: Relation) -> tuple[dict[str, Any], set[
             offset += 4
             text_value = data[offset : offset + length].decode("utf-8")
             offset += length
-            columns[col_meta.name] = _cast_text_value(text_value, col_meta.type_oid)
+            columns[col_meta.name] = _cast_text_value(
+                text_value, col_meta.type_oid, snapshot_format=not col_meta.flags & 1
+            )
         else:
             logger.warning("Unknown tuple column type '%s' for column %s", col_type, col_meta.name)
 
@@ -740,7 +743,7 @@ def _arrow_type_for_oid(type_oid: int) -> pa.DataType:
         return pa.string()
 
 
-def _cast_text_value(text: str, type_oid: int) -> Any:
+def _cast_text_value(text: str, type_oid: int, snapshot_format: bool = True) -> Any:
     """Cast a pgoutput text-format value to a Python type based on OID.
 
     pgoutput always sends values in text format. We cast common types
@@ -758,12 +761,16 @@ def _cast_text_value(text: str, type_oid: int) -> Any:
     elif type_oid in (_OID_JSON, _OID_JSONB):
         # Keep as string — let downstream handle JSON parsing
         return text
+    elif not snapshot_format:
+        # A key column keeps the wire format: the table's stored keys were written in it, and a merge compares
+        # keys exactly.
+        return text
     elif type_oid == _OID_BYTEA and text.startswith("\\x"):
         # A snapshot writes binary as lowercase hex without the prefix.
         return text[2:]
     elif (element_oid := _ARRAY_ELEMENT_OIDS.get(type_oid)) is not None:
-        # A snapshot writes an array as a compact JSON list.
-        return json.dumps(_parse_array(text, element_oid), separators=(",", ":"), ensure_ascii=False)
+        # A snapshot writes an array with orjson, which writes NaN and Infinity as null.
+        return orjson.dumps(_parse_array(text, element_oid)).decode()
     else:
         return text
 
@@ -787,14 +794,18 @@ def _parse_array(text: str, element_oid: int) -> list[Any]:
                 items.append(parse_level())
             elif text[position] == '"':
                 position += 1
-                chars = []
-                while text[position] != '"':
-                    if text[position] == "\\":
-                        position += 1
-                    chars.append(text[position])
-                    position += 1
-                position += 1
-                items.append(_cast_text_value("".join(chars), element_oid))
+                parts = []
+                while True:
+                    quote = text.index('"', position)
+                    backslash = text.find("\\", position, quote)
+                    if backslash == -1:
+                        parts.append(text[position:quote])
+                        position = quote + 1
+                        break
+                    parts.append(text[position:backslash])
+                    parts.append(text[backslash + 1])
+                    position = backslash + 2
+                items.append(_cast_text_value("".join(parts), element_oid))
             else:
                 end = position
                 while text[end] not in ",}":
