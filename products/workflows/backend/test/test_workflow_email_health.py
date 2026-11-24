@@ -576,11 +576,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         labels = {"signal": "bounce", "window": "1h", "mode": "transactional", "scope": "project"}
         counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
 
-        with (
-            capture_logs() as logs,
-            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
+        with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
             applied = sweep_workflow_email_health(now=self.now)
 
         assert applied == []
