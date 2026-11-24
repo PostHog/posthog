@@ -33803,11 +33803,7 @@ export namespace Schemas {
       Parquet: 'parquet',
     } as const;
 
-    export interface CreateTableFromUpload {
-      /** Id returned by upload_file for the stored file. */
-      upload_id: string;
-      /** Sanitized filename returned by upload_file. */
-      filename: string;
+    export interface CreateTableFromFile {
       /**
          * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
          * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
@@ -33819,6 +33815,27 @@ export namespace Schemas {
        * * `json` - json
        * * `parquet` - parquet */
       file_format: UploadedFileFormatEnum;
+      file: Blob;
+      /** Name the resulting table is queried by in HogQL. */
+      table_name: string;
+    }
+
+    export interface CreateTableFromUpload {
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: UploadedFileFormatEnum;
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
       /** Name the resulting table is queried by in HogQL. */
       table_name: string;
     }
@@ -66612,6 +66629,21 @@ export namespace Schemas {
          * @nullable
          */
       scan_id: string | null;
+    }
+
+    export interface InlineUpload {
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: UploadedFileFormatEnum;
+      file: Blob;
     }
 
     export interface InsightBulkDeleteRequest {
@@ -128545,10 +128577,6 @@ export namespace Schemas {
     }
 
     export interface UploadedFile {
-      /** Id returned by upload_file for the stored file. */
-      upload_id: string;
-      /** Sanitized filename returned by upload_file. */
-      filename: string;
       /**
          * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
          * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
@@ -128560,6 +128588,10 @@ export namespace Schemas {
        * * `json` - json
        * * `parquet` - parquet */
       file_format: UploadedFileFormatEnum;
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
     }
 
     export interface UploadedMediaCreated {
