@@ -6,6 +6,7 @@ import {
   buildProviderModelGroups,
   compareModelsForPicker,
   formatGatewayModelName,
+  GATEWAY_LISTING_META_KEY,
   type GatewayModel,
   gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
@@ -22,10 +23,12 @@ import {
   isServedModelId,
   normalizeGatewayModelsResponse,
   pickAllowedModel,
+  rememberGatewayListingFrom,
 } from "./cloud-task-models";
 import { configureCustomCloud } from "./custom-cloud";
-import { forgetGatewayModels } from "./model-catalog";
+import { forgetGatewayModels, knownGatewayModels } from "./model-catalog";
 import { isCustomModelOption } from "./models";
+import { getReasoningEffortOptions } from "./reasoning-effort";
 import { rememberSavedGatewayListing } from "./testing/saved-gateway-listing";
 
 const model = (
@@ -428,6 +431,37 @@ describe("buildCloudTaskConfigOptions", () => {
     expect(codexModelOptions).not.toContainEqual(
       expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
     );
+  });
+});
+
+describe("rememberGatewayListingFrom", () => {
+  it("hands the listing to another process through the model option", () => {
+    const models = rememberSavedGatewayListing();
+    const options = buildCloudTaskConfigOptions(models, "claude");
+    forgetGatewayModels();
+
+    rememberGatewayListingFrom(options);
+
+    expect(
+      getReasoningEffortOptions("claude", "claude-opus-5-5")?.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("skips a row that is not a model", () => {
+    forgetGatewayModels();
+
+    rememberGatewayListingFrom([
+      {
+        category: "model",
+        _meta: {
+          [GATEWAY_LISTING_META_KEY]: [{ id: 7 }, model("claude-opus-5-5")],
+        },
+      },
+    ]);
+
+    expect(knownGatewayModels().map((listed) => listed.id)).toEqual([
+      "claude-opus-5-5",
+    ]);
   });
 });
 

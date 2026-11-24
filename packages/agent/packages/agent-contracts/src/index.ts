@@ -68,6 +68,7 @@ export {
   GATEWAY_LISTING_META_KEY,
   type GatewayModel,
   type GatewayModelRow,
+  gatewayListingMeta,
   gatewayModelRowsFromTaskModels,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,

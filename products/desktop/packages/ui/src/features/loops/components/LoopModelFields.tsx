@@ -60,13 +60,10 @@ export function LoopModelFields({
   // efforts for the default model would confirm a value that is never saved.
   const effortNeedsModel = !model;
 
-  const reasoningOptions = useMemo(
-    () => [
-      { value: AUTO_REASONING_VALUE, label: "Auto" },
-      ...(effortNeedsModel ? [] : loopReasoningEffortOptions(adapter, model)),
-    ],
-    [adapter, model, effortNeedsModel],
-  );
+  const reasoningOptions = [
+    { value: AUTO_REASONING_VALUE, label: "Auto" },
+    ...(effortNeedsModel ? [] : loopReasoningEffortOptions(adapter, model)),
+  ];
 
   const handleModelChange = (value: string) => {
     const nextModel = value === DEFAULT_MODEL_VALUE ? "" : value;

@@ -47,6 +47,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   type GatewayModel,
+  gatewayListingMeta,
   leadingSlashCommand,
   serializeError,
 } from "@posthog/agent-contracts";
@@ -4052,6 +4053,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         options: modelOptions.options,
         category: "model" as SessionConfigOptionCategory,
         description: "Choose which model Claude should use",
+        _meta: gatewayListingMeta(),
       },
     ];
 

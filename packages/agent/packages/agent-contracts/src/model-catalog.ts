@@ -130,12 +130,14 @@ export function offeredModelsOf<T extends ListedModel>(
 }
 
 export function rememberGatewayModels(models: readonly ListedModel[]): void {
-  if (models.length === 0) return;
   const current = listing();
-  current.models = new Map(
-    models.map((model) => [listingKey(model.id), model]),
-  );
-  current.offered = offeredIdsOf(models);
+  for (const model of models) {
+    const key = listingKey(model.id);
+    // A row from Django's task model list has fewer facts than a gateway row, so it never replaces one.
+    if (current.models.get(key)?.family && !model.family) continue;
+    current.models.set(key, model);
+  }
+  current.offered = offeredIdsOf([...current.models.values()]);
 }
 
 export function forgetGatewayModels(): void {

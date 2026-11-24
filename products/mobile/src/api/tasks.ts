@@ -309,11 +309,14 @@ export async function deleteTask(taskId: string, signal?: AbortSignal): Promise<
 
 /** Every model a run may use, including ones no longer offered. Empty when the gateway is unreachable. */
 export async function getTaskModels(scope: ProjectScope | null, signal?: AbortSignal): Promise<ModelCatalogueApi> {
-    const body = await apiJson<{ cost_baseline?: string | null; models?: ModelChoiceApi[] }>(
-        scopedPath(scope, 'tasks/models/?include_unoffered=true'),
-        { signal }
-    )
-    return { costBaseline: body.cost_baseline ?? null, models: body.models ?? [] }
+    const body = await apiJson<{
+        cost_baseline?: string | null
+        models?: (Omit<ModelChoiceApi, 'offered'> & { offered?: boolean })[]
+    }>(scopedPath(scope, 'tasks/models/?include_unoffered=true'), { signal })
+    return {
+        costBaseline: body.cost_baseline ?? null,
+        models: (body.models ?? []).map((model) => ({ ...model, offered: model.offered ?? true })),
+    }
 }
 
 export function getMyTaskConfig(scope: ProjectScope | null, signal?: AbortSignal): Promise<TaskUserConfigApi> {

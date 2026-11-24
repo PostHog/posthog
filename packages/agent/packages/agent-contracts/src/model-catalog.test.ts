@@ -62,6 +62,20 @@ describe("the gateway listing", () => {
     expect(offeredModelsOf(legacy)).toEqual(legacy);
   });
 
+  it("keeps what a described listing said when a legacy listing follows", () => {
+    rememberSavedGatewayListing();
+    rememberGatewayModels([
+      { id: "claude-opus-5-5", context_window: 200_000 },
+      { id: "legacy-only-model" },
+    ]);
+
+    expect([
+      supports1MContext("claude-opus-5-5"),
+      isOfferedModel("claude-opus-5-5"),
+      isRetiredModel("legacy-only-model"),
+    ]).toEqual([true, true, true]);
+  });
+
   it("keeps the last listing when the gateway answers with none", () => {
     rememberSavedGatewayListing();
     rememberGatewayModels([]);

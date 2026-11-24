@@ -33,6 +33,10 @@ export { ANTHROPIC_MESSAGES_SHAPE, OPENAI_RESPONSES_SHAPE };
 
 export const GATEWAY_LISTING_META_KEY = "posthog/gatewayListing";
 
+export function gatewayListingMeta(): Record<string, unknown> {
+  return { [GATEWAY_LISTING_META_KEY]: knownGatewayModels() };
+}
+
 interface GatewayModelsResponse {
   data?: unknown[];
   models?: unknown[];
@@ -633,7 +637,7 @@ export function buildCloudTaskConfigOptions(
       options: modelOptions,
       category: "model",
       description: "Choose which model the agent should use",
-      _meta: { [GATEWAY_LISTING_META_KEY]: knownGatewayModels() },
+      _meta: gatewayListingMeta(),
     },
   ];
 
@@ -665,7 +669,7 @@ export function rememberGatewayListingFrom(
   const listing = options.find((option) => option.category === "model")
     ?._meta?.[GATEWAY_LISTING_META_KEY];
   if (Array.isArray(listing)) {
-    rememberGatewayModels(listing as ListedModel[]);
+    rememberGatewayModels(listing.filter(isGatewayModel));
   }
 }
 
