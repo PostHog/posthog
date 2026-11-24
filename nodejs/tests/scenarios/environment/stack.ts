@@ -397,12 +397,16 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export async function downServices(
+export type ProbeFailure = { name: string; reason: string; timedOut: boolean }
+
+export type Probes = Record<string, () => Promise<unknown>>
+
+export function dependencyProbes(
     edgeUrl: string | undefined,
     postgresUrl: string,
     sesValkey: { host: string; port: number }
-): Promise<string[]> {
-    const probes: Record<string, () => Promise<unknown>> = {
+): Probes {
+    return {
         postgres: () => withPostgres((client) => client.query('SELECT 1'), postgresUrl),
         kafka: pingKafka,
         redis: () => pingRedis(STACK.redis),
@@ -410,13 +414,27 @@ export async function downServices(
         personhog: () => expectOk(STACK.personhogReadinessUrl),
         'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
     }
-    const results = await Promise.all(
-        Object.entries(probes).map(([name, probe]) =>
-            probe().then(
-                () => null,
-                () => name
-            )
-        )
-    )
-    return results.filter((name): name is string => name !== null)
 }
+
+// A probe that failed before its timeout got an answer; one that ran out its clock may only have gone unheard.
+export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
+    const results = await Promise.all(
+        Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
+            const startedAt = performance.now()
+            try {
+                await probe()
+                return null
+            } catch (error) {
+                const timedOut = performance.now() - startedAt >= PROBE_TIMEOUT_MS
+                return { name, reason: error instanceof Error ? error.message : String(error), timedOut }
+            }
+        })
+    )
+    return results.filter((failure): failure is ProbeFailure => failure !== null)
+}
+
+export const downServices = (
+    edgeUrl: string | undefined,
+    postgresUrl: string,
+    sesValkey: { host: string; port: number }
+): Promise<ProbeFailure[]> => failedProbes(dependencyProbes(edgeUrl, postgresUrl, sesValkey))

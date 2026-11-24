@@ -782,9 +782,15 @@ describe('statusOf', () => {
         ],
         [
             'a dependency went away',
-            { down: ['provider-edge'], invariants: [BROKEN], admissions: [REFUSED_LOAD] },
+            {
+                down: [
+                    { name: 'provider-edge', at: Date.parse(at(20)), reason: 'refused', runnerBusy: 0.1, kind: 'gone' },
+                ],
+                invariants: [BROKEN],
+                admissions: [REFUSED_LOAD],
+            },
             'invalid',
-            'dependencies went away: provider-edge',
+            `dependencies went away: provider-edge at ${at(20)} (refused)`,
         ],
     ])('%s', (_story, change, status, statusReason) => {
         expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason, restarts: expect.any(Array) })
