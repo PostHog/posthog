@@ -1,10 +1,11 @@
 """Canonical, documentation-sourced descriptions for Amplitude endpoints and columns.
 
 Sourced from the official Amplitude HTTP API reference (https://amplitude.com/docs/apis), covering the
-Export API (events), the Dashboard REST APIs (cohorts, annotations), and the Taxonomy API (event types,
-event properties, user properties, event categories, group properties). Keyed by the endpoint names in
-`settings.py` `AMPLITUDE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced Amplitude
-table. Columns absent here fall back to LLM enrichment.
+Export API (events), the Dashboard REST APIs (cohorts, annotations, retention, composition, revenue
+LTV), the Taxonomy API (event types, event properties, user properties, event categories, group
+properties), the Lookup Table API (lookup tables), and the Experiment Management API (experiments,
+flags, deployments). Keyed by the endpoint names in `settings.py` `AMPLITUDE_ENDPOINTS`, which match the
+`ExternalDataSchema.name` of a synced Amplitude table. Columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
@@ -131,6 +132,121 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_array_type": "Whether the property holds an array of values.",
             "is_hidden": "Whether the property is hidden from pickers in the Amplitude UI.",
             "classifications": "Data classification labels applied to the property.",
+        },
+    },
+    "retention": {
+        "description": "Daily N-day retention of new users who return with any event, as Amplitude's Retention Analysis chart computes it. One row per cohort date and day.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "date": "Date the cohort of new users started, in the project's time zone.",
+            "day": "Number of days after the start date that the row measures (0 is the start day).",
+            "count": "Number of users in the cohort who returned on that day.",
+            "outof": "Total number of users in the cohort.",
+            "incomplete": "Whether the cohort has not yet had enough time to be retained on that day.",
+        },
+    },
+    "composition": {
+        "description": "Number of unique users per value of a built-in user property, as Amplitude's User Composition chart computes it.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "property": "Built-in user property the row breaks down (for example platform, country, version).",
+            "value": "Value of the property. `(none)` means the property was not set.",
+            "users": "Number of unique users who had this property value in the date range.",
+        },
+    },
+    "revenue_ltv": {
+        "description": "Lifetime value of new users per cohort date, as Amplitude's Revenue LTV chart computes it. One row per cohort date and metric.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "date": "Date the cohort of new users started, in the project's time zone.",
+            "metric": "Metric of the n-day values: arpu, arppu, total_revenue or paying_users.",
+            "count": "Number of users in the cohort.",
+            "paid": "Number of users in the cohort who paid.",
+            "total_amount": "Total amount the users in the cohort paid.",
+            "r1d": "Value of the metric 1 day after the cohort date. Columns r2d through r90d hold the later days.",
+        },
+    },
+    "lookup_tables": {
+        "description": "A lookup table uploaded to Amplitude as a CSV, which maps the values of one property to new derived properties. One row per table; the table contents are not synced.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/lookup-table-2",
+        "columns": {
+            "name": "Name of the lookup table, unique within the project.",
+            "appId": "ID of the Amplitude project the table belongs to.",
+            "columnHeaders": "Headers of the CSV columns that become derived properties.",
+            "keyColumnHeader": "Header of the CSV column used as the lookup key.",
+            "keyProperty": "The Amplitude property mapped to the key column: its name (`value`), its `type`, and its `groupType` for group properties.",
+            "fileName": "Name of the uploaded CSV file.",
+            "rowCount": "Number of rows in the table.",
+            "sizeBytes": "Size of the table in bytes.",
+            "isConfigured": "Whether the table is configured with a key property.",
+            "isDeleted": "Whether the table is deleted.",
+            "createdAt": "Time the table was created, in Unix seconds.",
+            "createdBy": "Who created the table.",
+            "lastModifiedAt": "Time the table was last changed, in Unix seconds.",
+            "lastModifiedBy": "Who last changed the table.",
+        },
+    },
+    "experiments": {
+        "description": "A feature or web experiment in Amplitude Experiment, with its variants, targeting, and state. Archived experiments are included.",
+        "docs_url": "https://amplitude.com/docs/apis/experiment/experiment-management-api-experiments",
+        "columns": {
+            "id": "Unique identifier of the experiment.",
+            "projectId": "ID of the Amplitude project the experiment belongs to.",
+            "key": "Key of the experiment, which SDKs use to fetch its variant.",
+            "name": "Name of the experiment.",
+            "description": "Description of the experiment.",
+            "state": "Lifecycle state of the experiment, for example `planning`.",
+            "decision": "Decision made at the end of the experiment, if any.",
+            "decisionReason": "Reason given for the decision.",
+            "enabled": "Whether the experiment is active and serves variants.",
+            "deliveryMethod": "Type of experiment: `feature` or `web`.",
+            "experimentType": "Experiment design, for example `a-b-test`.",
+            "deployments": "IDs of the deployments the experiment is assigned to.",
+            "variants": "Variants of the experiment.",
+            "rolledOutVariant": "Variant rolled out to all users after the experiment, if any.",
+            "rolloutPercentage": "Percentage of users included in the experiment.",
+            "rolloutWeights": "Relative weight of each variant.",
+            "targetSegments": "Targeting segments with their conditions, percentages, and weights.",
+            "bucketingKey": "User property used to bucket users into variants.",
+            "bucketingUnit": "Unit users are bucketed by, for example User or a group type.",
+            "evaluationMode": "Where the experiment is evaluated: `remote` or `local`.",
+            "startDate": "Date the experiment started.",
+            "endDate": "Date the experiment ended.",
+            "createdAt": "Time the experiment was created, in UTC (ISO 8601).",
+            "lastModifiedAt": "Time the experiment was last changed, in UTC (ISO 8601).",
+        },
+    },
+    "flags": {
+        "description": "A feature flag in Amplitude Experiment, with its variants, targeting, and rollout. Archived flags are included.",
+        "docs_url": "https://amplitude.com/docs/apis/experiment/experiment-management-api-flags",
+        "columns": {
+            "id": "Unique identifier of the flag.",
+            "projectId": "ID of the Amplitude project the flag belongs to.",
+            "key": "Key of the flag, which SDKs use to fetch its variant.",
+            "name": "Name of the flag.",
+            "description": "Description of the flag.",
+            "enabled": "Whether the flag is active and serves variants.",
+            "deployments": "IDs of the deployments the flag is assigned to.",
+            "variants": "Variants of the flag.",
+            "rolloutPercentage": "Percentage of users the flag is rolled out to.",
+            "rolloutWeights": "Relative weight of each variant.",
+            "targetSegments": "Targeting segments with their conditions, percentages, and weights.",
+            "parentDependencies": "Other flags this flag depends on, and the variants they must serve.",
+            "bucketingKey": "User property used to bucket users into variants.",
+            "bucketingUnit": "Unit users are bucketed by, for example User or a group type.",
+            "evaluationMode": "Where the flag is evaluated: `remote` or `local`.",
+            "createdAt": "Time the flag was created, in UTC (ISO 8601).",
+            "lastModifiedAt": "Time the flag was last changed, in UTC (ISO 8601).",
+        },
+    },
+    "deployments": {
+        "description": "A deployment in Amplitude Experiment, which flags and experiments are assigned to. The deployment key is not synced.",
+        "docs_url": "https://amplitude.com/docs/apis/experiment/experiment-management-api-deployments",
+        "columns": {
+            "id": "Unique identifier of the deployment. Flags and experiments list these IDs in `deployments`.",
+            "projectId": "ID of the Amplitude project the deployment belongs to.",
+            "label": "Name of the deployment.",
+            "deleted": "Whether the deployment is deleted.",
         },
     },
 }

@@ -45,7 +45,13 @@ async function loadWorkerElk(): Promise<ELK> {
 
 export function getElk(): Promise<ELK> {
     if (!elkPromise) {
-        elkPromise = loadWorkerElk().catch(() => loadBundledElk())
+        elkPromise = loadWorkerElk()
+            .catch(() => loadBundledElk())
+            .catch((error) => {
+                // A cached rejection would fail every later layout, even once the chunk can load again
+                elkPromise = null
+                throw error
+            })
     }
     return elkPromise
 }

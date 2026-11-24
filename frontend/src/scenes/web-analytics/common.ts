@@ -130,6 +130,10 @@ export enum ProductTab {
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
 
+// pinned: the AI visibility filters' URL search params, links people share depend on them
+// 'days' is the window param of links from before the date range. Listing it drops it when the filters rewrite the URL.
+export const AI_VISIBILITY_URL_PARAMS = ['date_from', 'date_to', 'days', 'engine', 'topic', 'branded'] as const
+
 export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99

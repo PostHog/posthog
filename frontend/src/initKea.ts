@@ -9,7 +9,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -90,6 +90,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'checkForFirstCodeSend', // The first-send status line says its checks failed and offers a retry; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
@@ -122,6 +123,11 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
+    loadImpact: 'products.workflows.frontend.Transactional.impact.emailImpactLogic', // The funnel card shows its own retry
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic', // The logic toasts its own load failure
+    // The import window shows the refusal, and the run list keeps polling with its own retry
+    startImport: 'products.workflows.providerImportLogic',
+    loadImportRuns: 'products.workflows.providerImportLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -129,9 +135,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    // The prompts view shows its own error, and falls back to an unfiltered list when topics fail to load
+    // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
-    loadAeoPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
+    // The AI visibility filter bar shows a retry in place of the topic filter
+    loadPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotFilterBarLogic',
     // The prompt detail modal shows an error state for each section it loads
     loadAeoPrompt: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
@@ -152,11 +159,16 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    loadDistributedTraceId: 'products.ai_observability.frontend.redesign.trace.traceDistributedTraceLogic', // The trace header shows no link when the read fails
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The logic toasts every failure itself, including network errors that have no HTTP status
+    setIssueSummariesEnabled:
+        'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -195,7 +207,23 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineResultPayload',
     'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
     'loadDatasetItemVersions',
+    'loadPluginConfig', // The legacy plugin page renders NotFound for a deleted or mistyped config id
 ])
+
+// The same as NOT_FOUND_SELF_HANDLED, for an action name that other logics also use and do not handle.
+const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    // The workflow scene and the notebook node views that show the workflow render NotFound
+    loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
+}
+
+function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
+    return (
+        isUnavailableEndpointError(error) &&
+        (NOT_FOUND_SELF_HANDLED.has(actionKey) ||
+            isOwnedByLogic(NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath))
+    )
+}
 
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
@@ -215,9 +243,9 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
 /*
-Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
-response to user input, such as a malformed CSV, so it is not reported as an exception.
-Every other failure on these actions still toasts and reports.
+Actions whose owning logic shows the server message of a validation 400, in a toast or inline. The
+400 is a response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions goes through the generic handling below.
 */
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
@@ -226,6 +254,10 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
+    startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
+    // The evaluation preview shows why the server rejected the sampling, Hog code or judge setting
+    loadSamples: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
+    testRows: 'products.ai_observability.frontend.evaluations.evaluationPreviewLogic',
 }
 
 /*
@@ -236,11 +268,12 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
-to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
-the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+Loads whose owning logic renders these GitHub error codes inline, with a link to the GitHub integration settings.
+The connection can't reach the PR's repository (404), or its installation is suspended or uninstalled (403).
+Both are setup states, not defects. The backend raises the codes in products/signals/backend/views.py.
 */
-const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+const GITHUB_SETUP_ERROR_CODES = new Set(['github_repository_inaccessible', 'github_installation_unavailable'])
+const GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
@@ -252,9 +285,26 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateCurrentProject: 'scenes.projectLogic',
 }
 
+/*
+Loads whose owning logic renders a 403 of any code as an access-denied state and stops asking again.
+A 403 can arrive without the `permission_denied` code, for example with an empty body, so
+`shouldReportApiFailure` would still report it.
+*/
+const PIPELINE_OVERVIEW_LOGIC_PATH =
+    'products.warehouse_sources.frontend.scenes.PipelineOverviewScene.pipelineOverviewSceneLogic'
+const FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    loadJobStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRowsStats: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadHealthIssues: PIPELINE_OVERVIEW_LOGIC_PATH,
+    loadRecentRuns: PIPELINE_OVERVIEW_LOGIC_PATH,
+}
+
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
-    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
-        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    if (GITHUB_SETUP_ERROR_CODES.has(error?.code)) {
+        return isOwnedByLogic(GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    if (error?.status === 403 && isOwnedByLogic(FORBIDDEN_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)) {
+        return true
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
@@ -410,18 +460,23 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                const isSelfHandledNotFound = isNotFoundSelfHandled(error, String(actionKey), logic.pathString)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
                 if (
                     shouldReportApiFailure(error) &&
+                    logic.props.captureQueryTelemetry !== false &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
                     !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
-                    posthog.captureException(error)
+                    if (error instanceof ApiError && error.requestId) {
+                        // The request id joins the exception to the backend logs of the request that failed.
+                        posthog.captureException(error, { http_request_id: error.requestId })
+                    } else {
+                        posthog.captureException(error)
+                    }
                 }
             },
         }),

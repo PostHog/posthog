@@ -12,7 +12,7 @@ import { classifyError } from '../monitoring/hog-invocation-results.service'
 
 const counterEmailStatusRowsProduced = new Counter({
     name: 'cdp_email_status_rows_produced',
-    help: 'Transactional email status rows produced to the email_status Kafka topic, by status and reason. The reason is empty for a status without one, a skip reason or a run error kind for failed, and the bounce type for bounced.',
+    help: 'Transactional email status rows produced to the email_status Kafka topic, by status and reason. The reason is empty for a status without one, a skip reason or a run error kind for failed, the bounce type for bounced, and untracked for a sent email with open and click tracking off.',
     labelNames: ['status', 'reason'],
 })
 
@@ -49,6 +49,9 @@ export type EmailStatusReason =
     // A send that was skipped. The first four are also the codes the transactional email API
     // returns when it refuses a send before it queues the run.
     | EmailSkipReason
+    // A sent email that went out with open and click tracking off, so it never records an open or a click. It is
+    // the only reason a `sent` row carries, so a reader must not show it as a failure.
+    | 'untracked'
     // A run that was canceled before it finished.
     | 'canceled'
     // A run whose workflow or team no longer exists when it is dequeued.
@@ -261,6 +264,21 @@ export class EmailStatusService {
             reason,
             messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
         })
+    }
+
+    // The send API refuses these sends before it queues a run, so no worker records them. The log lists a send only
+    // when it has a queued row, so the send gets a queued row and then the failed row that says why it did not go out.
+    queueRefusedSend(send: {
+        teamId: number
+        messageId: string
+        recipient: string
+        functionId: string
+        reason: EmailSkipReason
+        messageCreatedAt: Date | undefined
+    }): void {
+        const { reason, ...row } = send
+        this.queue({ ...row, status: 'queued' })
+        this.queue({ ...row, status: 'failed', reason })
     }
 
     // A run that fails or is canceled before its email step never reaches the email service, so the

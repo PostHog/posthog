@@ -82,6 +82,18 @@ query OrganizationPage($organizationEid: String!, $limit: Int, $offset: Int) {{
 """
 
 
+def _build_organization_offset_list_query(list_field: str, item_fields: str) -> str:
+    return f"""
+query OrganizationList($organizationEid: String!, $limit: Int, $offset: Int) {{
+  organization(organizationEid: $organizationEid) {{
+    {list_field}(limit: $limit, offset: $offset) {{
+{item_fields}
+    }}
+  }}
+}}
+"""
+
+
 def _build_weld_datas_query(item_fields: str) -> str:
     return f"""
 query WeldDatas($weldEid: String!, $limit: Int, $offset: Int) {{
@@ -150,6 +162,10 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
 
 
 _Execute = Callable[[str, dict[str, Any]], dict[str, Any]]
+_PageWalk = Callable[
+    [_Execute, str, dict[str, Any], Callable[[dict[str, Any]], Any], int | None, FilteringBoundLogger, str],
+    Iterator[tuple[list[dict[str, Any]], int | None]],
+]
 
 
 def _iter_pages(
@@ -208,6 +224,57 @@ def _iter_pages(
         offset = next_offset
 
 
+def _iter_offset_list_pages(
+    execute: _Execute,
+    query: str,
+    variables: dict[str, Any],
+    unwrap: Callable[[dict[str, Any]], list[dict[str, Any]] | None],
+    resume_offset: int | None,
+    logger: FilteringBoundLogger,
+    context: str,
+) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
+    """Walk a list field that takes `limit` and `offset` but returns no page metadata.
+
+    Anvil documents `offset` as a page number without saying whether numbering starts at 0 or
+    1, so the walk requests the first page without `offset`, then pages 1, 2, ... and drops
+    eids it already yielded: when numbering starts at 1, page 1 repeats the first page. Each
+    `next_offset` is the offset this walk requests next, so a resume continues the same
+    numbering whatever its base.
+    """
+    seen: set[str] = set()
+    offset = resume_offset
+    if resume_offset == 1:
+        # Offset 1 can repeat the first page, which the interrupted run already yielded; read it
+        # again only to know its eids.
+        first_page = unwrap(execute(query, {**variables, "limit": PAGE_SIZE})) or []
+        seen.update(item["eid"] for item in first_page if item.get("eid"))
+
+    while True:
+        page_variables: dict[str, Any] = {**variables, "limit": PAGE_SIZE}
+        if offset is not None:
+            page_variables["offset"] = offset
+        items = unwrap(execute(query, page_variables))
+        if items is None:
+            logger.warning(f"Anvil: {context} no longer exists, skipping")
+            return
+
+        new_items = [item for item in items if item.get("eid") not in seen]
+        # Only page 1 may repeat rows wholesale (the 1-based case); any later page that adds
+        # nothing means the server ignored the requested offset.
+        if items and not new_items and offset != 1:
+            raise AnvilAPIError(
+                f"Anvil pagination did not advance for {context}: offset {offset} repeated earlier rows"
+            )
+        seen.update(item["eid"] for item in new_items if item.get("eid"))
+
+        next_offset = (1 if offset is None else offset + 1) if len(items) >= PAGE_SIZE else None
+        yield new_items, next_offset
+
+        if next_offset is None:
+            return
+        offset = next_offset
+
+
 def _list_organization_eids(execute: _Execute) -> list[str]:
     data = execute(_ORGANIZATION_EIDS_QUERY, {})
     organizations = (data.get("currentUser") or {}).get("organizations") or []
@@ -237,11 +304,12 @@ def _get_parent_paged_rows(
     parent_eids: list[str],
     # GraphQL variable naming the parent; also the column stamped onto every row.
     variable_name: str,
-    unwrap: Callable[[dict[str, Any]], dict[str, Any] | None],
+    unwrap: Callable[[dict[str, Any]], Any],
     resumable_source_manager: ResumableSourceManager[AnvilResumeConfig],
     logger: FilteringBoundLogger,
     context_label: str,
     to_rows: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+    iter_pages: _PageWalk = _iter_pages,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk one page walk per parent, tagging each row with the parent it came from.
 
@@ -258,7 +326,7 @@ def _get_parent_paged_rows(
         logger.debug(f"Anvil: resuming {context_label} walk from {resume.parent_eid}, offset={resume_offset}")
 
     for index, parent_eid in enumerate(remaining):
-        for items, next_offset in _iter_pages(
+        for items, next_offset in iter_pages(
             execute,
             query,
             {variable_name: parent_eid},
@@ -301,6 +369,26 @@ def _nested_rows(items: list[dict[str, Any]], nested: AnvilNestedList) -> list[d
         for child in children or []:
             rows.append({**child, nested.parent_key: item.get("eid")})
     return rows
+
+
+def _organization_user_rows(organizations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for organization in organizations:
+        for membership in organization.get("organizationUsers") or []:
+            user_eid = (membership.get("user") or {}).get("eid")
+            # Without a user the row has no key, and there is no one to attribute activity to.
+            if not user_eid:
+                continue
+            rows.append({**membership, "organizationEid": organization.get("eid"), "userEid": user_eid})
+    return rows
+
+
+def _organization_list_rows(organizations: list[dict[str, Any]], list_field: str) -> list[dict[str, Any]]:
+    return [
+        {**item, "organizationEid": organization.get("eid")}
+        for organization in organizations
+        for item in organization.get(list_field) or []
+    ]
 
 
 def _get_nested_rows(
@@ -388,6 +476,36 @@ def get_rows(
             resumable_source_manager,
             logger,
             "weld",
+        )
+        return
+
+    if config.organization_users:
+        data = execute(_build_organizations_query(_nest_selection(("organizationUsers",), config.item_fields)), {})
+        rows = _organization_user_rows((data.get("currentUser") or {}).get("organizations") or [])
+        if rows:
+            yield rows
+        return
+
+    if config.organization_list_field:
+        list_field = config.organization_list_field
+        data = execute(_build_organizations_query(_nest_selection((list_field,), config.item_fields)), {})
+        rows = _organization_list_rows((data.get("currentUser") or {}).get("organizations") or [], list_field)
+        if rows:
+            yield rows
+        return
+
+    if config.organization_offset_list_field:
+        offset_list_field = config.organization_offset_list_field
+        yield from _get_parent_paged_rows(
+            execute,
+            _build_organization_offset_list_query(offset_list_field, config.item_fields),
+            _list_organization_eids(execute),
+            "organizationEid",
+            lambda data: (data.get("organization") or {}).get(offset_list_field),
+            resumable_source_manager,
+            logger,
+            "organization",
+            iter_pages=_iter_offset_list_pages,
         )
         return
 

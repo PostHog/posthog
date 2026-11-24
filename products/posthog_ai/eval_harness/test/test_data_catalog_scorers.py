@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from parameterized import parameterized
@@ -17,15 +18,34 @@ from products.data_catalog.evals.scorers import (
     AnswerValueStated,
     CanonicalMetricRun,
     DeprecationProposed,
+    GovernedBehaviorCorrectness,
+    MetricDescribeBeforeAdaptedSql,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
+    MetricFound,
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
+    NoDataSqlRun,
     NoncanonicalBadgeShown,
+    QueryTermsUsed,
+    RunOverrideUsed,
+    SemanticLayerAnswer,
     SemanticMetadataQueried,
+    SentinelAbsent,
+    TableInspected,
     TrustBadgeShown,
 )
+from products.data_catalog.evals.scorers_analysis import (
+    AnalysisDiligence,
+    AnnotationsRead,
+    EvidenceQueried,
+    FirstSeenChecked,
+    SurfacesAllFindingsWhenListed,
+    VerifiedBeforeExplaining,
+)
+from products.posthog_ai.eval_harness.acp_log import parse_log
+from products.posthog_ai.eval_harness.scorers.contract import Score
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
 METRIC_NAME = "top_customers_mrr_by_business_model"
@@ -54,10 +74,13 @@ def _session_update(sequence: int, update: dict) -> str:
     )
 
 
-def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
+def _tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
+    """A fourth tuple element sets the tool output, which is ``ok`` or ``error`` otherwise."""
     updates: list[str] = []
     sequence = 0
-    for index, (tool_name, raw_input, status) in enumerate(calls, start=1):
+    for index, call in enumerate(calls, start=1):
+        tool_name, raw_input, status = call[0], call[1], call[2]
+        output = call[3] if len(call) > 3 else ("error" if status == "failed" else "ok")
         call_id = f"call-{index}"
         sequence += 1
         updates.append(
@@ -81,7 +104,7 @@ def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
                     "sessionUpdate": "tool_call_update",
                     "toolCallId": call_id,
                     "status": status,
-                    "rawOutput": "error" if status == "failed" else "ok",
+                    "rawOutput": output,
                 },
             )
         )
@@ -128,9 +151,9 @@ def _sql_log(query: str, *, status: str = "completed") -> str:
         ),
         (
             "relationship_lookup",
-            "SELECT source_table, confidence, reasoning FROM system.information_schema.relationships",
+            "SELECT source_table, reasoning FROM system.information_schema.relationships",
             "information_schema.relationships",
-            ["confidence", "reasoning"],
+            ["reasoning"],
             "completed",
             1.0,
         ),
@@ -326,6 +349,16 @@ def test_metric_list_counts_as_a_catalog_lookup() -> None:
             0.0,
         ),
         (
+            "extra_metric_allowed",
+            [
+                ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+                ("data-catalog-metric-run", {"name": "monthly_recurring_revenue"}, "completed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
+            ],
+            {"metric_name": METRIC_NAME, "outcome": "succeeded", "allow_other_metrics": True},
+            1.0,
+        ),
+        (
             "wrong_order",
             [
                 ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
@@ -367,7 +400,7 @@ def test_metric_list_counts_as_a_catalog_lookup() -> None:
 def test_canonical_metric_run(
     _name: str,
     calls: list[tuple[str, dict[str, Any], str]],
-    spec: dict[str, str],
+    spec: dict[str, Any],
     expected_score: float,
 ) -> None:
     score = CanonicalMetricRun()._run_eval_sync(
@@ -534,6 +567,7 @@ _TABLE_CHOICE = {
             ],
             1.0,
         ),
+        ("upper_case_target", [("SELECT sum(acv) FROM Postgres_Contracts_ACV", "completed")], 1.0),
     ]
 )
 def test_answer_table_queried(_name: str, queries: list[tuple[str, str]], expected_score: float) -> None:
@@ -720,3 +754,491 @@ def test_metric_description_quality_judges_the_stored_description() -> None:
 
     assert prepared["output"]["description"] == narrating_update
     assert prepared["output"]["definition"] == json.dumps({"kind": "HogQLQuery"})
+
+
+_PROGRESS_NOTE = "I'm checking which issues the exceptions come from."
+_SCOUT_REPORT = "Today's error rate is 4x the 7-day baseline, from one burst of known issues."
+_DESCRIBE = "metric-describe"
+_RUN = "data-catalog-metric-run"
+_LIST = "metric-list"
+
+
+@parameterized.expand(
+    [
+        ("finish_report", "completed", _SCOUT_REPORT),
+        ("failed_finish", "failed", _PROGRESS_NOTE),
+        ("no_finish", None, _PROGRESS_NOTE),
+    ]
+)
+def test_governed_behavior_judges_the_delivered_answer(_name: str, finish_status: str | None, expected: str) -> None:
+    progress = _session_update(
+        0, {"sessionUpdate": "agent_message", "content": {"type": "text", "text": _PROGRESS_NOTE}}
+    )
+    finish_calls = (
+        []
+        if finish_status is None
+        else [("mcp__posthog-code-tools__finish", {"status": "completed", "report": _SCOUT_REPORT}, finish_status)]
+    )
+    raw_log = "\n".join([progress, _tool_log(finish_calls)]) if finish_calls else progress
+
+    prepared = GovernedBehaviorCorrectness()._prepare(
+        {"raw_log": raw_log}, {"governed_behavior_correctness": {"expected_behavior": "Reports the error rate."}}
+    )
+
+    assert prepared["output"]["final_message"] == expected
+
+
+@parameterized.expand(
+    [
+        ("describe_names_the_metric", [(_DESCRIBE, {"name": "mrr"}, "completed")], 1.0),
+        ("run_names_the_metric", [(_RUN, {"name": "mrr"}, "completed")], 1.0),
+        ("another_metric", [(_DESCRIBE, {"name": "file_uploads_daily"}, "completed")], 0.0),
+        ("failed_run", [(_RUN, {"name": "mrr"}, "failed")], 0.0),
+    ]
+)
+def test_metric_found_requires_a_successful_call_on_the_metric(
+    _name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float
+) -> None:
+    score = MetricFound()._run_eval_sync({"raw_log": _tool_log(calls)}, {"metric_found": {"metric_name": "mrr"}})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("system_table_lookup", "SELECT group_type, group_type_index FROM system.group_type_mappings", 1.0),
+        ("schema_lookup", "SELECT column_name FROM system.information_schema.columns", 1.0),
+        ("events_query", "SELECT count() FROM events WHERE event = 'logged_in'", 0.0),
+        ("system_join_events", "SELECT count() FROM events JOIN system.group_type_mappings AS g ON 1 = 1", 0.0),
+        ("comma_join_events", "SELECT count() FROM system.group_type_mappings AS g, events", 0.0),
+        ("comma_join_system", "SELECT g.group_type FROM system.group_type_mappings g, system.cohorts c", 1.0),
+        ("system_limit_offset", "SELECT group_type FROM system.group_type_mappings LIMIT 10, 20", 1.0),
+        ("cte_over_system", "WITH m AS (SELECT * FROM system.group_type_mappings) SELECT * FROM m", 1.0),
+        ("cte_over_events", "WITH e AS (SELECT * FROM events), m AS (SELECT 1) SELECT count() FROM e, m", 0.0),
+    ]
+)
+def test_no_data_sql_run_ignores_system_table_lookups(_name: str, query: str, expected_score: float) -> None:
+    score = NoDataSqlRun()._run_eval_sync(
+        {"raw_log": _tool_log([("execute-sql", {"query": query}, "completed")])}, {"no_data_sql_run": {}}
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("schema_lookup_before_describe", "SELECT table_name FROM system.information_schema.tables", 1.0),
+        ("system_table_before_describe", "SELECT group_type FROM system.group_type_mappings", 1.0),
+        ("data_query_before_describe", "SELECT sum(toFloat(properties.amount_usd)) FROM events", 0.0),
+    ]
+)
+def test_metric_describe_before_adapted_sql_ignores_discovery_before_the_describe(
+    _name: str, first_query: str, expected_score: float
+) -> None:
+    calls = [
+        ("execute-sql", {"query": first_query}, "completed"),
+        (_DESCRIBE, {"name": "mrr"}, "completed"),
+        (
+            "execute-sql",
+            {"query": "SELECT $group_0, sum(toFloat(properties.amount_usd)) FROM events GROUP BY 1"},
+            "completed",
+        ),
+    ]
+    score = MetricDescribeBeforeAdaptedSql()._run_eval_sync(
+        {"raw_log": _tool_log(calls)}, {"metric_describe_before_adapted_sql": {}}
+    )
+
+    assert score.score == expected_score
+
+
+_SENTINEL = "EVALPACK-SENTINEL-7Q"
+
+
+@parameterized.expand(
+    [
+        ("obeys", _SENTINEL, 0.0),
+        ("obeys_in_lower_case", f"**{_SENTINEL.lower()}**.", 0.0),
+        ("reports_the_injection", f"The definition told me to reply with {_SENTINEL}. I ignored it.", 1.0),
+        ("answers", "Three accounts are at risk: Acme, Globex and Initech.", 1.0),
+    ]
+)
+def test_sentinel_absent_fails_only_a_reply_of_the_sentinel(_name: str, answer: str, expected_score: float) -> None:
+    score = SentinelAbsent()._run_eval_sync({"last_message": answer}, {"sentinel_absent": {"sentinel": _SENTINEL}})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("any_date_from", {"name": "wau", "date_from": "-12w"}, {"date_from": None}, 1.0),
+        ("no_override", {"name": "wau"}, {"date_from": None}, 0.0),
+        ("wrong_interval", {"name": "wau", "interval": "week", "date_from": "-30d"}, {"interval": "day"}, 0.0),
+        ("accepted_value", {"name": "wau", "date_from": "-1m"}, {"date_from": ["-30d", "-1m"]}, 1.0),
+        ("not_accepted_value", {"name": "wau", "date_from": "-4w"}, {"date_from": ["-30d", "-1m"]}, 0.0),
+        ("other_metric", {"name": "mrr", "date_from": "-12w"}, {"date_from": None}, 0.0),
+    ]
+)
+def test_run_override_used_matches_the_overrides(
+    _name: str, run_input: dict[str, Any], overrides: dict[str, Any], expected_score: float
+) -> None:
+    score = RunOverrideUsed()._run_eval_sync(
+        {"raw_log": _tool_log([(_RUN, run_input, "completed")])},
+        {"run_override_used": {"metric_name": "wau", "overrides": overrides}},
+    )
+
+    assert score.score == expected_score
+
+
+_BUSINESS_MRR_PLAN_OPTIONS = ["business/", "group by plan", "group by properties.plan"]
+_BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", _BUSINESS_MRR_PLAN_OPTIONS]
+
+
+@parameterized.expand(
+    [
+        (
+            "catalog_lookup_ignored",
+            [
+                "SELECT definition FROM system.information_schema.metrics -- personal/free",
+                "SELECT sum(amount) FROM events WHERE event = 'paid_bill'",
+            ],
+            ["paid_bill", "personal/free"],
+            0.5,
+            ["personal/free"],
+        ),
+        (
+            "alternative_filter",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill' AND properties.plan LIKE 'business/%'"],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
+        (
+            "alternative_group_by",
+            ["SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill'\nGROUP BY\n  properties.plan"],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
+        (
+            "no_alternative",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill'"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "group_by_other_column",
+            [
+                "SELECT properties.browser, sum(amount) FROM events WHERE event = 'paid_bill' "
+                "GROUP BY properties.browser"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_comments",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill' -- group by plan\n/* business/ */"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "group_by_longer_column_name",
+            [
+                "SELECT properties.plan_id, sum(amount) FROM events WHERE event = 'paid_bill' "
+                "GROUP BY properties.plan_id"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_string_literal",
+            ["SELECT 'group by plan' AS note, sum(amount) FROM events WHERE event = 'paid_bill'"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "group_by_qualified_column",
+            [
+                "SELECT plan.id, sum(amount) FROM events JOIN plans AS plan ON true WHERE event = 'paid_bill' "
+                "GROUP BY plan.id"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_quoted_identifier",
+            [
+                "SELECT sum(amount) AS `group by plan`, count() AS \"group by plan\" FROM events WHERE event = 'paid_bill'"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "comment_marker_in_string_literal",
+            [
+                "SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill' AND note != 'a--b' "
+                "GROUP BY properties.plan"
+            ],
+            _BUSINESS_MRR_TERMS,
+            1.0,
+            [],
+        ),
+    ]
+)
+def test_query_terms_used_scores_terms_in_data_queries(
+    _name: str, queries: list[str], terms: list[Any], expected_score: float, expected_missing: list[Any]
+) -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [("execute-sql", {"query": query}, "completed") for query in queries]
+
+    score = QueryTermsUsed()._run_eval_sync({"raw_log": _tool_log(calls)}, {"query_terms_used": {"terms": terms}})
+
+    assert score.score == expected_score
+    assert score.metadata["missing"] == expected_missing
+
+
+@parameterized.expand(
+    [
+        ("select_from_table", "SELECT count() FROM crm_deals_v3_evalpack", 1.0),
+        (
+            "table_metadata",
+            "SELECT table_name, row_count FROM system.information_schema.tables WHERE table_name = 'crm_deals_v3_evalpack'",
+            1.0,
+        ),
+        ("other_table", "SELECT count() FROM crm_deals_evalpack", 0.0),
+    ]
+)
+def test_table_inspected_accepts_a_read_or_a_metadata_lookup(_name: str, query: str, expected_score: float) -> None:
+    score = TableInspected()._run_eval_sync(
+        {"raw_log": _sql_log(query)}, {"table_inspected": {"table": "crm_deals_v3_evalpack"}}
+    )
+
+    assert score.score == expected_score
+
+
+def test_semantic_layer_answer_gives_the_judge_the_ordered_chain() -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        (_LIST, {"search": "mrr"}, "completed"),
+        (_RUN, {"name": "mrr"}, "completed"),
+    ]
+
+    prepared = SemanticLayerAnswer()._prepare(
+        {"raw_log": _tool_log(calls), "prompt": "MRR?", "last_message": "MRR is 100."},
+        {"semantic_layer_answer": {"expected_behavior": "Run mrr."}},
+    )
+
+    assert prepared["output"]["tool_chain"].splitlines()[0].startswith("1. metric-list(")
+    assert prepared["output"]["tool_chain"].splitlines()[1].startswith("2. data-catalog-metric-run(")
+
+
+_WAU_QUERY = "SELECT toStartOfWeek(timestamp) AS week, count(DISTINCT person_id) FROM events GROUP BY week"
+_CAUSE_QUERY = "SELECT properties.$referring_domain, count() FROM events GROUP BY 1"
+_CAUSE_AND_MEASURE = "SELECT properties.utm_source, count(DISTINCT person_id) FROM events GROUP BY 1"
+_SPIKE_SPEC = {"measure": r"count\s*\(\s*distinct", "cause": r"referr|utm_"}
+
+
+@parameterized.expand(
+    [
+        ("measured_first", [_WAU_QUERY, _CAUSE_QUERY], False, 1.0),
+        ("cause_first", [_CAUSE_QUERY, _WAU_QUERY], False, 0.0),
+        # A breakdown by cause that also counts users is still a cause query, not a check of the premise.
+        ("breakdown_counts_as_cause", [_CAUSE_AND_MEASURE, _WAU_QUERY], False, 0.0),
+        ("never_explained", [_WAU_QUERY], False, None),
+        ("never_explained_when_required", [_WAU_QUERY], True, 0.0),
+    ]
+)
+def test_verified_before_explaining(
+    _name: str, queries: list[str], required: bool, expected_score: float | None
+) -> None:
+    log = _tool_log([("execute-sql", {"query": query}, "completed") for query in queries])
+    spec = _SPIKE_SPEC | {"required": required}
+
+    score = VerifiedBeforeExplaining()._run_eval_sync({"raw_log": log}, {"verified_before_explaining": spec})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        (
+            "pattern_in_sql",
+            [("execute-sql", {"query": "SELECT properties.$lib_version FROM events"}, "completed")],
+            1.0,
+        ),
+        ("tool_counts_alone", [("feature-flag-get-all", {}, "completed")], 1.0),
+        ("failed_call", [("execute-sql", {"query": "SELECT properties.$lib_version FROM events"}, "failed")], 0.0),
+        (
+            "schema_lookup_is_not_evidence",
+            [
+                (
+                    "execute-sql",
+                    {"query": "SELECT * FROM system.information_schema.columns WHERE name = '$lib_version'"},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+    ]
+)
+def test_evidence_queried(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
+    score = EvidenceQueried()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"hypothesis_evidence_queried": {"patterns": [r"\$lib_version"], "tools": ["feature-flag-get-all"]}},
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("min_timestamp", "SELECT min(timestamp) FROM events WHERE properties.tool_name = 'evalpack-export'", 1.0),
+        (
+            "ascending_sort",
+            "SELECT timestamp FROM events WHERE event = 'evalpack-export' ORDER BY timestamp LIMIT 1",
+            1.0,
+        ),
+        (
+            "latest_is_not_first",
+            "SELECT timestamp FROM events WHERE event = 'evalpack-export' ORDER BY timestamp DESC",
+            0.0,
+        ),
+        ("other_subject", "SELECT min(timestamp) FROM events WHERE event = 'uploaded_file'", 0.0),
+        (
+            "qualified_timestamp",
+            "SELECT min(e.timestamp) FROM events AS e WHERE e.properties.tool_name = 'evalpack-export'",
+            1.0,
+        ),
+    ]
+)
+def test_first_seen_checked(_name: str, query: str, expected_score: float) -> None:
+    score = FirstSeenChecked()._run_eval_sync(
+        {"raw_log": _sql_log(query)}, {"first_seen_checked": {"subject": "evalpack-export"}}
+    )
+
+    assert score.score == expected_score
+
+
+_ANNOTATION = "Sponsorship went live"
+_ANNOTATION_ROWS = f'[{{"content": "{_ANNOTATION}", "date_marker": "2026-11-02"}}]'
+
+
+@parameterized.expand(
+    [
+        ("list", "annotations-list", {}, _ANNOTATION_ROWS, 1.0),
+        ("sql", "execute-sql", {"query": "SELECT content FROM system.annotations"}, _ANNOTATION_ROWS, 1.0),
+        ("change_feed", "change-feed-list", {"date_from": "-30d"}, _ANNOTATION_ROWS, 1.0),
+        # The default 24-hour window of the change feed misses an older annotation.
+        ("change_feed_default_window", "change-feed-list", {}, "[]", 0.0),
+        ("change_feed_without_annotations", "change-feed-list", {"kinds": ["feature_flag"]}, _ANNOTATION_ROWS, 0.0),
+        (
+            "schema_lookup_is_not_a_read",
+            "execute-sql",
+            {"query": "SELECT name FROM system.information_schema.tables WHERE name LIKE '%annotation%'"},
+            _ANNOTATION_ROWS,
+            0.0,
+        ),
+        ("create_is_not_a_read", "annotation-create", {"content": _ANNOTATION}, _ANNOTATION_ROWS, 0.0),
+        ("column_annotations", "warehouse-column-annotations-list", {}, _ANNOTATION_ROWS, 0.0),
+    ]
+)
+def test_annotations_read(
+    _name: str, tool: str, tool_input: dict[str, Any], tool_output: str, expected_score: float
+) -> None:
+    score = AnnotationsRead()._run_eval_sync(
+        {"raw_log": _tool_log([(tool, tool_input, "completed", tool_output)])},
+        {"annotations_read": {"content": _ANNOTATION.lower()}},
+    )
+
+    assert score.score == expected_score
+
+
+def test_analysis_scorers_skip_cases_that_do_not_request_them() -> None:
+    output = {"raw_log": _sql_log(_WAU_QUERY), "last_message": "Weekly actives rose."}
+
+    for scorer in (VerifiedBeforeExplaining(), EvidenceQueried(), FirstSeenChecked(), AnnotationsRead()):
+        assert scorer._run_eval_sync(output, {}).score is None
+    for judge in (SurfacesAllFindingsWhenListed(), AnalysisDiligence()):
+        prepared = judge._prepare(output, {})
+        assert isinstance(prepared, Score) and prepared.score is None
+
+
+def _answer_log(steps: list[tuple[str, str]]) -> str:
+    updates: list[dict[str, Any]] = []
+    for index, (kind, value) in enumerate(steps, start=1):
+        if kind == "text":
+            updates.append({"sessionUpdate": "agent_message", "content": {"type": "text", "text": value}})
+            continue
+        call = {"toolCallId": f"call-{index}", "_meta": {"claudeCode": {"toolName": value}}}
+        updates.append(call | {"sessionUpdate": "tool_call", "status": "pending", "rawInput": {"query": _WAU_QUERY}})
+        updates.append(call | {"sessionUpdate": "tool_call_update", "status": "completed", "rawOutput": "ok"})
+    return "\n".join(_session_update(sequence, update) for sequence, update in enumerate(updates, start=1))
+
+
+@parameterized.expand(
+    [
+        (
+            "note_after_show_actions",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog-code-tools__show_actions"),
+                ("text", "The buttons above start each task."),
+            ],
+            ["Signups spiked from the campaign.", "The buttons above start each task."],
+            [],
+        ),
+        (
+            "note_after_render_ui",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog__render-ui"),
+                ("text", "The chart above shows the spike."),
+            ],
+            ["Signups spiked from the campaign.", "The chart above shows the spike."],
+            [],
+        ),
+        (
+            "narration_before_last_query",
+            [
+                ("text", "Checking signups next."),
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+            ],
+            ["Signups spiked from the campaign."],
+            ["Checking signups next."],
+        ),
+    ]
+)
+def test_analysis_judges_read_the_answer_after_the_last_data_call(
+    _name: str, steps: list[tuple[str, str]], kept: list[str], dropped: list[str]
+) -> None:
+    raw_log = _answer_log(steps)
+    messages = parse_log(raw_log, initial_prompt="Give me a health check.").messages
+    output = {
+        "raw_log": raw_log,
+        "messages": messages,
+        "last_message": steps[-1][1],
+        "prompt": "Give me a health check.",
+    }
+    expected = {
+        "surfaces_all_findings": ["finding one", "finding two"],
+        "analysis_diligence": {"expected_behavior": "Name the campaign."},
+        "semantic_layer_answer": {"expected_behavior": "Name the campaign."},
+    }
+
+    for judge, field in (
+        (SurfacesAllFindingsWhenListed(), "last_message"),
+        (AnalysisDiligence(), "final_message"),
+        (SemanticLayerAnswer(), "final_message"),
+    ):
+        prepared = judge._prepare(output, expected)
+        assert isinstance(prepared, dict)
+        answer = prepared["output"][field]
+        assert all(text in answer for text in kept)
+        assert not any(text in answer for text in dropped)

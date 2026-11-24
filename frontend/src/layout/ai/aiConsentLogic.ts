@@ -26,6 +26,8 @@ const AI_CONSENT_PENDING_REDIRECT_STORAGE_KEY = 'posthog_ai_consent_pending_redi
 
 export const AI_CONSENT_PENDING_REDIRECT_TTL_MS = 15 * 60 * 1000
 
+export const AI_DATA_PROCESSING_LOCKED_REASON = 'AI data processing is locked in this organization by admin request.'
+
 export interface PendingApprovalRedirect {
     url: string
     organizationId: string
@@ -41,6 +43,7 @@ export interface aiConsentLogicValues {
     dataProcessingAccepted: boolean
     dataProcessingApprovalDisabledReason: string | null
     dataProcessingDismissed: boolean
+    dataProcessingLocked: boolean
     pendingApprovalRedirect: PendingApprovalRedirect | null
     requestingAiAccess: boolean
 }
@@ -75,7 +78,11 @@ export interface aiConsentLogicActions {
 export interface aiConsentLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dataProcessingAccepted: (currentOrganization: OrganizationType | null) => boolean
-        dataProcessingApprovalDisabledReason: (currentOrganization: OrganizationType | null) => string | null
+        dataProcessingLocked: (currentOrganization: OrganizationType | null) => boolean
+        dataProcessingApprovalDisabledReason: (
+            currentOrganization: OrganizationType | null,
+            dataProcessingLocked: boolean
+        ) => string | null
         aiAccessRequested: (
             aiAccessRequestedByOrg: Record<string, boolean>,
             currentOrganization: OrganizationType | null
@@ -158,7 +165,7 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
         },
         requestAiAccess: async () => {
             const organization = values.currentOrganization
-            if (!organization) {
+            if (!organization || values.dataProcessingLocked) {
                 actions.requestAiAccessError()
                 return
             }
@@ -183,13 +190,20 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
             (currentOrganization: OrganizationType | null): boolean =>
                 !!currentOrganization?.is_ai_data_processing_approved,
         ],
-        dataProcessingApprovalDisabledReason: [
+        dataProcessingLocked: [
             (s) => [s.currentOrganization],
-            (currentOrganization: OrganizationType | null): string | null =>
-                !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
-                    ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
-                    : null,
+            (currentOrganization: OrganizationType | null): boolean =>
+                !!currentOrganization?.is_ai_data_processing_locked,
+        ],
+        dataProcessingApprovalDisabledReason: [
+            (s) => [s.currentOrganization, s.dataProcessingLocked],
+            (currentOrganization: OrganizationType | null, dataProcessingLocked: boolean): string | null =>
+                dataProcessingLocked
+                    ? AI_DATA_PROCESSING_LOCKED_REASON
+                    : !currentOrganization?.membership_level ||
+                        currentOrganization.membership_level < OrganizationMembershipLevel.Admin
+                      ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
+                      : null,
         ],
         aiAccessRequested: [
             (s) => [s.aiAccessRequestedByOrg, s.currentOrganization],

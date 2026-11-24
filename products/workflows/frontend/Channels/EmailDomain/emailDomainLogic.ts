@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb, OrganizationType } from '~/types'
 
@@ -17,6 +16,12 @@ import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
 import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
 import { emailDomainSenderLogic } from './emailDomainSenderLogic'
+import {
+    DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN,
+    EMAIL_DOMAIN_SETUP_ORIGINS,
+    EmailDomainSetupOrigin,
+    EmailDomainSetupOriginConfig,
+} from './emailDomainSetupOrigin'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 export type EmailDomainPhase = 'domain' | 'loading' | 'unavailable' | 'settings' | 'verifying' | 'ready'
@@ -33,6 +38,7 @@ interface PhaseInput {
     sender: IntegrationConfigApi | null
     senderFailed: boolean
     senderMissing: boolean
+    domainVerified: boolean
     status: EmailDomainStatusApi | null
     statusUnavailable: boolean
     recordsAdded: boolean
@@ -47,6 +53,7 @@ const phaseOf = ({
     sender,
     senderFailed,
     senderMissing,
+    domainVerified,
     status,
     statusUnavailable,
     recordsAdded,
@@ -62,10 +69,12 @@ const phaseOf = ({
     if (!sender || !status) {
         return 'loading'
     }
-    if (status.verified) {
+    if (domainVerified) {
         return 'ready'
     }
-    const inProgress = recordsAdded || returnedFromAutoConfigure || STATUSES_IN_PROGRESS.includes(status.status)
+    // Only a stopped sender is verified but not ready, and its repair lives on the verifying step.
+    const inProgress =
+        status.verified || recordsAdded || returnedFromAutoConfigure || STATUSES_IN_PROGRESS.includes(status.status)
     return inProgress || setupEvidenceFound ? 'verifying' : 'settings'
 }
 
@@ -139,6 +148,7 @@ export interface emailDomainLogicValues {
     senderLoading: boolean // emailDomainSenderLogic
     senderMissing: boolean // emailDomainSenderLogic
     allRecordsFound: boolean // emailDomainStatusLogic
+    domainVerified: boolean // emailDomainStatusLogic
     foundCount: number // emailDomainStatusLogic
     pollingStopped: boolean // emailDomainStatusLogic
     records: EmailDomainStatusRecordApi[] // emailDomainStatusLogic
@@ -149,6 +159,8 @@ export interface emailDomainLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     breadcrumbs: Breadcrumb[]
     offersDataSuggestions: boolean
+    origin: EmailDomainSetupOrigin
+    originConfig: EmailDomainSetupOriginConfig
     phase: EmailDomainPhase
     preloadsDataSuggestions: boolean
     verificationSteps: VerificationStep[]
@@ -184,6 +196,7 @@ export interface emailDomainLogicMeta {
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
             senderMissing: boolean,
+            domainVerified: boolean,
             status: EmailDomainStatusApi | null,
             statusUnavailable: boolean,
             recordsAdded: boolean,
@@ -201,7 +214,13 @@ export interface emailDomainLogicMeta {
         ) => VerificationStep[]
         offersDataSuggestions: (currentOrganization: OrganizationType | null) => boolean
         preloadsDataSuggestions: (offersDataSuggestions: boolean, integrationId: number | null) => boolean
-        breadcrumbs: (domain: string | null, integrationId: number | null) => Breadcrumb[]
+        origin: (arg: EmailDomainSetupOrigin | undefined) => EmailDomainSetupOrigin
+        originConfig: (origin: EmailDomainSetupOrigin) => EmailDomainSetupOriginConfig
+        breadcrumbs: (
+            originConfig: EmailDomainSetupOriginConfig,
+            domain: string | null,
+            integrationId: number | null
+        ) => Breadcrumb[]
     }
 }
 
@@ -227,6 +246,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 'foundCount',
                 'pollingStopped',
                 'records',
+                'domainVerified',
                 'setupEvidenceFound',
                 'status',
                 'statusUnavailable',
@@ -259,6 +279,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 s.sender,
                 s.senderFailed,
                 s.senderMissing,
+                s.domainVerified,
                 s.status,
                 s.statusUnavailable,
                 s.recordsAdded,
@@ -270,6 +291,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 sender: IntegrationConfigApi | null,
                 senderFailed: boolean,
                 senderMissing: boolean,
+                domainVerified: boolean,
                 status: EmailDomainStatusApi | null,
                 statusUnavailable: boolean,
                 recordsAdded: boolean,
@@ -281,6 +303,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                     sender,
                     senderFailed,
                     senderMissing,
+                    domainVerified,
                     status,
                     statusUnavailable,
                     recordsAdded,
@@ -313,11 +336,23 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             (offersDataSuggestions: boolean, integrationId: number | null): boolean =>
                 offersDataSuggestions && integrationId !== null,
         ],
+        origin: [
+            () => [(_, props: EmailDomainLogicProps) => props.origin],
+            (origin: EmailDomainSetupOrigin | undefined): EmailDomainSetupOrigin =>
+                origin ?? DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN,
+        ],
+        originConfig: [
+            (s) => [s.origin],
+            (origin: EmailDomainSetupOrigin): EmailDomainSetupOriginConfig => EMAIL_DOMAIN_SETUP_ORIGINS[origin],
+        ],
         breadcrumbs: [
-            (s) => [s.domain, s.integrationId],
-            (domain: string | null, integrationId: number | null): Breadcrumb[] => [
-                { key: Scene.Workflows, name: 'Workflows', path: urls.workflows(), iconType: 'workflows' },
-                { key: 'channels', name: 'Channels', path: urls.workflows('channels'), iconType: 'workflows' },
+            (s) => [s.originConfig, s.domain, s.integrationId],
+            (
+                originConfig: EmailDomainSetupOriginConfig,
+                domain: string | null,
+                integrationId: number | null
+            ): Breadcrumb[] => [
+                ...originConfig.breadcrumbs,
                 {
                     key: [Scene.WorkflowsEmailDomain, integrationId ?? 'new'],
                     name: domain ?? 'New sending domain',

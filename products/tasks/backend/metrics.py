@@ -74,6 +74,18 @@ TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL = Counter(
+    "posthog_tasks_task_run_refused_beside_live_run_total",
+    "Cloud TaskRuns refused because another cloud run of the same task was still live",
+    labelnames=["profile", "source"],
+)
+
+ENDED_RUN_CREDENTIAL_USED_TOTAL = Counter(
+    "posthog_tasks_ended_run_credential_used_total",
+    "Requests that presented the credentials of a TaskRun that had already ended",
+    labelnames=["surface"],
+)
+
 TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL = Counter(
     "posthog_tasks_status_outside_transitions_total",
     "Task status changes mirrored from a run that the task status transition table does not allow",
@@ -658,6 +670,14 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
 
 def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
     TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_refused_beside_live_run(*, profile: str, source: str) -> None:
+    TASK_RUN_REFUSED_BESIDE_LIVE_RUN_TOTAL.labels(profile=profile, source=source).inc()
+
+
+def observe_ended_run_credential_used(*, surface: str) -> None:
+    ENDED_RUN_CREDENTIAL_USED_TOTAL.labels(surface=surface).inc()
 
 
 def observe_task_status_outside_transitions(*, from_status: str, to_status: str) -> None:

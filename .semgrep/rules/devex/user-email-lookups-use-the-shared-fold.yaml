@@ -38,6 +38,7 @@ rules:
               - /ee/api/authentication.py
               - /posthog/api/scim/**/*.py
               - /ee/partners/stripe/api/provisioning/**/*.py
+              - /ee/vercel/**/*.py
               - /posthog/api/authentication.py
               - /posthog/api/id_jag.py
               - /posthog/api/signup.py

@@ -6,10 +6,14 @@ import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
 
 import { CopyMessageButton } from './CopyMessageButton'
+import { MessageTime } from './MessageTime'
 import type { SessionAttachment } from './session/types'
+import { splitUserMessageLinks } from './userMessageLinks'
+import { openUserMessageUrl } from './webLinks'
 
 interface UserBubbleProps {
     text: string
+    timestamp?: string
     attachments?: readonly SessionAttachment[]
 }
 
@@ -19,7 +23,11 @@ const THUMBNAIL_SIZE = 120
  * A picked image draws from the file on this device. A file from history has no local copy, and the download
  * endpoint redirects to S3, which the app's bearer token must not follow, so it shows by name only.
  */
-export const UserBubble = memo(function UserBubble({ text, attachments = [] }: UserBubbleProps): ReactElement {
+export const UserBubble = memo(function UserBubble({
+    text,
+    timestamp,
+    attachments = [],
+}: UserBubbleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const thumbnails = attachments.filter((attachment) => attachment.isImage && attachment.localUri)
@@ -58,15 +66,34 @@ export const UserBubble = memo(function UserBubble({ text, attachments = [] }: U
             ) : null}
             {text ? (
                 <View style={styles.bubble}>
-                    <Text style={styles.text}>{text}</Text>
+                    <Text style={styles.text}>
+                        {splitUserMessageLinks(text).map((part) =>
+                            typeof part === 'string' ? (
+                                part
+                            ) : (
+                                <Text
+                                    key={part.offset}
+                                    accessibilityRole="link"
+                                    style={styles.link}
+                                    onPress={() => openUserMessageUrl(part.url)}
+                                >
+                                    {part.label}
+                                </Text>
+                            )
+                        )}
+                    </Text>
                 </View>
             ) : null}
-            <CopyMessageButton text={text} messageRole="user" />
+            <View style={styles.actions}>
+                <MessageTime timestamp={timestamp} />
+                <CopyMessageButton text={text} messageRole="user" />
+            </View>
         </View>
     )
 })
 
 const useStyles = createStyles(({ colors }) => ({
+    actions: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
     column: {
         alignSelf: 'flex-end',
         alignItems: 'flex-end',
@@ -110,5 +137,10 @@ const useStyles = createStyles(({ colors }) => ({
     text: {
         ...type.body,
         color: colors.ink,
+    },
+    link: {
+        color: colors.accent,
+        fontWeight: '500',
+        textDecorationLine: 'underline',
     },
 }))

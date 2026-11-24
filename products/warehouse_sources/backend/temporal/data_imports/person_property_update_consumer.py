@@ -80,6 +80,10 @@ _MIN_RATE_PER_SEC = 1.0
 # (capture returns 408 with Retry-After for timeouts, 429 when throttled). These must retry, not DLQ.
 _RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
 
+# Capture's 402: the team is over its billing limit. Still a DLQ, but a reason of its own so the
+# alert can leave out a customer's billing state, which nothing in this pipeline can fix.
+_BILLING_LIMITED_STATUS = 402
+
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 
@@ -191,6 +195,12 @@ def _is_permanent_client_error(status_code: object) -> bool:
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
+def _client_error_reason(prefix: str, status_code: object) -> str:
+    if status_code == _BILLING_LIMITED_STATUS:
+        return "billing_limited"
+    return f"{prefix}:{status_code}"
+
+
 def _is_rebalance_commit_error(exc: Exception) -> bool:
     """True when a commit failed because this message's partition moved to another group member
     mid-commit (session/poll-interval expiry, rebalance). The new owner re-reads from the last
@@ -201,11 +211,11 @@ def _is_rebalance_commit_error(exc: Exception) -> bool:
     if not exc.args or not isinstance(exc.args[0], KafkaError):
         return False
     return exc.args[0].code() in {
-        KafkaError.REBALANCE_IN_PROGRESS,  # type: ignore[attr-defined]
-        KafkaError.UNKNOWN_MEMBER_ID,  # type: ignore[attr-defined]
-        KafkaError.ILLEGAL_GENERATION,  # type: ignore[attr-defined]
-        KafkaError._STATE,  # type: ignore[attr-defined]
-        KafkaError._NO_OFFSET,  # type: ignore[attr-defined]
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError._STATE,
+        KafkaError._NO_OFFSET,
     }
 
 
@@ -353,7 +363,7 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
+                return self._dlq(value, _client_error_reason("capture_client_error", status_code), kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
@@ -368,7 +378,7 @@ class PersonPropertyUpdateConsumer:
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
+            return self._dlq(value, _client_error_reason("capture_error", result.status_code), kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 

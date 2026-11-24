@@ -5,7 +5,7 @@ import { PersonRepositoryTransaction } from '~/common/persons/repositories/perso
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
 import { MergeMode } from './person-merge-types'
 import { EventOps } from './person-update'
@@ -153,8 +153,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,

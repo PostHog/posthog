@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSourceManager,
     WebhookSyncResult,
     build_dependent_resource,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
 )
@@ -47,15 +48,6 @@ class UpPromoteResumeConfig:
     to_date: str | None = None
 
 
-def _format_datetime(value: datetime | date) -> str:
-    """Format as ISO 8601 UTC with a Z suffix — the format UpPromote's date filters require."""
-    if isinstance(value, datetime):
-        utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    else:
-        utc_value = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _coerce_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
@@ -79,7 +71,7 @@ def _window_start(last_value: Any) -> str | None:
     coerced = _coerce_datetime(last_value)
     if coerced is None:
         return None
-    return _format_datetime(coerced - timedelta(seconds=1))
+    return format_datetime(coerced - timedelta(seconds=1))
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -266,7 +258,7 @@ def uppromote_source(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     window_end = (
-        resume_config.to_date if resume_config and resume_config.to_date else _format_datetime(datetime.now(UTC))
+        resume_config.to_date if resume_config and resume_config.to_date else format_datetime(datetime.now(UTC))
     )
 
     def items():

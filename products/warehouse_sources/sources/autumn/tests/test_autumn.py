@@ -5,6 +5,7 @@ import pytest
 
 from products.warehouse_sources.sources.autumn._config import AutumnSourceConfig
 from products.warehouse_sources.sources.autumn.autumn import (
+    UNSUPPORTED_API_VERSION_PREFIX,
     AutumnResumeConfig,
     _build_request_body,
     validate_credentials,
@@ -39,6 +40,16 @@ class TestBuildRequestBody:
             # Only events.list supports the server-side time filter.
             ("2.3.0", "Customers", True, "created_at", WATERMARK_MS, {"limit": 100}),
             ("2.3.0", "Coupons", False, None, None, {}),
+            # The cross-customer lists default to live rows and cap pages at 200 on every version.
+            ("2.3.0", "Balances", False, None, None, {"limit": 200, "statuses": ["active", "expired"]}),
+            (
+                "2.3.0",
+                "Subscriptions",
+                False,
+                None,
+                None,
+                {"limit": 200, "statuses": ["active", "scheduled", "expired"]},
+            ),
             # 2.4.0 rejects list limits above 200; smaller page sizes pass through unchanged.
             ("2.4.0", "Customers", False, None, None, {"limit": 100}),
             ("2.4.0", "Events", False, None, None, {"limit": 200}),
@@ -199,6 +210,53 @@ class TestAutumnSourceBehavior:
 
         assert len(result.requests) == 2
         assert isinstance(result.raised, ValueError)
+
+    def test_balance_ledger_pages_each_balance_feature_of_each_customer(self) -> None:
+        responses = [
+            ScriptedResponse(
+                json={
+                    "list": [
+                        {"id": "cus_1", "balances": {"messages": {}, "credits": {}}},
+                        {"id": "cus_2", "balances": {}},
+                    ],
+                    "next_cursor": None,
+                }
+            ),
+            ScriptedResponse(json={"list": [{"id": "hist_1"}], "has_more": True, "next_cursor": "ledger-1"}),
+            ScriptedResponse(json={"list": [{"id": "hist_2"}], "has_more": False, "next_cursor": None}),
+            ScriptedResponse(json={"list": [{"id": "hist_1"}], "has_more": False, "next_cursor": None}),
+        ]
+        result = self._driver().run("BalanceLedger", responses, api_version="2.4.0")
+
+        assert [(request.path, request.json()) for request in result.requests] == [
+            ("/v1/customers.list", {"limit": 100}),
+            ("/v1/balances.list_ledger", {"customer_id": "cus_1", "feature_id": "credits", "limit": 200}),
+            (
+                "/v1/balances.list_ledger",
+                {"customer_id": "cus_1", "feature_id": "credits", "limit": 200, "start_cursor": "ledger-1"},
+            ),
+            ("/v1/balances.list_ledger", {"customer_id": "cus_1", "feature_id": "messages", "limit": 200}),
+        ]
+        assert result.rows == [
+            {"id": "hist_1", "customer_id": "cus_1", "balance_feature_id": "credits"},
+            {"id": "hist_2", "customer_id": "cus_1", "balance_feature_id": "credits"},
+            {"id": "hist_1", "customer_id": "cus_1", "balance_feature_id": "messages"},
+        ]
+        # One batch per customer: the checkpoint marks a customer done, so a page yielded before
+        # the rest of its ledger would be read again after a hand-off.
+        assert len(result.items) == 1
+        assert result.saved_states == [
+            AutumnResumeConfig(next_cursor=None, last_customer_id="cus_1"),
+            AutumnResumeConfig(next_cursor=None, last_customer_id="cus_2"),
+        ]
+        assert result.raised is None
+
+    def test_balance_ledger_on_api_version_2_3_fails_before_any_request(self) -> None:
+        result = self._driver().run("BalanceLedger", [], api_version="2.3.0")
+
+        assert result.requests == []
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised).startswith(UNSUPPORTED_API_VERSION_PREFIX)
 
     @pytest.mark.parametrize(
         ("endpoint", "selector", "row_id"),

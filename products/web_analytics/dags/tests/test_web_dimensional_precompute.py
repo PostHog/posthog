@@ -363,7 +363,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
     def test_job_has_owner_and_runtime_tags(self):
         tags = web_dimensional_precompute_job.tags
-        assert tags["owner"] == "team-web-analytics"
+        assert tags["owner"] == "team-analytics"
         assert "dagster/max_runtime" in tags
 
 

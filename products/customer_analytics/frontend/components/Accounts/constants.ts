@@ -53,6 +53,7 @@ export const AccountsEvents = {
     CustomPropertyUpdated: 'customer analytics account custom property updated',
     AccountPropertyEditorOpened: 'customer analytics account property editor opened',
     PropertiesWidgetConfigured: 'customer analytics account properties widget configured',
+    SqlQueryTileConfigured: 'customer analytics account sql query tile configured',
     AccountPropertySaveFailed: 'customer analytics account property save failed',
     PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
     NoteClicked: 'customer analytics account note clicked',
@@ -64,6 +65,9 @@ export const AccountsEvents = {
     AutomationsLoaded: 'customer analytics account automations loaded',
     AutomationsLoadFailed: 'customer analytics account automations load failed',
     AutomationWorkflowOpened: 'customer analytics account automation workflow opened',
+    ContextViewed: 'customer analytics account context viewed',
+    ContextLoaded: 'customer analytics account context loaded',
+    ContextLoadFailed: 'customer analytics account context load failed',
     UsageIntervalChanged: 'customer analytics account usage interval changed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
@@ -100,6 +104,7 @@ export const AccountsEvents = {
     DotMatrixRetried: 'customer analytics account dot matrix retried',
     AccountEditorOpened: 'customer analytics account editor opened',
     AccountEdited: 'customer analytics account edited',
+    AgentWriteRefreshed: 'customer analytics account refreshed after agent write',
     EventStreamModalOpened: 'customer analytics account event stream modal opened',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
@@ -127,6 +132,9 @@ export const AccountsEvents = {
     AccountViewTileRemovalStarted: 'customer analytics account view tile removal started',
     AccountViewTileRemoved: 'customer analytics account view tile removed',
     AccountViewTileRemovalFailed: 'customer analytics account view tile removal failed',
+    AccountViewTileDuplicationStarted: 'customer analytics account view tile duplication started',
+    AccountViewTileDuplicated: 'customer analytics account view tile duplicated',
+    AccountViewTileDuplicationFailed: 'customer analytics account view tile duplication failed',
     AccountViewDeletionStarted: 'customer analytics account view deletion started',
     AccountViewDeleted: 'customer analytics account view deleted',
     AccountViewDeletionFailed: 'customer analytics account view deletion failed',
@@ -137,3 +145,5 @@ export const AccountsEvents = {
 } as const
 
 export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts' | 'tag'
+
+export const CONTEXT_WRITE_DISABLED_REASON = 'Coming soon'

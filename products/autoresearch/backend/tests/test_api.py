@@ -15,7 +15,6 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
@@ -43,7 +42,7 @@ from products.autoresearch.backend.presentation.views.serializers import (
     ValidationWarningSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 MOCK_VALIDATION_OK = ValidationResult(
     can_proceed=True,
@@ -85,10 +84,6 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
-        for gate in ("code_access_required_response", "usage_limit_response"):
-            gate_patcher = patch(f"{_VIEWS}.{gate}", return_value=None)
-            gate_patcher.start()
-            self.addCleanup(gate_patcher.stop)
 
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
         defaults = {
@@ -293,7 +288,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 completed_at=now - timedelta(minutes=minutes_ago),
                 metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
             )
-        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        live_task_id, live_task_run_id = uuid.uuid4(), uuid.uuid4()
+        live = AutoresearchTrainingRun.objects.create(
+            pipeline=preliminary,
+            status="running",
+            iteration_budget=8,
+            task_id=live_task_id,
+            task_run_id=live_task_run_id,
+        )
         for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
             AutoresearchIteration.objects.create(
                 pipeline=preliminary,
@@ -339,6 +341,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 2,
                 [],
                 {
+                    "task_id": str(live_task_id),
+                    "task_run_id": str(live_task_run_id),
+                    "task_url": f"/tasks/{live_task_id}",
                     "iteration_budget": 8,
                     "experiment_count": 2,
                     "best_holdout_score": 0.72,
@@ -361,12 +366,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
         )
         with CaptureQueriesContext(connection) as more_queries:
-            self.client.get(f"{self.base_url}/")
+            more_resp = self.client.get(f"{self.base_url}/")
 
         def autoresearch_queries(captured: CaptureQueriesContext) -> int:
             return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
 
         assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        busy_live = next(row for row in more_resp.json()["results"] if row["name"] == "Busy")["live_training_run"]
+        assert {k: busy_live[k] for k in ("task_id", "task_run_id", "task_url")} == {
+            "task_id": None,
+            "task_run_id": None,
+            "task_url": None,
+        }
         assert {name: row["coverage"] for name, row in by_name.items()} == {
             "Validated": coverage,
             "Preliminary": None,
@@ -956,8 +967,16 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
-    def test_start_training(self):
+    @parameterized.expand(
+        [
+            ("standard_organization", None, "none"),
+            ("startup_program_organization", "Startup", "none"),
+            ("prepaid_credits_organization", None, "active"),
+        ]
+    )
+    def test_start_training(self, _name: str, startup_program_label: str | None, prepaid_credit_state: str):
         pipeline = self._make_pipeline(iterations_per_run=8)
+        funding = MagicMock(startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state)
 
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
@@ -971,10 +990,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 kickoff_reason=kickoff_reason,
             )
 
-        with patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training):
+        with (
+            patch("ee.billing.billing_manager.BillingManager.get_funding_status", return_value=funding),
+            patch("products.autoresearch.backend.training.runner.run_training", side_effect=_fake_run_training),
+        ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
-        assert resp.status_code == status.HTTP_200_OK
+        assert resp.status_code == status.HTTP_200_OK, resp.content
         data = resp.json()
         assert data["status"] == "running"
         assert data["iteration_budget"] == 8
@@ -1027,19 +1049,29 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_access_required_response", Response(status=403), status.HTTP_403_FORBIDDEN),
-            ("usage_limit_response", Response(status=429), status.HTTP_429_TOO_MANY_REQUESTS),
-            ("is_sandbox_origin_request", True, status.HTTP_403_FORBIDDEN),
+            ("organization_deactivated", "organization_deactivated"),
+            ("outside_the_rollout", "permission_denied"),
+            ("sandbox_origin", "permission_denied"),
         ]
     )
-    def test_start_training_is_refused_by_the_launch_gates(self, gate: str, gate_result: Any, gate_status: int):
+    def test_start_training_is_refused_by_the_launch_gate(self, refusal: str, expected_code: str):
         pipeline = self._make_pipeline()
+        if refusal == "organization_deactivated":
+            self.organization.is_active = False
+            self.organization.save()
         with (
-            patch(f"{_VIEWS}.{gate}", return_value=gate_result),
+            patch(
+                "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+                return_value=refusal != "outside_the_rollout",
+            ),
+            patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=refusal == "sandbox_origin"),
             patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
         ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
-        assert resp.status_code == gate_status
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        body = resp.json()
+        assert body["code"] == expected_code
+        assert body["detail"]
         mock_run_training.assert_not_called()
 
     def test_validate_online_with_a_deleted_target_action_returns_400(self):

@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -84,6 +85,25 @@ class TestUpdateTaskRunStatusActivity:
             assert test_task_run.completed_at is not None
         else:
             assert test_task_run.completed_at is None
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,agent_status_after",
+        [
+            pytest.param(TaskRun.Status.IN_PROGRESS, None, id="a_starting_run_has_no_agent_yet"),
+            pytest.param(TaskRun.Status.COMPLETED, TaskRun.AgentStatus.READY, id="a_finished_run_keeps_it"),
+        ],
+    )
+    def test_only_a_start_clears_the_agent_status(
+        self, activity_environment, test_task_run, status, agent_status_after
+    ):
+        TaskRun.objects.filter(id=test_task_run.id).update(agent_status=TaskRun.AgentStatus.READY)
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.agent_status == agent_status_after
 
     @pytest.mark.django_db(transaction=True)
     def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
@@ -227,6 +247,34 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.status == status
         assert test_task_run.error_message is None
         assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "timed_out_inactivity,timeout_marker,end_of_turn_received,flagged",
+        [
+            (True, None, False, True),
+            (True, None, None, True),
+            (True, None, True, False),
+            (False, SANDBOX_GONE_STATE_KEY, False, True),
+            (False, SANDBOX_GONE_STATE_KEY, True, False),
+            (False, TIMED_OUT_WALL_CLOCK_STATE_KEY, False, False),
+            (False, None, False, False),
+        ],
+    )
+    def test_a_run_stopped_before_its_turn_closed_is_flagged(
+        self, activity_environment, test_task_run, timed_out_inactivity, timeout_marker, end_of_turn_received, flagged
+    ):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.COMPLETED,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+            end_of_turn_received=end_of_turn_received,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert ((test_task_run.state or {}).get(STOPPED_BEFORE_TURN_CLOSED_STATE_KEY) is True) == flagged
 
     @pytest.mark.django_db(transaction=True)
     def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):

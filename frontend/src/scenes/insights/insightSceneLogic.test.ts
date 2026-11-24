@@ -6,7 +6,8 @@ import posthog from 'posthog-js'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -418,6 +419,47 @@ describe('insightSceneLogic', () => {
         expect(dataLogic!.logic.values.query).toEqual(sharedQuery)
     })
 
+    it("edits the stored query, not the dashboard tile's filtered one, when opened from a tile", async () => {
+        const storedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], dateRange: { date_from: '-30d' } },
+        }) as InsightVizNode
+        const tileQuery = { ...storedQuery, source: { ...storedQuery.source, dateRange: { date_from: '-7d' } } }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'], query: storedQuery }],
+                },
+            },
+        })
+        const tileProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 7,
+            cachedInsight: { id: 42, short_id: Insight42, query: tileQuery },
+        }
+        insightLogic(tileProps).mount()
+        const tileDataLogic = insightDataLogic(tileProps)
+        tileDataLogic.mount()
+
+        router.actions.push(urls.insightEdit(Insight42, 7))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(storedQuery)
+        expect(tileDataLogic.values.query).toEqual(tileQuery)
+        const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightEdit',
+            sceneParams
+        )
+        sceneLogic.actions.setScene(Scene.Insight, 'insightEdit', sceneParams, false)
+        expect(isInsightSceneInstance(tileProps)).toBe(false)
+        expect(isInsightSceneInstance(logic.values.insightLogicRef!.logic.props)).toBe(true)
+    })
+
     it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {
         // A drill-down query that already declares its product (e.g. web analytics) must keep it.
         const dataTableQuery = {
@@ -519,6 +561,80 @@ describe('insightSceneLogic', () => {
     })
 
     const VARIABLE_ID = '00000000-0000-0000-0000-00000000beef'
+
+    it.each([true, false])('saving from a dashboard respects redirect=%s', async (redirect) => {
+        let savedDescription: string | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/insights/42/': async ({ request }) => {
+                    const body = (await request.json()) as { description?: string }
+                    savedDescription = body.description
+                    return [200, { id: 42, short_id: Insight42, ...body }]
+                },
+            },
+        })
+        router.actions.push(urls.insightEdit(Insight42, 6))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+        const insight = logic.values.insightLogicRef!.logic
+        insight.actions.setInsightMetadataLocal({ description: 'Updated review notes' })
+
+        await expectLogic(insight, () => insight.actions.saveInsight(redirect)).toFinishAllListeners()
+
+        expect(savedDescription).toEqual('Updated review notes')
+        expect(router.values.location.pathname).toEqual(
+            addProjectIdIfMissing(redirect ? urls.dashboard(6) : urls.insightEdit(Insight42), MOCK_TEAM_ID)
+        )
+    })
+
+    it('drops the dashboard overrides from the url when switching to edit mode in place', async () => {
+        const storedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, query: storedQuery, result: [] }],
+                },
+            },
+        })
+        const viewUrl = urls.insightView(Insight42, 6, undefined, {
+            breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        // The mode switch copies the browser's search params, which the test router does not write
+        window.history.replaceState({}, '', viewUrl)
+        try {
+            router.actions.push(viewUrl)
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setInsightMode(ItemMode.Edit, null)
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic.values.insightLogicRef!.logic).delay(150).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({ dashboard: 6 })
+            expect(logic.values.hasOverrides).toBe(false)
+            expect(logic.values.insightDataLogicRef!.logic.values.query).toEqual(storedQuery)
+        } finally {
+            window.history.replaceState({}, '', '/')
+        }
+    })
+
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
         [VARIABLE_ID]: {
             variableId: VARIABLE_ID,

@@ -79,6 +79,9 @@ PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
+MAX_MOVERS = 5
+# One answer in a window would read as a rate of 0 or 100%, so a mover needs a few answers in each.
+MIN_MOVER_ANSWERS = 3
 
 
 class BrandedSegment(LabeledStrEnum):
@@ -131,6 +134,17 @@ class PromptTopic:
 
 
 @frozen
+class BrandSentimentSentence:
+    """One sentence of an answer that names the brand, with its own sentiment."""
+
+    # Offsets into the answer text, in Unicode code points.
+    start: int
+    end: int
+    label: str
+    score: float
+
+
+@frozen
 class PromptCheck:
     """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
 
@@ -153,6 +167,18 @@ class PromptCheck:
     # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
     brand_sentiment: str | None = None
     brand_sentiment_score: float | None = None
+    # Empty until scored, when the brand is not named, and on checks scored before sentences were stored.
+    brand_sentiment_sentences: tuple[BrandSentimentSentence, ...] = ()
+
+
+@frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
 
 
 @frozen
@@ -271,6 +297,20 @@ class PromptSetTopicCounts(PromptSetCounts):
 
 
 @frozen
+class PromptSetEngineTopicCounts:
+    """Answered checks of one engine that ran with one topic in the window. A pair with no answer has no row."""
+
+    engine: str
+    topic: str
+    answers: int
+    mentioned: int
+
+    @property
+    def mention_rate(self) -> float:
+        return self.mentioned / self.answers
+
+
+@frozen
 class PromptSetDomain:
     """How many answers across the set cited a domain in the window."""
 
@@ -302,7 +342,7 @@ class PromptSetSearch:
 
 @frozen
 class PromptSetOverview:
-    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+    """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
 
     days: int
     window_from: dt.date
@@ -312,6 +352,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -320,6 +362,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
+    engine_topics: tuple[PromptSetEngineTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
 
@@ -380,6 +423,7 @@ BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
+COMPETITOR_CANDIDATE_DAYS = 7
 
 
 class BrandKind(LabeledStrEnum):
@@ -400,6 +444,19 @@ class BrandSource(LabeledStrEnum):
     MANUAL = "manual", "Manual"
 
 
+class MentionKind(LabeledStrEnum):
+    """Which identifier of a brand an answer used. The first four are found in the answer text."""
+
+    NAME = "name", "Name"
+    ALIAS = "alias", "Alias"
+    DOMAIN_LABEL = "domain_label", "Domain label"
+    DOMAIN = "domain", "Domain"
+    URL = "url", "URL"
+    # Not in the text: the answer cites, or the engine retrieved, a page on the brand's domain.
+    CITATION = "citation", "Citation"
+    RETRIEVAL = "retrieval", "Retrieval"
+
+
 @frozen
 class Brand:
     """One company in the team's brand catalog, keyed by its registrable domain."""
@@ -413,6 +470,17 @@ class Brand:
     aliases: tuple[str, ...]
     created_at: dt.datetime
     updated_at: dt.datetime | None
+
+
+@frozen
+class CompetitorCandidate:
+    """A suggested brand that answers to non-branded prompts both name and cite, so likely a competitor."""
+
+    brand_id: str
+    name: str
+    domain: str
+    answers_naming: int
+    answers_citing: int
 
 
 @frozen
@@ -443,6 +511,21 @@ class BrandSyncResult:
 
 class BrandNotFoundError(Exception):
     pass
+
+
+# "-90d" counts today too, so the longest relative range has 91 days.
+MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_DATE_FROM = "-30d"
+KEYWORD_DEFAULT_DATE_FROM = "-7d"
+
+
+class InvalidDateRangeError(Exception):
+    """`date_from` or `date_to` cannot be read, or the range is too long. The message is safe to show the user."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 class BrandCreateError(Exception):
@@ -589,19 +672,69 @@ class RankedPage:
 
 @frozen
 class PromptSetRankings:
-    """Brand visibility against competitors, and the domains and pages the engines cite, over the
-    last `days` days."""
+    """Brand visibility against competitors, and the domains and pages the engines cite, from
+    `window_from` to `window_to`."""
 
     days: int
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+@frozen
+class PromptMover:
+    """A prompt whose mention rate changed between the current window and the window before."""
+
+    prompt_id: str
+    prompt: str
+    topic: str
+    answers: int
+    mentioned: int
+    mention_rate: float
+    previous_answers: int
+    previous_mentioned: int
+    previous_mention_rate: float
+    change: float
+
+
+@frozen
+class PageMover:
+    """A page on an own domain whose citation rate changed between the current window and the window before."""
+
+    url: str
+    answers_citing: int
+    citation_rate: float
+    previous_answers_citing: int
+    previous_citation_rate: float
+    change: float
+
+
+@frozen
+class PromptSetMovers:
+    """The prompts and own pages that gained and lost the most between `window_from` to `window_to` and
+    the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    branded: BrandedSegment
+    engine: str | None
+    topic: str | None
+    answers: int
+    previous_answers: int
+    min_answers: int
+    prompt_gainers: tuple[PromptMover, ...]
+    prompt_losers: tuple[PromptMover, ...]
+    page_gainers: tuple[PageMover, ...]
+    page_losers: tuple[PageMover, ...]
 
 
 MAX_KEYWORD_MODIFIERS = 50

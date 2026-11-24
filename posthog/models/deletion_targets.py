@@ -29,6 +29,7 @@ from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
+    SHARDED_EVENTS_JSON_RECENT_TABLE,
     SHARDED_EVENTS_RECENT_DATA_TABLE,
 )
 from posthog.models.flag_evaluations.sql import (
@@ -231,9 +232,12 @@ FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    cluster_setting="CLICKHOUSE_FLAGS_CLUSTER",
+    node_role=NodeRole.FLAGS,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
-    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
+    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard while both tables
+    # are on one cluster. A request with a HogQL predicate refuses when they are on different clusters.
     copied_from=EVENTS_DATA_TABLE(),
     uncopied_rows_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
@@ -261,10 +265,13 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
 #
-# sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
-# on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
+# sharded_events_recent is a transient mirror of the last few days of events, on a 9-day TTL keyed
+# on inserted_at. Nine days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+#
+# sharded_events_json_recent holds the same recent events in the events_json shape, with the same
+# TTL. It is accepted on the same terms.
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"

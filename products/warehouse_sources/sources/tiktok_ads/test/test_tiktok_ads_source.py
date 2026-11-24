@@ -192,6 +192,25 @@ class TestTikTokAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(pattern in observed_error for pattern in non_retryable_errors)
 
+    @parameterized.expand(
+        [
+            (
+                "report_endpoint",
+                "401 Client Error: Unauthorized for url: https://business-api.tiktok.com/open_api/v2.0/report/integrated/get/?advertiser_ids=%5B%227584479363774940178%22%5D | api error: code=40001",
+            ),
+            (
+                "entity_endpoint",
+                "401 Client Error: Unauthorized for url: https://business-api.tiktok.com/open_api/v1.3/campaign/get/",
+            ),
+        ]
+    )
+    def test_unauthorized_http_error_is_non_retryable(self, name, observed_error):
+        """A real HTTP 401 (as opposed to TikTok's usual 200 + body `code`) means the gateway
+        rejected the access token before any per-endpoint check ran, so no body-code branch
+        classifies it. Retrying can't recover a revoked/expired token."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in observed_error for pattern in non_retryable_errors)
+
     def test_retryable_paginator_error_does_not_match_source_pattern(self):
         """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
         paginator = TikTokAdsPaginator()

@@ -112,10 +112,11 @@ def test_created_date_pagination_fails_when_the_window_does_not_move() -> None:
     assert len(result.requests) == 2
 
 
-def test_subscription_cycles_page_each_subscription_and_keep_parent_keys() -> None:
-    result = run(
-        "subscription_cycles",
-        route(
+@pytest.mark.parametrize(
+    "endpoint,routes,expected_keys,child_suffix,child_queries",
+    [
+        (
+            "subscription_cycles",
             {
                 "/subscriptions": [
                     ScriptedResponse(
@@ -131,17 +132,60 @@ def test_subscription_cycles_page_each_subscription_and_keep_parent_keys() -> No
                 "/subscriptions/sub-b/cycles": [
                     ScriptedResponse(json={"cycles": [{"id": "cycle-1", "subscription_id": "sub-b"}]}),
                 ],
-            }
+            },
+            [("sub-a", "cycle-1"), ("sub-a", "cycle-2"), ("sub-b", "cycle-1")],
+            "/cycles",
+            [{"limit": ("500",)}, {"limit": ("500",), "page_token": ("t",)}, {"limit": ("500",)}],
         ),
-    )
+        (
+            "customer_payment_methods",
+            {
+                "/customers": [
+                    ScriptedResponse(json={"customers": [{"id": "cus-a"}, {"id": "cus-b"}], "next_page_token": "t"}),
+                    ScriptedResponse(json={"customers": [{"id": "cus-c"}]}),
+                ],
+                "/customers/cus-a/payment-methods": [
+                    ScriptedResponse(
+                        json={
+                            "payment_methods": [
+                                {"id": "pm-1", "type": "card", "created_at": "2026-01-01 10:00:00.123456+00:00"},
+                                {"id": "pm-2", "type": "revolut_pay", "created_at": "2026-01-02 10:00:00+00:00"},
+                            ]
+                        }
+                    )
+                ],
+                "/customers/cus-b/payment-methods": [ScriptedResponse(json={"payment_methods": []})],
+                "/customers/cus-c/payment-methods": [
+                    ScriptedResponse(
+                        json={
+                            "payment_methods": [
+                                {"id": "pm-1", "type": "sepa_direct_debit", "created_at": "2026-01-03 10:00:00+00:00"}
+                            ]
+                        }
+                    )
+                ],
+            },
+            [("cus-a", "pm-1"), ("cus-a", "pm-2"), ("cus-c", "pm-1")],
+            "/payment-methods",
+            [{}, {}, {}],
+        ),
+    ],
+)
+def test_fan_out_children_walk_every_parent_page_and_keep_parent_keys(
+    endpoint: str,
+    routes: dict[str, list[ScriptedResponse]],
+    expected_keys: list[tuple[str, str]],
+    child_suffix: str,
+    child_queries: list[dict[str, tuple[str, ...]]],
+) -> None:
+    result = run(endpoint, route(routes))
 
     assert result.raised is None
     assert result.response is not None
     assert result.response.primary_keys is not None
     keys = [tuple(row[key] for key in result.response.primary_keys) for row in result.rows]
-    assert keys == [("sub-a", "cycle-1"), ("sub-a", "cycle-2"), ("sub-b", "cycle-1")]
-    cycle_queries = [request.query for request in result.requests if request.path.endswith("/cycles")]
-    assert cycle_queries == [{"limit": ("500",)}, {"limit": ("500",), "page_token": ("t",)}, {"limit": ("500",)}]
+    assert keys == expected_keys
+    assert [request.query for request in result.requests if request.path.endswith(child_suffix)] == child_queries
 
 
 @pytest.mark.parametrize("endpoint", ["customers", "orders", "payouts", "subscription_usages", "disputes"])
@@ -185,6 +229,13 @@ def test_credential_probe_status_mapping(
             "/subscriptions/sub-a/cycles",
             {"cycles": []},
         ),
+        (
+            "customer_payment_methods",
+            "/customers",
+            {"customers": [{"id": "cus-a"}]},
+            "/customers/cus-a/payment-methods",
+            {"payment_methods": []},
+        ),
     ],
 )
 @pytest.mark.parametrize("empty_parent,status,valid", [(True, 200, True), (False, 200, True), (False, 403, False)])
@@ -199,7 +250,7 @@ def test_child_permission_probe_uses_an_existing_parent(
     status: int,
     valid: bool,
 ) -> None:
-    empty_page = [] if isinstance(parent_page, list) else {"subscriptions": []}
+    empty_page = {key: [] for key in parent_page} if isinstance(parent_page, dict) else []
     requests_mock.get(f"{BASE_URL}{parent_path}", json=empty_page if empty_parent else parent_page)
     child = requests_mock.get(f"{BASE_URL}{child_path}", status_code=status, json=child_page)
     result, error = validate_credentials("test-secret-key", "production", API_VERSION, schema_name)

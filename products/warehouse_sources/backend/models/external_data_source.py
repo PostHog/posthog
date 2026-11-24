@@ -30,6 +30,8 @@ MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
 MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND = "duckgres_service"
 MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+# The `connection_metadata` key of a source that the self-managed table migration created.
+MIGRATION_MARKER_KEY = "self_managed_migration"
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -153,6 +155,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def is_system_managed(self) -> bool:
         metadata = self.connection_metadata
         return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @property
+    def is_self_managed_migration(self) -> bool:
+        """Whether the self-managed table migration created this source.
+
+        Such a source is rooted at a whole bucket, so discovery must not offer each folder as a table.
+        """
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and MIGRATION_MARKER_KEY in metadata
 
     @property
     def has_managed_warehouse_prefix(self) -> bool:

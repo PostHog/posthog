@@ -14,11 +14,11 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
-from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
+from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
 
 logger = structlog.get_logger(__name__)
@@ -51,8 +51,8 @@ def backfill_platform_insight_alert_configurations(
     widens it while the parallel run's query load stays inside its budget. Named alerts let a
     rollout copy the ones a comparison still lacks evidence for.
 
-    AI detector alerts are left out unless `include_ai_detector` is set. Each of their checks makes
-    a model call that the project pays for, so a parallel copy doubles that cost.
+    AI and forecast detector alerts are left out unless `include_ai_detector` is set. Each of their
+    checks calls the AI gateway, which the project pays for, so a parallel copy doubles that cost.
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
@@ -68,7 +68,7 @@ def backfill_platform_insight_alert_configurations(
     failed = 0
     for alert in source.iterator():
         copied = is_sampled(alert.id, sample_percent) and (
-            include_ai_detector or not is_llm_detector_config(alert.detector_config)
+            include_ai_detector or not calls_ai_gateway(alert.detector_config)
         )
         upsert = platform_upsert_of(alert) if copied else None
         if upsert is None:
@@ -108,21 +108,3 @@ def disable_platform_insight_alert_configurations(
     disabled = disable_configurations(SourceKind.INSIGHT, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_insight_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
-
-
-def follow_insight_alert(alert: AlertConfiguration) -> None:
-    """Copies an insight alert that was just created or turned back on, while insight runs on the platform.
-
-    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill. The insight parallel run covers every team, so a
-    team with no enabled copy yet, such as one creating its first alert, is admitted too.
-
-    An AI detector alert is never followed. The backfill copies those only when an operator asks,
-    and a copy's stored detector is what records that request, so following would overwrite it.
-    """
-    if is_llm_detector_config(alert.detector_config):
-        return
-    upsert = platform_upsert_of(alert)
-    if upsert is not None:
-        upsert_if_running(upsert, revive=True, admit_new_teams=True)
-        sync_subscriber_destinations(alert)

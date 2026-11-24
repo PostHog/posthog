@@ -6,7 +6,7 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.models.team import Team
 
 from products.workflows.backend.facade.contracts import WorkflowSummary
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, HogFlowBatchJob, SandboxSenderOrganizationBlock
 from products.workflows.backend.services.account_audience import get_account_audience_count, get_account_audience_page
 
 
@@ -37,9 +37,19 @@ def create_workflow_for_test(
 acreate_workflow_for_test = sync_to_async(create_workflow_for_test)
 
 
+def create_batch_job_for_test(*, team_id: int, workflow_id: str) -> str:
+    """Seed a broadcast send of one workflow and return its id, without dispatching it."""
+    (job,) = HogFlowBatchJob.objects.bulk_create([HogFlowBatchJob(team_id=team_id, hog_flow_id=workflow_id)])
+    return str(job.id)
+
+
 def count_account_audience_for_test(*, team_id: int, filters: dict[str, Any]) -> int:
     return get_account_audience_count(Team.objects.get(pk=team_id), filters)
 
 
 def list_account_audience_page_for_test(*, team_id: int, filters: dict[str, Any], cursor: str | None) -> list[str]:
     return get_account_audience_page(Team.objects.get(pk=team_id), filters, cursor)
+
+
+def block_sandbox_sender_for_test(*, organization_id: Any) -> None:
+    SandboxSenderOrganizationBlock.objects.create(organization_id=organization_id, reason="test")

@@ -1,15 +1,42 @@
 import { randomUUID } from 'node:crypto'
-import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+    access,
+    chmod,
+    copyFile,
+    link,
+    lstat,
+    mkdir,
+    readdir,
+    readFile,
+    realpath,
+    rename,
+    rm,
+    stat,
+    writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, win32 } from 'node:path'
 
-import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    SkillsLibrary,
+    SkillsLibraryOptions,
+} from '@posthog/mcp/src/cli/library-types'
+
+import { BUILD_DATE, VERSION } from '@/version'
 
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
+import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
+
+export interface ExecutableFile {
+    path: string
+    contents: Uint8Array
+}
 
 // `timeoutMs` starts when the request leaves, so time spent waiting for --rate-limit doesn't count.
 // `skipRateLimit` marks a signed storage URL, which posthog-cli's --rate-limit doesn't count either.
@@ -33,9 +60,19 @@ export interface Secrets {
 export interface Runtime {
     env: Env
     platform: NodeJS.Platform
+    arch: string
     // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
     // and settings apart, so it never reads or replaces those of an installed hog.
     isDevelopment: boolean
+    // A local build has no date, and never checks for updates.
+    build: { version: string; date: string | undefined }
+    execPath: string
+    isMusl: () => Promise<boolean>
+    runCommand: (argv: string[]) => Promise<number>
+    // Replaces every file or none, in the order given. `hog upgrade` passes hog-worker and then hog,
+    // which must come from one release. Windows can't replace a running exe, so it renames each old
+    // one to <name>.old.exe, which the next run deletes.
+    replaceExecutables: (files: ExecutableFile[]) => Promise<void>
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -72,12 +109,14 @@ export interface Runtime {
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
     secrets: Secrets
+    // Resolves to false when no process could start, and the caller then sends the batch itself.
+    sendTelemetryInBackground: ((body: string) => Promise<boolean>) | undefined
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
-    // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
-    loadApiTools: () => Promise<ApiToolLibrary>
+    // The tools `hog api` browses and calls, built in or from a downloaded catalog. Loaded on first use: it is large.
+    loadApiTools: (options?: ApiToolLibraryOptions) => Promise<ApiToolLibrary>
     // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
     loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
 }
@@ -93,7 +132,7 @@ async function loadMcpLibrary<T>(load: () => Promise<T>, code: string, name: str
             throw new HogError(
                 code,
                 `hog couldn't find ${name}.`,
-                'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+                'Run `pnpm --filter hog build:mcp`, then run the command again.'
             )
         }
         throw error
@@ -113,7 +152,7 @@ function browserCommand(url: string): string[] {
 }
 
 // `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
-const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
+export const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
 
 // Keychain calls that haven't settled. A call hog stopped waiting for, such as one behind a dialog
 // nobody answers, keeps the process alive, so the entry point ends the process when this is not zero.
@@ -209,11 +248,101 @@ async function realPath(path: string): Promise<string> {
     }
 }
 
+const EXECUTABLE_MODE = 0o755
+
+function exists(path: string): Promise<boolean> {
+    return access(path).then(
+        () => true,
+        () => false
+    )
+}
+
+export function keptPath(path: string, id: string, platform: NodeJS.Platform = process.platform): string {
+    return platform === 'win32'
+        ? win32.join(win32.dirname(path), `${win32.basename(path).replace(/\.exe$/i, '')}.old.exe`)
+        : join(dirname(path), `.${basename(path)}.${id}.old`)
+}
+
+// A link keeps the old file under a second name while a rename puts the new one in place, so the
+// path always names a whole executable. A file system without links gets a copy.
+async function keepCopy(path: string, kept: string): Promise<void> {
+    try {
+        await link(path, kept)
+    } catch {
+        await copyFile(path, kept)
+    }
+}
+
+export async function replaceExecutables(files: ExecutableFile[]): Promise<void> {
+    const id = randomUUID()
+    const swaps = files.map((file) => ({
+        ...file,
+        temporary: join(dirname(file.path), `.${basename(file.path)}.${id}.tmp`),
+        kept: keptPath(file.path, id),
+        hadOld: false,
+        replaced: false,
+    }))
+
+    try {
+        for (const swap of swaps) {
+            await writeFile(swap.temporary, swap.contents, { flag: 'wx', mode: EXECUTABLE_MODE })
+            await chmod(swap.temporary, EXECUTABLE_MODE)
+        }
+
+        for (const swap of swaps) {
+            await rm(swap.kept, { force: true })
+            if (await exists(swap.path)) {
+                await (process.platform === 'win32' ? rename(swap.path, swap.kept) : keepCopy(swap.path, swap.kept))
+                swap.hadOld = true
+            }
+            await rename(swap.temporary, swap.path)
+            swap.replaced = true
+        }
+    } catch (error) {
+        for (const swap of [...swaps].reverse()) {
+            await rm(swap.temporary, { force: true }).catch(() => {})
+            if (swap.hadOld) {
+                await rename(swap.kept, swap.path).catch(() => {})
+            } else if (swap.replaced) {
+                await rm(swap.path, { force: true }).catch(() => {})
+            }
+        }
+        throw error
+    }
+
+    // On Windows the old hog.exe is this process, which can't delete its own file.
+    if (process.platform !== 'win32') {
+        for (const swap of swaps) {
+            await rm(swap.kept, { force: true }).catch(() => {})
+        }
+    }
+}
+
+async function isMusl(): Promise<boolean> {
+    for (const folder of ['/lib', '/usr/lib']) {
+        const names = await readdir(folder).catch(() => [] as string[])
+        if (names.some((name) => name.startsWith('ld-musl-'))) {
+            return true
+        }
+    }
+    return false
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
         platform: process.platform,
+        arch: process.arch,
         isDevelopment: FROM_SOURCE,
+        build: { version: VERSION, date: BUILD_DATE },
+        execPath: process.execPath,
+        isMusl: () => (process.platform === 'linux' ? isMusl() : Promise.resolve(false)),
+        runCommand: async (argv) => {
+            // Not the caller's folder: pnpm reads a project's .pnpmfile.cjs even for a global install.
+            const child = Bun.spawn(argv, { cwd: homedir(), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
+            return child.exited
+        },
+        replaceExecutables,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -224,11 +353,13 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: (input, { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = {}) =>
-            globalThis.fetch(
+        fetch: (input, options) => {
+            const { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = options ?? {}
+            return globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
-            ),
+            )
+        },
         now: () => Date.now(),
         sleep,
         homeDir: () => {
@@ -242,11 +373,7 @@ export function processRuntime(): Runtime {
             }
         },
         cwd: () => process.cwd(),
-        exists: (path) =>
-            access(path).then(
-                () => true,
-                () => false
-            ),
+        exists,
         readFile: (path) => readFile(path, 'utf8'),
         isDirectory: (path) =>
             stat(path).then(
@@ -304,13 +431,41 @@ export function processRuntime(): Runtime {
         prompts: clackPrompts(),
         secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
+        sendTelemetryInBackground: async (body) => {
+            try {
+                const child = Bun.spawn(
+                    FROM_SOURCE
+                        ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
+                        : [process.execPath, TELEMETRY_WORKER_ARG],
+                    {
+                        // An inherited stdout would keep an agent reading hog's output waiting for the worker.
+                        detached: true,
+                        stdin: 'pipe',
+                        stdout: 'ignore',
+                        stderr: 'ignore',
+                        windowsHide: true,
+                        // Not the caller's folder, which it would hold open, nor a shared temp folder's bunfig.toml.
+                        cwd: dirname(process.execPath),
+                        // The environment as it is now, so the worker keeps --skip-ssl-verification.
+                        env: process.env,
+                    }
+                )
+                child.unref()
+                // Without waiting, a body larger than the pipe's buffer reaches the worker cut short.
+                child.stdin.write(body)
+                await child.stdin.end()
+                return true
+            } catch {
+                return false
+            }
+        },
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
-        loadApiTools: () =>
+        loadApiTools: (options) =>
             loadMcpLibrary(
-                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(),
+                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(options),
                 'api_tools_missing',
                 'the API tool catalog'
             ),

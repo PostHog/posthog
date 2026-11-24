@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
+}
+
+export interface CatalogAttentionApi {
+    /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+    pending_review: PendingReviewCountsApi | null
+    /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+    failing_models: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -134,6 +150,11 @@ export interface CertificationCreateApi {
      * * `certified` - certified
      * * `deprecated` - deprecated */
     proposed_status?: ProposedStatusEnumApi
+}
+
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
 }
 
 /**
@@ -765,15 +786,6 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
-export interface PendingReviewCountsApi {
-    /** Proposed metrics you can see that wait for approval. */
-    metrics: number
-    /** Proposed joins that wait to be accepted or rejected. */
-    relationships: number
-    /** Proposed certifications that wait for review. */
-    certifications: number
-}
-
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
@@ -803,13 +815,6 @@ export interface DataCatalogRelationshipProposalApi {
     field_name: string
     /** Extra join configuration, e.g. a field mapping. */
     configuration?: unknown
-    /**
-     * Discovery confidence in this join, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why this join is proposed. */
     reasoning?: string
     /** Sampling evidence: match rates, sample values. */
@@ -992,6 +997,8 @@ export interface UncoveredGroupApi {
     draft_definition: string | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity and the people who built or viewed the measure. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface ChartSourceApi {
@@ -1056,6 +1063,8 @@ export interface ProposedMetricApi {
     agents: AgentSourceApi | null
     /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
     complexity: number
+    /** Rank score from complexity, the people who built or viewed the measures, and how many measures the proposal merges. A higher score ranks first. 0 on scans before the score existed. */
+    priority: number
 }
 
 export interface UsageSnapshotPayloadApi {
@@ -1161,7 +1170,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

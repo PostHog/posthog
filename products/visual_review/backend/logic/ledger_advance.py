@@ -22,7 +22,7 @@ from posthog.egress.limiter.policies import Priority
 from ..db import WRITER_DB
 from ..facade.enums import BaselineApprovalState, BaselineEntrySource, BaselineEvidence, BaselineMode, RunStatus
 from ..models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run
-from . import baseline_approvals, baseline_record, errors, github_api, ledger, quarantine
+from . import baseline_approvals, baseline_record, commit_status, errors, github_api, ledger, quarantine
 
 logger = structlog.get_logger(__name__)
 
@@ -201,6 +201,8 @@ class _LedgerAdvancer:
         self._evidence_contains: dict[tuple[str, str], bool | None] = {}
         self._open_approvals: list[BaselineApproval] | None = None
         self._run_candidates: dict[int, set[UUID]] = {}
+        # Identifiers per run type that the open transaction landed, for the publish after it commits.
+        self._landed_identifiers: dict[str, set[str]] = {}
 
     def result(self) -> AdvanceResult:
         return AdvanceResult(
@@ -298,19 +300,17 @@ class _LedgerAdvancer:
         )
 
     def _merged_here(self, pull_request: github_api.PullRequestState, commit_sha: str) -> bool:
-        return (
-            pull_request.merged
-            and pull_request.merge_commit_sha == commit_sha
-            and pull_request.base_ref == self._require_default_branch()
-        )
+        # The commit is on the first-parent line of the default branch, so a merge commit that equals it
+        # proves the landing. The base branch does not: the merge queue lands each layer of a stack as its
+        # own commit on the default branch, and GitHub keeps the parent layer's branch as the base.
+        return pull_request.merged and pull_request.merge_commit_sha == commit_sha
 
     def _plan_from_commit_pulls(self, commit_sha: str, first_seen_at: datetime) -> _CommitPlan:
         pull_requests = github_api.merged_pull_requests_for_commit(self.repo, commit_sha, self.priority)
         if pull_requests is None:
             raise errors.BaselineAdvanceError(f"GitHub did not list the pull requests of commit {commit_sha}.")
-        default_branch = self._require_default_branch()
         for pull_request in pull_requests:
-            if pull_request.base_ref == default_branch and pull_request.head_sha:
+            if pull_request.head_sha:
                 landing = self.plan_landing(pull_request.number, pull_request.head_sha)
                 return _CommitPlan(pr_number=pull_request.number, resolved=landing is not None, landing=landing)
         # GitHub links a new commit to its pull request with a short delay, so an empty list for a commit
@@ -337,6 +337,47 @@ class _LedgerAdvancer:
     def _forget(self, approval_ids: set[UUID]) -> None:
         if self._open_approvals is not None:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
+
+    def _pull_requests_applying(self, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
+        """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
+
+        A stack child applies its parent's approval through the overlay without owning it, so only its
+        record links the two.
+        """
+        if not approvals:
+            return set()
+        runs = (
+            Run.objects.using(WRITER_DB)
+            .filter(
+                repo_id=self.repo.id,
+                run_type__in={approval.run_type for approval in approvals},
+                status=RunStatus.COMPLETED,
+                superseded_by__isnull=True,
+                pr_number__isnull=False,
+                metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
+            )
+            .values_list("pr_number", "run_type")
+            .distinct()
+        )
+        return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
+
+    def _publish_for_landed_identifiers(self) -> None:
+        """Publish again for the pull requests with an open approval of an identifier this transaction landed,
+        and for the pull requests whose current run applied one of those approvals.
+
+        It runs after the commit, so no GitHub request runs under the ledger lock. The first callback of
+        a transaction takes the whole buffer, so the later callbacks of that transaction do nothing.
+        """
+        landed, self._landed_identifiers = self._landed_identifiers, {}
+        if not landed or not commit_status.guards_stale_approvals(self.repo):
+            return
+        open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
+        touched = [
+            approval for approval in open_approvals if approval.identifier in landed.get(approval.run_type, set())
+        ]
+        holders = {(approval.pr_number, approval.run_type) for approval in touched}
+        holders |= self._pull_requests_applying(touched)
+        commit_status.publish_for_pull_requests(self.repo, holders)
 
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:
         """Apply the landing table to each approval, with a fixed number of queries per run type.
@@ -421,6 +462,10 @@ class _LedgerAdvancer:
                 updated_at=self.now,
             )
         ledger.append_entries(entries)
+        if entries:
+            for entry in entries:
+                self._landed_identifiers.setdefault(entry.run_type, set()).add(entry.identifier)
+            transaction.on_commit(self._publish_for_landed_identifiers, using=WRITER_DB, robust=True)
         landed_ids = {approval_id for approval_ids in landed_by_verdict.values() for approval_id in approval_ids}
         self.approvals_landed += len(landed_ids)
         self._forget(landed_ids)
@@ -542,6 +587,16 @@ class _LedgerAdvancer:
             self._write_new_commits(plans)
         self._retry_unresolved()
 
+    def _in_ledger(self, commit_sha: str | None) -> bool:
+        """Whether the commit is on the first-parent line of the default branch that the ledger walked.
+
+        A stack layer keeps the parent layer's branch as its base after the merge queue lands it on the
+        default branch, so its merge commit is the proof that it did not merge into another branch.
+        """
+        if not commit_sha:
+            return False
+        return BaselineCommit.objects.using(WRITER_DB).filter(repo_id=self.repo.id, commit_sha=commit_sha).exists()
+
     def _landing_commit(self, merge_commit_sha: str, seed: BaselineCommit) -> BaselineCommit | None:
         """The ledger commit a merged pull request lands at, or None when this pass cannot place it.
 
@@ -579,7 +634,7 @@ class _LedgerAdvancer:
                 if pull_request.state == "closed":
                     closed.append(pr_number)
                 continue
-            if pull_request.base_ref != default_branch:
+            if pull_request.base_ref != default_branch and not self._in_ledger(pull_request.merge_commit_sha):
                 if pull_request.merged_at is not None and pull_request.merged_at < self.now - MERGED_ELSEWHERE_WINDOW:
                     merged_elsewhere.append(pr_number)
                 continue

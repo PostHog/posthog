@@ -24,6 +24,8 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         headline: '1 in 125 traces ends on a failed call',
         outcome: 'Checks every trace for a tool or model call that failed with no recovery.',
         reason: 'A tool call failed and no later attempt succeeded.',
+        observation: '',
+        observation_scope: '',
         draft: { evaluation_type: 'hog' },
         filters: [],
         rollout_percentage: 100,
@@ -39,6 +41,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         created_evaluation: null,
         target_evaluation: null,
         target_evaluation_name: null,
+        fix_problem: null,
         similar_evaluation: null,
         similar_evaluation_name: null,
         dismiss_reason: null,
@@ -91,6 +94,34 @@ describe('evaluationSuggestionsLogic', () => {
     afterEach(() => {
         logic.unmount()
         capture.mockRestore()
+    })
+
+    it('stops polling once the first run is ready, also after the tab comes back', async () => {
+        logic.unmount()
+        let lists = 0
+        useMocks({
+            get: {
+                [`${SUGGESTIONS_URL}/`]: () => {
+                    lists += 1
+                    return [200, lists === 1 ? { run: null, pending: true, results: [] } : LIST]
+                },
+            },
+        })
+        logic = evaluationSuggestionsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadEvalSuggestionsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadEvalSuggestions()).toDispatchActions([
+            'loadEvalSuggestionsSuccess',
+        ])
+        const setTimeout = jest.spyOn(window, 'setTimeout')
+
+        for (const state of ['hidden', 'visible']) {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, value: state, writable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        expect(setTimeout.mock.calls.filter((call: unknown[]) => call[1] === 10_000)).toEqual([])
+        setTimeout.mockRestore()
     })
 
     it('tracks each open suggestion as shown once per page view', async () => {
@@ -225,4 +256,39 @@ describe('evaluationSuggestionsLogic', () => {
             reason: 'too_noisy',
         })
     })
+
+    it.each([
+        { saved: true, cardsLeft: [], captured: true },
+        { saved: false, cardsLeft: [CODE_CHECK.id, JUDGE.id], captured: false },
+    ])(
+        'turns suggestions off and hides the cards only once saved (saved: $saved)',
+        async ({ saved, cardsLeft, captured }) => {
+            const bodies: unknown[] = []
+            useMocks({
+                patch: {
+                    [`${SUGGESTIONS_URL}/settings/`]: async ({ request }) => {
+                        bodies.push(await request.json())
+                        return saved ? [200, { enabled: false }] : [500, { detail: 'boom' }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.turnOffSuggestions('not_useful')).toFinishAllListeners()
+
+            expect(bodies).toEqual([{ enabled: false }])
+            expect(logic.values.suggestionList?.results.map(({ id }) => id)).toEqual(cardsLeft)
+            expect(logic.values.turningOff).toBe(false)
+            const turnedOff = capture.mock.calls.filter(([event]) => event === 'llma eval suggestions turned off')
+            expect(turnedOff).toEqual(
+                captured
+                    ? [
+                          [
+                              'llma eval suggestions turned off',
+                              { source: 'evals_page', reason: 'not_useful', open_cards: 2 },
+                          ],
+                      ]
+                    : []
+            )
+        }
+    )
 })

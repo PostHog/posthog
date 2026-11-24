@@ -9,7 +9,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.notifications.backend.facade.api import (

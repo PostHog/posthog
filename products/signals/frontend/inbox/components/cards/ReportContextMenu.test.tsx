@@ -211,7 +211,7 @@ describe('ReportContextMenu', () => {
         reportListLogic(sectionListLogicProps('needs-decision')).mount()
         openMenu(makeReport({ assignee }))
 
-        fireEvent.click(screen.getByText('Take over'))
+        fireEvent.click(screen.getByText('Take over claim'))
 
         expect(await screen.findByText(new RegExp(description))).toBeInTheDocument()
         expect(claimRequests).toEqual([])

@@ -33,7 +33,7 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
-from posthog.redis import get_client
+from posthog.redis import get_celery_broker_client, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
@@ -505,6 +505,7 @@ def process_query_task(
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ) -> None:
     """
     Kick off query
@@ -529,6 +530,7 @@ def process_query_task(
             is_query_service=is_query_service,
             analytics_props=analytics_props,
             sharing_configuration_id=sharing_configuration_id,
+            staff_rights_withheld=staff_rights_withheld,
         )
     except ClickHouseAtCapacity as exc:
         # A remote capacity failure can arrive after other shards have done expensive work.
@@ -846,7 +848,7 @@ def redis_celery_queue_depth() -> None:
             )
 
             for queue in CeleryQueue:
-                llen = get_client().llen(queue.value)
+                llen = get_celery_broker_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
     except:
@@ -971,6 +973,32 @@ def capture_task_status_shadow_metrics() -> None:
             )
             for row in tasks_facade.repair_task_status_mismatches():
                 repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
+            stale_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs",
+                "Live task runs that went quiet for longer than their idle timeout allows, by the rule that finds them.",
+                registry=registry,
+                labelnames=["profile", "run_environment", "rule"],
+            )
+            for stale in tasks_facade.collect_stale_live_task_runs():
+                stale_runs_gauge.labels(
+                    profile=stale.profile, run_environment=stale.run_environment, rule=stale.rule
+                ).set(stale.count)
+            swept_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs_swept",
+                "Live task runs the stale sweep ended in the last pass because they went quiet.",
+                registry=registry,
+                labelnames=["profile"],
+            )
+            for swept in tasks_facade.sweep_stale_live_task_runs():
+                swept_runs_gauge.labels(profile=swept.profile).set(swept.count)
+            fenced_tokens_gauge = Gauge(
+                "posthog_tasks_ended_run_gateway_tokens",
+                "Gateway tokens of ended task runs that the last pass revoked or would have revoked.",
+                registry=registry,
+                labelnames=["profile", "outcome"],
+            )
+            for fenced in tasks_facade.fence_ended_task_runs():
+                fenced_tokens_gauge.labels(profile=fenced.profile, outcome=fenced.outcome).set(fenced.count)
     except OperationalError as err:
         logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
     except Exception as err:

@@ -65,6 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
+    OrganizationOAuthApplicationApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -900,7 +901,8 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
 }
 
 /**
- * ViewSet for listing OAuth applications at the organization level (read-only).
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
  */
 export const oauthApplicationsList = async (
     organizationId: string,
@@ -914,6 +916,25 @@ export const oauthApplicationsList = async (
             method: 'GET',
         }
     )
+}
+
+export const getOauthApplicationsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/`
+}
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const oauthApplicationsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationApi> => {
+    return apiMutator<OrganizationOAuthApplicationApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {
@@ -1271,30 +1292,6 @@ export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
 export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
     organizationId: string,
     id: number,
@@ -1470,30 +1467,6 @@ export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = 
         {
             ...options,
             method: 'PATCH',
-        }
-    )
-}
-
-export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
@@ -2992,7 +2965,7 @@ export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const uploadedMediaCompleteUploadCreate = async (
     projectId: string,

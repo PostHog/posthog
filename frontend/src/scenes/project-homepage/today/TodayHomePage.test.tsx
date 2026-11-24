@@ -6,17 +6,21 @@ import type { ReactNode } from 'react'
 
 import type { PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomePage } from './TodayHomePage'
 import { todayLogic } from './todayLogic'
 import { makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), useValues: jest.fn() }))
 jest.mock('./todayLogic', () => ({ todayLogic: { values: { homeScrollTop: null } }, reportIdFromPath: () => null }))
+jest.mock('./todayHomeEditLogic', () => ({ todayHomeEditLogic: {} }))
 jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {}, pulsePinLimitReason: () => undefined }))
 jest.mock('./TodaySampleBanner', () => ({ TodaySampleBanner: () => null }))
 jest.mock('./TodayForYou', () => ({ TodayForYou: () => null }))
 jest.mock('./TodayRecents', () => ({ TodayRecents: () => null }))
+jest.mock('./TodayPrimaryDashboard', () => ({ TodayPrimaryDashboard: () => null }))
 jest.mock('./TodayHomeComposer', () => ({ TodayHomeComposer: () => null }))
+jest.mock('./TodayHomeClassicComposer', () => ({ TodayHomeClassicComposer: () => null }))
 jest.mock('./TodayPulseHoverCard', () => ({
     TodayPulseHoverCard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
@@ -61,7 +65,7 @@ describe('TodayHomePage loading', () => {
         expect(actions.pulseViewMounted).toHaveBeenLastCalledWith(false)
         expect(actions.pulseViewUpdated).toHaveBeenCalledTimes(1)
     })
-    it('keeps Edit available when the numbers fail to load', () => {
+    it('keeps Edit available in edit mode when the numbers fail to load', () => {
         const home = {
             greeting: 'Hello',
             now: Date.now(),
@@ -81,7 +85,9 @@ describe('TodayHomePage loading', () => {
             pulseSlots: [],
             pulsePinsLoaded: true,
         }
-        jest.mocked(useValues).mockImplementation((logic) => (logic === todayLogic ? home : numbers))
+        jest.mocked(useValues).mockImplementation((logic) =>
+            logic === todayLogic ? home : logic === todayHomeEditLogic ? { homeEditing: true } : numbers
+        )
         jest.mocked(useActions).mockImplementation(() => ({
             setReturnFocusReportId: jest.fn(),
             pulseViewMounted: jest.fn(),

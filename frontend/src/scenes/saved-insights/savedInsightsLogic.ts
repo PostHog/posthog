@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pathFromWindowToRoutes } from 'lib/utils/kea-router'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
@@ -316,10 +317,10 @@ export interface savedInsightsLogicActions {
     updateFavoritedInsightSuccess: (
         insights: {
             count: number
-            filters?: SavedInsightFilters | null | undefined
-            next?: string | null | undefined
+            filters?: SavedInsightFilters | null
+            next?: string | null
             offset: number
-            previous?: string | null | undefined
+            previous?: string | null
             results: InsightModel<Node<Record<string, any>>>[]
         },
         payload?: {
@@ -329,10 +330,10 @@ export interface savedInsightsLogicActions {
     ) => {
         insights: {
             count: number
-            filters?: SavedInsightFilters | null | undefined
-            next?: string | null | undefined
+            filters?: SavedInsightFilters | null
+            next?: string | null
             offset: number
-            previous?: string | null | undefined
+            previous?: string | null
             results: InsightModel<Node<Record<string, any>>>[]
         }
         payload?: {
@@ -809,8 +810,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   },
               ]
             | void => {
-            const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeSceneId === Scene.SavedInsights) {
+            // The active scene changes only after the next scene's code loads.
+            // Until then it reads SavedInsights even when the path is an insight's.
+            // A push in that window sends the user back to the list.
+            if (pathFromWindowToRoutes(router.values.location.pathname) === urls.savedInsights()) {
                 const nextValues = cleanFilters(values.filters)
                 const defaultTab = getDefaultSavedInsightsTab(nextValues, values.showHomeTab)
                 const defaultValues = cleanFilters({}, defaultTab)

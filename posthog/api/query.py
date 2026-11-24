@@ -8,6 +8,7 @@ from django.http.response import HttpResponseBase
 
 import orjson
 import structlog
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from opentelemetry import trace
@@ -59,11 +60,10 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_http_request_id, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import (
-    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
     ExposedCHQueryError,
-    InternalCHQueryError,
+    clickhouse_error_message,
+    error_code_from_type,
     internal_ch_error_user_message,
-    look_up_clickhouse_error_code_meta,
 )
 from posthog.event_usage import (
     AnalyticsProps,
@@ -96,7 +96,7 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade.api import (
@@ -114,6 +114,10 @@ from products.customer_analytics.backend.facade.constants import (
     BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX,
     BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
     BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX,
+)
+from products.experiments.backend.facade.warehouse_native_access import (
+    WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX,
+    validate_warehouse_native_connection_access,
 )
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
@@ -492,12 +496,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             if extra is not None:
                 validation_error.extra = extra  # type: ignore[attr-defined]
             raise validation_error
-        except InternalCHQueryError as e:
-            self.handle_column_ch_error(e)
+        except ClickHouseDriverError as e:
             capture_exception(e)
-            error_code = look_up_clickhouse_error_code_meta(e).name
-            user_message = internal_ch_error_user_message(error_code)
-            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
+            replacement = APIException(clickhouse_error_message(e), code=error_code_from_type(e))
             scan_extra = _scan_extra(e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]
@@ -584,6 +585,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
             except ExposedHogQLError as error:
                 raise PermissionDenied(str(error)) from error
+        for label in query_status.labels or []:
+            if label.startswith(WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX):
+                validate_warehouse_native_connection_access(
+                    self.team,
+                    request.user if isinstance(request.user, User) else None,
+                    label.removeprefix(WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX),
+                )
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
@@ -756,16 +764,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Nothing here knows the run that asked, so the prompt carries the findings without a run line.
         scan = QueryScanResponse(analysis=analysis_with_prompt(slot.analysis))
         return Response(scan.model_dump(by_alias=True, exclude_none=True), status=status.HTTP_200_OK)
-
-    def handle_column_ch_error(self, error):
-        if getattr(error, "message", None):
-            match = re.search(r"There's no column.*in table", error.message)
-            if match:
-                # TODO: remove once we support all column types
-                raise ValidationError(
-                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
-                )
-        return
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is None:

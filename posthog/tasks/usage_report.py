@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import time
 import uuid
 import base64
 import logging
@@ -43,7 +44,8 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS, ph_scoped_capture
+from posthog.redis import get_celery_broker_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
@@ -63,6 +65,7 @@ from posthog.usage_counters import (
 )
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.business_knowledge.backend.facade import api as business_knowledge_api
@@ -148,6 +151,8 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # Written by self-driving anomaly scoring, not sent by the customer.
     "$anomaly_score",
     "$anomaly_score_shadow",
+    # Written by Replay Vision once per observation, which is already billed in vision credits.
+    "$recording_observed",
 ]
 
 
@@ -209,6 +214,44 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
     "acks_late": False,
     "reject_on_worker_lost": False,
 }
+
+# The parent publishes far faster than the workers consume, so it waits rather than parking the
+# whole run in the broker. The workers set the finish time either way.
+USAGE_REPORT_QUEUE_MAX_DEPTH = 20_000
+USAGE_REPORT_QUEUE_CHECK_INTERVAL = 1_000
+USAGE_REPORT_QUEUE_POLL_SECONDS = 5
+USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS = 600
+# Bounds the whole run, so slow workers can't hold back the billing sends in the same loop.
+USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS = 2 * 60 * 60
+
+
+def _wait_for_usage_reports_queue(max_wait_seconds: float) -> bool:
+    """Wait until the usage_reports queue is at or below USAGE_REPORT_QUEUE_MAX_DEPTH.
+
+    Returns False if the depth can't be read or stays above the limit for max_wait_seconds.
+    The caller then stops waiting and publishes the rest of the run straight away, as it did
+    before pacing.
+    """
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            depth = get_celery_broker_client().llen(CeleryQueue.USAGE_REPORTS.value)
+        except Exception as err:
+            logger.warning("Could not read the usage_reports queue depth, no longer pacing", error=str(err))
+            return False
+
+        if depth <= USAGE_REPORT_QUEUE_MAX_DEPTH:
+            return True
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "usage_reports queue did not drain in time, no longer pacing",
+                depth=depth,
+                max_depth=USAGE_REPORT_QUEUE_MAX_DEPTH,
+            )
+            return False
+
+        time.sleep(USAGE_REPORT_QUEUE_POLL_SECONDS)
 
 
 # Mutable: `_add_team_report_to_org_reports` accumulates each team's counters into the org's
@@ -322,6 +365,9 @@ class UsageReportCounters:
 
     # AI observability
     ai_event_count_in_period: int
+    # The MB is the field to bill, floored per team like logs_mb_in_period. The bytes are report-only.
+    ai_overage_bytes_in_period: int
+    ai_overage_mb_in_period: int
     ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
     ai_offline_eval_metric_count_in_period: int = dataclasses.field(default=0, kw_only=True)
 
@@ -405,6 +451,8 @@ class UsageReportCounters:
     unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
+    rust_ffi_events_count_in_period: int
+    electron_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
 
@@ -647,7 +695,9 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         )
         capture_exception(err)
         capture_event(
-            pha_client=get_ph_client(sync_mode=True),
+            pha_client=get_ph_client(
+                sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS
+            ),
             name=f"organization usage report to billing service failure",
             organization_id=org_id,
             properties={"err": str(err)},
@@ -1140,6 +1190,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
+        ("posthog-rs-ffi", None, "rust_ffi_events"),
+        ("posthog-electron", None, "electron_events"),
     )
     tracked_libs = tuple(
         dict.fromkeys(
@@ -1229,6 +1281,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
+            "rust_ffi_events": {},
+            "electron_events": {},
         }
 
         # Process each result set
@@ -1922,6 +1976,58 @@ def get_teams_with_ai_event_count_in_period(
 
     sponsored_by_team = dict(sponsored_counts)
     return [(team_id, max(0, count - sponsored_by_team.get(team_id, 0))) for team_id, count in base_counts]
+
+
+@timed_log()
+def get_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
+    # No billing meter reads AI overage yet, so a failure reports no overage instead of aborting the usage report and
+    # the quota run for every product. Let failures propagate again before billing meters it, or it under-bills.
+    try:
+        return _query_teams_with_ai_overage_bytes_in_period(begin, end)
+    except Exception as err:
+        logger.exception("ai_overage_bytes_query_failed")
+        capture_exception(err)
+        return []
+
+
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def _query_teams_with_ai_overage_bytes_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
+    limits = get_ai_event_limits()
+    use_new = use_new_events_schema(None)
+    event_bytes_expr, _ = get_property_string_expr(
+        "events",
+        "$ai_event_bytes",
+        "'$ai_event_bytes'",
+        "properties",
+        use_new_events_schema=use_new,
+    )
+
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
+        return sync_execute(
+            f"""
+            SELECT
+                team_id,
+                sum(
+                    greatest(least(toInt64OrZero({event_bytes_expr}), %(max_event_bytes)s), %(included_bytes)s)
+                    - %(included_bytes)s
+                ) AS overage_bytes
+            FROM {events_read_table(use_new)}
+            WHERE startsWith(event, %(ai_event_prefix)s) AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+            HAVING overage_bytes > 0
+        """,
+            {
+                "begin": begin,
+                "end": end,
+                "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+                "included_bytes": limits.included_bytes_per_event,
+                "max_event_bytes": limits.max_event_bytes_ceiling,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
 
 
 # PostHog Desktop bills model costs as pure pass-through: no markup
@@ -3057,7 +3163,7 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     try:
         capture_event(
@@ -3148,6 +3254,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
+        or report.ai_overage_bytes_in_period > 0
         or report.mcp_event_count_in_period > 0
         or report.business_knowledge_chunks_in_period > 0
         or report.business_knowledge_queries_in_period > 0
@@ -3309,6 +3416,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
+        "teams_with_rust_ffi_events_count_in_period": all_metrics["rust_ffi_events"],
+        "teams_with_electron_events_count_in_period": all_metrics["electron_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
             period_start, period_end
@@ -3539,6 +3648,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_not_modified_requests_count_in_period = all_data[
         "teams_with_local_evaluation_not_modified_requests_count_in_period"
     ].get(team.id, 0)
+    ai_overage_bytes_in_period = all_data["teams_with_ai_overage_bytes_in_period"].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3717,8 +3827,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
+        rust_ffi_events_count_in_period=all_data["teams_with_rust_ffi_events_count_in_period"].get(team.id, 0),
+        electron_events_count_in_period=all_data["teams_with_electron_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_overage_bytes_in_period=ai_overage_bytes_in_period,
+        ai_overage_mb_in_period=int(ai_overage_bytes_in_period // 1_000_000),
         mcp_event_count_in_period=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
         business_knowledge_chunks_in_period=all_data["teams_with_business_knowledge_chunks_in_period"].get(team.id, 0),
         business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(
@@ -4098,7 +4212,7 @@ def send_all_org_usage_reports(
     except Exception:
         pass
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     if organization_ids:
         logger.info(
@@ -4134,6 +4248,9 @@ def send_all_org_usage_reports(
 
     total_orgs = len(org_reports)
     total_orgs_sent = 0
+    capture_tasks_queued = 0
+    pace_capture_tasks = True
+    queue_wait_seconds = 0.0
 
     logger.info("Sending usage reports to billing")
     queue_time_start = datetime.now()
@@ -4163,12 +4280,23 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 try:
+                    if pace_capture_tasks and capture_tasks_queued % USAGE_REPORT_QUEUE_CHECK_INTERVAL == 0:
+                        wait_start = time.monotonic()
+                        pace_capture_tasks = _wait_for_usage_reports_queue(
+                            max_wait_seconds=min(
+                                USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS,
+                                USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS - queue_wait_seconds,
+                            )
+                        )
+                        queue_wait_seconds += time.monotonic() - wait_start
+
                     at_date_str = at_date.isoformat() if at_date else None
                     capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
                     )
+                    capture_tasks_queued += 1
                 except Exception as capture_err:
                     logger.exception(
                         f"Failed to capture report for organization {organization_id}",
@@ -4200,6 +4328,7 @@ def send_all_org_usage_reports(
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,
+            "queue_wait_time": queue_wait_seconds,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
             **filtering_properties,

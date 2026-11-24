@@ -53,7 +53,6 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
     labelnames=["result"],
 )
 
-# Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "feature_flags": "posthog_ai",
     "loop": "posthog_code",
@@ -116,7 +115,9 @@ MINTABLE_PRODUCTS = frozenset(
     }
 )
 
-BACKGROUND_AGENTS_ORIGINS = frozenset({"autoresearch", "business_knowledge", "context_layer", "task_analysis"})
+BACKGROUND_AGENTS_ORIGINS = frozenset(
+    {"autoresearch", "business_knowledge", "context_layer", "knowledge_writer", "task_analysis"}
+)
 
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.
@@ -290,7 +291,7 @@ def mint_refusal(
         return _team_credit_refusal(team_id, bucket)
     except Exception:
         logger.warning(
-            "ai_gateway_token: credit lookup failed, run stays on the Python gateway",
+            "ai_gateway_token: credit lookup failed",
             extra={"team_id": team_id, "bucket": bucket},
             exc_info=True,
         )
@@ -376,6 +377,42 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
     raise GatewayNotConfiguredError("The private AI gateway credential could not be revoked")
 
 
+def revoke_scoped_token_hashes(token_hashes: list[str]) -> bool:
+    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
+    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    if not base_url or not mint_key or not token_hashes:
+        return False
+    try:
+        response = requests.post(
+            f"{base_url}/v1/tokens/revoke",
+            json={"token_hashes": token_hashes},
+            headers={"Authorization": f"Bearer {mint_key}"},
+            timeout=_MINT_TIMEOUT_SECONDS,
+            allow_redirects=False,
+        )
+    except requests.RequestException:
+        return False
+    return response.status_code == 200
+
+
+def _remember_run_token(run_id: str, token: str) -> bool:
+    from products.tasks.backend.run_token_fencing import record_run_gateway_token
+
+    try:
+        record_run_gateway_token(run_id, token)
+    except Exception:
+        logger.warning("could not record the gateway mint on run %s", run_id, exc_info=True)
+        return False
+    return True
+
+
+def _revoke_unrecorded_token(token: str) -> None:
+    try:
+        revoke_scoped_token(token)
+    except GatewayNotConfiguredError:
+        logger.warning("an unrecorded gateway mint could not be revoked")
+
+
 def mint_scoped_token(
     *,
     ai_product: str,
@@ -451,6 +488,10 @@ def mint_scoped_token(
                         revoke_scoped_token(token, gateway_config=gateway_config)
                         last_error = "mint response did not acknowledge capture suppression"
                         retryable = False
+                        break
+                    if run_id and gateway_config is None and not _remember_run_token(run_id, token):
+                        _revoke_unrecorded_token(token)
+                        last_error = "the token could not be recorded on its run"
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token

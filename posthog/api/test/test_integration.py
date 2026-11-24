@@ -1,7 +1,9 @@
+import re
 import hmac
 import json
 import time
 import hashlib
+import ipaddress
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -697,6 +699,8 @@ class TestEmailIntegration:
             "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
         assert integration.sensitive_config == {}
         assert integration.created_by_id == self.user.id
@@ -770,6 +774,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": False,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -812,6 +818,8 @@ class TestEmailIntegration:
             "reply_to": "",
             "verified": True,
             "provider": "ses",
+            "organization_proof_token": ANY,
+            "organization_proof_required": False,
         }
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -1045,6 +1053,111 @@ class TestGitLabIntegration:
         assert "isn't JSON" in response.json()["detail"]
         assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
 
+    @staticmethod
+    def _gitlab_api(project: dict, on_project_fetch=None):
+        def respond(method, url, **kwargs):
+            if url.endswith("/personal_access_tokens/self"):
+                return MagicMock(status_code=200, **{"json.return_value": {"scopes": ["api"], "expires_at": None}})
+            if on_project_fetch is not None:
+                on_project_fetch()
+            return MagicMock(status_code=200, **{"json.return_value": project})
+
+        return respond
+
+    def _connect(self, client: HttpClient, hostname: str, project_id: str, token: str):
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {"hostname": hostname, "project_id": project_id, "project_access_token": token},
+            },
+            content_type="application/json",
+        )
+
+    def _connected_project(self, **overrides) -> Integration:
+        fields = {
+            "team": self.team,
+            "kind": "gitlab",
+            "integration_id": "Acme / App",
+            "config": {"hostname": "https://gitlab.example.com", "path_with_namespace": "acme/app", "project_id": 1},
+            "sensitive_config": {"access_token": "old-token"},
+            **overrides,
+        }
+        return Integration.objects.create(**fields)
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_reconnecting_a_connected_project_replaces_its_token(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        mock_request.side_effect = self._gitlab_api(
+            {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
+        )
+        first_connector = User.objects.create_and_join(self.organization, "first@posthog.com", "test")
+        existing = self._connected_project(errors=ERROR_TOKEN_REFRESH_FAILED, created_by=first_connector)
+        client.force_login(self.user)
+
+        response = self._connect(client, "https://GitLab.example.com/", "1", "new-token")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["id"] == existing.id
+        existing.refresh_from_db()
+        assert existing.sensitive_config["access_token"] == "new-token"
+        assert existing.config["token_scopes"] == ["api"]
+        assert existing.errors == ""
+        assert existing.created_by_id == first_connector.id
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_member_cannot_overwrite_a_project_connected_while_their_request_waits_on_gitlab(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        # Stands in for an admin's connect that commits after the serializer has listed the team's
+        # integrations. The row is written in the request's transaction, so the 403 rolls it back too.
+        mock_request.side_effect = self._gitlab_api(
+            {"id": 1, "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"},
+            on_project_fetch=lambda: self._connected_project(sensitive_config={"access_token": "admin-token"}),
+        )
+        client.force_login(member)
+
+        response = self._connect(client, "https://gitlab.example.com", "1", "member-token")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @pytest.mark.parametrize(
+        "stored_hostname,hostname,project_id",
+        [
+            ("https://gitlab.example.com", "https://gitlab.other.example.com", "1"),
+            ("https://gitlab.example.com/engineering", "https://gitlab.example.com/Engineering", "1"),
+            ("https://gitlab.example.com", "https://gitlab.example.com", "2"),
+        ],
+        ids=["other_host", "other_path_case", "other_project_id"],
+    )
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_connecting_another_project_with_the_same_name_keeps_the_existing_connection(
+        self, _mock_is_url_allowed, mock_request, stored_hostname, hostname, project_id, client: HttpClient
+    ):
+        mock_request.side_effect = self._gitlab_api(
+            {"id": int(project_id), "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
+        )
+        existing = self._connected_project(
+            config={"hostname": stored_hostname, "path_with_namespace": "acme/app", "project_id": 1}
+        )
+        client.force_login(self.user)
+
+        response = self._connect(client, hostname, project_id, "new-token")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already connected" in response.json()["detail"]
+        existing.refresh_from_db()
+        assert existing.config["hostname"] == stored_hostname
+        assert existing.config["project_id"] == 1
+        assert existing.sensitive_config["access_token"] == "old-token"
+
 
 class TestGoogleCloudServiceAccountIntegration:
     @pytest.fixture(autouse=True)
@@ -1223,6 +1336,70 @@ class TestAWSIntegration:
         )
 
 
+# Matches organization IDs (UUIDT, version nibble 0) but not uuid4.
+ORGANIZATION_SHAPED_EXTERNAL_ID = r"posthog-[0-9a-f]{8}-[0-9a-f]{4}-0[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
+class _ProbedSTS:
+    """Stands in for both STS clients: our own role hop, then the probes against the customer's role."""
+
+    CREDENTIALS = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+
+    def __init__(self, random_probe: Exception | str) -> None:
+        # An exception to raise, "allow" for a role that trusts any ID, or a regex the role's trust policy matches.
+        self.random_probe = random_probe
+
+    def assume_role(self, *, RoleArn: str, RoleSessionName: str, **kwargs: Any) -> dict:
+        external_id = kwargs.get("ExternalId")
+        if "Policy" in kwargs or external_id == "posthog-org-1":
+            return self.CREDENTIALS
+        if external_id is not None:
+            if isinstance(self.random_probe, Exception):
+                raise self.random_probe
+            if self.random_probe == "allow" or re.fullmatch(self.random_probe, external_id):
+                return self.CREDENTIALS
+        raise _access_denied()
+
+
+def _access_denied() -> Exception:
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "AccessDenied"}}, "AssumeRole")
+
+
+def _read_timeout() -> Exception:
+    from botocore.exceptions import ReadTimeoutError
+
+    return ReadTimeoutError(endpoint_url="https://sts.amazonaws.com")
+
+
+@pytest.mark.parametrize(
+    "random_probe,error",
+    [
+        (_access_denied(), None),
+        ("allow", "allows access without a required external id"),
+        (ORGANIZATION_SHAPED_EXTERNAL_ID, "allows access without a required external id"),
+        (_read_timeout(), "internal error"),
+    ],
+    ids=["denied", "allowed", "organization_shaped_wildcard", "timed_out"],
+)
+def test_validate_aws_role_arn_refuses_a_role_other_organizations_could_assume(
+    random_probe: Exception | str, error: str | None
+) -> None:
+    from posthog.models.integration import IntegrationError
+    from posthog.models.integration.aws import validate_aws_role_arn
+
+    sts = _ProbedSTS(random_probe)
+    session = MagicMock()
+    session.client.return_value = sts
+    with patch("boto3.client", return_value=sts), patch("boto3.Session", return_value=session):
+        if error is None:
+            validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+        else:
+            with pytest.raises(IntegrationError, match=error):
+                validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+
+
 class TestAWSRoleBasedIntegration:
     @pytest.fixture(
         params=[
@@ -1349,6 +1526,9 @@ class TestAWSRoleBasedIntegration:
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
 
+S3_COMPATIBLE_ENDPOINT_IPS = {ipaddress.ip_address("93.184.216.34")}
+
+
 class TestS3CompatibleIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
@@ -1358,7 +1538,8 @@ class TestS3CompatibleIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_create_with_valid_config(self, client: HttpClient):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=S3_COMPATIBLE_ENDPOINT_IPS)
+    def test_create_with_valid_config(self, _mock_resolve, client: HttpClient):
         client.force_login(self.user)
 
         response = client.post(
@@ -1388,7 +1569,8 @@ class TestS3CompatibleIntegration:
         assert "aws_access_key_id" not in response_body
         assert "aws_secret_access_key" not in response_body
 
-    def test_create_rejects_duplicate_name(self, client: HttpClient):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=S3_COMPATIBLE_ENDPOINT_IPS)
+    def test_create_rejects_duplicate_name(self, _mock_resolve, client: HttpClient):
         client.force_login(self.user)
         payload = {
             "kind": "s3-compatible",
@@ -1613,6 +1795,58 @@ class TestSnowflakeIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_error_message in response.json()["detail"]
+
+
+class TestMotherDuckIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create(self, client: HttpClient, config: dict) -> Any:
+        client.force_login(self.user)
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "motherduck", "config": config},
+            content_type="application/json",
+        )
+
+    def test_create_keeps_the_token_out_of_the_response(self, client: HttpClient):
+        response = self._create(client, {"name": " warehouse ", "access_token": " md-secret-token "})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "warehouse"
+        assert integration.config == {"name": "warehouse"}
+        assert integration.sensitive_config == {"access_token": "md-secret-token"}
+        assert "md-secret-token" not in json.dumps(response.json())
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"name": "warehouse"},
+            {"access_token": "md-secret-token"},
+            {"name": "  ", "access_token": "md-secret-token"},
+            {"name": "warehouse", "access_token": ["md-secret-token"]},
+        ],
+        ids=["no_token", "no_name", "blank_name", "token_not_a_string"],
+    )
+    def test_create_rejects_incomplete_config(self, client: HttpClient, config: dict):
+        response = self._create(client, config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Integration.objects.filter(team=self.team, kind="motherduck").exists()
+
+    def test_a_name_cannot_be_reused(self, client: HttpClient):
+        assert self._create(client, {"name": "warehouse", "access_token": "first"}).status_code == 201
+
+        response = self._create(client, {"name": "warehouse", "access_token": "second"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Integration.objects.get(team=self.team, kind="motherduck").sensitive_config == {"access_token": "first"}
 
 
 class TestAzureBlobIntegration:
@@ -8000,6 +8234,45 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         integration = Integration.objects.get(team=self.team, kind="firebase")
         assert integration.config["push_identity_verification"] == "required"
+
+
+@patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+@patch("posthog.rate_limit.EmailSenderCreateThrottle.rate", new="2/hour")
+@patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+@patch("products.workflows.backend.facade.api.create_ses_email_domain")
+class TestEmailSenderCreateRateLimit(APIBaseTest):
+    def _add_sender(self, team: Team, email: str) -> int:
+        response = self.client.post(
+            f"/api/environments/{team.pk}/integrations",
+            {"kind": "email", "config": {"email": email, "name": "Sender", "provider": "ses"}},
+            format="json",
+        )
+        return response.status_code
+
+    @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
+    def test_email_sender_creation_is_limited_per_organization(self, *_mocks):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        assert self._add_sender(self.team, "a@example.com") == status.HTTP_201_CREATED
+        self.client.force_login(teammate)
+        assert self._add_sender(other_team, "b@example.com") == status.HTTP_201_CREATED
+        assert self._add_sender(self.team, "c@example.com") == status.HTTP_429_TOO_MANY_REQUESTS
+        assert not Integration.objects.filter(kind="email", integration_id="c@example.com").exists()
+
+        other_kind = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {"name": "aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "x"},
+            },
+            format="json",
+        )
+        assert other_kind.status_code == status.HTTP_201_CREATED, other_kind.content
+
+        other_organization = Organization.objects.create(name="other organization")
+        outsider_team = Team.objects.create(organization=other_organization, name="outsider team")
+        self.client.force_login(User.objects.create_and_join(other_organization, "outsider@example.com", None))
+        assert self._add_sender(outsider_team, "d@other.example.com") == status.HTTP_201_CREATED
 
 
 class TestIntegrationMembershipPermissions(APIBaseTest):

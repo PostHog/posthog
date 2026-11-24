@@ -73,6 +73,7 @@ Keep the EAS credentials and store setup below. Also:
 - Read-only Expo environment queries retry network failures and temporary HTTP errors up to three times, with a fresh 30-second timeout and bounded backoff. Authentication, GraphQL and malformed-response errors stop publication immediately. Retries never rebuild or resubmit artifacts, and the environment comparison still blocks publication if values change.
 - The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
 - Complete the initial Play Console app/signing/internal-tester setup before requesting the first Android submission. Confirm the production iOS App Store Connect record and stored API key.
+- Keep `submit.production.ios.ascAppId` in `eas.json` aligned with the approved App Store Connect app ID in `releases/config.json`. The publisher stops before claiming a release if they differ.
 - Stop using the older Desktop Mobile Build/Promote workflows for this iOS store identity. The release request flow does not retire those separate workflows.
 
 ### OTA signing setup and rotation
@@ -114,6 +115,11 @@ It includes session replay video, report links that open in the app, updated iOS
 Native dependencies and configuration changes require new binaries.
 The request raises the version above the `1.12.0` PR base and submits to TestFlight and Google Play internal testing.
 Public-store promotion remains manual after testing.
+
+Version `1.16.0` requests both native builds through `native-1160`, following the completed `native-1150` release.
+It includes Live on Home, the visitor map, clearer Live states, header pause controls and saved graph series names.
+The request creates a new runtime and submits to TestFlight and Google Play internal testing.
+Test those builds before public-store promotion.
 
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.

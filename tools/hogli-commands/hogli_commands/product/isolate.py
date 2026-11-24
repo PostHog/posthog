@@ -42,7 +42,7 @@ KIND_GUIDANCE = {
     "model-access": "expose a capability function returning a contract (facade/api.py)",
     "query-runner": "expose a builder plus a class re-export (facade/queries.py) — registry consumers dispatch on class identity",
     "celery-task": "re-export the task object (facade/tasks.py); core beat schedules import it",
-    "temporal-wiring": "re-export workflows/activities/metrics/constants (facade/temporal.py)",
+    "temporal-wiring": "declare TEMPORAL = TemporalRegistration(...) in facade/temporal.py; starters go in facade/temporal_client.py (products/architecture.md § Temporal)",
     "test-fixture": "a test import: model rows go through a facade write function (or a facade/testing.py helper), anything else through the matching facade re-export; not apps.get_model",
     "string-reference": "dotted path in a string (mock @patch path, config) — must be rewritten when modules move",
     "other-internal": "route through a facade function or re-export",
@@ -134,7 +134,6 @@ def strict_preflight(name: str) -> list[str]:
         backend_dir=product_dir / "backend",
         has_facade_contracts=True,
         structure=load_structure(),
-        detailed=False,
     )
     issues: list[str] = []
     for check in (RequiredRootFilesCheck(), MisplacedFilesCheck()):
@@ -239,7 +238,7 @@ def render_scan_report(report: dict) -> str:
         lines.extend(f"- {issue}" for issue in report["strict_lint_preflight"])
     else:
         lines.append("- clean")
-    lines.append("\n## View modules (thin/thick signal = future ignore_imports entries)")
+    lines.append("\n## View modules (thin/thick signal = future presentation-uses-facade findings)")
     if report["view_modules"]:
         for view in report["view_modules"]:
             weight = "thin" if view["internal_imports"] <= 2 else "thick"
@@ -480,7 +479,7 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
 
 _PACKAGE_INIT_DOCSTRINGS = {
     "presentation": '"""HTTP presentation layer of the {name} product (DRF viewsets and serializers)."""\n',
-    "views": '"""DRF viewsets for {name} — submodule paths (`backend.presentation.views.*`) are part\nof the shared tach interface for isolated products.\n"""\n',
+    "views": '"""DRF viewsets for {name}, one module per resource."""\n',
 }
 
 

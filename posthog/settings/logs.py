@@ -185,6 +185,7 @@ LOGGING: dict[str, Any] = {
         "posthog.security.url_validation": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.dns_hosts": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.domain_connect": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.inbox_providers": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.models.organization_domain": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.proxy_service.create": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.proxy_service.monitor": {"level": "INFO", "handlers": ["console"], "propagate": False},
@@ -201,6 +202,9 @@ LOGGING: dict[str, Any] = {
         # The Celery worker logs through this logger before it configures logging, and
         # disable_existing_loggers then turns off every existing logger that is not named here.
         "posthog.celery": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same disable: `apps.ready()` creates this logger before the Celery worker configures logging,
+        # and its ERROR lines are the only record that a deleted user's analytics data was not removed.
+        "posthog.user_analytics_deletion": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

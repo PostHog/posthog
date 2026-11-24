@@ -4,14 +4,18 @@ from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, _Call, call, patch
+from unittest.mock import ANY, MagicMock, _Call, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.core.cache import caches
+from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
+from django_redis.cache import RedisCache
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -22,9 +26,12 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.rate_limit import is_rate_limit_enabled
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -35,7 +42,9 @@ from products.messaging.backend.models.transactional_email_key import Transactio
 from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
+    EMAIL_SCHEDULED_SENDS_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
+    TransactionalEmailBurstThrottle,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
@@ -45,11 +54,13 @@ from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics, FakeCdp
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+from products.workflows.backend.facade.testing import block_sandbox_sender_for_test
 
 CSV, NOTES = "c" * 64, "d" * 64
 TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename": "notes.txt"}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
+SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 
 
 @frozen
@@ -58,6 +69,10 @@ class CapturedFirstCodeSend:
     properties: dict[str, Any]
     organization_id: str
     project: str
+
+
+def _sandbox_fallbacks(outcome: str) -> float:
+    return REGISTRY.get_sample_value("messaging_transactional_email_sandbox_fallback_total", {"outcome": outcome}) or 0
 
 
 def _stage_counts() -> dict[str, float]:
@@ -108,7 +123,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/send/"
         self.send_email_url = f"/api/projects/{self.team.id}/messaging/send/email/"
-        self.body = {
+        self.body: dict[str, Any] = {
             "to": "user@example.com",
             "identifiers": {"distinct_id": "user-1"},
             "message_data": {"link": "https://example.com/reset", "nickname": None},
@@ -132,8 +147,12 @@ class TestTransactionalEmail(APIBaseTest):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": invocation_id})
 
     def _send(self, client: APIClient, route: str, body: dict, **kwargs: Any) -> Any:
-        if route == "send_email":
-            return client.post(self.send_email_url, self._flat(body), format="json", **kwargs)
+        if route == "send_email_form":
+            form = {k: v for k, v in self._flat(body).items() if not isinstance(v, dict)}
+            return client.post(self.send_email_url, form, format="multipart", **kwargs)
+        if route in ("send_email", "send_email_key_scoped"):
+            url = "/api/messaging/send/email/" if route == "send_email_key_scoped" else self.send_email_url
+            return client.post(url, self._flat(body), format="json", **kwargs)
         if route == "send_email_nested":
             body = {**body, "template": {"id": str(self.template.id)}}
             return client.post(self.send_email_url, body, format="json", **kwargs)
@@ -144,6 +163,28 @@ class TestTransactionalEmail(APIBaseTest):
         if "identifiers" in body:
             flat["distinct_id"] = body["identifiers"]["distinct_id"]
         return {**flat, "template_id": str(self.template.id)}
+
+    def _send_with_scheduled_at(
+        self,
+        client: APIClient,
+        route: str,
+        scheduled_at: str | list[str] | None,
+        without: tuple[str, ...] = (),
+        key: str | None = None,
+    ) -> Any:
+        headers: dict[str, Any] = {"HTTP_IDEMPOTENCY_KEY": key} if key else {}
+        if route == "template_form":
+            body = {"to": self.body["to"], "scheduled_at": scheduled_at}
+            return client.post(self.url, body, format="multipart", **headers)
+        if route == "send_email_list_value":
+            body = {**self._flat(self.body), "scheduled_at": scheduled_at}
+            return client.post(self.send_email_url, body, format="json", **headers)
+        if route in ("code", "code_form", "code_key_scoped"):
+            body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
+            url = "/api/messaging/send/email/" if route == "code_key_scoped" else self.send_email_url
+            return client.post(url, body, format="multipart" if route == "code_form" else "json", **headers)
+        body = {k: v for k, v in self.body.items() if k not in without}
+        return self._send(client, route, {**body, "scheduled_at": scheduled_at}, **headers)
 
     def _psak_client(
         self,
@@ -188,10 +229,12 @@ class TestTransactionalEmail(APIBaseTest):
         body = {**{k: v for k, v in self.body.items() if k != "identifiers"}, **recipient}
         client = self._psak_client(["hog_flow:write"])
         stages_before = _stage_counts()
+        fallbacks_before = _sandbox_fallbacks("sandbox")
 
         response = self._send(client, route, body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before
         stages_after = _stage_counts()
         assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
             stages_after, 1
@@ -354,25 +397,32 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 202,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
             ),
-            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
+            (
+                "user_agent",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)", "X-PostHog-Migrated-From": "resend"},
+                202,
+                {"client": "posthog-node", "source": "api", "migrated_from": "resend"},
+            ),
             (
                 "header_over_user_agent",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
                 202,
-                "nodemailer",
+                {"client": "nodemailer", "source": "api"},
             ),
-            ("neither", "send_email", {}, {}, 202, "unknown"),
+            ("neither", "send_email", {}, {}, 202, {"client": "unknown", "source": "api"}),
             (
                 "malformed_header",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
                 202,
-                "posthog-laravel",
+                {"client": "posthog-laravel", "source": "api"},
             ),
             (
                 "template_route",
@@ -380,7 +430,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
                 202,
-                "symfony-mailer",
+                {"client": "symfony-mailer", "source": "api", "sender_kind": "own_domain"},
             ),
             (
                 "refused_send",
@@ -388,24 +438,69 @@ class TestTransactionalEmail(APIBaseTest):
                 {"to": "not-an-address"},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 400,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
+            ),
+            (
+                "mcp_tool_call",
+                "send_email",
+                {},
+                {
+                    "User-Agent": "posthog/mcp-server; version: 1.0.0",
+                    "X-PostHog-Client": "mcp",
+                    "X-PostHog-Mcp-Client-Name": "Example Agent",
+                    "X-PostHog-Mcp-Client-Version": "2.1.0",
+                    "x-posthog-intent": "Send the password reset link to someone@example.com",
+                },
+                202,
+                {
+                    "client": "posthog",
+                    "source": "mcp",
+                    "mcp_client_name": "Example Agent",
+                    "mcp_client_version": "2.1.0",
+                    "mcp_intent": None,
+                },
+            ),
+            (
+                "personal_api_key_sender",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)"},
+                202,
+                {"client": "posthog-node", "source": "api", "auth_method": "user", "$set": None, "$set_once": None},
+                "personal_api_key",
             ),
         ]
     )
-    def test_records_the_client_that_made_the_send(
-        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    def test_records_the_client_and_surface_that_made_the_send(
+        self,
+        mock_post,
+        _flag,
+        capture,
+        _name,
+        route,
+        extra_body,
+        headers,
+        expected_status,
+        expected,
+        sender="project_secret_api_key",
     ):
         pipeline, analytics = FakeCdpApi(), FakeAnalytics()
         mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+        if sender == "personal_api_key":
+            client = APIClient()
+            client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['transactional_email:write'])}"
+            )
+        else:
+            client = self._psak_client(["transactional_email:write"])
 
-        response = self._send(
-            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
-        )
+        response = self._send(client, route, {**self.body, **extra_body}, headers=headers)
 
         assert response.status_code == expected_status, response.json()
-        assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
-            expected_client
-        ]
+        assert [
+            {key: event.get(key) for key in expected}
+            for event in analytics.properties_of("transactional email api send")
+        ] == [expected]
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -564,6 +659,9 @@ class TestTransactionalEmail(APIBaseTest):
             ("invalid_request", 400, 400, "invalid_request"),
             ("a 400 without a known code", 400, 400, "invalid_request"),
             ("Request entity too large", 413, 400, "content_too_large"),
+            ("sandbox_recipient_not_member", 422, 422, "sandbox_recipient_not_member"),
+            ("sandbox_fields_unsupported", 400, 400, "sandbox_fields_unsupported"),
+            ("sandbox_sender_unavailable", 403, 403, "sandbox_sender_unavailable"),
             ("message_too_large", 413, 400, "content_too_large"),
         ]
     )
@@ -571,11 +669,16 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, pipeline_code, pipeline_status, expected_status, expected_code
     ):
         mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: {"error": pipeline_code})
+        refusals_before = _sandbox_fallbacks("recipient_not_member")
 
         response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
         assert response.status_code == expected_status
+        assert _sandbox_fallbacks("recipient_not_member") == refusals_before
         assert response.json()["code"] == expected_code
+        setup_url = f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/new"
+        assert (setup_url in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
+        assert ("PostHog test sender" in response.json()["detail"]) == pipeline_code.startswith("sandbox_")
 
     @parameterized.expand(
         [
@@ -669,6 +772,7 @@ class TestTransactionalEmail(APIBaseTest):
             },
         }
         assert MessageTemplate.objects.filter(team=self.team).count() == templates_before
+        assert self._sandbox_senders() == []
         reported = capture.call_args.kwargs["properties"]
         assert (reported["route"], reported["addressed_by"], reported["outcome"]) == (
             "send_email",
@@ -706,7 +810,15 @@ class TestTransactionalEmail(APIBaseTest):
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
         assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
-    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/send/email/"),
+            ("key_scoped_path", "/api/messaging/send/email/"),
+        ]
+    )
+    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(
+        self, mock_post, _flag, _capture, _name, path
+    ):
         self._cdp_accepts(mock_post)
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         env_sender = Integration.objects.create(
@@ -719,15 +831,60 @@ class TestTransactionalEmail(APIBaseTest):
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
-            response = clients[team_id].post(
-                f"/api/projects/{team_id}/messaging/send/email/", self._code_send(), format="json"
-            )
+            response = clients[team_id].post(path.format(team_id=team_id), self._code_send(), format="json")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         workflow_ids = [call.args[0].split("/hog_flows/")[1].split("/")[0] for call in mock_post.call_args_list]
         assert workflow_ids[0] == workflow_ids[2]
         assert workflow_ids[1] == workflow_ids[3]
         assert workflow_ids[0] != workflow_ids[1]
+
+    @parameterized.expand(
+        [
+            ("send_session", "post", "/api/messaging/send/email/", "session"),
+            ("send_personal_api_key", "post", "/api/messaging/send/email/", "personal_api_key"),
+            ("uploads_session", "post", "/api/messaging/attachments/uploads/", "session"),
+            ("status_session", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/", "session"),
+            ("preferences_session", "post", "/api/messaging/preferences/", "session"),
+        ]
+    )
+    def test_key_scoped_routes_refuse_credentials_that_name_no_project(
+        self, mock_post, _flag, _capture, _name, method, route, credential
+    ):
+        client = self._sender_client("personal_api_key") if credential == "personal_api_key" else APIClient()
+        if credential == "session":
+            client.force_login(self.user)
+
+        response = getattr(client, method)(route, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand(
+        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+    )
+    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
+        self, mock_post, _flag, _capture, _name, listed, third_status
+    ):
+        self._cdp_accepts(mock_post)
+        client = self._sender_client("secret_key")
+        other_team = self.team.id + 1
+        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
+        with (
+            override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
+            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+        ):
+            try:
+                is_rate_limit_enabled.cache_clear()
+                statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
+            finally:
+                redis_cache = caches["default"]
+                assert isinstance(redis_cache, RedisCache)
+                redis_cache.delete_pattern("*")
+                is_rate_limit_enabled.cache_clear()
+
+        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
@@ -985,8 +1142,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
             ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
             ("sensitive_that_is_not_a_boolean", {"sensitive": "sometimes"}, "sensitive"),
-            ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
-            ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
+            ("field_this_server_lacks", {"tags": ["welcome"]}, "tags"),
+            ("empty_key_beside_a_field_this_server_lacks", {"": "", "tags": ["welcome"]}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
             ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]
@@ -1047,6 +1204,305 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
         assert pipeline.queued == []
+
+    @parameterized.expand(
+        [
+            ("a_time", "2026-11-20T09:00:00Z", (), set()),
+            ("an_empty_string", "", (), set()),
+            ("a_time_without_a_recipient", "2026-11-20T09:00:00Z", ("to",), set()),
+            ("a_time_while_scheduled_sends_are_off", "2026-11-20T09:00:00Z", (), {EMAIL_SCHEDULED_SENDS_FLAG}),
+            ("a_time_while_the_send_api_is_off", "2026-11-20T09:00:00Z", (), {TRANSACTIONAL_EMAIL_API_FLAG}),
+        ]
+    )
+    def test_the_template_route_refuses_a_scheduled_at_for_good(
+        self, mock_post, flag, _capture, _name, scheduled_at, without, flags_off
+    ):
+        flag.side_effect = lambda key, *_args, **_kwargs: key not in flags_off
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, "template", scheduled_at, without)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
+        assert (self.send_email_url in response.json()["detail"]) == (not flags_off)
+        assert cdp.received == []
+
+    @parameterized.expand(
+        [
+            (f"{name}_{case}", route, scheduled_at)
+            for name, route in (
+                ("template_id", "send_email"),
+                ("nested_template_id", "send_email_nested"),
+                ("template_key", "code"),
+                ("template_key_form", "code_form"),
+                ("template_id_form", "send_email_form"),
+            )
+            for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("an_empty_string", ""))
+        ]
+        + [
+            ("template_id_on_the_key_scoped_path_a_time", "send_email_key_scoped", "2026-11-20T09:00:00Z"),
+            ("template_key_on_the_key_scoped_path_a_time", "code_key_scoped", "2026-11-20T09:00:00Z"),
+            ("template_id_of_a_deleted_template_a_time", "send_email", "2026-11-20T09:00:00Z"),
+        ]
+    )
+    def test_a_send_refuses_a_scheduled_at_while_scheduled_sends_are_off(
+        self, mock_post, flag, _capture, name, route, scheduled_at
+    ):
+        flag.side_effect = lambda key, *_args, **_kwargs: key != EMAIL_SCHEDULED_SENDS_FLAG
+        if "deleted_template" in name:
+            MessageTemplate.objects.filter(id=self.template.id).update(deleted=True)
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, route, scheduled_at)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
+        assert cdp.received == []
+
+    @parameterized.expand(
+        [
+            ("template_route", "template"),
+            ("template_id", "send_email"),
+            ("nested_template_id", "send_email_nested"),
+            ("template_key", "code"),
+        ]
+    )
+    def test_every_send_route_sends_now_when_scheduled_at_is_null(self, mock_post, _flag, _capture, _name, route):
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, route, None)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [(payload["to"], "scheduled_at" in payload) for payload in cdp.received] == [("user@example.com", False)]
+        assert {"status", "scheduled_at"}.isdisjoint(response.json())
+
+    @parameterized.expand(
+        [
+            *(
+                (f"{name}_{case}", route, scheduled_at, forwarded, answered, lead_bucket)
+                for name, route in (("template_id", "send_email"), ("template_key", "code"))
+                for case, scheduled_at, forwarded, answered, lead_bucket in (
+                    (
+                        "in_ninety_minutes",
+                        "2026-11-20T09:30:00Z",
+                        "2026-11-20T09:30:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                        "<1d",
+                    ),
+                    (
+                        "already_passed_in_another_zone",
+                        "2026-11-20T08:30:00.250+01:00",
+                        "2026-11-20T07:30:00.250Z",
+                        {"status": "queued", "scheduled_at": None},
+                        None,
+                    ),
+                    (
+                        "in_year_one_east_of_utc",
+                        "0001-06-01T09:00:00+01:00",
+                        "0001-06-01T08:00:00.000Z",
+                        {"status": "queued", "scheduled_at": None},
+                        None,
+                    ),
+                    (
+                        "in_microseconds",
+                        "2026-11-20T08:10:00.000001Z",
+                        "2026-11-20T08:10:00.001Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
+                        "<1h",
+                    ),
+                    (
+                        "in_tenths_of_a_microsecond",
+                        "2026-11-20T08:10:00.0010001Z",
+                        "2026-11-20T08:10:00.002Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.002Z"},
+                        "<1h",
+                    ),
+                    (
+                        "without_seconds_in_another_zone",
+                        "2026-11-20T10:30+01:00",
+                        "2026-11-20T09:30:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                        "<1d",
+                    ),
+                    (
+                        "seven_days_ahead",
+                        "2026-11-27T08:00:00Z",
+                        "2026-11-27T08:00:00.000Z",
+                        {"status": "scheduled", "scheduled_at": "2026-11-27T08:00:00.000Z"},
+                        "<7d",
+                    ),
+                )
+            ),
+            (
+                "template_key_form_in_microseconds",
+                "code_form",
+                "2026-11-20T08:10:00.000001Z",
+                "2026-11-20T08:10:00.001Z",
+                {"status": "scheduled", "scheduled_at": "2026-11-20T08:10:00.001Z"},
+                "<1h",
+            ),
+            *(
+                (
+                    f"{name}_on_the_key_scoped_path_in_ninety_minutes",
+                    route,
+                    "2026-11-20T09:30:00Z",
+                    "2026-11-20T09:30:00.000Z",
+                    {"status": "scheduled", "scheduled_at": "2026-11-20T09:30:00.000Z"},
+                    "<1d",
+                )
+                for name, route in (("template_id", "send_email_key_scoped"), ("template_key", "code_key_scoped"))
+            ),
+        ]
+    )
+    @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
+    def test_a_send_with_scheduled_at_answers_the_time_it_waits_for(
+        self, mock_post, _flag, capture, _name, route, scheduled_at, forwarded, answered, lead_bucket
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, route, scheduled_at)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [payload["scheduled_at"] for payload in cdp.received] == [forwarded]
+        assert {key: response.json()[key] for key in ("status", "scheduled_at")} == answered
+        [event] = analytics.properties_of("transactional email api send")
+        assert (event["scheduled"], event["scheduled_lead_bucket"]) == (lead_bucket is not None, lead_bucket)
+
+    @parameterized.expand(
+        [
+            ("without_a_time", {}, (False, None)),
+            ("a_time_that_passed_before_cdp_api_read_it", {"scheduled_at": "2026-11-20T08:00:00.500Z"}, (False, None)),
+            ("a_time_an_hour_ahead_when_asked", {"scheduled_at": "2026-11-20T09:00:00.500Z"}, (True, "<1d")),
+        ]
+    )
+    def test_the_send_event_reports_what_cdp_api_did_with_the_time_asked_for(
+        self, mock_post, _flag, capture, _name, fields, reported
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+
+        with time_machine.travel("2026-11-20T08:00:00Z", tick=False) as clock, FakeCdpApi().serving(mock_post):
+            answer = mock_post.side_effect
+
+            def answer_a_second_later(*args: Any, **kwargs: Any) -> Any:
+                clock.shift(1)
+                return answer(*args, **kwargs)
+
+            mock_post.side_effect = answer_a_second_later
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        [event] = analytics.properties_of("transactional email api send")
+        assert (event["scheduled"], event["scheduled_lead_bucket"]) == reported
+
+    @parameterized.expand([("template_key", "code"), ("template_id", "send_email")])
+    def test_a_retry_after_the_due_time_answers_the_time_the_first_send_waited_for(
+        self, mock_post, _flag, capture, _name, route
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            with time_machine.travel("2026-11-20T08:00:00Z", tick=False):
+                first = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
+            self.body = {**self.body, "message_data": dict(reversed(self.body["message_data"].items()))}
+            with time_machine.travel("2026-11-20T10:00:00Z", tick=False):
+                retry = self._send_with_scheduled_at(psak, route, "2026-11-20T09:00:00Z", key="welcome-1")
+                moved = self._send_with_scheduled_at(psak, route, "2026-11-20T11:00:00Z", key="welcome-1")
+
+        assert (first.status_code, retry.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
+        assert retry.json() == {**first.json(), "replayed": True}
+        assert retry.json()["scheduled_at"] == "2026-11-20T09:00:00.000Z"
+        assert (moved.status_code, moved.json()["code"]) == (422, "idempotency_key_reused")
+        assert len(cdp.queued) == 1
+        events = analytics.properties_of("transactional email api send")
+        assert [(event["scheduled"], event["scheduled_lead_bucket"]) for event in events[:2]] == [
+            (True, "<1d"),
+            (True, None),
+        ]
+
+    @parameterized.expand(
+        [
+            *(
+                (f"{name}_{case}", route, scheduled_at, code)
+                for name, route in (("template_id", "send_email"), ("template_key", "code"))
+                for case, scheduled_at, code in (
+                    ("without_an_offset", "2026-11-20T09:00:00", "no_offset"),
+                    ("a_millisecond_over_seven_days", "2026-11-27T08:00:00.001Z", "scheduled_too_far"),
+                    ("an_offset_past_59_minutes", "2026-11-20T09:00:00+01:99", "invalid_offset"),
+                    ("an_offset_with_seconds", "2026-11-20T09:00:00+01:99:00", "invalid_format"),
+                    ("a_week_date", "2026-W47-5T09:00:00Z", "invalid_format"),
+                    ("a_decimal_comma", "2026-11-20T08:10:00,001Z", "invalid_format"),
+                    ("an_hour_offset", "2026-11-20T10:30:00+01", "invalid_format"),
+                    ("a_compact_offset", "2026-11-20T10:30:00+0100", "invalid_format"),
+                    ("a_space_before_the_time", "2026-11-20 08:10:00Z", "invalid_format"),
+                    ("non_ascii_digits", "2026-11-20T08:10:00.001000\u0660Z", "invalid_format"),
+                    ("a_blank_time", "", "invalid_format"),
+                    ("the_last_microsecond_there_is", "9999-12-31T23:59:59.999999Z", "scheduled_too_far"),
+                    ("the_last_second_there_is_west_of_utc", "9999-12-31T23:59:59-01:00", "scheduled_too_far"),
+                    ("the_first_minute_there_is_east_of_utc", "0001-01-01T00:00:00+00:01", "too_early"),
+                )
+            ),
+            ("template_key_form_a_blank_time", "code_form", "", "invalid_format"),
+            ("template_id_a_list", "send_email_list_value", ["2026-11-21T09:00:00Z"], "invalid_format"),
+            (
+                "template_route_form_two_times",
+                "template_form",
+                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                "repeated",
+            ),
+            (
+                "template_key_form_a_later_time_then_one_that_passed",
+                "code_form",
+                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                "repeated",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-11-20T08:00:00Z", tick=False)
+    def test_a_send_refuses_a_time_it_cannot_keep(self, mock_post, _flag, _capture, _name, route, scheduled_at, code):
+        psak = self._psak_client(["hog_flow:write"])
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._send_with_scheduled_at(psak, route, scheduled_at)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == ("scheduled_at", code)
+        assert cdp.received == []
+
+    @parameterized.expand([("template_route", "template"), ("template_id", "send_email")])
+    def test_a_send_refused_for_its_time_claims_no_key(self, mock_post, flag, _capture, _name, route):
+        flag.side_effect = lambda key, *_args, **_kwargs: key != EMAIL_SCHEDULED_SENDS_FLAG
+        psak = self._psak_client(["hog_flow:write"])
+        key = {"headers": {"Idempotency-Key": "reset:user-1:42"}}
+        fresh_key = {"headers": {"Idempotency-Key": "reset:user-1:43"}}
+        timed = {**self.body, "scheduled_at": "2026-11-20T09:00:00Z"}
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            first = self._send(psak, route, self.body, **key)
+            retry = self._send(psak, route, timed, **key)
+            again = self._send(psak, route, self.body, **key)
+            refused_first = self._send(psak, route, timed, **fresh_key)
+            corrected = self._send(psak, route, self.body, **fresh_key)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert (retry.status_code, retry.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "scheduled_at")
+        assert again.json() == {"message_id": first.json()["message_id"], "replayed": True}
+        assert (refused_first.status_code, refused_first.json()["attr"]) == (
+            status.HTTP_400_BAD_REQUEST,
+            "scheduled_at",
+        )
+        assert (corrected.status_code, corrected.json()["replayed"]) == (status.HTTP_202_ACCEPTED, False)
+        assert len(cdp.queued) == 2
 
     @parameterized.expand(
         [
@@ -1142,7 +1598,6 @@ class TestTransactionalEmail(APIBaseTest):
                 status.HTTP_400_BAD_REQUEST,
                 "sender_required",
             ),
-            ("no_verified_sender", ["unverified"], status.HTTP_400_BAD_REQUEST, "sender_not_verified"),
         ]
     )
     def test_a_code_send_without_from_and_without_a_default_sends_from(
@@ -1173,6 +1628,281 @@ class TestTransactionalEmail(APIBaseTest):
                 None,
             )
             mock_post.assert_not_called()
+
+    def _without_a_verified_sender(self, *, unverified_sender: bool) -> Integration | None:
+        Integration.objects.filter(id=self.sender.id).delete()
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=None)
+        if not unverified_sender:
+            return None
+        return Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.org", config={"verified": False}
+        )
+
+    def _sandbox_senders(self) -> list[Integration]:
+        return list(Integration.objects.filter(team=self.team, kind="email_sandbox"))
+
+    def _setup_url(self, unverified: Integration | None) -> str:
+        page = unverified.id if unverified is not None else "new"
+        return f"{settings.SITE_URL}/project/{self.team.id}/workflows/channels/email/{page}"
+
+    @parameterized.expand(
+        [
+            ("sandbox_send", False, {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}, True),
+            (
+                "sandbox_send_with_an_unverified_sender",
+                True,
+                {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"},
+                True,
+            ),
+            ("pipeline_reports_no_sandbox_sender_kind", False, {"invocation_id": "invocation-1"}, False),
+        ]
+    )
+    def test_a_code_send_without_a_verified_sender_goes_out_from_the_sandbox_sender(
+        self, mock_post, _flag, capture, _name, unverified_sender, pipeline_body, warned
+    ):
+        unverified = self._without_a_verified_sender(unverified_sender=unverified_sender)
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: pipeline_body)
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+        fallbacks_before = _sandbox_fallbacks("sandbox")
+
+        with capture_logs() as logs:
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert _sandbox_fallbacks("sandbox") == fallbacks_before + 1
+        fallback_logs = [log for log in logs if log["event"] == "transactional_email_sandbox_sender_fallback"]
+        assert [(log["team_id"], log["key"]) for log in fallback_logs] == [(self.team.id, "welcome")]
+        (sandbox,) = self._sandbox_senders()
+        assert (sandbox.integration_id, sandbox.created_by_id) == ("posthog-managed-sandbox", None)
+        assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
+        queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
+        (reported,) = analytics.properties_of("transactional email api send")
+        assert reported["sender_kind"] == "sandbox"
+        if not warned:
+            assert response.json() == queued
+            assert "warning_codes" not in reported
+            return
+        assert reported["warning_codes"] == ["sandbox_sender"]
+        setup_url = self._setup_url(unverified)
+        assert response.json() == {
+            **queued,
+            "warnings": [{"code": "sandbox_sender", "message": ANY, "setup_url": setup_url, "agent_action": ANY}],
+        }
+        (warning,) = response.json()["warnings"]
+        assert "members of your organization" in warning["message"]
+        assert setup_url in warning["agent_action"]
+
+    @parameterized.expand(
+        [
+            ("queued", {"return_value": (202, {"invocation_id": "i-1", "sender_kind": "email_sandbox"})}, "sandbox"),
+            ("replayed", {"return_value": (202, {"invocation_id": "i-1", "replayed": True})}, None),
+            (
+                "outsider_refused",
+                {"return_value": (422, {"error": "sandbox_recipient_not_member"})},
+                "recipient_not_member",
+            ),
+            ("pipeline_unavailable", {"return_value": (503, {"error": "unavailable"})}, None),
+            ("timeout", {"side_effect": requests.ReadTimeout()}, None),
+        ]
+    )
+    def test_counts_a_sandbox_code_send_by_the_pipelines_answer(
+        self, mock_post, _flag, _capture, _name, answer, counted
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        if "return_value" in answer:
+            status_code, body = answer["return_value"]
+            mock_post.return_value = MagicMock(status_code=status_code, json=lambda: body)
+        else:
+            mock_post.side_effect = answer["side_effect"]
+        outcomes = ("sandbox", "recipient_not_member")
+        before = {outcome: _sandbox_fallbacks(outcome) for outcome in outcomes}
+
+        self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
+        )
+
+        assert {outcome: _sandbox_fallbacks(outcome) - before[outcome] for outcome in outcomes} == {
+            outcome: 1 if outcome == counted else 0 for outcome in outcomes
+        }
+
+    @parameterized.expand([("the_default_sender", True, 1), ("the_oldest_without_a_default", False, 0)])
+    def test_the_sandbox_warning_links_the_unverified_sender_to_verify(
+        self, mock_post, _flag, _capture, _name, newer_is_default, linked
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        senders = [
+            Integration.objects.create(team=self.team, kind="email", integration_id=address, config={"verified": False})
+            for address in ("hello@example.org", "news@example.org")
+        ]
+        if newer_is_default:
+            TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=senders[1].id)
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+        )
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(senders[linked])]
+
+    def test_a_sandbox_send_the_pipeline_accepted_keeps_its_message_id_when_the_database_fails_after(
+        self, mock_post, _flag, _capture
+    ):
+        unverified = self._without_a_verified_sender(unverified_sender=True)
+        accepted = False
+
+        def pipeline_accepts(*args: Any, **kwargs: Any) -> MagicMock:
+            nonlocal accepted
+            accepted = True
+            return MagicMock(
+                status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+            )
+
+        def database_down_once_accepted(execute, sql, params, many, context):
+            if accepted:
+                raise OperationalError("the database went away")
+            return execute(sql, params, many, context)
+
+        mock_post.side_effect = pipeline_accepts
+        client = self._psak_client(["hog_flow:write"])
+        with connection.execute_wrapper(database_down_once_accepted):
+            response = client.post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json()["message_id"] == "invocation-1"
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
+
+    @parameterized.expand(
+        [
+            ("before_the_team_verifies_a_sender", True, None, True),
+            ("after_the_team_verifies_a_sender", True, "verify", False),
+            ("after_the_team_removes_its_verified_sender", False, "remove", False),
+        ]
+    )
+    def test_a_send_retried_with_the_same_key_replays_the_first_send(
+        self, mock_post, _flag, capture, _name, starts_on_the_sandbox, change, retry_warned
+    ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
+        own_sender_id = self.sender.id
+        if starts_on_the_sandbox:
+            self._without_a_verified_sender(unverified_sender=False)
+        psak = self._psak_client(["hog_flow:write"])
+        headers = {"Idempotency-Key": "welcome:user-1"}
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+            if change == "verify":
+                Integration.objects.create(
+                    team=self.team, kind="email", integration_id="hello@example.org", config={"verified": True}
+                )
+            elif change == "remove":
+                self._without_a_verified_sender(unverified_sender=False)
+            retry = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        first_warnings = first.json().get("warnings", [])
+        assert [warning["code"] for warning in first_warnings] == (["sandbox_sender"] if starts_on_the_sandbox else [])
+        assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+        assert retry.json() == {
+            "message_id": first.json()["message_id"],
+            "replayed": True,
+            **({"warnings": first_warnings} if retry_warned else {}),
+        }
+        first_sender = self._sandbox_senders()[0].id if starts_on_the_sandbox else own_sender_id
+        assert [email["from"] for email in cdp.emails()] == [{"integrationId": first_sender}]
+        first_kind = "sandbox" if starts_on_the_sandbox else "own_domain"
+        assert [event["sender_kind"] for event in analytics.properties_of("transactional email api send")] == [
+            first_kind,
+            first_kind,
+        ]
+
+    @parameterized.expand(
+        [
+            ("sandbox_flag_off", "flag_off", {}, None),
+            ("organization_blocked", "blocked", {}, None),
+            ("sandbox_flag_off_with_from", "flag_off", {"from": "hello@example.org"}, "from"),
+        ]
+    )
+    def test_a_code_send_without_a_verified_sender_keeps_the_sender_error_when_the_sandbox_sender_is_off_limits(
+        self, mock_post, flag, _capture, _name, reason, fields, attr
+    ):
+        self._without_a_verified_sender(unverified_sender=True)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        if reason == "flag_off":
+            flag.side_effect = lambda key, *args, **kwargs: key != SANDBOX_SENDER_FLAG
+        else:
+            block_sandbox_sender_for_test(organization_id=self.organization.id)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", attr)
+        assert self._sandbox_senders() == []
+        assert pipeline.queued == []
+
+    @parameterized.expand(
+        [
+            ("from", {"from": "Example <hello@example.org>"}, "`from`"),
+            ("reply_to", {"reply_to": ["help@example.com"]}, "`reply_to`"),
+            (
+                "both",
+                {"from": "hello@example.org", "reply_to": ["help@example.com"]},
+                "`from` and `reply_to`",
+            ),
+        ]
+    )
+    def test_a_sandbox_code_send_ignores_its_own_sender_and_names_what_it_ignored(
+        self, mock_post, _flag, _capture, _name, fields, named
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        (sandbox,) = self._sandbox_senders()
+        (queued,) = pipeline.queued
+        assert queued["send"]["from"] == {"integrationId": sandbox.id}
+        assert "replyTo" not in queued["send"]
+        (warning,) = response.json()["warnings"]
+        assert warning["code"] == "sandbox_sender"
+        assert f"ignored {named}" in warning["message"]
+        assert f"ignored {named}" in warning["agent_action"]
+
+    @parameterized.expand(
+        [
+            ("cc", {"cc": ["copy@example.com"]}),
+            ("bcc", {"bcc": "hidden@example.com"}),
+            ("attachments", {"attachments": TWO_FILES}),
+        ]
+    )
+    def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(
+        self, mock_post, _flag, _capture, field, fields
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
+        refusals_before = _sandbox_fallbacks("fields_unsupported")
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert _sandbox_fallbacks("fields_unsupported") == refusals_before + 1
+        body = response.json()
+        assert (body["type"], body["code"], body["attr"]) == ("invalid_request", "sandbox_fields_unsupported", field)
+        assert self._setup_url(None) in body["detail"]
+        assert self._sandbox_senders() == []
+        assert pipeline.queued == []
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(
@@ -1626,22 +2356,83 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("code_send_with_only_its_flag", "code", {EMAIL_FROM_CODE_FLAG}, status.HTTP_202_ACCEPTED),
-            ("code_send_without_its_flag", "code", {TRANSACTIONAL_EMAIL_API_FLAG}, status.HTTP_404_NOT_FOUND),
-            ("template_send_without_its_flag", "template", {EMAIL_FROM_CODE_FLAG}, status.HTTP_404_NOT_FOUND),
+            (
+                "code_send_with_only_its_flag",
+                "code",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (202, None, None, ["user@example.com"]),
+            ),
+            (
+                "code_send_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "code_send_with_a_null_time_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                {"scheduled_at": None},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_send_without_its_flag",
+                "template",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "code_send_with_a_time_without_its_flag",
+                "code",
+                {TRANSACTIONAL_EMAIL_API_FLAG},
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_send_with_a_time_without_its_flag",
+                "template",
+                {EMAIL_FROM_CODE_FLAG},
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_route_without_its_flag",
+                "template_route",
+                {EMAIL_FROM_CODE_FLAG},
+                {},
+                (404, "invalid_request", None, []),
+            ),
+            (
+                "template_route_with_a_time_without_its_flag",
+                "template_route",
+                {EMAIL_FROM_CODE_FLAG},
+                {"scheduled_at": "2026-11-20T09:00:00Z"},
+                (400, "validation_error", "scheduled_at", []),
+            ),
         ]
     )
     def test_each_form_of_a_send_answers_only_while_its_flag_is_on(
-        self, mock_post, flag, _capture, _name, form, enabled_flags, expected_status
+        self, mock_post, flag, _capture, _name, form, enabled_flags, extra, expected
     ):
-        self._cdp_accepts(mock_post)
         flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
-        body = self._code_send() if form == "code" else self._flat(self.body)
+        with FakeCdpApi().serving(mock_post) as cdp:
+            if form == "template_route":
+                response = self._send(self.client, "template", {**self.body, **extra})
+            else:
+                body = {**(self._code_send() if form == "code" else self._flat(self.body)), **extra}
+                response = self.client.post(self.send_email_url, body, format="json")
 
-        response = self.client.post(self.send_email_url, body, format="json")
-
-        assert response.status_code == expected_status, response.json()
-        assert mock_post.called == (expected_status == status.HTTP_202_ACCEPTED)
+        reply = response.json()
+        answer = (
+            response.status_code,
+            reply.get("type"),
+            reply.get("attr"),
+            [payload["to"] for payload in cdp.received],
+        )
+        assert answer == expected, reply
 
     def _other_team_template(self) -> MessageTemplate:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

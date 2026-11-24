@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
@@ -19,18 +19,21 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
-import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
-import { RANKINGS_DAYS, contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
+import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, segmentPrompts } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'percentage_scaled', showGrid: true },
     legend: { show: true },
     showCrosshair: true,
@@ -42,14 +45,20 @@ const VisibilityChart = (): JSX.Element | null => {
     const { chart } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => (chart?.series ?? []).map(({ domain, label, data }) => ({ key: domain, label, data })),
-        [chart]
+        () =>
+            (chart?.series ?? []).map(({ domain, label, colorIndex, data }) => ({
+                key: domain,
+                label,
+                color: theme.colors[colorIndex % theme.colors.length],
+                data,
+            })),
+        [chart, theme]
     )
     if (!chart) {
         return null
     }
     return (
-        <div className="h-80 min-w-0 flex flex-col p-2">
+        <div className="h-64 min-w-0 flex flex-col p-2">
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -59,6 +68,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { reviewShown } = useValues(aiVisibilityCompetitorReviewLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -79,23 +89,23 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h4 className="m-0">Last {RANKINGS_DAYS} days, all engines</h4>
+                <h4 className="m-0">{filtersHeading(rankings)}</h4>
                 <p className="m-0 text-xs text-muted" data-attr="content-autopilot-rankings-answers">
                     {brandedAnswersNote(rankings.branded, rankings.answers)} Visibility is the share of those answers
                     that name a brand or cite its site.{' '}
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
-                            <Link to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}>
-                                AI visibility brands
-                            </Link>
-                            .
+                            <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
+                    ) : reviewShown ? (
+                        // The review card below the header offers the same action.
+                        'Competitors are guessed from the sites the engines cite most.'
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
                             <Link
-                                to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}
+                                onClick={() => setWorkspaceTab('settings')}
                                 data-attr="content-autopilot-rankings-confirm-competitors"
                             >
                                 Confirm your competitors
@@ -105,18 +115,19 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                     )}
                 </p>
             </div>
-            <ContentAutopilotBrandedSegmentControl tab="rankings" />
         </div>
     )
-    if (rankings.answers === 0 && rankings.branded !== 'all') {
+    const narrowed = rankings.engine !== null || rankings.topic !== null
+    if (rankings.answers === 0 && (narrowed || rankings.branded !== 'all')) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-rankings">
                 {header}
                 <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-segment-empty">
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(rankings.branded)} in the last {RANKINGS_DAYS} days
+                        No answers to {segmentPrompts(rankings.branded)} {windowRange(rankings)}
+                        {narrowed ? ' that match these filters' : ''}
                     </h4>
-                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                    <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
                 </LemonCard>
             </section>
         )
@@ -144,7 +155,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
             {header}
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+            <AiVisibilityCompetitorReview />
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
                     <VisibilityChart />
@@ -180,7 +192,18 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                     domain={brand.domain}
                                                     isTarget={brand.is_target}
                                                 >
-                                                    {named ? brand.name : brand.domain}
+                                                    <ContentAutopilotCitationsLink
+                                                        lookup={{
+                                                            kind: 'domain',
+                                                            value: brand.domain,
+                                                            dateFrom: rankings.window_from,
+                                                            dateTo: rankings.window_to,
+                                                            branded: rankings.branded,
+                                                        }}
+                                                        source="rankings-brands"
+                                                    >
+                                                        {named ? brand.name : brand.domain}
+                                                    </ContentAutopilotCitationsLink>
                                                 </ContentAutopilotSiteLabel>
                                                 {named ? (
                                                     <span className="pl-6 text-xs text-muted">{brand.domain}</span>
@@ -203,7 +226,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Compared with the ${RANKINGS_DAYS} days before, in percentage points.`,
+                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {
@@ -217,7 +240,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                             ? 'No change'
                                                             : `${change > 0 ? '+' : ''}${change} pts`,
                                                     direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
-                                                    tooltip: `${change > 0 ? '+' : ''}${change} percentage points against the ${RANKINGS_DAYS} days before`,
+                                                    tooltip: `${change > 0 ? '+' : ''}${change} percentage points against the ${rankings.days} days before`,
                                                 }}
                                             />
                                         )
@@ -258,7 +281,20 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                             domain={domain.domain}
                                             isTarget={domain.is_target}
                                             isCompetitor={domain.is_competitor}
-                                        />
+                                        >
+                                            <ContentAutopilotCitationsLink
+                                                lookup={{
+                                                    kind: 'domain',
+                                                    value: domain.domain,
+                                                    dateFrom: rankings.window_from,
+                                                    dateTo: rankings.window_to,
+                                                    branded: rankings.branded,
+                                                }}
+                                                source="rankings-sites"
+                                            >
+                                                {domain.domain}
+                                            </ContentAutopilotCitationsLink>
+                                        </ContentAutopilotSiteLabel>
                                     ),
                                 },
                                 {
@@ -299,9 +335,19 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 domain={parseWebAnalyticsURL(page.url).host ?? page.url}
                                                 isTarget={page.is_target}
                                             >
-                                                <Link to={page.url} target="_blank" title={page.url}>
+                                                <ContentAutopilotCitationsLink
+                                                    lookup={{
+                                                        kind: 'url',
+                                                        value: page.url,
+                                                        dateFrom: rankings.window_from,
+                                                        dateTo: rankings.window_to,
+                                                        branded: rankings.branded,
+                                                    }}
+                                                    source="rankings-pages"
+                                                    title={page.url}
+                                                >
                                                     {page.url.replace(/^https?:\/\//, '')}
-                                                </Link>
+                                                </ContentAutopilotCitationsLink>
                                             </ContentAutopilotSiteLabel>
                                         </span>
                                     ),
@@ -317,20 +363,33 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 },
                                 {
                                     key: 'page_report',
-                                    // Only your own pages have traffic in web analytics to report on.
-                                    render: (_, page) =>
-                                        page.is_target ? (
+                                    // Only your own pages have traffic in web analytics to report on, and the external
+                                    // button comes last so it lines up on every row.
+                                    render: (_, page) => (
+                                        <span className="flex items-center justify-end gap-1">
+                                            {page.is_target ? (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    className="whitespace-nowrap"
+                                                    to={pageReportPath(page.url)}
+                                                    tooltip="See this page's traffic, including visits from AI assistants"
+                                                    data-attr="content-autopilot-rankings-page-report"
+                                                >
+                                                    Page report
+                                                </LemonButton>
+                                            ) : null}
                                             <LemonButton
                                                 size="xsmall"
-                                                type="secondary"
-                                                className="whitespace-nowrap"
-                                                to={pageReportPath(page.url)}
-                                                tooltip="See this page's traffic, including visits from AI assistants"
-                                                data-attr="content-autopilot-rankings-page-report"
-                                            >
-                                                Page report
-                                            </LemonButton>
-                                        ) : null,
+                                                icon={<IconExternal />}
+                                                to={page.url}
+                                                targetBlank
+                                                hideExternalLinkIcon
+                                                tooltip="Open the page"
+                                                data-attr="content-autopilot-rankings-page-open"
+                                            />
+                                        </span>
+                                    ),
                                 },
                             ]}
                         />

@@ -2690,6 +2690,8 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
  * * `before` - What a change of the feature flag changed, as it was before the change, in words
  * * `after` - What a change of the feature flag changed, as it was after the change, in words
+ * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+ * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
  * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
  * * `event` - The name of an event that the check looked up
  * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2700,6 +2702,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
  * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
  * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+ * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2751,6 +2754,8 @@ export const ExperimentHealthValueKeyEnumApi = {
     ChangedSetting: 'changed_setting',
     Before: 'before',
     After: 'after',
+    BeforeFilters: 'before_filters',
+    AfterFilters: 'after_filters',
     FlagServiceCallPercentage: 'flag_service_call_percentage',
     Event: 'event',
     EventReceived: 'event_received',
@@ -2761,6 +2766,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     OtherRunningExperimentCount: 'other_running_experiment_count',
     AssignedOutsideCount: 'assigned_outside_count',
     OtherDraftExperimentCount: 'other_draft_experiment_count',
+    FiltersTestAccounts: 'filters_test_accounts',
 } as const
 
 /**
@@ -2834,6 +2840,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2843,7 +2851,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2898,6 +2907,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -2907,7 +2918,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -2929,7 +2941,18 @@ export interface ExperimentHealthCheckRuleApi {
  */
 export type ExperimentHealthCheckResultApiValues = { [key: string]: string | number | boolean | null }
 
-export type ExperimentHealthCheckResultApiRowsItem = { [key: string]: string | number | boolean | null }
+export type ExperimentHealthCheckResultApiRowsItem = {
+    [key: string]:
+        | string
+        | number
+        | boolean
+        | {
+              groups: { [key: string]: unknown }[]
+              /** @nullable */
+              aggregation_group_type_index: number | null
+          }
+        | null
+}
 
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -2980,7 +3003,7 @@ export interface ExperimentHealthCheckResultApi {
     values: ExperimentHealthCheckResultApiValues
     /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
     rule: ExperimentHealthCheckRuleApi | null
-    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+    /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
     rows: ExperimentHealthCheckResultApiRowsItem[]
 }
 
@@ -2994,6 +3017,105 @@ export interface ExperimentHealthReleaseConditionApi {
      * @nullable
      */
     aggregation_group_type_index: number | null
+    /**
+     * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+     * @nullable
+     */
+    variant: string | null
+    /**
+     * Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null when the flag buckets by device ID, because a request without a device ID skips the earlier sets that need the bucketing hash and can reach this set anyway.
+     * @nullable
+     */
+    reachable: boolean | null
+}
+
+export interface ExperimentHealthExposureSetupApi {
+    /**
+     * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+     * @nullable
+     */
+    event: string | null
+    /**
+     * The name of the action that the exposure criteria count. Null when they count an event.
+     * @nullable
+     */
+    action: string | null
+    /**
+     * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+     * @nullable
+     */
+    activation: string | null
+}
+
+/**
+ * * `bayesian` - Bayesian
+ * * `frequentist` - Frequentist
+ */
+export type StatsMethodEnumApi = (typeof StatsMethodEnumApi)[keyof typeof StatsMethodEnumApi]
+
+export const StatsMethodEnumApi = {
+    Bayesian: 'bayesian',
+    Frequentist: 'frequentist',
+} as const
+
+/**
+ * * `exclude` - Exclude from analysis
+ * * `first_seen` - Use first seen variant
+ */
+export type ExperimentHealthMultipleVariantHandlingEnumApi =
+    (typeof ExperimentHealthMultipleVariantHandlingEnumApi)[keyof typeof ExperimentHealthMultipleVariantHandlingEnumApi]
+
+export const ExperimentHealthMultipleVariantHandlingEnumApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
+export interface ExperimentHealthAnalysisSetupApi {
+    /** The statistical method of the results.
+     *
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
+    stats_method: StatsMethodEnumApi
+    /** The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95. */
+    confidence_level: number
+    /**
+     * Whether the frequentist test uses sequential testing. Null for the Bayesian method.
+     * @nullable
+     */
+    sequential_testing: boolean | null
+    /** Whether the experiment leaves sequential testing unset, so the project's default applies. */
+    sequential_testing_from_project_default: boolean
+    /** Whether the results apply CUPED variance reduction to the metrics that support it. */
+    cuped: boolean
+    /**
+     * The days before exposure that CUPED reads. Null when CUPED is off.
+     * @nullable
+     */
+    cuped_lookback_days: number | null
+    /** Whether the experiment leaves CUPED unset, so the project's default applies. */
+    cuped_from_project_default: boolean
+    /** Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies. */
+    cuped_lookback_days_from_project_default: boolean
+    /** The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their metric type. Empty when CUPED is off. */
+    metrics_without_cuped_support: string[]
+    /**
+     * Whether the results leave out internal and test users with the project's test account filters. Null when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+     * @nullable
+     */
+    filters_test_accounts: boolean | null
+    /** How many of the project's test account filters the results apply. 0 when they count test accounts. */
+    test_account_filter_count: number
+    /** What the results do with users exposed to more than one variant. Null when the exposure criteria can't be read.
+     *
+     * * `exclude` - Exclude from analysis
+     * * `first_seen` - Use first seen variant */
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandlingEnumApi | null
+    /** Whether a user counts only after their conversion or retention window is complete. */
+    only_count_matured_users: boolean
+    /** The variant that the others are compared against. */
+    baseline_variant: string
+    /** The variants that the results leave out. */
+    excluded_variants: string[]
 }
 
 export interface ExperimentHealthSetupApi {
@@ -3021,6 +3143,10 @@ export interface ExperimentHealthSetupApi {
     evaluation_contexts: string[]
     /** The flag's 'Persist flag across authentication steps' setting. */
     ensure_experience_continuity: boolean
+    /** What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table. */
+    exposure: ExperimentHealthExposureSetupApi | null
+    /** What the results calculation reads besides the metrics, with the project's defaults applied. */
+    analysis: ExperimentHealthAnalysisSetupApi
 }
 
 export interface ExperimentHealthApi {
@@ -3968,6 +4094,8 @@ export interface ExperimentHealthInputsConditionSetTrafficApi {
     remotely_evaluated_calls: number
     /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
     people_assigned_outside: number
+    /** Whether the counts leave out the calls that the project's filter for internal and test users excludes, because the experiment applies that filter. */
+    filters_test_accounts: boolean
 }
 
 export interface ExperimentHealthInputsReaderAccessApi {

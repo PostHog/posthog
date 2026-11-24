@@ -3,6 +3,7 @@ import fnmatch
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import requests
 
@@ -27,6 +28,7 @@ class MergedPullRequest:
     number: int
     title: str
     url: str
+    author_login: str | None
 
 
 @dataclass(frozen=True)
@@ -156,7 +158,16 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
         number=listed["number"],
         title=listed["title"],
         url=listed["html_url"],
+        author_login=human_author_login(listed),
     )
+
+
+def human_author_login(listed: Mapping[str, Any]) -> str | None:
+    author = listed.get("user") or {}
+    login = author.get("login")
+    if author.get("type") == "Bot" or not isinstance(login, str) or not login:
+        return None
+    return login
 
 
 def read_pull_request(github: GitHubReader, repository: str, pull_request_number: int) -> dict[str, Any]:
@@ -242,9 +253,12 @@ def read_page_sources(
 ) -> dict[str, str]:
     page_text_by_key: dict[str, str] = {}
     for page_key, source_path in list(source_path_by_key.items())[:MAX_READ_PAGES]:
+        contents_path = repository_contents_path(docs_repository, source_path)
+        if contents_path is None:
+            continue
         response = read_github_or_none(
             github,
-            f"/repos/{docs_repository}/contents/{source_path}",
+            contents_path,
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": docs_commit_sha} if docs_commit_sha else None,
             headers={"Accept": "application/vnd.github.raw"},
@@ -253,3 +267,9 @@ def read_page_sources(
             continue
         page_text_by_key[page_key] = response.text[:MAX_PAGE_SOURCE_CHARACTERS]
     return page_text_by_key
+
+
+def repository_contents_path(repository: str, path: str) -> str | None:
+    if ".." in path.split("/"):
+        return None
+    return f"/repos/{repository}/contents/{quote(path, safe='/')}"

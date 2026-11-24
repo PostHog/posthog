@@ -21,6 +21,7 @@ from products.review_hog.backend.facade.contracts import (
     ReviewDetail,
     ReviewDroppedFinding,
     ReviewFinding,
+    ReviewFindingOutcome,
     ReviewLineRange,
     ReviewNotFoundError,
     ReviewPerspectiveSelection,
@@ -37,6 +38,7 @@ from products.review_hog.backend.facade.enums import IssuePriority, ReviewActivi
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
+    FindingOutcomeArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
 )
@@ -46,6 +48,7 @@ from products.review_hog.backend.reviewer.persistence import (
     TurnFindingsBundle,
     load_chunk_set,
     load_dropped_findings,
+    load_finding_outcomes,
     load_findings_bundle,
 )
 from products.review_hog.backend.reviewer.progress import (
@@ -145,8 +148,11 @@ def _line_ranges(finding: ReviewIssueFinding) -> list[ReviewLineRange]:
     return [ReviewLineRange(start=line_range.start, end=line_range.end) for line_range in finding.lines]
 
 
-def _finding(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> ReviewFinding:
+def _finding(
+    finding: ReviewIssueFinding, verdict: ValidationVerdict, outcome: FindingOutcomeArtefact | None = None
+) -> ReviewFinding:
     return ReviewFinding(
+        issue_key=finding.issue_key,
         title=finding.title,
         file=finding.file,
         lines=_line_ranges(finding),
@@ -157,6 +163,17 @@ def _finding(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> ReviewF
         source_perspective=finding.source_perspective,
         validator_category=verdict.category,
         validator_note=verdict.argumentation,
+        outcome=ReviewFindingOutcome(
+            outcome=outcome.outcome,
+            method=outcome.method,
+            reviewed_head=outcome.reviewed_head,
+            final_head=outcome.final_head,
+            reaction_sentiment=outcome.reaction_sentiment,
+            reply_excerpt=outcome.reply_excerpt,
+            comment_outdated=outcome.comment_outdated,
+        )
+        if outcome is not None
+        else None,
     )
 
 
@@ -458,7 +475,8 @@ class ReviewListing:
         in_progress_ids = in_progress_report_ids(team_id, [report])
         progress = _turn_progress(team_id, [report], in_progress_ids, resolutions, bundle, markers).get(key)
 
-        valid = [_finding(f, v) for f, v in pairs if v is not None and v.is_valid]
+        outcomes = load_finding_outcomes(team_id=team_id, report_id=key)
+        valid = [_finding(f, v, outcomes.get(f.issue_key)) for f, v in pairs if v is not None and v.is_valid]
         dismissed = [_finding(f, v) for f, v in pairs if v is not None and not v.is_valid]
         run_urgency_threshold: str | None = (
             report.run_urgency_threshold

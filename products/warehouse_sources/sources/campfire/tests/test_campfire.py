@@ -89,9 +89,10 @@ class TestFirstRequestParams:
         assert result.raised is None
         assert "cursor=" in result.urls[0]
 
-    def test_incremental_value_becomes_last_modified_filter(self) -> None:
+    @parameterized.expand([("vendors",), ("intercompany_journal_entries",)])
+    def test_incremental_value_becomes_last_modified_filter(self, endpoint: str) -> None:
         result = _driver().run(
-            "vendors",
+            endpoint,
             [_response({"results": [], "next": None})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
@@ -258,6 +259,24 @@ class TestFanout:
                     {"count": 1, "next": None, "results": [{"id": 2, "contract": 22}]},
                 ],
                 ["/rr/api/v1/contracts/11/milestones", "/rr/api/v1/contracts/22/milestones"],
+            ),
+            (
+                "prepaid_commits",
+                "/rr/api/v1/contracts",
+                [
+                    {"count": 1, "next": None, "results": [{"id": 1, "contract": 11}]},
+                    {"count": 1, "next": None, "results": [{"id": 2, "contract": 22}]},
+                ],
+                ["/rr/api/v1/contracts/11/prepaid-commits", "/rr/api/v1/contracts/22/prepaid-commits"],
+            ),
+            (
+                "contract_usage_revenue",
+                "/rr/api/v1/contracts",
+                [
+                    {"count": 1, "next": None, "results": [{"id": 1, "contract": 11}]},
+                    {"count": 1, "next": None, "results": [{"id": 2, "contract": 22}]},
+                ],
+                ["/rr/api/v1/contracts/11/usage", "/rr/api/v1/contracts/22/usage"],
             ),
             (
                 "budget_accounts",

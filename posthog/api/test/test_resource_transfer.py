@@ -1,11 +1,11 @@
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
@@ -18,6 +18,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.feature_flags.backend.models import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
@@ -304,6 +305,95 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert data["count"] >= 1
         assert any(r["kind"] == "Insight" for r in data["created_resources"])
 
+    @parameterized.expand(
+        [
+            (
+                "reserved_key",
+                {"multivariate": {"variants": [{"key": "control"}, {"key": "false"}]}},
+                'The variant key "false" is reserved. Choose another key.',
+            ),
+            (
+                "keyless",
+                {"multivariate": {"variants": [{"key": "control"}, {"rollout_percentage": 50}]}},
+                "multivariate.variants[1].key must be a string.",
+            ),
+            (
+                "v2_reserved_string_value",
+                {"version": 2, "return_type": "string", "default_value": "false", "rules": []},
+                'filters.default_value: Must be null or a non-empty string other than "false", "null", "true", '
+                "$false or $true.",
+            ),
+            ("v2_missing_fields", {"version": 2}, "filters.return_type: This field is required."),
+            (
+                "v2_null_rule",
+                {"version": 2, "return_type": "string", "default_value": "ok", "rules": [None]},
+                "filters.rules[0]: Must be an object.",
+            ),
+        ]
+    )
+    def test_transfer_refuses_a_flag_with_a_variant_a_new_flag_may_not_store(
+        self, _name: str, filters: dict[str, Any], detail: str
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="split")
+        # FeatureFlag.save() refuses a keyless variant, so the stored row is written with QuerySet.update.
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == detail
+        assert not FeatureFlag.objects.filter(team=self.dest_team).exists()
+
+    def test_transfer_copies_a_valid_v2_flag(self) -> None:
+        experiment_rule = {
+            "id": "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70",
+            "seed": "c0ffee00-1a2b-4c3d-9e8f-5a6b7c8d9e0f",
+            "rule_type": "experiment",
+            "targeting": {"properties": []},
+            "paused": False,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "variants": [
+                {"key": "control", "weight": 50, "value": "off"},
+                {"key": "test", "weight": 50, "value": "on"},
+            ],
+        }
+        targeted_rule = {
+            "id": "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": []},
+            "value": "on",
+        }
+        filters = {
+            "version": 2,
+            "return_type": "string",
+            "default_value": "off",
+            "rules": [experiment_rule, targeted_rule],
+        }
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", filters=filters)
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "FeatureFlag",
+                "resource_id": str(flag.pk),
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert FeatureFlag.objects.get(team=self.dest_team).filters == filters
+
     def test_transfer_with_substitution_uses_existing_resource(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
         insight = Insight.objects.create(team=self.team, name="My insight")
@@ -336,6 +426,36 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert new_tiles.exists()
         tile_insight_ids = set(new_tiles.values_list("insight_id", flat=True))
         assert dest_insight.pk in tile_insight_ids
+
+    def test_second_copy_suggests_and_substitutes_tiles_without_access_rules(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        body = {
+            "source_team_id": self.team.pk,
+            "destination_team_id": self.dest_team.pk,
+            "resource_kind": "Dashboard",
+            "resource_id": str(dashboard.pk),
+        }
+        assert self.client.post(self._transfer_url(), body, format="json").status_code == status.HTTP_201_CREATED
+
+        preview = self.client.post(f"/api/organizations/{self.organization.id}/resource_transfers/preview/", body)
+
+        assert preview.status_code == status.HTTP_200_OK
+        tile = next(r for r in preview.json()["resources"] if r["resource_kind"] == "DashboardTile")
+        substitutions = [
+            {
+                "source_resource_kind": r["resource_kind"],
+                "source_resource_id": r["resource_id"],
+                "destination_resource_kind": r["suggested_substitution"]["resource_kind"],
+                "destination_resource_id": r["suggested_substitution"]["resource_id"],
+            }
+            for r in preview.json()["resources"]
+            if "suggested_substitution" in r
+        ]
+        assert "suggested_substitution" in tile
+        second = self.client.post(self._transfer_url(), {**body, "substitutions": substitutions}, format="json")
+        assert second.status_code == status.HTTP_201_CREATED
 
     @parameterized.expand(
         [
@@ -845,6 +965,10 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         self.private_project = Project.objects.create(
             id=Team.objects.increment_id_sequence(), organization=self.organization
@@ -919,9 +1043,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search",),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
         self.client.force_login(self.other_user)
         url, payload = self._endpoint_params(endpoint)
@@ -935,17 +1056,11 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search", status.HTTP_200_OK),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
         url, payload = self._endpoint_params(endpoint)
         response = self.client.post(url, payload)
         assert response.status_code == expected_status
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_search_hides_objects_the_user_cannot_view(self) -> None:
         visible = Dashboard.objects.create(team=self.dest_team, name="Visible dashboard", created_by=self.user)
         restricted = Dashboard.objects.create(team=self.dest_team, name="Restricted dashboard", created_by=self.user)
@@ -967,9 +1082,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         assert str(visible.id) in ids
         assert str(restricted.id) not in ids
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_substitution_needs_read_access_to_the_destination_object(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Source dashboard")
         insight = Insight.objects.create(team=self.team, name="Source insight")

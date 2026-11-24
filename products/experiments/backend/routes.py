@@ -5,7 +5,7 @@ from products.experiments.backend.presentation.web_experiments import WebExperim
 
 # posthog-js calls `web_experiments` at `api/web_experiments`, which is outside the `api/experiments/`
 # mount that `api_urlpatterns` gets. So `posthog/urls.py` keeps that path. It imports the view from here
-# because the `tach.toml` interface exposes `backend.routes` but not `backend.presentation.web_experiments`.
+# because core loads `backend.routes` by name, while `backend.presentation.web_experiments` is internal.
 __all__ = ["register_routes", "web_experiments"]
 
 

@@ -782,8 +782,7 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert ctx.client_secret == "template-secret"
         assert ctx.token_endpoint_auth_method == expected_auth_method
 
-    @parameterized.expand([("slack_app", "SLACK_APP"), ("slack_dev_app", "SLACK_DEV_APP")])
-    def test_template_backed_install_uses_instance_credential_source(self, source: str, prefix: str) -> None:
+    def test_template_backed_install_uses_instance_credential_source(self) -> None:
         template = MCPServerTemplate.objects.create(
             name="Slack",
             url="https://mcp.slack.test.example/mcp",
@@ -794,7 +793,7 @@ class TestResolveInstallationOauthContext(BaseTest):
                 "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
                 "token_endpoint_auth_methods_supported": ["client_secret_post"],
             },
-            oauth_credentials_source=source,
+            oauth_credentials_source="slack_app",
             oauth_credentials={},
             created_by=self.user,
         )
@@ -808,20 +807,14 @@ class TestResolveInstallationOauthContext(BaseTest):
         )
 
         with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
-            override_instance_config(f"{prefix}_CLIENT_ID", "slack-client"),
-            override_instance_config(f"{prefix}_CLIENT_SECRET", "slack-secret"),
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             ctx = resolve_installation_oauth_context(installation)
 
         assert ctx.client_id == "slack-client"
         assert ctx.client_secret == "slack-secret"
         assert ctx.token_endpoint_auth_method == "client_secret_post"
-
-        if source == "slack_dev_app":
-            with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
-                with self.assertRaisesRegex(ValueError, "not available for this project"):
-                    resolve_installation_oauth_context(installation)
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -946,7 +939,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.record_slack_api_response")
     @patch("products.mcp_store.backend.oauth.httpx.Client.post")
-    def test_slack_dev_token_requests_are_recorded(self, operation, mock_post, record_response, _allow):
+    def test_slack_token_requests_are_recorded(self, operation, mock_post, record_response, _allow):
         response = MagicMock()
         response.status_code = 200
         response.is_success = True
@@ -955,13 +948,12 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         mock_post.return_value = response
         installation = self._installation(
             token_endpoint="https://slack.com/api/oauth.v2.user.access",
-            oauth_credentials_source="slack_dev_app",
+            oauth_credentials_source="slack_app",
         )
 
         with (
-            override_instance_config("SLACK_DEV_APP_CLIENT_ID", "slack-client"),
-            override_instance_config("SLACK_DEV_APP_CLIENT_SECRET", "slack-secret"),
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             if operation == "exchange":
                 exchange_oauth_token(
@@ -978,7 +970,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
             response,
             source="mcp_store_oauth",
             workspace_id=None,
-            app_id="slack_dev_app",
+            app_id="slack_app",
             method="POST",
             endpoint="oauth.v2.user.access",
         )
