@@ -17,8 +17,15 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
             </h2>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{rushHourLine(card.weekday, card.hour, card.night_shift)}</strong>
-                {multiple &&
-                    `${multiple.charAt(0).toUpperCase()}${multiple.slice(1)} more calls than your average hour.`}
+                {multiple && (
+                    <>
+                        <span className="MCPWrapped__mark">
+                            {multiple.charAt(0).toUpperCase()}
+                            {multiple.slice(1)}
+                        </span>{' '}
+                        more calls than your average hour.
+                    </>
+                )}
             </p>
             <div
                 className="MCPWrapped__rise grid mt-2 grid-cols-[1.5rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"

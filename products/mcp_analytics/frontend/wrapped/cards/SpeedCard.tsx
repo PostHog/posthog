@@ -16,7 +16,7 @@ export function SpeedCard({ card }: { card: MCPWrappedSpeedCardApi }): JSX.Eleme
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{speedLine(card.p95_duration_ms)}</strong>
-                95% of tool calls came back faster than this.
+                <span className="MCPWrapped__mark">95%</span> of tool calls came back faster than this.
             </p>
             {(fastest || slowest) && (
                 <div className="mt-1 flex flex-col gap-2">

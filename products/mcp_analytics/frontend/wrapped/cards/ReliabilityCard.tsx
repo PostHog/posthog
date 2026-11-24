@@ -7,6 +7,7 @@ import { ToolAward } from './ToolAward'
 
 export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }): JSX.Element {
     const { most_reliable_tool: mvp, struggling_tool: struggling } = card
+    const errors = errorLine(card.success_rate)
     return (
         <WrappedCard cardKey="reliability" kicker="Reliability">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
@@ -15,7 +16,8 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{reliabilityLine(card.success_rate)}</strong>
-                {errorLine(card.success_rate)}
+                <span className="MCPWrapped__mark">{errors.figure}</span>
+                {errors.rest}
             </p>
             {(mvp || struggling) && (
                 <div className="mt-1 flex flex-col gap-2">

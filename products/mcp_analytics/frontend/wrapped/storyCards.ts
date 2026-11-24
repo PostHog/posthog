@@ -144,15 +144,18 @@ export function reliabilityLine(rate: number): string {
     return 'A bumpy year, with room to improve.'
 }
 
-/** The error share as a count out of 100 calls, which reads more concretely than a percentage. */
-export function errorLine(rate: number): string {
+/**
+ * The error share as a count out of 100 calls, which reads more concretely than a percentage. The count comes
+ * apart from the rest of the sentence, so the card can highlight it.
+ */
+export function errorLine(rate: number): { figure: string; rest: string } {
     if (rate >= 1) {
-        return 'Not a single tool call hit an error.'
+        return { figure: 'Not a single', rest: ' tool call hit an error.' }
     }
     const errorsPer100 = Math.round((1 - rate) * 100)
     return errorsPer100 < 1
-        ? 'Fewer than 1 in 100 tool calls hit an error.'
-        : `${errorsPer100} in every 100 tool calls hit an error.`
+        ? { figure: 'Fewer than 1 in 100', rest: ' tool calls hit an error.' }
+        : { figure: `${errorsPer100} in every 100`, rest: ' tool calls hit an error.' }
 }
 
 /** A text size for a tool name, stepping down as it gets longer so long names stay on two lines or fewer. */
@@ -268,13 +271,13 @@ export function peakMultiple(heat: readonly number[]): string | null {
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
 export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
     const tiles: ShareTile[] = [
-        { kind: 'calls', label: 'AI agent tool calls', value: formatCallCount(cards.tool_calls.total_calls) },
+        { kind: 'calls', label: 'Tool calls', value: formatCallCount(cards.tool_calls.total_calls) },
     ]
     const topTool = cards.top_tools.tools[0]
     if (topTool) {
         tiles.push({ kind: 'tool', label: 'Top tool', value: topTool.tool })
     }
-    tiles.push({ kind: 'reliability', label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
+    tiles.push({ kind: 'reliability', label: 'Error-free', value: formatPercent(cards.reliability.success_rate) })
     const topApp = cards.apps?.shares.find((share) => share.name !== OTHER)
     if (topApp) {
         tiles.push({ kind: 'app', label: 'Top AI app', value: topApp.name })
@@ -283,7 +286,10 @@ export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
         tiles.push({
             kind: 'rush_hour',
             label: 'Rush hour',
-            value: formatHour(cards.rush_hour.weekday, cards.rush_hour.hour).replace(',', ''),
+            // A no-break space keeps the time whole, so a long day wraps as "Wednesday" over "12 pm".
+            value: formatHour(cards.rush_hour.weekday, cards.rush_hour.hour)
+                .replace(',', '')
+                .replace(/ (am|pm)$/, '\u00A0$1'),
         })
     }
     const topModel = cards.models?.shares.find((share) => share.name !== OTHER)

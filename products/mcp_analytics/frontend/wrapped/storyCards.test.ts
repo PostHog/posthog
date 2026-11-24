@@ -150,7 +150,8 @@ describe('storyCards', () => {
         [0.997, 'Fewer than 1 in 100 tool calls hit an error.'],
         [0.964, '4 in every 100 tool calls hit an error.'],
     ])('counts the errors for a success rate of %d', (rate, expected) => {
-        expect(errorLine(rate)).toBe(expected)
+        const { figure, rest } = errorLine(rate)
+        expect(figure + rest).toBe(expected)
     })
 
     it.each([

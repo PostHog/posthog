@@ -18,7 +18,8 @@ export function IntroCard({
                 {projectName}'s MCP {plural ? 'servers' : 'server'} in {year}
             </h2>
             <p className="MCPWrapped__rise m-0 text-base">
-                Tracked with MCP analytics since {formatMonth(card.tracked_since)}. Here's how AI agents used{' '}
+                Tracked with MCP analytics since{' '}
+                <span className="MCPWrapped__mark">{formatMonth(card.tracked_since)}</span>. Here's how AI agents used{' '}
                 {plural ? 'them' : 'it'}.
             </p>
         </WrappedCard>

@@ -17,7 +17,7 @@ export function SharePlug(): JSX.Element {
                 <IconLogomark className="size-5" />
             </span>
             <span className="text-xs leading-tight">
-                <span className="block font-bold">Which personality is your MCP server?</span>
+                <span className="block font-bold">What's your MCP server's personality?</span>
                 <span className="opacity-75">Find out at posthog.com/mcp-analytics</span>
             </span>
         </LinkPrimitive>

@@ -85,11 +85,17 @@
     animation: MCPWrapped__float 5s ease-in-out infinite;
 }
 
-// A marker stroke under a word, the way posthog.com marks what matters.
-.MCPWrapped__highlight {
-    padding: 0 0.15em;
-    background: linear-gradient(transparent 82%, rgb(255 206 28 / 90%) 82%, rgb(255 206 28 / 90%) 96%, transparent 96%);
+// A soft block behind the one figure a story line is about, the way posthog.com marks what matters.
+.MCPWrapped__mark {
+    padding: 0.05em 0.25em;
+    font-weight: 700;
+    background: rgb(255 255 255 / 22%);
+    border-radius: 0.3em;
     box-decoration-break: clone;
+
+    .MCPWrapped__card--light & {
+        background: rgb(21 21 21 / 10%);
+    }
 }
 
 .MCPWrapped__rise {

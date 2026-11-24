@@ -53,8 +53,8 @@ function StatIcon({ tile }: { tile: ShareTile }): JSX.Element {
     )
 }
 
-// Tool, app and model names can be long, and a versioned model id longer still. The picture has no
-// tooltip, so a name wraps smaller instead of being cut off.
+// Tool, app and model names can be long, a versioned model id longer still, and "Wednesday 12 pm" is wider
+// than its tile. The picture has no tooltip, so a value wraps instead of being cut off.
 function valueClassName(tile: ShareTile): string {
     if (tile.kind === 'tool') {
         return cn(
@@ -62,7 +62,7 @@ function valueClassName(tile: ShareTile): string {
             toolNameSize(tile.value, ['text-base', 'text-sm', 'text-xs'])
         )
     }
-    if (tile.kind === 'app' || tile.kind === 'model') {
+    if (tile.kind === 'app' || tile.kind === 'model' || tile.kind === 'rush_hour') {
         return cn(
             'line-clamp-2 [overflow-wrap:anywhere]',
             toolNameSize(tile.value, ['text-base', 'text-base', 'text-sm'])
@@ -83,9 +83,7 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                     <div className="text-base opacity-75">
                         <strong>{projectName}</strong>'s MCP server is
                     </div>
-                    <h2 className="m-0 text-4xl font-bold leading-tight">
-                        <span className="MCPWrapped__highlight">{ARCHETYPE_NAMES[archetype]}</span>
-                    </h2>
+                    <h2 className="m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[archetype]}</h2>
                 </div>
                 <div className="MCPWrapped__pop flex flex-col items-center gap-1 text-center">
                     <div className="relative flex justify-center">

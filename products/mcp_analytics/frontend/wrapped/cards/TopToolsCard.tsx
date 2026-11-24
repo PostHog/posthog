@@ -26,7 +26,10 @@ export function TopToolsCard({
                         {top.tool}
                     </div>
                     <p className="MCPWrapped__rise m-0 text-base">
-                        <strong className="block">Agents reached for it {formatCallCount(top.calls)} times.</strong>
+                        <strong className="block">
+                            Agents reached for it <span className="MCPWrapped__mark">{formatCallCount(top.calls)}</span>{' '}
+                            times.
+                        </strong>
                         That's {formatPercent(top.calls / totalCalls)} of all tool calls.
                     </p>
                 </>

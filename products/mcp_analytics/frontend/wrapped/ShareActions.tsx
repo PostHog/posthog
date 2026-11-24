@@ -8,6 +8,7 @@ import { downloadBlob } from 'lib/components/ExportButton/exporter'
 
 import { mcpWrappedLogic } from './mcpWrappedLogic'
 import { canShareFiles, captureShareCard, copyShareCard, shareShareCard } from './shareImage'
+import { ARCHETYPE_NAMES } from './storyCards'
 
 const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
 
@@ -17,6 +18,7 @@ export function ShareActions({ cardRef }: { cardRef: RefObject<HTMLDivElement> }
     const { shareCaptured } = useActions(mcpWrappedLogic)
     const [busy, setBusy] = useState(false)
     const year = wrapped?.year ?? new Date().getFullYear()
+    const archetype = wrapped ? ARCHETYPE_NAMES[wrapped.cards.archetype.archetype] : null
     const fileName = `mcp-wrapped-${year}.png`
     const disabledReason = busy ? 'Creating the image' : undefined
 
@@ -28,7 +30,9 @@ export function ShareActions({ cardRef }: { cardRef: RefObject<HTMLDivElement> }
         const outcome = await shareShareCard(
             cardRef.current,
             fileName,
-            `My MCP server just got its ${year} Wrapped. Which personality is yours? ${MCP_ANALYTICS_URL}`
+            archetype
+                ? `Our MCP server got its ${year} Wrapped: ${archetype}. What's yours? ${MCP_ANALYTICS_URL}`
+                : `Our MCP server got its ${year} Wrapped. What's yours? ${MCP_ANALYTICS_URL}`
         )
         setBusy(false)
         if (outcome === 'done') {
