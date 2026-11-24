@@ -9,8 +9,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.contracts import DigestRow
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
@@ -54,6 +56,29 @@ class TestDataCatalogDigestSource(BaseTest):
                 path="/models?tab=models",
             ),
         ]
+
+    @parameterized.expand(
+        [
+            ("catalog editor", "editor", ["certification suggestion", "model suggestion"]),
+            ("catalog viewer", "viewer", ["model suggestion"]),
+        ]
+    )
+    def test_lists_catalog_suggestions_only_for_people_who_can_approve_them(
+        self, _name: str, catalog_level: str, expected_nouns: list[str]
+    ) -> None:
+        self._suggest(self.team, WarehouseSuggestionKind.CERTIFY, "users", surfaced_days_ago=1)
+        self._suggest(self.team, WarehouseSuggestionKind.MATERIALIZE, "orders", surfaced_days_ago=1)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level=catalog_level)
+
+        rows = self.source.rows(self.team, self.user, timezone.now() - timedelta(days=7))
+
+        assert [row.noun for row in rows] == expected_nouns
 
     @parameterized.expand([("flag on", True, True), ("flag off", False, False)])
     def test_reports_only_teams_with_a_suggestion_on_show(self, _name: str, enabled: bool, expected: bool) -> None:
