@@ -1,6 +1,8 @@
 """Transactional push notifications: a push template made sendable over the API. Each one is backed by a workflow
 that runs once per send, so sends get the workflow's metrics, run history and versions."""
 
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import UUID
 
@@ -12,10 +14,12 @@ from posthog.plugins.plugin_server_api import send_transactional_push as run_tra
 from products.messaging.backend.facade.contracts import (
     ContentTooLarge,
     DeliveryUnavailable,
+    EmailNotQueued,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
     InvalidRequest,
+    PushBatchRecipient,
     QueuedEmail,
     QuotaLimited,
     TemplateNotSendable,
@@ -31,9 +35,16 @@ from products.messaging.backend.services.transactional_email import (
     raise_refusal,
     refusal_code_of,
 )
+from products.messaging.backend.services.transactional_email_status import keyed_run_id
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 
 logger = structlog.get_logger(__name__)
+
+# The CDP service names a keyed send's run with this scope, so a batch result's ID matches the run's.
+TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
+PUSH_BATCH_PARALLEL_REQUESTS = 10
+# These hold for every recipient, so a batch refused for all of them answers once instead of per recipient.
+WHOLE_BATCH_REFUSALS = (QuotaLimited, TransactionalPushPaused, DeliveryUnavailable)
 
 PUSH_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
     "quota_limited": (QuotaLimited, "The project is over its quota for push notifications."),
@@ -73,14 +84,67 @@ def send_transactional_push(
             "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
         )
     hog_flow_id = _transactional_push_workflow_id(team.id, template)
+    return _queue_push(
+        team.id,
+        hog_flow_id,
+        distinct_id=distinct_id,
+        message_data=message_data,
+        idempotency_key=idempotency_key,
+        timeout=timeout,
+    )
+
+
+def send_transactional_push_batch(
+    team: Team,
+    template: TransactionalTemplate,
+    recipients: Sequence[PushBatchRecipient],
+    *,
+    timeout: float = 10,
+) -> tuple[QueuedEmail | EmailNotQueued, ...]:
+    """Queue one push notification per recipient, in the order of `recipients`. A recipient the push pipeline refuses
+    fails only its own result, unless every recipient was refused for the same reason that holds for the whole batch."""
+    hog_flow_id = _transactional_push_workflow_id(team.id, template)
+
+    def queue(recipient: PushBatchRecipient) -> QueuedEmail | EmailNotQueued:
+        try:
+            return _queue_push(
+                team.id,
+                hog_flow_id,
+                distinct_id=recipient.distinct_id,
+                message_data=recipient.message_data,
+                idempotency_key=recipient.idempotency_key,
+                timeout=timeout,
+            )
+        except (TransactionalEmailError, DeliveryUnavailable) as e:
+            message_id = keyed_run_id(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, recipient.idempotency_key)
+            return EmailNotQueued(message_id=str(message_id), error=e)
+
+    with ThreadPoolExecutor(max_workers=min(PUSH_BATCH_PARALLEL_REQUESTS, len(recipients))) as pool:
+        results = tuple(pool.map(queue, recipients))
+    errors = [result.error for result in results if isinstance(result, EmailNotQueued)]
+    if len(errors) == len(results) and isinstance(errors[0], WHOLE_BATCH_REFUSALS):
+        if all(type(error) is type(errors[0]) for error in errors):
+            raise errors[0]
+    return results
+
+
+def _queue_push(
+    team_id: int,
+    hog_flow_id: UUID,
+    *,
+    distinct_id: str,
+    message_data: dict[str, Any],
+    idempotency_key: str | None,
+    timeout: float,
+) -> QueuedEmail:
     payload: dict[str, Any] = {"distinct_id": distinct_id, "variables": message_data}
     if idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the push was queued.
         payload["idempotency_key"] = idempotency_key
     try:
-        response = run_transactional_push_workflow(team.id, str(hog_flow_id), payload, timeout=timeout)
+        response = run_transactional_push_workflow(team_id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
-        logger.exception("transactional_push_queue_failed", team_id=team.id, hog_flow_id=str(hog_flow_id))
+        logger.exception("transactional_push_queue_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
         raise DeliveryUnavailable() from e
     if response.status_code == 413:
         raise ContentTooLarge("The push notification is larger than PostHog can send. Make its message data smaller.")
@@ -90,7 +154,7 @@ def send_transactional_push(
         raise_refusal(
             refusal,
             log_event="transactional_push_queue_rejected",
-            team_id=team.id,
+            team_id=team_id,
             hog_flow_id=hog_flow_id,
             status_code=response.status_code,
             refusal_code=refusal_code,
