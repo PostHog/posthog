@@ -370,6 +370,14 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert "unsubscribe link didn't convert" in " ".join(converted.notes)
 
+    @parameterized.expand([("legacy",), ("dynamic",)])
+    def test_a_lost_unsubscribe_link_in_a_plain_text_only_version_is_said_clearly(self, generation: str) -> None:
+        converted = convert_version(
+            {"plain_content": "Leave: %3C%25asm_group_unsubscribe_raw_url%25%3E"}, generation=generation
+        )
+
+        assert "unsubscribe link didn't convert" in " ".join(converted.notes)
+
     @parameterized.expand(
         [
             (

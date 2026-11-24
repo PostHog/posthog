@@ -430,7 +430,7 @@ def convert_version(
         notes.append(
             f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
         )
-    bodies = ((html, html_state), (text, text_state))[: 1 if generates_text else 2]
+    bodies = ((html, html_state), (text, text_state))[: 1 if generates_text and html else 2]
     if any(_LEFT_UNSUBSCRIBE_TAG.search(body) and not state.uses_unsubscribe for body, state in bodies):
         notes.append(
             "This template's unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
