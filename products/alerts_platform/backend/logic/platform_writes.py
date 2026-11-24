@@ -95,7 +95,10 @@ def _validated(
     # A grouped alert cannot fire for a group it has never seen, and resting groups are reaped and
     # evicted, so Breaching would miss exactly the groups that stopped reporting.
     if edit.on_missing_data == OnMissingData.BREACHING and edit.grouping.mode != GroupingMode.SINGLE:
-        raise InvalidPlatformAlertEdit("on_missing_data", "Breaching is available only on ungrouped alerts.")
+        raise InvalidPlatformAlertEdit(
+            "on_missing_data",
+            "Breaching is available only on ungrouped alerts. Set on_missing_data to another option before grouping.",
+        )
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
         raise InvalidPlatformAlertEdit("cooldown_minutes", f"Must be between 0 and {MAX_STORED_INTEGER}.")
     try:
