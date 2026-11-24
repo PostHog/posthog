@@ -720,10 +720,22 @@ class TestBillingManager(BaseTest):
         assert organization.is_active is False
         assert organization.members_can_create_projects is False
 
-    @parameterized.expand([("unauthorized", 401), ("not_found", 404)])
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, {"detail": "Unauthorized"}, BillingServiceResponseError),
+            ("not_found", 404, {"detail": "Not found"}, BillingServiceResponseError),
+            ("empty_list", 200, {"available_product_features": []}, ValueError),
+            ("missing_list", 200, {}, ValueError),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
     def test_update_available_product_features_keeps_stored_features_on_an_error_response(
-        self, _name: str, status_code: int, mock_get: MagicMock
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        expected_error: type[Exception],
+        mock_get: MagicMock,
     ):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
@@ -734,9 +746,9 @@ class TestBillingManager(BaseTest):
         Organization.objects.filter(pk=self.organization.pk).update(available_product_features=stored_features)
         organization = Organization.objects.get(pk=self.organization.pk)
         mock_get.return_value.status_code = status_code
-        mock_get.return_value.json.return_value = {"detail": "Unauthorized"}
+        mock_get.return_value.json.return_value = body
 
-        with self.assertRaises(BillingServiceResponseError):
+        with self.assertRaises(expected_error):
             BillingManager(license).update_available_product_features(organization)
 
         organization.refresh_from_db()
