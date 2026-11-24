@@ -3132,8 +3132,6 @@ class SignalReportViewSet(
             return queryset.none() if wants_needs_attention else queryset
         # Interim state is derived from check observations, not stored on the report, so the off-track
         # reports are summarized here, before pagination, to keep every page and the count consistent.
-        # Only each check's latest reading is read, so the cost follows the reports in Monitoring, not
-        # their reading history.
         summaries = monitoring_summaries(
             list(
                 queryset.filter(status=SignalReport.Status.MONITORING)

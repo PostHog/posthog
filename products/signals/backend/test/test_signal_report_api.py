@@ -1733,7 +1733,6 @@ class TestSignalReportListAPI(APIBaseTest):
             monitoring_started_at=started_at,
             check_versions={str(check.id): check_definition_version(check)},
         )
-        # An earlier on-track reading and a later errored one: the off-track reading between them decides.
         for hours, observed_value, matches, error in [
             (12, 8, False, None),
             (6, 3, True, None),
