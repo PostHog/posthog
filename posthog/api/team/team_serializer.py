@@ -939,6 +939,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "payment_event": instance.customer_analytics_config.payment_event,
             "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
             "default_pinned_properties": instance.customer_analytics_config.default_pinned_properties,
+            "role_default_pinned_properties": instance.customer_analytics_config.role_default_pinned_properties,
         }
 
         serializer = team_config.TeamCustomerAnalyticsConfigSerializer(
