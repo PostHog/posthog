@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -16,6 +15,7 @@ from pydantic import ValidationError
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.team_first_prewhere import _events_last_year_cache
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
@@ -449,18 +449,19 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @parameterized.expand([("small_team", True), ("team_without_a_volume_row", False)])
     def test_execute_hogql_query_tags_the_team_first_prewhere_setting(self, _name: str, expected: bool) -> None:
-        TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=1, computed_at=timezone.now())
+        _events_last_year_cache.clear()
+        if expected:
+            TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=1, computed_at=timezone.now())
         marker = str(uuid.uuid4())
         reset_query_tags()
         tag_queries(kind="request", id="test")
-        with patch("posthog.hogql.team_first_prewhere.feature_enabled_or_false", return_value=expected):
-            response = execute_hogql_query(
-                f"SELECT count() FROM events WHERE event = '{marker}'",  # noqa: S608
-                team=self.team,
-                query_type="HogQLQuery",
-            )
+        response = execute_hogql_query(
+            f"SELECT count() FROM events WHERE event = '{marker}'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
 
         assert response.results == [(0,)]
         assert response.clickhouse is not None

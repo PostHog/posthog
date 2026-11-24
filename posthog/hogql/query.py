@@ -722,7 +722,7 @@ class HogQLQueryExecutor:
             isinstance(self.clickhouse_settings, HogQLGlobalSettings)
             and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
         ):
-            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # Not a real modifier. It marks the queries that ran with the setting, so the query log can tell them apart.
             # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
             tag["teamFirstPrewhere"] = True
         return tag
