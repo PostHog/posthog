@@ -192,4 +192,91 @@ describe('defaultPinnedAccountPropertiesLogic', () => {
 
         expect(logic.values.canSave).toBe(false)
     })
+
+    it.each([
+        {
+            name: 'loads every role page (>100 roles), preserves later-page role defaults, and drops deleted roles',
+            page2Fails: false,
+            expectedRolesCount: 101,
+            expectedRoleIds: ['role-101', 'role-1'],
+        },
+        {
+            name: 'preserves existing role defaults when role pagination fails before completing',
+            page2Fails: true,
+            expectedRolesCount: 0,
+            expectedRoleIds: ['role-101', 'role-deleted', 'role-1'],
+        },
+    ])('$name', async ({ page2Fails, expectedRolesCount, expectedRoleIds }) => {
+        if (page2Fails) {
+            silenceKeaLoadersErrors()
+        }
+        const firstPageRoles = Array.from({ length: 100 }, (_, index) => ({
+            id: `role-${index + 1}`,
+            name: `Role ${index + 1}`,
+        }))
+        const secondPageRole = { id: 'role-101', name: 'Role 101' }
+        const submittedBodies: TeamUpdateBody[] = []
+        let storedCustomerAnalyticsConfig: CustomerAnalyticsConfig = {
+            ...MOCK_DEFAULT_TEAM.customer_analytics_config,
+            role_default_pinned_properties: [
+                { role_id: 'role-1', pinned_properties: [{ kind: 'account_field', id: 'stripe_customer_id' }] },
+                { role_id: 'role-101', pinned_properties: [{ kind: 'account_field', id: 'stripe_customer_id' }] },
+                { role_id: 'role-deleted', pinned_properties: [{ kind: 'custom_property', id: customProperty.id }] },
+            ],
+        }
+        useMocks({
+            get: {
+                [CUSTOM_PROPERTIES_URL]: { count: 1, results: [customProperty] },
+                [RELATIONSHIPS_URL]: { count: 1, results: [relationship] },
+                [ROLES_URL]: ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? '0')
+                    if (offset === 0) {
+                        return {
+                            count: 101,
+                            next: '/api/organizations/ABCD/roles/?offset=100',
+                            results: firstPageRoles,
+                        }
+                    }
+                    if (page2Fails) {
+                        return [500, { detail: 'Could not load roles.' }]
+                    }
+                    return { count: 101, next: null, results: [secondPageRole] }
+                },
+            },
+            patch: {
+                [TEAM_URL]: async ({ request }) => {
+                    const body = (await request.json()) as TeamUpdateBody
+                    submittedBodies.push(body)
+                    storedCustomerAnalyticsConfig = {
+                        ...storedCustomerAnalyticsConfig,
+                        ...body.customer_analytics_config,
+                    }
+                    return { ...MOCK_DEFAULT_TEAM, customer_analytics_config: storedCustomerAnalyticsConfig }
+                },
+            },
+        })
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            customer_analytics_config: storedCustomerAnalyticsConfig,
+        })
+        logic.mount()
+
+        await waitFor(() => expect(logic.values.definitionsLoading).toBe(false))
+        await waitFor(() => expect(logic.values.rolesLoading).toBe(false))
+
+        expect(logic.values.roles).toHaveLength(expectedRolesCount)
+        expect(logic.values.rolesLoadedComplete).toBe(!page2Fails)
+
+        logic.actions.setSelectedRoleId('role-1')
+        logic.actions.openConfigurator()
+        logic.actions.setDraftPinnedPropertyKeys(['custom:custom-1'])
+        await expectLogic(logic, () => logic.actions.saveDefaultPinnedProperties())
+            .toDispatchActions(['saveDefaultPinnedPropertiesSuccess'])
+            .toFinishAllListeners()
+
+        expect(
+            submittedBodies[0].customer_analytics_config.role_default_pinned_properties?.map(({ role_id }) => role_id)
+        ).toEqual(expectedRoleIds)
+    })
 })
