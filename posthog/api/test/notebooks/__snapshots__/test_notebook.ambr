@@ -1625,6 +1625,7 @@
          "T5"."uuid",
          "T5"."current_organization_id",
          "T5"."current_team_id",
+         "T5"."type",
          "T5"."email",
          "T5"."pending_email",
          "T5"."distinct_id",
