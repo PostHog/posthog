@@ -133,8 +133,8 @@ def analytics_window(should_use_incremental_field: bool, last_value: Any, now: d
 def breakdown_days(should_use_incremental_field: bool, last_value: Any, now: datetime) -> list[date]:
     """UTC days a breakdowns run reads, oldest first.
 
-    Today is left out because its top-10 lists still change, and a label that drops out of a list
-    would stay behind as a stale row. An incremental run reads the watermark day again for late data.
+    Today is left out because its lists are still filling up. An incremental run reads the watermark
+    day again for late data, and the rank key lets that read overwrite the day's lists.
     """
     first = _window_start(should_use_incremental_field, last_value, now, BREAKDOWN_BACKFILL_DAYS).date()
     last = now.date() - timedelta(days=1)

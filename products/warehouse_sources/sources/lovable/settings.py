@@ -188,7 +188,9 @@ LOVABLE_ENDPOINTS_2026_09_11: dict[str, LovableEndpointConfig] = {
         name="ProjectAnalyticsBreakdowns",
         path="/projects/{project_id}/analytics/breakdowns",
         scope="project",
-        primary_keys=["project_id", "timestamp", "breakdown", "label"],
+        # Keyed on the list slot, not the label: a re-read of a day overwrites every slot, so a label that
+        # left the top 10 cannot stay behind. Late data only adds sessions, so a list never gets shorter.
+        primary_keys=["project_id", "timestamp", "breakdown", "rank"],
         partition_key="timestamp",
         minimum_plan="Business",
         breakdowns=True,
