@@ -21,14 +21,15 @@ const RESOLVED_BY_LAUNCH: ReadonlySet<string> = new Set(['flag_live_before_launc
 
 // The check that reported a resolved finding goes too, or the summary counts a finding that the result doesn't list.
 function afterLaunch(health: Schemas.ExperimentHealth | null): Pick<Schemas.ExperimentHealth, 'findings' | 'checks'> {
-    if (!health) {
-        return { findings: [], checks: [] }
-    }
-    const resolved = health.findings.filter((finding) => RESOLVED_BY_LAUNCH.has(finding.code))
+    // The API client returns any 2xx body unchecked, such as `{}` or the text of an HTML page. A missing list must not
+    // fail the result of a launch that already happened.
+    const findings = health?.findings ?? []
+    const checks = health?.checks ?? []
+    const resolved = findings.filter((finding) => RESOLVED_BY_LAUNCH.has(finding.code))
     const resolvedChecks = new Set<string>(resolved.map((finding) => finding.check))
     return {
-        findings: health.findings.filter((finding) => !RESOLVED_BY_LAUNCH.has(finding.code)),
-        checks: health.checks.filter((check) => !resolvedChecks.has(check.key)),
+        findings: findings.filter((finding) => !RESOLVED_BY_LAUNCH.has(finding.code)),
+        checks: checks.filter((check) => !resolvedChecks.has(check.key)),
     }
 }
 

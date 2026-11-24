@@ -279,6 +279,13 @@ describe('experiment health gate', () => {
             outcome: 'read',
         },
         {
+            name: 'keeps the launch result when the health read returns a page instead of the health',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: '<html></html>' }),
+            health: { summary: 'Findings: none. Checks: none ran.', codes: [] },
+            outcome: 'read',
+        },
+        {
             name: 'adds no findings when the flag is off',
             flag: false,
             healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
