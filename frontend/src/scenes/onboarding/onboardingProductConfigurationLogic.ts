@@ -92,7 +92,8 @@ export const onboardingProductConfigurationLogic = kea<onboardingProductConfigur
             (currentTeam: TeamType | null | TeamPublicType): ((teamProperty: keyof TeamType) => boolean) => {
                 const isAdmin =
                     isAuthenticatedTeam(currentTeam) &&
-                    (currentTeam.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin
+                    ((currentTeam.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin ||
+                        currentTeam.user_access_level === 'admin')
                 return (teamProperty) => isAdmin || MEMBER_CONFIG_FIELDS.has(teamProperty)
             },
         ],

@@ -62,12 +62,17 @@ describe('onboardingProductConfigurationLogic', () => {
     ]
 
     it.each([
-        ['member', OrganizationMembershipLevel.Member, false],
-        ['admin', OrganizationMembershipLevel.Admin, true],
-        ['owner', OrganizationMembershipLevel.Owner, true],
-        ['unknown membership', null, false],
-    ])('saves only permitted configuration for a project %s', async (_, membershipLevel, isAdmin) => {
-        const team = { ...MOCK_DEFAULT_TEAM, effective_membership_level: membershipLevel }
+        ['member', OrganizationMembershipLevel.Member, 'member', false],
+        ['admin', OrganizationMembershipLevel.Admin, 'admin', true],
+        ['owner', OrganizationMembershipLevel.Owner, 'admin', true],
+        ['unknown membership', null, 'member', false],
+        ['admin granted by access control', OrganizationMembershipLevel.Member, 'admin', true],
+    ])('saves only permitted configuration for a project %s', async (_, membershipLevel, accessLevel, isAdmin) => {
+        const team = {
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: membershipLevel,
+            user_access_level: accessLevel,
+        }
         initKeaTests(true, team)
         const requests: unknown[] = []
         useMocks({
@@ -110,7 +115,11 @@ describe('onboardingProductConfigurationLogic', () => {
     it.each([false, true])(
         'filters callback output and skips empty member updates (callback: %s)',
         async (useCallback) => {
-            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member })
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+                user_access_level: 'member',
+            })
             const requests: unknown[] = []
             useMocks({
                 patch: {
