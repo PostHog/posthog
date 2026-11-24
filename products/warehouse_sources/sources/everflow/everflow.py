@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.everflow.settings import (
     REREAD_DAYS,
     TABLE_PAGE_SIZE,
     UTC_TIMEZONE_ID,
+    WINDOWED_ENDPOINTS,
     EverflowEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -299,21 +300,18 @@ def everflow_source(
     body: dict[str, Any] = {}
     start_value: str | None = None
     end_value: str | None = None
-    if endpoint == "conversions":
+    if endpoint in WINDOWED_ENDPOINTS:
         if resume is not None and resume.window_start:
             start_value = resume.window_start
             end_value = resume.window_end
         else:
-            start_value = window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
-        # Everflow reads `to` as midnight, so tomorrow's date includes today's conversions.
+            reread_days = REREAD_DAYS if endpoint == "conversions" else 0
+            start_value = window_start(is_incremental, db_incremental_field_last_value, today, reread_days).isoformat()
+        # Everflow reads `to` as midnight, so tomorrow's date includes today's rows.
         end_value = end_value or (today + timedelta(days=1)).isoformat()
-        body = {
-            "from": start_value,
-            "to": end_value,
-            "timezone_id": UTC_TIMEZONE_ID,
-            "show_conversions": True,
-            "show_events": True,
-        }
+        body = {"from": start_value, "to": end_value, "timezone_id": UTC_TIMEZONE_ID}
+        if endpoint == "conversions":
+            body |= {"show_conversions": True, "show_events": True}
 
     paginator = EverflowPaginator(config.page_size) if config.page_size is not None else SinglePagePaginator()
     endpoint_config: Endpoint = {
