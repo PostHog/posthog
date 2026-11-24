@@ -186,7 +186,7 @@ function LiveBody({
     const tabBottom = useTabBottomOffset()
     const tab = chrome === 'tab'
     const scroll = useRef<ScrollViewInstance>(null)
-    const { preference, trafficFilters } = useLivePreference()
+    const { preference, trafficFilters, showFilterBanner, setShowFilterBanner } = useLivePreference()
     const filterSummary = [
         preference === 'web' ? 'Web' : preference === 'mobile' ? 'Mobile' : '',
         trafficFilters.hostname,
@@ -447,19 +447,32 @@ function LiveBody({
                         audience={detectedAudience}
                     />
                 )}
-                {filterSummary ? (
-                    <Pressable44
-                        onPress={openFilters}
-                        accessibilityLabel={`Edit Live filters. ${filterSummary}`}
-                        style={styles.filterSummary}
-                        pressedBackground={colors.pressed}
-                        testID="live-filter-summary"
-                    >
-                        <FilterIcon size={16} color={colors.blue} />
-                        <Text style={styles.filterSummaryText} numberOfLines={2}>
-                            {filterSummary}
-                        </Text>
-                    </Pressable44>
+                {showFilterBanner && filterSummary ? (
+                    <View style={styles.filterBanner}>
+                        <Pressable44
+                            onPress={openFilters}
+                            accessibilityLabel={`Edit Live filters. ${filterSummary}`}
+                            style={styles.filterSummary}
+                            pressedBackground={colors.pressed}
+                            hitSlop={0}
+                            testID="live-filter-summary"
+                        >
+                            <FilterIcon size={16} color={colors.blue} />
+                            <Text style={styles.filterSummaryText} numberOfLines={2}>
+                                {filterSummary}
+                            </Text>
+                        </Pressable44>
+                        <Pressable44
+                            onPress={() => setShowFilterBanner(false)}
+                            accessibilityLabel="Hide filter banner"
+                            style={styles.hideFilterBanner}
+                            pressedBackground={colors.pressed}
+                            hitSlop={0}
+                            testID="live-filter-hide-banner"
+                        >
+                            <Text style={styles.hideFilterBannerText}>Hide</Text>
+                        </Pressable44>
+                    </View>
                 ) : null}
                 {content}
             </ScrollView>
@@ -552,18 +565,25 @@ const useStyles = createStyles(({ colors }) => ({
     content: {
         paddingHorizontal: layout.inboxGutter,
     },
+    filterBanner: {
+        flexDirection: 'row',
+        marginBottom: 10,
+        borderRadius: radii.card,
+        backgroundColor: colors.blueHighlight,
+        overflow: 'hidden',
+    },
     filterSummary: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        minHeight: 40,
-        marginBottom: 10,
-        paddingHorizontal: 12,
+        minHeight: 44,
+        paddingLeft: 12,
         paddingVertical: 8,
-        borderRadius: radii.card,
-        backgroundColor: colors.blueHighlight,
     },
     filterSummaryText: { ...type.metaSmall, color: colors.ink, flex: 1 },
+    hideFilterBanner: { minWidth: 44, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+    hideFilterBannerText: { ...type.buttonSmall, color: colors.blue },
     refreshControl: {
         opacity: 0,
     },
