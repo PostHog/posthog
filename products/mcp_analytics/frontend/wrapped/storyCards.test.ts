@@ -118,10 +118,9 @@ describe('storyCards', () => {
     })
 
     it.each([
-        [0.999, 'Rock solid.'],
-        [0.985, 'Smooth sailing.'],
-        [0.96, 'Your server held up.'],
-        [0.92, 'Mostly smooth, with a few bumps.'],
+        [0.999, 'Your server rarely missed a beat.'],
+        [0.96, 'Your agents could count on you.'],
+        [0.92, 'Mostly on point, with a few bumps.'],
         [0.8, 'A bumpy year, with room to improve.'],
     ])('describes a success rate of %d', (rate, expected) => {
         expect(reliabilityLine(rate)).toBe(expected)

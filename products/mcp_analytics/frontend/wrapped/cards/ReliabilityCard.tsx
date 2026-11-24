@@ -23,14 +23,19 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                         <IconWarning className="size-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                        <div className="text-sm opacity-75">Needs the most attention</div>
+                        <div className="text-sm opacity-75">Most errors</div>
                         <div className="truncate font-mono font-bold">{card.struggling_tool.tool}</div>
                     </div>
                     <div className="shrink-0 text-right">
                         <div className="font-bold tabular-nums">{formatPercent(card.struggling_tool.error_rate)}</div>
-                        <div className="text-sm opacity-75">failed</div>
+                        <div className="text-sm opacity-75">error rate</div>
                     </div>
                 </div>
+            )}
+            {card.struggling_tool && (
+                <p className="MCPWrapped__rise absolute bottom-10 left-6 m-0 max-w-[50%] rounded-xl rounded-br-none bg-white/60 px-3 py-2 text-sm font-bold">
+                    Even superheroes have bad days.
+                </p>
             )}
         </WrappedCard>
     )
