@@ -1147,11 +1147,20 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayPrimaryDashboard {
     border: 1px solid var(--today-line);
+
+    // One step below the For you today rows, in line with the Jump back in titles.
+    .TodayRow__title {
+        font-size: 14px;
+        line-height: 20px;
+    }
 }
 
+// Sized like the At a glance metric names.
 .TodayPrimaryDashboard__description {
     display: -webkit-box;
     overflow: hidden;
     -webkit-line-clamp: 3;
+    font-size: 13px;
+    line-height: 18px;
     -webkit-box-orient: vertical;
 }
