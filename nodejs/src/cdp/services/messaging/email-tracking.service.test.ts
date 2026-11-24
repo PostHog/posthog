@@ -1318,6 +1318,7 @@ describe('EmailTrackingService', () => {
                     client.ttl(mark)
                 )
                 expect(writtenTtl).toBeGreaterThan(25 * 60 * 60 - 60)
+                expect(writtenTtl).toBeLessThanOrEqual(25 * 60 * 60)
                 await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
                 jest.spyOn(
                     consumer['emailTrackingService']['hogFunctionMonitoringService'],
@@ -1328,6 +1329,7 @@ describe('EmailTrackingService', () => {
 
                 const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
                 expect(ttl).toBeGreaterThan(25 * 60 * 60 - 60)
+                expect(ttl).toBeLessThanOrEqual(25 * 60 * 60)
                 expect(recordedMetrics()).toEqual(bounceMetrics)
             })
 
