@@ -18,7 +18,7 @@ import {
     wrapperPackageJson,
 } from './artifacts'
 import minimum from './minimum-version.json' with { type: 'json' }
-import noticesFile from './notices.json' with { type: 'json' }
+import noticesFile from './notices.generated.json' with { type: 'json' }
 import { HOG_ROOT, RELEASE_FOLDER, run, targetFolder } from './shared'
 
 const { values } = parseArgs({

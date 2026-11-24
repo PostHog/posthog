@@ -1,13 +1,25 @@
+"""The notices hog shows after a command, such as a version reaching its end of support.
+
+CLI_NOTICES is the only list of them. The PostHog API sends the ones for a hog's version in a header
+of every answer, and `hogli build:projections` writes the list to `hog/release/notices.generated.json`,
+which every hog release copies into its manifest. "Notices" in `hog/README.md` says what each field does
+and what people see.
+
+The projection loads this file by path, without Django, so it imports only the standard library at runtime.
+"""
+
+from __future__ import annotations
+
 import re
 import json
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
-from django.http import HttpRequest, HttpResponse
-
-from posthog.dataclasses import frozen
+if TYPE_CHECKING:
+    from django.http import HttpRequest, HttpResponse
 
 CLI_NOTICE_HEADER = "X-PostHog-CLI-Notice"
 
@@ -20,7 +32,8 @@ _NOTICE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_MESSAGE_LENGTH = 300
 
 
-@frozen
+# The standard library's dataclass with the flags of posthog.dataclasses.frozen, which imports Django.
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SemVer:
     major: int
     minor: int
@@ -28,7 +41,7 @@ class SemVer:
     prerelease: tuple[str, ...]
 
     @staticmethod
-    def parse(text: str) -> "SemVer | None":
+    def parse(text: str) -> SemVer | None:
         match = _SEMVER.match(text)
         if not match:
             return None
@@ -44,14 +57,14 @@ class SemVer:
         prerelease = tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in self.prerelease)
         return (self.major, self.minor, self.patch, not self.prerelease, prerelease)
 
-    def __lt__(self, other: "SemVer") -> bool:
+    def __lt__(self, other: SemVer) -> bool:
         return self._sort_key() < other._sort_key()
 
-    def __ge__(self, other: "SemVer") -> bool:
+    def __ge__(self, other: SemVer) -> bool:
         return not self < other
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class CliNotice:
     id: str
     level: Literal["info", "warning"]
@@ -61,6 +74,8 @@ class CliNotice:
     from_version: str | None = None
     below: str | None = None
     until: datetime | None = None
+    # Only for these install kinds, such as ("homebrew", "npm-global"). hog's INSTALL_KINDS lists them.
+    installs: tuple[str, ...] | None = None
     upgrade: bool = False
 
     # hog drops a notice it can't read, so a notice that breaks these rules fails at import, in CI, instead.
@@ -88,7 +103,8 @@ class CliNotice:
         below = SemVer.parse(self.below) if self.below else None
         return (from_version is None or version >= from_version) and (below is None or version < below)
 
-    def as_header_item(self) -> dict[str, object]:
+    # The fields hog reads, in both the header and the generated file.
+    def as_item(self) -> dict[str, object]:
         item: dict[str, object] = {"id": self.id, "level": self.level, "message": self.message}
         if self.url is not None:
             item["url"] = self.url
@@ -98,14 +114,14 @@ class CliNotice:
             item["below"] = self.below
         if self.until is not None:
             item["until"] = self.until.isoformat()
+        if self.installs is not None:
+            item["installs"] = list(self.installs)
         if self.upgrade:
             item["upgrade"] = True
         return item
 
 
-# Every response to a hog whose version a notice names carries it, and hog shows it after the command,
-# also when its update checks are off. A notice reads the same as one in hog/release/notices.json:
-# "Notices" in hog/README.md says what each field does and what people see.
+# After a change, run `hogli build:projections` to regenerate hog/release/notices.generated.json.
 CLI_NOTICES: tuple[CliNotice, ...] = ()
 
 
@@ -120,7 +136,7 @@ def notices_for(version: SemVer, notices: Sequence[CliNotice], now: datetime) ->
 
 def header_value(notices: Sequence[CliNotice]) -> str:
     # ensure_ascii, because a header value carries only ASCII.
-    return json.dumps([notice.as_header_item() for notice in notices], ensure_ascii=True, separators=(",", ":"))
+    return json.dumps([notice.as_item() for notice in notices], ensure_ascii=True, separators=(",", ":"))
 
 
 class CliNoticeMiddleware:

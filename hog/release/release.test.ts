@@ -10,7 +10,7 @@ import { readJson } from '../src/testing'
 import type { Artifact } from '../src/updates/manifest'
 import { archiveName, rustTarget, shippedBinaries, TARGETS } from '../src/updates/targets'
 import { buildManifest, releaseNotices, sha256Sums, wrapperPackageJson } from './artifacts'
-import noticesFile from './notices.json' with { type: 'json' }
+import noticesFile from './notices.generated.json' with { type: 'json' }
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
@@ -406,7 +406,7 @@ test.skipIf(!Bun.which('zip') || !Bun.which('unzip'))(
 )
 
 describe('release notices', () => {
-    test('release/notices.json is one every hog can read', () => {
+    test('the notices CLI_NOTICES generates are ones every hog can read', () => {
         expect(() => releaseNotices(noticesFile)).not.toThrow()
     })
 

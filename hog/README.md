@@ -49,54 +49,28 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 ### Notices
 
 A notice is a message the team sends to hogs that are already installed, such as "hog 1 gets no more fixes after June 1, 2027".
-Notices come two ways, and a notice that comes both ways shows once:
+`CLI_NOTICES` in `posthog/cli_notices.py` is the only list of notices, and it reaches hogs two ways. A notice that comes both ways shows once.
 
-- **The release manifest**, which hog reads only when update checks are on.
-- **The PostHog API**, which adds an `X-PostHog-CLI-Notice` header to its answers for the hog versions a notice names. hog reads it on every command that talks to PostHog, also with update checks off, as in CI with `PostHog/setup-hog`.
+- **The PostHog API** adds an `X-PostHog-CLI-Notice` header to its answers for the hog versions a notice names. hog reads it on every command that talks to PostHog, also with update checks off, as in CI with `PostHog/setup-hog`. A notice goes out once the change deploys to PostHog Cloud, and once a self-hosted instance updates.
+- **The release manifest.** `hogli build:projections` writes the list to `release/notices.generated.json`, and every hog release copies that file into its manifest. hog reads the manifest only when update checks are on.
 
 | Who runs hog                | What they see, on stderr after the output                                                                                               |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| A person at a terminal      | `Warning: <message> Run \`brew upgrade hog\`. <url>`, or`Notice:` for an info notice                                                    |
+| A person at a terminal      | One line that starts with `Warning:`, or `Notice:` for an info notice, and ends with the update command and the link                    |
 | Agents, pipes and `-o json` | One JSON line: `{"notice":{"id","level","message","url","command"}}`                                                                    |
 | A GitHub Actions job        | The JSON line, plus a `::warning` or `::notice` annotation that shows on the run summary and the pull request. Agents get no annotation |
 
+```console
+$ hog config schema > schema.json
+Warning: hog 1 gets no more fixes after June 1, 2027. Move to hog 2. Run `brew upgrade hog`. https://posthog.com/docs/cli/migrating
+```
+
 - A `warning` shows on every command. An `info` notice shows at most once a day, because hog keeps the time it showed one in `~/.posthog/notices-shown.json`. A CI job starts without that file, so it sees an info notice on every run.
-- With `"upgrade": true`, the line adds the update command for that install, the same one `hog upgrade` names.
+- With `upgrade=True`, the line adds the update command for that install, the same one `hog upgrade` names.
 - hog turns control characters and bidirectional overrides into spaces, takes links only to `https://` pages on `posthog.com`, and skips a notice it can't read, such as one with a level a newer hog adds.
 - hog sends `cli notice shown` with the notice ID each time it shows one.
 
-To send a notice, add it to `release/notices.json`. The next release copies the list into its manifest, and every hog that reads the manifest acts on it within a day:
-
-```json
-{
-  "notices": [
-    {
-      "id": "hog-1-retiring",
-      "level": "warning",
-      "message": "hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
-      "url": "https://posthog.com/docs/cli/migrating",
-      "below": "2.0.0",
-      "until": "2027-06-01T00:00:00Z",
-      "upgrade": true
-    }
-  ]
-}
-```
-
-| Field           | Means                                                                    |
-| --------------- | ------------------------------------------------------------------------ |
-| `id`            | Lowercase letters, digits and dashes, unique in the file                 |
-| `level`         | `warning` for every command, `info` for once a day                       |
-| `message`       | Up to 300 characters                                                     |
-| `url`           | Optional. An `https://` page on `posthog.com`                            |
-| `from`, `below` | Optional. The versions it's for: `from` and up, and below `below`        |
-| `until`         | Optional. The notice stops showing at this time                          |
-| `installs`      | Optional. Only these install kinds, such as `["homebrew", "npm-global"]` |
-| `upgrade`       | Optional. Adds the update command for the install                        |
-
-`release/release.test.ts` fails a pull request whose `release/notices.json` a hog would skip, and the release stops on one too. To remove a notice, delete it from the file, or let `until` pass.
-
-To send a notice through the API, add a `CliNotice` to `CLI_NOTICES` in `posthog/cli_notices.py`. It reaches every hog that talks to PostHog Cloud once that deploys, and self-hosted instances once they update. The fields are the ones above, with `from` named `from_version`. A notice hog would skip fails at import, so its pull request fails CI:
+To send a notice, add it to `CLI_NOTICES` and run `hogli build:projections`:
 
 ```python
 CLI_NOTICES: tuple[CliNotice, ...] = (
@@ -112,7 +86,18 @@ CLI_NOTICES: tuple[CliNotice, ...] = (
 )
 ```
 
-Use the same `id` in both places, so a hog that gets the notice both ways shows it once.
+| Field                   | Means                                                                     |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `id`                    | Lowercase letters, digits and dashes, unique in the list                  |
+| `level`                 | `"warning"` for every command, `"info"` for once a day                    |
+| `message`               | Up to 300 printable characters                                            |
+| `url`                   | Optional. An `https://` page on `posthog.com`                             |
+| `from_version`, `below` | Optional. The versions it's for: `from_version` and up, and below `below` |
+| `until`                 | Optional. A time with a timezone, when the notice stops showing           |
+| `installs`              | Optional. Only these install kinds, such as `("homebrew", "npm-global")`  |
+| `upgrade`               | Optional. Adds the update command for the install                         |
+
+A notice hog would skip fails at import, so its pull request fails CI, and so does a stale `release/notices.generated.json`. `release/release.test.ts` checks the generated file with hog's own rules, and the release stops on a notice hog would skip. To remove a notice, delete it from `CLI_NOTICES`, or let `until` pass.
 
 ## Commands
 
@@ -597,7 +582,7 @@ A release takes two merges, the change and then the release pull request, and on
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
 - Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
-- To send a message to installed hogs, such as an end of support, add a notice to `release/notices.json`, as [Notices](#notices) describes.
+- To send a message to installed hogs, such as an end of support, add a notice to `CLI_NOTICES` in `posthog/cli_notices.py`, as [Notices](#notices) describes.
 - Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.0.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
 
 ```bash

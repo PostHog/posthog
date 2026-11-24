@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+import time_machine
 from unittest.mock import patch
 
 from django.http import HttpResponse
@@ -8,15 +9,8 @@ from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.cli_notices import (
-    CLI_NOTICE_HEADER,
-    CLI_NOTICES,
-    CliNotice,
-    CliNoticeMiddleware,
-    SemVer,
-    hog_version,
-    notices_for,
-)
+from posthog.cli_notices import CLI_NOTICE_HEADER, CliNotice, CliNoticeMiddleware, SemVer, hog_version, notices_for
+from posthog.cli_notices_projection import _load_notices_without_django, render
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
 RETIRING = CliNotice(
@@ -24,9 +18,23 @@ RETIRING = CliNotice(
     level="warning",
     message="hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
     url="https://posthog.com/docs/cli/migrating",
+    from_version="1.0.0",
     below="2.0.0",
+    until=datetime(2027, 6, 1, tzinfo=UTC),
+    installs=("homebrew", "npm-global"),
     upgrade=True,
 )
+RETIRING_ITEM = {
+    "id": "hog-1-retiring",
+    "level": "warning",
+    "message": "hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
+    "url": "https://posthog.com/docs/cli/migrating",
+    "from": "1.0.0",
+    "below": "2.0.0",
+    "until": "2027-06-01T00:00:00+00:00",
+    "installs": ["homebrew", "npm-global"],
+    "upgrade": True,
+}
 
 
 class TestCliNotices(SimpleTestCase):
@@ -88,10 +96,6 @@ class TestCliNotices(SimpleTestCase):
         with self.assertRaises(ValueError):
             CliNotice(**{"id": "notice", "level": "info", "message": "A notice.", **fields})
 
-    def test_every_configured_notice_is_unique(self) -> None:
-        ids = [notice.id for notice in CLI_NOTICES]
-        assert len(ids) == len(set(ids))
-
     @parameterized.expand(
         [
             ("hog_it_names", "hog/1.2.0", True),
@@ -104,20 +108,11 @@ class TestCliNotices(SimpleTestCase):
     ) -> None:
         request = RequestFactory().get("/api/projects/2/insights/", headers={"User-Agent": user_agent})
 
-        with patch("posthog.cli_notices.CLI_NOTICES", (RETIRING,)):
+        with patch("posthog.cli_notices.CLI_NOTICES", (RETIRING,)), time_machine.travel(NOW, tick=False):
             response = CliNoticeMiddleware(lambda _request: HttpResponse(status=401))(request)
 
         if expected:
-            assert json.loads(response[CLI_NOTICE_HEADER]) == [
-                {
-                    "id": "hog-1-retiring",
-                    "level": "warning",
-                    "message": "hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
-                    "url": "https://posthog.com/docs/cli/migrating",
-                    "below": "2.0.0",
-                    "upgrade": True,
-                }
-            ]
+            assert json.loads(response[CLI_NOTICE_HEADER]) == [RETIRING_ITEM]
         else:
             assert CLI_NOTICE_HEADER not in response
 
@@ -130,3 +125,19 @@ class TestCliNotices(SimpleTestCase):
 
         assert response[CLI_NOTICE_HEADER].isascii()
         assert json.loads(response[CLI_NOTICE_HEADER])[0]["message"] == "hog skills → hog api skills."
+
+    def test_generates_the_file_hog_releases_copy_from_the_same_list(self) -> None:
+        standalone = _load_notices_without_django()
+        notice = standalone.CliNotice(**{field: getattr(RETIRING, field) for field in CliNotice.__slots__})
+
+        with patch.object(standalone, "CLI_NOTICES", (notice,)):
+            output = render()
+
+        assert json.loads(output["hog/release/notices.generated.json"]) == {"notices": [RETIRING_ITEM]}
+
+    def test_refuses_to_generate_a_list_that_names_an_id_twice(self) -> None:
+        standalone = _load_notices_without_django()
+        notice = standalone.CliNotice(id="twice", level="info", message="A notice.")
+
+        with patch.object(standalone, "CLI_NOTICES", (notice, notice)), self.assertRaises(ValueError):
+            render()

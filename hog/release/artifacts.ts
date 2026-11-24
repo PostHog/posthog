@@ -143,16 +143,17 @@ end
 }
 
 // Stricter than what hog accepts from a manifest, which skips a notice it can't read: a notice in
-// release/notices.json that hog would skip stops the release instead.
+// release/notices.generated.json that hog would skip stops the release instead. CLI_NOTICES in
+// posthog/cli_notices.py is the source of that file.
 export function releaseNotices(file: unknown): Notice[] {
     const parsed = z.object({ notices: z.array(NoticeSchema) }).safeParse(file)
     if (!parsed.success) {
-        throw new Error(`release/notices.json is invalid: ${z.prettifyError(parsed.error)}`)
+        throw new Error(`release/notices.generated.json is invalid: ${z.prettifyError(parsed.error)}`)
     }
     const ids = parsed.data.notices.map((notice) => notice.id)
     const repeated = ids.find((id, index) => ids.indexOf(id) !== index)
     if (repeated) {
-        throw new Error(`release/notices.json names the notice ${repeated} twice.`)
+        throw new Error(`release/notices.generated.json names the notice ${repeated} twice.`)
     }
     return parsed.data.notices
 }
