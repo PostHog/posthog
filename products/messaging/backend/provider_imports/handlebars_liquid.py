@@ -101,7 +101,7 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
-    # Prints the variable's HTML. Such a value only fits page text.
+    # Prints HTML unescaped, so it's only valid in page text.
     raw: bool = False
     # Prints the tag itself when the app passes no value.
     stays_when_missing: bool = False

@@ -358,6 +358,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
             ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
             ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
+            ("url_encoded_braces", "dynamic", '<a href="%7B%7B%7Bunsubscribe%7D%7D%7D">Leave</a>'),
             ("url_encoded", "legacy", '<a href="%3C%25asm_group_unsubscribe_raw_url%25%3E">Leave</a>'),
             ("handlebars_in_a_legacy_template", "legacy", '<a href="{{{unsubscribe}}}">Leave</a>'),
             ("another_tag", "legacy", '<a href="<%unsubscribe%>">Leave</a>'),
@@ -369,10 +370,21 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
         assert "unsubscribe link didn't convert" in " ".join(converted.notes)
 
-    def test_a_working_unsubscribe_link_is_not_reported_lost(self) -> None:
-        html = '<!-- <%asm_group_unsubscribe_raw_url%> --><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>'
-
-        converted = convert_version({"html_content": html}, generation="legacy")
+    @parameterized.expand(
+        [
+            (
+                "in_a_comment_too",
+                "legacy",
+                '<!-- <%asm_group_unsubscribe_raw_url%> --><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>',
+            ),
+            ("a_value_the_app_passes", "legacy", '<a href="-unsubscribe_link-">Leave</a>'),
+            ("a_dynamic_value", "dynamic", '<a href="{{unsubscribe_link}}">Leave</a>'),
+            ("a_nested_dynamic_value", "dynamic", '<a href="{{links.unsubscribe}}">Leave</a>'),
+            ("a_markdown_link", "dynamic", "<p>[Unsubscribe](https://example.com/u)</p>"),
+        ]
+    )
+    def test_a_working_unsubscribe_link_is_not_reported_lost(self, _name: str, generation: str, html: str) -> None:
+        converted = convert_version({"html_content": html}, generation=generation)
 
         assert not any("link didn't convert" in note for note in converted.notes)
 

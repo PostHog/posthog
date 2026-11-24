@@ -100,7 +100,8 @@ class _Found:
 # A tag for an unsubscribe link that is still in the converted text, so it prints as it stands.
 _LEFT_UNSUBSCRIBE_TAG = re.compile(
     r"(?:<|&lt;|%3C)(?:%25|%)\s{0,5}\w{0,50}(?:unsubscribe|asm_preferences)"
-    r"|\{\{[^{}]{0,50}\bunsubscribe(?!_url)|\[\s{0,5}unsubscribe",
+    r"|(?:\{\{|%7B%7B)\s{0,5}(?:\{|%7B)?\s{0,5}unsubscribe(?:_preferences)?\s{0,5}(?:&nbsp;)?\s{0,5}(?:\}|%7D)"
+    r"|\[\s{0,5}unsubscribe\s{0,5}\](?!\()",
     re.IGNORECASE,
 )
 
@@ -468,7 +469,8 @@ def convert_version(
     if names := sorted({name for state in states for name in state.legacy_variables}):
         send_notes.append(
             f"SendGrid fills {', '.join(names)} when your app sends. Pass each one as a variable with that name. "
-            "PostHog prints HTML only from body, and shows other values as text."
+            "PostHog prints HTML only from body, and shows other values as text. A name between hyphens that your app "
+            "doesn't pass prints as written."
         )
     return ConvertedSendGridTemplate(
         subject=subject, html=html, text=text, notes=tuple(notes), send_notes=tuple(send_notes)
