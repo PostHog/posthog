@@ -14,7 +14,7 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
-The app builder requires `notebook-app-builder`. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
+The app builder requires `notebook-app-builder`. When the notebook API cannot resolve the flag locally, it checks the flag service and reuses the result for that user and project for 30 seconds. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
 
 Generated code reads approved dataframe snapshots through `ph.readFrame`. It has no direct notebook-variable API. To expose control values, create a one-row SQL dataframe, for example `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`, and ask the widget to read that frame alongside the analytical results. The analytical cells must use the same variables for filtering and calculations. Run these cells before generation so their schemas are available.
 

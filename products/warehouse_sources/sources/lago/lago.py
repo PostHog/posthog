@@ -14,8 +14,12 @@ record-creation timestamp, so they are unsafe to treat as an incremental cursor.
 can be layered on later for a specific endpoint once its server-side filter is verified against the
 live API.
 
-Charges and wallet transactions are only listed per parent (a plan, a wallet), so those tables fan
-out over a fresh listing of the parent on every sync.
+Activity logs are the exception: ``from_date`` filters them server-side on ``logged_at``, so that
+table can sync incrementally.
+
+Charges, plan entitlements, wallet transactions and the subscription usage reads are only listed per
+parent (a plan, a wallet, a subscription), so those tables fan out over a fresh listing of the parent
+on every sync.
 
 Pagination, retries, auth-header redaction, and the redirect / off-host SSRF guards are provided by
 the shared ``rest_source`` framework (page-number paginator, ``allowed_hosts`` host-pinning,
@@ -35,12 +39,14 @@ from products.warehouse_sources.sources.lago.settings import LAGO_ENDPOINTS, Lag
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
     _is_host_safe,
     build_dependent_resource,
+    format_datetime,
     make_tracked_session,
     rest_api_resource,
 )
@@ -87,11 +93,37 @@ def _host_of(base_url: str) -> str:
     return (urlparse(base_url).hostname or "").lower()
 
 
+def _encode(value: Any) -> str:
+    return quote(str(value if value is not None else ""), safe="")
+
+
 def _encode_plan_code(row: dict[str, Any]) -> dict[str, Any]:
-    return {**row, "_path_code": quote(str(row.get("code", "")), safe="")}
+    return {**row, "_path_code": _encode(row.get("code"))}
 
 
-_PARENT_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {"plans": _encode_plan_code}
+def _encode_subscription_refs(row: dict[str, Any]) -> dict[str, Any]:
+    # The customer usage reads need the customer id in the path and the subscription id as a query
+    # param, while a fan-out binds one parent value, so both go into one pre-encoded reference.
+    customer = _encode(row.get("external_customer_id"))
+    subscription = _encode(row.get("external_id"))
+    return {
+        **row,
+        "_path_external_id": subscription,
+        "_current_usage_ref": f"{customer}/current_usage?external_subscription_id={subscription}",
+        "_past_usage_ref": f"{customer}/past_usage?external_subscription_id={subscription}",
+    }
+
+
+_PARENT_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "plans": _encode_plan_code,
+    "subscriptions": _encode_subscription_refs,
+}
+
+
+def _paginator() -> PageNumberPaginator:
+    # `meta.total_pages` stops after the last page so no extra empty page is fetched.
+    # `stop_after_empty_page` (default) covers a 0-row / missing-key body.
+    return PageNumberPaginator(base_page=1, total_path="meta.total_pages")
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -174,9 +206,11 @@ def lago_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[LagoResumeConfig],
+    should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config: LagoEndpointConfig = LAGO_ENDPOINTS[endpoint]
+    incremental = should_use_incremental_field and bool(config.incremental_fields)
     base_url = normalize_base_url(api_url)
     host = _host_of(base_url)
 
@@ -192,9 +226,7 @@ def lago_source(
         # "same host as base_url only".
         "allowed_hosts": [],
         "allow_redirects": False,
-        # Page-number pagination; `meta.total_pages` stops after the last page so no extra empty
-        # page is fetched. `stop_after_empty_page` (default) covers a 0-row / missing-key body.
-        "paginator": PageNumberPaginator(base_page=1, total_path="meta.total_pages"),
+        "paginator": _paginator(),
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -202,6 +234,12 @@ def lago_source(
     resource: Iterable[Any]
     if config.fanout is not None:
         parent_config = LAGO_ENDPOINTS[config.fanout.parent_name]
+        # A child path that ends in its resolved value reads as a single entity unless the
+        # paginator is set explicitly.
+        child_endpoint_extra: Endpoint = {
+            "data_selector": config.data_key,
+            "paginator": _paginator() if config.paginated else "single_page",
+        }
 
         def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state:
@@ -218,22 +256,28 @@ def lago_source(
             db_incremental_field_last_value=None,
             page_size_param="per_page",
             parent_endpoint_extra={"data_selector": parent_config.data_key},
-            child_endpoint_extra={"data_selector": config.data_key},
+            child_endpoint_extra=child_endpoint_extra,
             parent_data_map=_PARENT_DATA_MAPS.get(config.fanout.parent_name),
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
         )
     else:
         endpoint_config: Endpoint = {"path": config.path, "data_selector": config.data_key}
+        params: dict[str, Any] = {}
         if config.paginated:
-            endpoint_config["params"] = {"per_page": config.page_size}
+            params["per_page"] = config.page_size
         else:
             endpoint_config["paginator"] = "single_page"
+        # Only filter once a watermark exists, so the first incremental sync reads the full history.
+        if incremental and config.incremental_start_param and db_incremental_field_last_value is not None:
+            params[config.incremental_start_param] = format_datetime(db_incremental_field_last_value, "iso_z")
+        if params:
+            endpoint_config["params"] = params
 
-        rest_config: RESTAPIConfig = {
-            "client": client_config,
-            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
-        }
+        resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
+        if incremental:
+            resource_config["write_disposition"] = {"disposition": "merge", "strategy": "upsert"}
+        rest_config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
             # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
@@ -262,9 +306,9 @@ def lago_source(
         name=endpoint,
         items=items,
         primary_keys=config.primary_keys,
-        # Full-refresh replace: Lago exposes no `sort` param and no incremental cursor, so there is
-        # no watermark to checkpoint. The default ascending mode is harmless here.
-        sort_mode="asc",
+        # Lago exposes no `sort` param. Full-refresh tables keep the harmless default; activity logs
+        # come newest first, so they declare no order.
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

@@ -2,6 +2,7 @@ from products.workflows.backend.facade.contracts import SandboxSenderUnavailable
 from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
 from products.workflows.backend.services.sandbox_email.conversion import (
     can_default_to_sandbox,
+    is_sensitive,
     own_only_settings,
     to_own_email_action,
     to_sandbox_action,
@@ -42,6 +43,7 @@ __all__ = [
     "deliverable_own_sender_ids",
     "has_sandbox_sender",
     "has_verified_own_sender",
+    "is_sensitive",
     "verified_own_sender_ids",
     "own_only_settings",
     "own_sender_verification",

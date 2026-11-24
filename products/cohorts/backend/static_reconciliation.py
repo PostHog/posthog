@@ -236,6 +236,7 @@ def _settled_static_cohorts(now: datetime) -> QuerySet[Cohort]:
         # reset_stuck_cohorts stamps last_error_at when it dispatches a population, which sets is_calculating only
         # once its task starts.
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=settled_before))
+        .exclude(team__organization__is_active=False)
     )
 
 

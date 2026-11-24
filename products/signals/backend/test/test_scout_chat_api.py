@@ -14,7 +14,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES, ScoutChatTaskCreateSerializer
 from products.signals.backend.scout_harness.suggestions import ScoutSuggestionItem, persist_suggestion_batch
-from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus  # tach-ignore
+from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.models import Task, TaskRun
 
 

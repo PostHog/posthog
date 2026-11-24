@@ -1,3 +1,4 @@
+import { PersonhogUnprocessablePersonError } from '~/common/personhog/persons'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { defaultRetryConfig, promiseRetry } from '~/common/utils/retries'
 import { InternalPerson } from '~/types'
@@ -27,7 +28,7 @@ export class PersonPropertyService {
             defaultRetryConfig.MAX_RETRIES_DEFAULT,
             defaultRetryConfig.RETRY_INTERVAL_DEFAULT,
             undefined,
-            [PersonPropertiesSizeViolationError]
+            [PersonPropertiesSizeViolationError, PersonhogUnprocessablePersonError]
         )
     }
 

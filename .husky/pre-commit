@@ -62,10 +62,9 @@ fi
 # the dev env on PATH, so the flox venv is the fallback. husky runs this file with `sh -e`, so each
 # command that can fail carries its own `||`.
 #
-# CI does not block while hoglint runs in shadow, so master can carry findings that the ledger
-# does not record yet, and every later commit sees them. So hoglint runs once, in the full view,
-# because the default view can cut the list short, and the script decides from the staged diff:
-# a finding blocks only on a line this commit adds or edits. stderr goes to its own file, so that
+# hoglint runs once, in the full view, because the default view can cut the list short, and the
+# script decides from the staged diff: a finding blocks only on a line this commit adds or edits,
+# and CI's `hoglint compare` judges the rest. stderr goes to its own file, so that
 # no stray line ends up inside the report the script reads. The script prints its `hoglint explain`
 # hints with the command the hook ran, because the venv fallback is not on PATH.
 hoglint_bin="$(command -v hoglint 2>/dev/null || true)"
