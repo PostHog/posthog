@@ -241,25 +241,36 @@ def _query_range(team: Team, data: dict[str, str], budget: Optional[BudgetSpec],
 async def _query_range_async(team_id: int, data: dict[str, str], cancelled: Optional[Event]) -> Any:
     if cancelled is not None and cancelled.is_set():
         raise asyncio.CancelledError
-    request_task = asyncio.current_task()
-    assert request_task is not None
 
-    async def cancel_on_disconnect() -> None:
+    async def request() -> Any:
+        async with snuffle_stream(team_id, "POST", "/loki/api/v1/query_range", data=data) as response:
+            return await _loki_data(response)
+
+    async def wait_for_disconnect() -> None:
         assert cancelled is not None
         while not cancelled.is_set():
             await asyncio.sleep(0.1)
-        request_task.cancel()
 
-    monitor = asyncio.create_task(cancel_on_disconnect()) if cancelled is not None else None
+    request_task = asyncio.create_task(request())
+    monitor = asyncio.create_task(wait_for_disconnect()) if cancelled is not None else None
+    tasks = {request_task}
+    if monitor is not None:
+        tasks.add(monitor)
     try:
-        # Async cancellation closes the socket even while waiting for headers or an incomplete body chunk.
-        async with asyncio.timeout(settings.SNUFFLE_APM_TIMEOUT_SECONDS):
-            async with snuffle_stream(team_id, "POST", "/loki/api/v1/query_range", data=data) as response:
-                return await _loki_data(response)
+        done, _ = await asyncio.wait(
+            tasks, timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS, return_when=asyncio.FIRST_COMPLETED
+        )
+        if request_task in done:
+            return request_task.result()
+        if monitor is not None and monitor in done:
+            raise asyncio.CancelledError
+        raise TimeoutError
     finally:
-        if monitor is not None:
-            monitor.cancel()
-            await asyncio.gather(monitor, return_exceptions=True)
+        # Only this supervisor cancels the HTTP task, so a disconnect cannot interrupt timeout cleanup.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _loki_data(response: httpx.Response) -> Any:
