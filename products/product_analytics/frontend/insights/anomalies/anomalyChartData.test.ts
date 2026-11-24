@@ -47,14 +47,13 @@ describe('anomalyChartData', () => {
         expect(data?.flaggedIndices).toEqual([1])
     })
 
-    it('labels only Mondays on a daily axis', () => {
-        const format = anomalyAxisTickFormatter('day', 'America/New_York')
+    it.each([
+        ['day', 'America/New_York', ['Nov 15', null, 'Nov 17']],
+        ['hour', 'UTC', ['Nov 15, 05:00', null, 'Nov 17, 05:00']],
+    ] as const)('labels only the first and last bucket of a %s axis', (interval, timezone, expected) => {
+        const labels = ['2026-11-15T00:00:00-05:00', '2026-11-16T00:00:00-05:00', '2026-11-17T00:00:00-05:00']
+        const format = anomalyAxisTickFormatter(interval, timezone, labels.length)
 
-        expect(
-            ['2026-11-15T00:00:00-05:00', '2026-11-16T00:00:00-05:00', '2026-11-17T00:00:00-05:00'].map((label) =>
-                format?.(label)
-            )
-        ).toEqual([null, 'Nov 16', null])
-        expect(anomalyAxisTickFormatter('hour', 'UTC')).toBeUndefined()
+        expect(labels.map((label, index) => format(label, index))).toEqual(expected)
     })
 })

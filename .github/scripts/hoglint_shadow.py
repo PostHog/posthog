@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
-"""Sort hoglint's new rows by the lines a change touches, while hoglint runs in shadow.
+"""Sort hoglint's new rows by the lines a change touches, for the hook and the CI step.
 
-In shadow CI does not block, so master can carry findings that the ledger does not record yet,
-and every later check reports them. A row belongs to a change only when its place is a line the
-change adds or edits, so the script reads the change's diff at zero context. It reads hoglint's
-full view (`--all`) from stdout alone, because the default view can cut the list short and
-stderr can hold lines that are not part of the report.
+A row belongs to a change only when its place is a line the change adds or edits, so the script
+reads the change's diff at zero context. It reads hoglint's full view (`--all`) from stdout alone,
+because the default view can cut the list short and stderr can hold lines that are not part of
+the report.
 
 An advisory row comes from a rule with `report = "advisory"` in the policy. It never blocks, in
-the hook or after the cutover, and the ledger does not record it, so hoglint prints every one of
-them in the full view, master's included. The script shows only the ones on changed lines.
+the hook or in CI, and the ledger does not record it, so hoglint prints every one of them in the
+full view, master's included. The script shows only the ones on changed lines.
 
 CI mode reads `hoglint compare --all` or `hoglint check --all`. It prints a warning annotation
 for each row on a line the pull request changes, and a notice annotation for each advisory row on
-such a line. The step summary splits what the pull request adds into the rows that block after
-the cutover and the rows that only report. It shows compare's own new findings, ledger lines and
-code growth in the group of their rule, the annotated rows, the other rows and the count of
-advisory rows. With `--base`, it also prints a notice on each changed file that goes away when
-hoglint replaces tach, import-linter and the crossings scanner. It always exits 0.
+such a line. The step summary splits what the pull request adds into the rows that block and the
+rows that only report. It shows compare's own new findings, ledger lines and code growth in the
+group of their rule, the annotated rows, the other rows and the count of advisory rows. It always
+exits 0: hoglint's own exit decides the step.
 
 Hook mode (`--hook`) reads `hoglint check --index --all` and the staged diff, and prints what the
 developer reads instead of hoglint's output. It exits 1 to block the commit, and 0 otherwise.
@@ -28,7 +26,7 @@ hoglint then skips that check; the script then reads the staged ledger diff itse
 row on a staged line gets one line that says what to do, and never blocks. `--hoglint` names the
 command the hook ran, so that a `hoglint explain` hint is a command the developer can run.
 
-    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --until "<date>" [--base HEAD^1]
+    hoglint_shadow.py <stdout file> --stderr <file> --status <exit> [--base HEAD^1]
     hoglint_shadow.py <stdout file> --stderr <file> --status <exit> --hook [--hoglint <command>]
 """
 
@@ -77,6 +75,8 @@ FINDINGS_TITLE = "new findings ("
 ADVISORY_TITLE = "advisory rows ("
 UNKNOWNS_TITLE = "unknowns ("
 GUARD_START = "Fix each finding"
+# The lines of a finding that say why it matters and how to fix it.
+ADVICE_STARTS = ("why: ", "fix (", "needs a person: ")
 # What the full view prints before its problems: the verdict, other `hoglint:` lines and the
 # count per rule.
 SKIPPED_TITLES = ("hoglint: ", "New findings by rule:", GUARD_START)
@@ -101,12 +101,9 @@ POLICY_DIRS = ("tools/hoglint/",)
 EXCEPTIONS_FILE = "hoglint.exceptions.toml"
 # The CI step summary holds at most 1 MiB, so a long section shows its first rows and a count.
 SUMMARY_ROWS = 50
-OLD_TOOL_FILES = ("tach.toml", "products/model_crossing_uses_baseline.txt", "products/isolation_baseline.txt")
-# pyproject.toml stays, so only an edit in its import-linter table goes away.
-IMPORT_LINTER_WORDS = ("ignore_imports", "importlinter")
 
 BLOCK_LINE = "hoglint blocks findings on the lines this commit changes. Fix them, or run `hoglint explain {rule}`."
-REST_LINE = "{count} not on lines this commit changes; CI and the ledger catch-up judge them."
+REST_LINE = "{count} not on lines this commit changes; CI judges them."
 LEDGER_LINE = (
     f"hoglint blocks new lines in {LEDGER_FILE} when the commit also changes other files. "
     "Commit the ledger lines alone, so that a person reviews them."
@@ -159,6 +156,9 @@ class Row:
 
     def is_full(self) -> bool:
         return any(line.lstrip().startswith("see: ") for line in self.lines)
+
+    def advice(self) -> list[str]:
+        return [line.strip() for line in self.lines if line.strip().startswith(ADVICE_STARTS)]
 
 
 @dataclass(frozen=False)
@@ -570,12 +570,12 @@ class ShadowReport:
     row on a changed line is a warning, and an advisory row on a changed line is a notice, because
     it never blocks."""
 
-    def __init__(self, output: str, stderr: str, status: int, until: str, changed: ChangedLines) -> None:
+    def __init__(self, output: str, stderr: str, status: int, changed: ChangedLines, base: str | None = None) -> None:
         self.view = FullView(output)
         self.stderr = stderr
         self.status = status
-        self.until = until
         self.changed = changed
+        self.base = base
 
     def own_rows(self) -> list[Row]:
         return [row for row in self.view.rows() if self.changed.covers(row)]
@@ -587,7 +587,11 @@ class ShadowReport:
         return [row for row in self.view.advisory_rows() if self.changed.covers(row)]
 
     def annotations(self) -> list[str]:
-        out = [annotation("warning", row, f"hoglint {row.rule} (shadow)", row.message) for row in self.own_rows()]
+        # A blocking row carries hoglint's why and fixes, because the diff is where the author reads it.
+        out = [
+            annotation("warning", row, f"hoglint {row.rule}", "\n".join([row.message, *row.advice()]))
+            for row in self.own_rows()
+        ]
         for row in self.own_advisory_rows():
             message = f"{row.message}. Does not block. {advice(row)}"
             out.append(annotation("notice", row, f"hoglint {row.rule} (advisory)", message))
@@ -614,20 +618,36 @@ class ShadowReport:
         first = " ".join(lines[:2]) if len(lines) > 1 and lines[0].endswith(":") else (lines or ["no output"])[0]
         return f"hoglint did not run (exit {self.status}): {first}"
 
-    def summary(self) -> str:
-        intro = f"hoglint runs in shadow until {self.until}. It does not block yet."
+    def intro(self, blocks: bool) -> str:
+        """What hoglint's exit means for this check. A non-zero exit with no row in the blocking
+        section comes from a line elsewhere in the log, such as a stale ledger line or a failed
+        level claim."""
+        command = f"hoglint compare --base {self.base}" if self.base else "hoglint check"
+        exited = f"`{command}` exited {self.status}"
+        if self.status == 0:
+            return f"{exited}: nothing blocks."
         if not self.view.is_report():
-            return "\n".join([intro, "", *fenced([self.did_not_run()]), ""])
+            return f"{exited}."
+        if blocks:
+            return f"{exited}. It fails this check on the rows under **From this PR: blocks**."
+        return (
+            f"{exited}, and no row under **From this PR: blocks** explains it. "
+            "Look in the log for a stale ledger line, a failed level claim or a new unknown."
+        )
+
+    def summary(self) -> str:
+        if not self.view.is_report():
+            return "\n".join([self.intro(blocks=False), "", *fenced([self.did_not_run()]), ""])
+        compare = self.compare_sections(advisory=False)
+        own = self.own_rows()
         parts = [
-            intro,
+            self.intro(blocks=bool(compare or own)),
             "",
             "**From this PR: blocks**",
             "",
-            f"From {self.until} on, hoglint blocks the rows in this section.",
+            "hoglint blocks the rows in this section.",
             "",
         ]
-        compare = self.compare_sections(advisory=False)
-        own = self.own_rows()
         if compare:
             parts += [*fenced(compare), ""]
         if own:
@@ -670,26 +690,6 @@ def first_rows(rows: list[str]) -> list[str]:
     return [*rows[:SUMMARY_ROWS], *more_rows(len(rows))]
 
 
-class OldToolEdits:
-    def __init__(self, changed_paths: list[str], pyproject_diff: str, until: str) -> None:
-        self.changed_paths = changed_paths
-        self.pyproject_diff = pyproject_diff
-        self.until = until
-
-    def paths(self) -> list[str]:
-        out = [path for path in self.changed_paths if path in OLD_TOOL_FILES]
-        if "pyproject.toml" in self.changed_paths and any(w in self.pyproject_diff for w in IMPORT_LINTER_WORDS):
-            out.append("pyproject.toml")
-        return out
-
-    def notices(self) -> list[str]:
-        message = (
-            f"This file goes away on {self.until}, when hoglint replaces tach, import-linter and the "
-            "crossings scanner. After that, drop this edit when you rebase; hoglint needs no line here."
-        )
-        return [f"::notice file={escape_property(path)}::{escape_data(message)}" for path in self.paths()]
-
-
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
@@ -730,7 +730,7 @@ def run_hook(args: argparse.Namespace) -> int:
 
 def report_findings(args: argparse.Namespace, changed: ChangedLines) -> None:
     output, stderr = read(args.output), read(args.stderr)
-    report = ShadowReport(output, stderr, args.status, args.until, changed)
+    report = ShadowReport(output, stderr, args.status, changed, args.base)
     print("::group::hoglint output")
     # hoglint prints the PR's paths as they are, and a path may hold a line break followed by a
     # workflow command, so the runner reads no command until the echo ends.
@@ -751,25 +751,16 @@ def report_findings(args: argparse.Namespace, changed: ChangedLines) -> None:
 
 
 def run_ci(args: argparse.Namespace) -> int:
-    changed: list[str] = []
     lines = ChangedLines()
     if args.base:
         try:
-            changed = git_names(args.base, "HEAD")
             lines = ChangedLines.of(git_diff(args.base, "HEAD"), git_names("--diff-filter=A", args.base, "HEAD"))
         except Exception as error:
             print(f"Could not read the changes of this pull request ({error}).")
     try:
         report_findings(args, lines)
     except Exception as error:
-        print(f"Could not read hoglint's output ({error}). hoglint runs in shadow, so this step passes.")
-    if changed:
-        try:
-            pyproject_diff = git_diff(args.base, "HEAD", "--", "pyproject.toml")
-            for notice in OldToolEdits(changed, pyproject_diff, args.until).notices():
-                print(notice)
-        except Exception as error:
-            print(f"Could not read the pyproject.toml diff ({error}).")
+        print(f"Could not read hoglint's output ({error}). hoglint's own exit decides this check.")
     return 0
 
 
@@ -780,7 +771,6 @@ def main() -> int:
     parser.add_argument("--status", type=int, default=1, help="hoglint's exit code")
     parser.add_argument("--hook", action="store_true", help="filter by the staged diff and exit 1 to block")
     parser.add_argument("--hoglint", default="hoglint", help="hook: the command that ran hoglint, for the hints")
-    parser.add_argument("--until", default="", help="CI: the day hoglint starts to block, as people read it")
     parser.add_argument("--base", help="CI: the pull request's base commit, to find the lines it changes")
     args = parser.parse_args()
     if not args.hook:

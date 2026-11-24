@@ -186,7 +186,10 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             return ast.PropertyAccess(
                 start=node.start,
                 end=node.end,
-                expr=ast.Field(chain=self._backing_column_chain(node, source_type, "properties")),
+                expr=ast.Field(
+                    chain=self._backing_column_chain(node, source_type, "properties"),
+                    type=ast.FieldType(name="properties", table_type=field_type.table_type),
+                ),
                 keys=[field_type.name],
                 type=ast.StringType(nullable=True),
             )
@@ -206,9 +209,9 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
                     name="arrayDistinct",
                     args=[ast.Call(name="extractAll", args=[source, ast.Constant(value=pattern)])],
                 )
-        if isinstance(field_type, ast.FieldType) and isinstance(table_type, ast.TableType):
-            database_field = field_type.resolve_database_field(self.context)
-            if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
+        if isinstance(node.type, ast.FieldType) and isinstance(table_type, ast.TableType):
+            database_field = node.type.resolve_database_field(self.context)
+            if isinstance(database_field, DatabaseField) and database_field.name != node.type.name:
                 lowered = super().visit_field(node)
                 if self.physical_names:
                     lowered.chain[-1] = database_field.name

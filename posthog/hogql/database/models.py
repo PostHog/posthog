@@ -563,6 +563,14 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def held_join_conjuncts(self, join: "JoinExpr") -> list[Any]:
+        """The conjuncts of the join's constraint that this table holds an unresolved copy of."""
+        return []
+
+    def take_join_filter(self, join: "JoinExpr") -> None:
+        """Removes the resolved predicates that this table already carries from the join's constraint."""
+        return None
+
 
 @dataclass(frozen=False)
 class LazyTableToAdd:
@@ -613,6 +621,11 @@ class FunctionCallTable(Table):
     requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class CTETable(Table):
+    def get_asterisk(self):
+        return {key: field_ for key, field_ in self.fields.items() if isinstance(field_, DatabaseField)}
 
 
 class DANGEROUS_NoTeamIdCheckTable(Table):

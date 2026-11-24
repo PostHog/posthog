@@ -49,7 +49,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
+import {
+    getModelPickerFooterActions,
+    ModelPicker,
+    parsePlaygroundProviderKeyId,
+    useAddKeyDisabledReason,
+} from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { AddKeyModal } from '../settings/AddKeyModal'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -558,6 +563,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
         providerKeysLoading,
     } = useValues(modelPickerLogic)
     const { loadPlaygroundModels } = useActions(modelPickerLogic)
+    const addKeyDisabledReason = useAddKeyDisabledReason()
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
     const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
@@ -590,7 +596,11 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 groups={groups}
                 loading={loading}
                 onOpen={() => posthog.capture('llma playground model picker opened', { is_byok: hasByokKeys, loading })}
-                footerActions={getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))}
+                footerActions={getModelPickerFooterActions(
+                    hasByokKeys,
+                    () => setNewKeyModalOpen(true),
+                    addKeyDisabledReason
+                )}
                 selectedModelName={selectedModel?.name}
                 data-attr={`llma-playground-model-selector-${promptId}`}
             />

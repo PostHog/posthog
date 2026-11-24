@@ -2,7 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -22,6 +24,7 @@ import {
     autoresearchRunsList,
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
+    autoresearchTrainCreate,
     autoresearchTrainingRunsList,
     autoresearchTrainingRunsStopCreate,
 } from './generated/api'
@@ -42,6 +45,7 @@ jest.mock('./generated/api', () => ({
     autoresearchScoreCreate: jest.fn(),
     autoresearchSuggestionsList: jest.fn(),
     autoresearchTrainingRunsStopCreate: jest.fn(),
+    autoresearchTrainCreate: jest.fn(),
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
@@ -51,6 +55,7 @@ const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
 const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
 const mockTrainingRunsStop = autoresearchTrainingRunsStopCreate as jest.Mock
+const mockTrainCreate = autoresearchTrainCreate as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -251,6 +256,53 @@ describe('autoresearchPipelineLogic', () => {
         } finally {
             logic.unmount()
             capture.mockRestore()
+        }
+    })
+
+    it.each([
+        [
+            'a refusal with a code',
+            new ApiError(undefined, 403, undefined, {
+                code: 'organization_deactivated',
+                detail: 'This organization is deactivated or pending deletion.',
+            }),
+            'This organization is deactivated or pending deletion.',
+            { error_code: 'organization_deactivated' },
+        ],
+        [
+            'a refusal with only an error message',
+            new ApiError(undefined, 429, undefined, { error: 'Try again tomorrow.' }),
+            'Try again tomorrow.',
+            {},
+        ],
+    ])('shows why training did not start after %s', async (_, error, reason, codeProperty) => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', status: 'draft' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainCreate.mockRejectedValue(error)
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.startTraining()).toDispatchActions(['startTrainingFailure'])
+
+            expect(toastError).toHaveBeenCalledWith(reason)
+            expect(capture).toHaveBeenCalledWith('autoresearch model action failed', {
+                action: 'train',
+                pipeline_id: 'pipeline-1',
+                status: error.status,
+                ...codeProperty,
+            })
+        } finally {
+            logic.unmount()
+            capture.mockRestore()
+            toastError.mockRestore()
         }
     })
 

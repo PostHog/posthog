@@ -386,8 +386,11 @@ export const SignalsConfigCreateBody = () => zod.object({
         ),
     default_autostart_priority: zod
         .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
         .optional()
-        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+        .describe(
+            'Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
     default_slack_notification_channel: zod
         .string()
         .max(signalsConfigCreateBodyDefaultSlackNotificationChannelMax)
@@ -644,6 +647,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
+        ),
+    pr_targets: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report."
         ),
     priority: zod
         .string()

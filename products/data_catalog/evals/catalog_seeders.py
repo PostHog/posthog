@@ -34,6 +34,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     CHURN_RISK_INJECTED_METRIC,
     CHURN_RISK_METRIC,
     CHURN_RISK_MISSING_SOURCE_METRIC,
+    CHURNED_ACCOUNTS_METRIC,
     DEALS_ACCOUNT_RELATIONSHIP_FIELD,
     DEALS_ACCOUNT_RELATIONSHIP_REASONING,
     DEALS_COLUMNS,
@@ -50,9 +51,11 @@ from products.data_catalog.evals.catalog_synthesizer import (
     LOCAL_AMOUNT_ROWS,
     LOCAL_AMOUNT_TABLE,
     MRR_METRIC,
+    NEW_SIGNUPS_METRIC,
     NEW_USER_DOWNLOAD_ADOPTION_METRIC,
     NOISE_METRICS,
     OPERATIONS_NOISE_METRICS,
+    PAGEVIEWS_BY_PAGE_METRIC,
     PAYING_CUSTOMERS_METRIC,
     POWER_DOWNLOADERS_METRIC,
     USD_AMOUNT_DESCRIPTION,
@@ -162,6 +165,35 @@ def seed_catalog_with_proposed_download_adoption(context: CustomPromptSandboxCon
 
 def seed_catalog_noise_only(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return _catalog(context)
+
+
+def seed_operations_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, noise=OPERATIONS_NOISE_METRICS)
+
+
+def seed_catalog_with_new_signups(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, NEW_SIGNUPS_METRIC)
+
+
+def seed_catalog_with_pageviews_by_page(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, PAGEVIEWS_BY_PAGE_METRIC)
+
+
+def seed_catalog_with_churned_accounts(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, CHURNED_ACCOUNTS_METRIC)
+
+
+def seed_catalog_with_paying_customers(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _require_paid_bills(context)
+    return _catalog(context, PAYING_CUSTOMERS_METRIC)
+
+
+def seed_catalog_for_account_spend(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, MRR_METRIC, ACCOUNT_ENGAGEMENT_METRIC)
+
+
+def seed_catalog_for_account_check_in(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, CHURN_RISK_METRIC, MRR_METRIC, ACCOUNT_ENGAGEMENT_METRIC)
 
 
 def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

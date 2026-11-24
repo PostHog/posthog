@@ -169,6 +169,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
 from products.signals.backend.personal_ranking.list_sort import (
@@ -2105,6 +2106,18 @@ _REPORT_LIST_PARAMETERS = [
         description="Only reports associated with this task (via the report's task associations).",
     ),
     OpenApiParameter(
+        name="pr_targets",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits "
+            "link to: its source report, the reports the task attached a pull request to, and its pipeline, "
+            "legacy and assignment associations. A report that the task only claimed is kept only when the "
+            "task has no other report."
+        ),
+    ),
+    OpenApiParameter(
         name="has_implementation_pr",
         type=OpenApiTypes.BOOL,
         location=OpenApiParameter.QUERY,
@@ -3008,16 +3021,23 @@ class SignalReportViewSet(
 
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
-        # working against?") and by the agent harness to fan commit artefacts out to them. Uses the
-        # unified association (task_run artefacts + legacy SignalReportTask); the team-scoped outer
-        # queryset keeps the result within the project.
+        # working against?"). Uses the unified association (task_run artefacts + legacy
+        # SignalReportTask); the team-scoped outer queryset keeps the result within the project.
+        # `pr_targets=true` narrows it to the reports the task's PRs link to. The agent harness uses
+        # it to write commit artefacts, so that a task which claims many reports does not put its
+        # commits on all of them.
+        pr_targets = self._bool_query_param("pr_targets")
         task_filter = self.request.query_params.get("task_id")
         if not task_filter:
+            if pr_targets:
+                raise serializers.ValidationError({"pr_targets": "Requires task_id."})
             return queryset
         try:
             task_uuid = uuid.UUID(task_filter.strip())
         except (ValueError, AttributeError) as e:
             raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
+        if pr_targets:
+            return queryset.filter(id__in=SignalReport.pr_target_report_ids_for_tasks(self.team.id, [task_uuid]))
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
@@ -3027,12 +3047,7 @@ class SignalReportViewSet(
             personal_threshold = (
                 SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
             )
-            project_threshold = (
-                SignalTeamConfig.objects.filter(team=self.team)
-                .values_list("default_autostart_priority", flat=True)
-                .first()
-                or AutonomyPriority.P4
-            )
+            project_threshold = effective_autostart_priority(SignalTeamConfig.objects.filter(team=self.team).first())
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
             return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
