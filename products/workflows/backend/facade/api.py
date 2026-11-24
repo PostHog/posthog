@@ -8,6 +8,7 @@ from django.db.models import F, Q, QuerySet
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import OrganizationMembership, Team, User
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
@@ -184,6 +185,15 @@ def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set
 
 def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
     """Whether the user is active, still in the team's organization, and may edit its workflows."""
+    return _can_edit(team_id, user_id, "hog_flow")
+
+
+def can_edit_media(*, team_id: int, user_id: int | None) -> bool:
+    """Whether the user is active, still in the team's organization, and may add to its media library."""
+    return _can_edit(team_id, user_id, "uploaded_media")
+
+
+def _can_edit(team_id: int, user_id: int | None, resource: APIScopeObject) -> bool:
     user = User.objects.filter(id=user_id, is_active=True).first() if user_id else None
     team = Team.objects.get(id=team_id)
     # Access rules alone don't say whether the person is still in the organization.
@@ -193,7 +203,7 @@ def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
     ):
         return False
     access = UserAccessControl(user=user, team=team)
-    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+    return access.has_project_access and access.check_access_level_for_resource(resource, "editor")
 
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:

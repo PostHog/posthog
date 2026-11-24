@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -37,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     PeopleImportPlan,
     StepCheckpoint,
 )
+from products.messaging.backend.provider_imports.images import TemplateImages
 from products.messaging.backend.provider_imports.metrics import IMPORT_CONTACTS, IMPORT_RUNS
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
@@ -63,6 +64,11 @@ PEOPLE_IMPORT_FAILED_MESSAGE = "Some contacts couldn't become people or join the
 PEOPLE_IMPORT_FAILED_CLASS = "PeopleImportFailed"
 # The class a failed step reports when nothing raised, because its workflow ended before the step finished.
 STEP_NOT_FINISHED_CLASS = "StepNotFinished"
+
+
+ImageAccess = Literal["copy", "no_access"]
+COPY_IMAGES: ImageAccess = "copy"
+NO_IMAGE_ACCESS: ImageAccess = "no_access"
 
 
 class ProviderImportAlreadyRunning(Exception):
@@ -98,8 +104,12 @@ def start_run(
     api_key: str | None,
     created_by_id: int | None,
     settings: Mapping[str, str] | None = None,
+    image_access: ImageAccess | None = None,
 ) -> ProviderImportRun:
     """Check the credentials, claim a queued run, store the credentials, and start the run's workflow.
+
+    `image_access` says whether the run may copy the images its emails show, which only the request knows. None copies
+    nothing and says nothing about images.
 
     Raises UnknownImportProvider, InvalidImportSteps, InvalidImportSettings, ProviderImportAlreadyRunning, the
     ImportCredentials* errors and ImportProviderUnavailable.
@@ -115,6 +125,9 @@ def start_run(
     credentials = provider.check_credentials(team_id, api_key, resolved_settings, ordered_steps)
     provider.check_step_access(team_id, credentials, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
+    if provider.image_source is not None and image_access is not None:
+        for step_progress in progress.values():
+            step_progress["images"] = image_access
     if provider.resumes_after_failure:
         _continue_failed_steps(team_id, provider.key, progress, resolved_settings, _key_id(credentials.api_key))
     try:
@@ -171,6 +184,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
         completed_steps=tuple(
             key for key in run.steps if run.progress.get(key, {}).get("status") == ImportStepStatus.COMPLETED.value
         ),
+        images=_template_images(provider, run, step),
     )
     try:
         _check_required_steps(provider, run, step)
@@ -199,6 +213,19 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
         except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
+
+
+def _template_images(provider: ImportProvider, run: ProviderImportRun, step: str) -> TemplateImages:
+    # A run an older release started has no image access stored, and copies nothing.
+    access = run.progress.get(step, {}).get("images")
+    if access is None or provider.image_source is None:
+        return TemplateImages()
+    return TemplateImages(
+        team_id=run.team_id,
+        user_id=run.created_by_id,
+        source=provider.image_source,
+        can_upload=access == COPY_IMAGES,
+    )
 
 
 def _check_creator_access(team_id: int, created_by_id: int | None) -> None:

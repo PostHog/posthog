@@ -18,6 +18,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 
 # Postgres takes at most 65,535 values in one query, so a large list is looked up and written in parts.
@@ -269,6 +270,12 @@ def import_categories(
         created=created,
         already_present=len(by_key) - created,
     )
+
+
+def taken_template_keys(team_id: int, keys: list[str]) -> set[str]:
+    """Keys an import leaves alone. A deleted template counts too: importing again must not bring it back."""
+    rows = MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True)
+    return {key for key in rows if key} | code_email_keys(team_id, keys)
 
 
 def code_email_keys(team_id: int, keys: Iterable[str]) -> set[str]:

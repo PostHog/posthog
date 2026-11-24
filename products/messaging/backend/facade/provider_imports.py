@@ -4,7 +4,7 @@ Each run executes in Temporal, so a long provider list does not hit the request 
 Customer.io import in `customerio.py` stays available next to it.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import field
 from datetime import datetime
 from typing import Any
@@ -36,6 +36,8 @@ PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in ProviderImportStatus.choices
 ]
 IMPORT_STEP_STATUS_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportStepStatus.choices]
+
+TEMPLATE_IMAGES_FLAG = "workflows-import-template-images"
 
 # Steps that write people and cohorts, so starting one needs the rights the people upload needs.
 CONTACT_STEPS = frozenset({"contacts", NEW_PEOPLE_STEP, "contact_properties"})
@@ -176,8 +178,21 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
 def _provider_enabled(provider: ImportProvider, team_uuid: str, organization_id: str) -> bool:
     if provider.feature_flag is None:
         return True
+    return _flag_enabled(provider.feature_flag, team_uuid, organization_id)
+
+
+def template_image_access(
+    team_uuid: str, organization_id: str, *, can_upload: Callable[[], bool]
+) -> runs.ImageAccess | None:
+    """Whether an import copies the images its emails show. None while that is off for the team."""
+    if not _flag_enabled(TEMPLATE_IMAGES_FLAG, team_uuid, organization_id):
+        return None
+    return runs.COPY_IMAGES if can_upload() else runs.NO_IMAGE_ACCESS
+
+
+def _flag_enabled(flag: str, team_uuid: str, organization_id: str) -> bool:
     return feature_enabled_or_false(
-        provider.feature_flag,
+        flag,
         team_uuid,
         groups={"organization": organization_id},
         group_properties={"organization": {"id": organization_id}},
@@ -192,15 +207,18 @@ def start_provider_import(
     api_key: str | None,
     created_by_id: int | None,
     settings: Mapping[str, str] | None = None,
+    image_access: runs.ImageAccess | None = None,
 ) -> ProviderImportRunState:
     """Check the credentials and start a background import of the selected steps.
+
+    `image_access` comes from `template_image_access`.
 
     Raises ProviderImportRejected for a request that can't work as sent, ProviderImportConflict when an import is
     already running or a different key is stored, and ProviderImportUnavailable when the provider can't check the
     key.
     """
     try:
-        run = runs.start_run(team_id, provider, steps, api_key, created_by_id, settings)
+        run = runs.start_run(team_id, provider, steps, api_key, created_by_id, settings, image_access)
     except (
         UnknownImportProvider,
         runs.InvalidImportSteps,

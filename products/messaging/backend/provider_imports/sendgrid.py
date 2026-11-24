@@ -23,7 +23,6 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.models.message_suppression import SuppressionSource
-from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -48,10 +47,10 @@ from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
     carry_opt_outs,
-    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
+    taken_template_keys,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.sendgrid_client import (
@@ -65,6 +64,7 @@ from products.messaging.backend.services.sendgrid_client import (
     SendGridScopeMissing,
     connect,
 )
+from products.workflows.backend.facade.contracts import EmailImageSource
 
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
 MISSING_KEY_MESSAGE = "Enter your SendGrid API key. PostHog doesn't keep it between imports."
@@ -118,6 +118,12 @@ class SendGridImportProvider(ImportProvider):
     retains_credentials = False
     resumes_after_failure = True
     feature_flag = "workflows-sendgrid-import"
+    image_source = EmailImageSource(
+        key="sendgrid",
+        label="SendGrid",
+        # The second one served images before SendGrid moved to the first, and older templates still name it.
+        hosts=("cdn.mcauto-images-production.sendgrid.net", "marketing-image-production.s3.amazonaws.com"),
+    )
     api_key_label = "SendGrid API key"
     api_key_help = (
         "Create a key with restricted access and read access to what you're importing. Each step lists what it needs. "
@@ -636,6 +642,7 @@ def _fetch_templates(
     pages = client.token_pages("/v3/templates", _page_token(resume), TEMPLATE_PAGE_SIZE, generations="legacy,dynamic")
     for page in pages:
         templates = [(template, _read_active_version(client, template)) for template in page.data]
+        _copy_images(context, {str(template.get("id")): version or {} for template, version in templates})
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_templates, context, templates),
@@ -663,7 +670,7 @@ def _chosen_version(template: dict[str, Any]) -> dict[str, Any] | None:
 
 def _save_templates(context: ImportContext, templates: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> SavedPage:
     # A deleted template counts too: importing again must not bring back one someone deleted.
-    taken = _taken_keys(context.team_id, [str(template.get("id")) for template, _ in templates])
+    taken = taken_template_keys(context.team_id, [str(template.get("id")) for template, _ in templates])
     counts: Counter[str] = Counter()
     items: list[ImportItem] = []
     for template, version in templates:
@@ -727,11 +734,6 @@ def _sample_data_line(version: dict[str, Any]) -> str:
     return f"Test data from SendGrid: {text}"
 
 
-def _taken_keys(team_id: int, keys: list[str]) -> set[str]:
-    rows = MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True)
-    return {key for key in rows if key} | code_email_keys(team_id, keys)
-
-
 def _create(
     context: ImportContext,
     key: str,
@@ -744,7 +746,9 @@ def _create(
     category_id: str | None = None,
     reply_to: str = "",
 ) -> ImportItem:
-    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
+    placed = context.images.place(converted.html)
+    notes = (*notes, *placed.notes)
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": placed.html})
     if converted.text:
         email["text"] = converted.text
     if sender:
@@ -772,6 +776,7 @@ def _fetch_designs(
     for page in client.token_pages("/v3/designs", _page_token(resume), 100):
         read = [_read_unless_deleted(client, f"/v3/designs/{design['id']}") for design in page.data if design.get("id")]
         designs = [design for design in read if design]
+        _copy_images(context, {_design_key(design): design for design in designs})
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_designs, context, designs),
@@ -780,8 +785,8 @@ def _fetch_designs(
 
 
 def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> SavedPage:
-    keys = {str(design["id"]): f"sendgrid-design-{design['id']}"[:400] for design in designs}
-    taken = _taken_keys(context.team_id, list(keys.values()))
+    keys = {str(design["id"]): _design_key(design) for design in designs}
+    taken = taken_template_keys(context.team_id, list(keys.values()))
     counts: Counter[str] = Counter()
     items: list[ImportItem] = []
     for design in designs:
@@ -825,6 +830,13 @@ def _fetch_single_sends(
             if senders is None and isinstance(config.get("sender_id"), int):
                 senders = _all_verified_senders(client)
             details.append((single_send, design))
+        _copy_images(
+            context,
+            {
+                _single_send_key(single_send): _single_send_content(single_send, design)
+                for single_send, design in details
+            },
+        )
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_single_sends, context, details, dict(senders or {})),
@@ -856,8 +868,8 @@ def _save_single_sends(
     details: list[tuple[dict[str, Any], dict[str, Any] | None]],
     senders: Mapping[int, dict[str, Any] | None],
 ) -> SavedPage:
-    keys = {str(single_send["id"]): f"sendgrid-singlesend-{single_send['id']}"[:400] for single_send, _ in details}
-    taken = _taken_keys(context.team_id, list(keys.values()))
+    keys = {str(single_send["id"]): _single_send_key(single_send) for single_send, _ in details}
+    taken = taken_template_keys(context.team_id, list(keys.values()))
     posthog_senders = _senders(context.team_id)
     counts: Counter[str] = Counter()
     items: list[ImportItem] = []
@@ -877,8 +889,7 @@ def _save_single_sends(
             )
             continue
         config = single_send.get("email_config") or {}
-        version = {**config, **{k: v for k, v in (design or {}).items() if v not in (None, "")}}
-        converted = convert_version(version, contact_fields=True)
+        converted = convert_version(_single_send_content(single_send, design), contact_fields=True)
         sender, sender_notes = _single_send_sender(config, senders, posthog_senders)
         category_id, group_notes = _single_send_category(context.team_id, config)
         notes = (
@@ -903,6 +914,27 @@ def _save_single_sends(
             )
         )
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
+def _design_key(design: dict[str, Any]) -> str:
+    return f"sendgrid-design-{design['id']}"[:400]
+
+
+def _single_send_key(single_send: dict[str, Any]) -> str:
+    return f"sendgrid-singlesend-{single_send['id']}"[:400]
+
+
+def _single_send_content(single_send: dict[str, Any], design: dict[str, Any] | None) -> dict[str, Any]:
+    config = single_send.get("email_config") or {}
+    return {**config, **{k: v for k, v in (design or {}).items() if v not in (None, "")}}
+
+
+def _copy_images(context: ImportContext, versions: Mapping[str, dict[str, Any]]) -> None:
+    if not context.images.enabled:
+        return
+    taken = taken_template_keys(context.team_id, list(versions))
+    bodies = [version.get("html_content") for key, version in versions.items() if key not in taken]
+    context.images.copy(body for body in bodies if isinstance(body, str))
 
 
 def _single_send_notes(single_send: dict[str, Any]) -> tuple[str, ...]:

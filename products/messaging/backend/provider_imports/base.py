@@ -12,6 +12,9 @@ from typing import ClassVar, Literal
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.provider_imports.images import TemplateImages
+from products.workflows.backend.facade.contracts import EmailImageSource
+
 # Where a step continues after a page. Each step defines its own keys. The values are JSON-safe because the
 # checkpoint is stored in the run's `progress`.
 StepCheckpoint = dict[str, str | int]
@@ -104,6 +107,7 @@ class ImportContext:
     run_id: str = ""
     settings: Mapping[str, str] = field(default_factory=dict)
     completed_steps: tuple[str, ...] = ()
+    images: TemplateImages = field(default_factory=TemplateImages)
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -179,6 +183,8 @@ class ImportProvider(ABC):
     # What the person does once the import has finished, in order.
     next_steps: ClassVar[tuple[str, ...]] = ()
     settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
+    # Where the tool hosts images uploaded to it. None for a tool whose emails only show images hosted elsewhere.
+    image_source: ClassVar[EmailImageSource | None] = None
 
     @abstractmethod
     def check_credentials(
