@@ -11,7 +11,6 @@ from unittest.mock import patch
 from django.db import close_old_connections, connection
 from django.test.utils import CaptureQueriesContext
 
-from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -486,6 +485,6 @@ def test_the_cleanup_activity_heartbeats_through_the_event_loop() -> None:
     environment = ActivityEnvironment()
     environment.on_heartbeat = record_heartbeat_like_a_worker
     with patch.object(cleanup_module, "_cleanup", side_effect=sweep_that_heartbeats):
-        async_to_sync(environment.run)(cleanup_check_runs_activity)
+        asyncio.run(environment.run(cleanup_check_runs_activity))
 
     assert len(heartbeats) == 1
