@@ -686,15 +686,16 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
 
         with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
-            sweep_workflow_email_health(now=self.now)
+            applied = sweep_workflow_email_health(now=self.now)
 
+        assert applied == []
         assert REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) == counted_before + 2
-        assert {
+        assert sorted(
             log["hog_flow_id"]
             for log in logs
             if log["event"] == "would_pause_workflow_email_sending"
             and all(log.get(label) == value for label, value in labels.items())
-        } == {str(self.flow.id), str(sibling.id)}
+        ) == sorted([str(self.flow.id), str(sibling.id)])
         assert [
             (log["signal"], log["window"], log["scope"])
             for log in logs
