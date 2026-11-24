@@ -457,6 +457,33 @@ class TestCustomerioCampaignTranslation(BaseTest):
 
     @parameterized.expand(
         [
+            ("checked on the trigger", "transactional", None),
+            ("checked once in the audience step", "seg_attr", ["country", "false"]),
+        ]
+    )
+    def test_people_who_stop_matching_the_entry_filter_get_no_more_messages(
+        self, _name: str, kind: str, audience: list[str] | None
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "type": kind,
+            "filters": _encode([{"type": "attribute", "field": "country", "operator": "eq", "value": "DE"}]),
+            "exit_on_trigger_or_filter_not_matched": True,
+            "exit_on_conversion_matched": False,
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=source.actions, templates=source.templates), _OPTIONS
+        ).workflow
+
+        assert workflow["exit_condition"] == "exit_on_trigger_not_matched"
+        steps = {action["id"]: action for action in workflow["actions"]}
+        gate = steps.get("cio_audience")
+        found = gate["config"]["conditions"][0]["filters"]["properties"] if gate else None
+        assert (found and [item["key"] for item in found]) == audience
+
+    @parameterized.expand(
+        [
             ("a person update on the path", [("1", "10"), ("10", "9")], True),
             ("a person update no path reaches", [("1", "9")], False),
         ]
