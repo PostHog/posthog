@@ -19,7 +19,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -173,11 +173,15 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = structlog.get_logger(__name__)
 
 
-def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
-    # The experiment serializers import this module, so a module-level import of them would be circular.
-    from products.experiments.backend.presentation.serializers import ExperimentToSavedMetricSerializer  # noqa: PLC0415
+class _SavedMetricLinkWriteSerializer(serializers.ModelSerializer):
+    # Checks that both ids exist and that the metadata is not null, and answers a 400 when they fail.
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = ["experiment", "saved_metric", "metadata"]
 
-    serializer = ExperimentToSavedMetricSerializer(
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    serializer = _SavedMetricLinkWriteSerializer(
         data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
         context=context,
     )
