@@ -404,7 +404,16 @@ async def _sources_with_key_column_for_empty_read(
     delta = await asyncio.to_thread(_open_delta_batches, uri, delta_storage_options(), sources)
     if not delta.table_exists:
         return frozenset()
-    return frozenset(str(source.source_id) for source in sources) - delta.sources_missing_key_column
+    sources_with_key_column = frozenset(str(source.source_id) for source in sources) - delta.sources_missing_key_column
+    # No staged files is a genuine zero-row read only when the table is empty too. Otherwise the files
+    # are gone for another reason, such as a retry after an earlier attempt finished and cleared them.
+    if sources_with_key_column and await asyncio.to_thread(_table_has_rows, delta):
+        return frozenset()
+    return sources_with_key_column
+
+
+def _table_has_rows(delta: "_DeltaBatches") -> bool:
+    return any(batch.num_rows for batch in delta.open_batches(delta.columns))
 
 
 def _merge_snapshot_file(file: Any, hashes: dict[str, str]) -> None:

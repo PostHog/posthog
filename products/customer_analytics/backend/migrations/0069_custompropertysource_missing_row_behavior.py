@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("customer_analytics", "0067_membership_cleanup")]
+    dependencies = [("customer_analytics", "0068_team_config_role_default_pinned_properties")]
 
     operations = [
         migrations.AddField(

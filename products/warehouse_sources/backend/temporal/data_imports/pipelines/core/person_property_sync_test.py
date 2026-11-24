@@ -289,6 +289,65 @@ class TestRunOrchestration:
             assert all(call.kwargs["unset_properties"] == ["plan_tier"] for call in produce.call_args_list)
         assert snapshot == {key: value for key, value in prior.items() if key not in expected_removed_ids}
 
+    @parameterized.expand(
+        [
+            ("table_missing", False, ("distinct_id", "plan"), [], False),
+            ("key_column_missing", True, ("plan",), [], False),
+            ("table_still_has_rows", True, ("distinct_id", "plan"), [[{"distinct_id": "a", "plan": "pro"}]], False),
+            ("table_empty", True, ("distinct_id", "plan"), [], True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_an_empty_staged_read_is_a_zero_row_read_only_for_an_empty_table(
+        self, _name: str, is_deltatable: bool, columns: tuple[str, ...], batches: list, expected_confirmed: bool
+    ) -> None:
+        source = PersonPropertySyncSource(
+            "source-1", "def-1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True
+        )
+        with (
+            _delta_table_patch(batches, columns=columns) as dt_cls,
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+        ):
+            dt_cls.is_deltatable.return_value = is_deltatable
+            confirmed = await pps._sources_with_key_column_for_empty_read(1, _SCHEMA, [source])
+
+        assert confirmed == (frozenset({"source-1"}) if expected_confirmed else frozenset())
+
+    @parameterized.expand([("staged_listing_fails", True), ("table_unreadable", False)])
+    @pytest.mark.asyncio
+    async def test_a_failed_read_removes_nothing_instead_of_looking_like_zero_rows(
+        self, _name: str, listing_fails: bool
+    ) -> None:
+        source = PersonPropertySyncSource(
+            "source-1", "def-1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True
+        )
+        prior = {"left": pps.bundle_hash({"plan_tier": "free"})}
+        fake = _FakeS3()
+        with _fake_s3_patch(fake), _person_directory({"left": 1}):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "source-1", "earlier-job", prior)
+            with (
+                patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+                patch(f"{_MODULE}.Team") as team_cls,
+                patch.object(fake, "_ls", new=_ls_denied_for_staged_files(fake))
+                if listing_fails
+                else contextlib.nullcontext(),
+                patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+                patch(f"{_MODULE}.delta_storage_options", return_value={}),
+                _delta_table_patch([]) if listing_fails else patch("deltalake.DeltaTable", side_effect=OSError("x")),
+                patch(f"{_MODULE}._produce_intents") as produce,
+                patch(f"{_MODULE}._reconcile_property_definitions"),
+            ):
+                team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+                with pytest.raises((PermissionError, OSError)):
+                    await pps.run_person_property_sync(
+                        team_id=1, binding=_SCHEMA, job_id="job-1", complete_table_read=True
+                    )
+            snapshot = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
+
+        produce.assert_not_called()
+        assert snapshot == prior
+
     @pytest.mark.asyncio
     async def test_a_person_whose_distinct_ids_were_cut_short_is_kept(self) -> None:
         owned = {f"id-{index}": 1 for index in range(3)}
@@ -862,6 +921,27 @@ class TestBackfillOrchestration:
         dt_cls.is_deltatable.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_table_whose_first_sync_has_not_landed_completes_with_zero_rows(self):
+        sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}, remove_when_missing=True)]
+        with (
+            _fake_s3_patch(_FakeS3()),
+            _delta_table_patch([]) as dt_cls,
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}._produce_intents") as produce,
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            dt_cls.is_deltatable.return_value = False
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
+
+        (ps,) = result.per_source
+        assert (ps.rows_read, ps.produced, ps.error) == (0, 0, None)
+        produce.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_view_binding_reads_the_model_table_uri(self):
         # A view's rows live under its own model prefix. Reading the schema path instead would find no
         # Delta log and report a silent 0-row backfill.
@@ -986,6 +1066,18 @@ def _delta_table_patch(batches, columns=("distinct_id", "plan"), key_pass_batche
         dataset.schema.names = list(columns)
         dataset.to_batches.side_effect = _to_batches
         yield dt_cls
+
+
+def _ls_denied_for_staged_files(fake):
+    staged_prefix = pps._s3_key(pps.job_staged_prefix(1, _SCHEMA, "job-1"))
+    listing = fake._ls
+
+    async def _ls(path, detail=True):
+        if pps._s3_key(path).startswith(staged_prefix):
+            raise PermissionError("denied")
+        return await listing(path, detail=detail)
+
+    return _ls
 
 
 def _stage(fake, name, rows, job_id="job-1"):
