@@ -683,6 +683,25 @@ const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ 
     })
 ).flat()
 
+// Answered checks per engine and topic. One engine has no answer about experiments, and no engine has one about
+// surveys, so the grid shows empty cells next to a rate of zero.
+const OVERVIEW_ENGINE_TOPICS: [engine: string, topic: string, answers: number, mentioned: number][] = [
+    ['claude-web-search', '', 20, 6],
+    ['claude-web-search', 'Experiments', 180, 104],
+    ['claude-web-search', 'Feature flags', 170, 140],
+    ['claude-web-search', 'Product analytics', 320, 283],
+    ['claude-web-search', 'Session replay', 200, 90],
+    ['exa-answer', '', 20, 0],
+    ['exa-answer', 'Feature flags', 130, 49],
+    ['exa-answer', 'Product analytics', 250, 151],
+    ['exa-answer', 'Session replay', 300, 80],
+    ['openai-web-search', '', 20, 6],
+    ['openai-web-search', 'Experiments', 170, 36],
+    ['openai-web-search', 'Feature flags', 170, 140],
+    ['openai-web-search', 'Product analytics', 310, 270],
+    ['openai-web-search', 'Session replay', 200, 121],
+]
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -744,6 +763,13 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
         },
     ],
+    engine_topics: OVERVIEW_ENGINE_TOPICS.map(([engine, topic, answers, mentioned]) => ({
+        engine,
+        topic,
+        answers,
+        mentioned,
+        mention_rate: mentioned / answers,
+    })),
     top_domains: [
         { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
         { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
