@@ -1068,6 +1068,18 @@ class TestAddSources(DestinationAPITestBase):
             self.destination.id
         ]
 
+    def test_a_source_whose_table_keeps_history_needs_the_posthog_warehouse(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True}
+        self.schema.save()
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["attached"] == []
+        assert "PostHog warehouse" in response.json()["skipped"][0]["reason"]
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=self.source).exists()
+
     def test_already_attached_source_is_skipped_without_duplicate(self) -> None:
         ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
             team_id=self.team.pk, source=self.source, destination=self.destination
