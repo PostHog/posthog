@@ -1490,7 +1490,7 @@ describe('runner through seed, drive and judge', () => {
     }, 30_000)
 
     it('ends a run invalid when Postgres refuses two checks in a row, and keeps the refusal in its evidence', async () => {
-        const refused = { name: 'postgres', reason: 'connect ECONNREFUSED 127.0.0.1:5432', timedOut: false }
+        const refused = { name: 'postgres', reason: 'connect ECONNREFUSED 127.0.0.1:5432', unanswered: false }
         const result = await createRunner(
             { ...environmentOf('all'), dependencyHealth: () => Promise.resolve({ healthy: false, down: [refused] }) },
             env

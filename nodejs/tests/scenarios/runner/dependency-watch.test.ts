@@ -1,6 +1,5 @@
 import http from 'http'
 import net, { AddressInfo } from 'net'
-import { setTimeout as sleep } from 'timers/promises'
 
 import { defaultConfig } from '~/common/config/config'
 
@@ -18,14 +17,37 @@ const busyFor = (ms: number): void => {
     while (performance.now() < until) {}
 }
 
+const listening = async (server: net.Server): Promise<number> => {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    return (server.address() as AddressInfo).port
+}
+
+const missingDatabase = (): string => {
+    const url = new URL(POSTGRES)
+    url.pathname = '/scenario_dependency_watch_missing'
+    return url.toString()
+}
+
 describe('dependency watch', () => {
     let edge: ProviderEdge
+    let silentPort: number
+    let unavailableUrl: string
+    const sockets: net.Socket[] = []
+    const silent = net.createServer((socket) => sockets.push(socket))
+    const unavailable = http.createServer((_request, response) => response.writeHead(503).end())
 
     beforeAll(async () => {
         edge = await startProviderEdge({ port: 0, trackingKeys: 'scenario-tracking-key' })
+        silentPort = await listening(silent)
+        unavailableUrl = `http://127.0.0.1:${await listening(unavailable)}`
     })
 
-    afterAll(() => edge.close())
+    afterAll(async () => {
+        sockets.forEach((socket) => socket.destroy())
+        silent.close()
+        unavailable.close()
+        await edge.close()
+    })
 
     const edgeAndPostgres = (postgresUrl: string): Probes => {
         const { 'provider-edge': providerEdge, postgres } = dependencyProbes(edge.url, postgresUrl, VALKEY)
@@ -63,35 +85,38 @@ describe('dependency watch', () => {
         )
     })
 
-    it('names a harness limit when a busy check runs out its budget with an error that is no answer', async () => {
-        const closedAfterItsTimeout = (): Promise<unknown> =>
-            sleep(2100).then(() => Promise.reject(new Error('Connection is closed.')))
+    it('names a harness limit when a busy Redis check runs out its budget without an answer', async () => {
+        const silentValkey = dependencyProbes(edge.url, POSTGRES, { host: '127.0.0.1', port: silentPort })[
+            'ses-rate-limiter-valkey'
+        ]
 
-        const { losses } = await watched({ redis: closedAfterItsTimeout }, RUNNER_BLOCKS_MS)
+        const { losses } = await watched({ 'ses-rate-limiter-valkey': silentValkey }, RUNNER_BLOCKS_MS)
 
-        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['redis unheard'])
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['ses-rate-limiter-valkey unheard'])
     }, 30_000)
 
-    it('names a refused dependency gone when the busy runner hears the refusal past the 2-second check budget', async () => {
-        const { postgres } = edgeAndPostgres(UNREACHABLE_POSTGRES)
-        const heardLate = (): Promise<unknown> => {
-            busyFor(1500)
-            const refused = postgres()
-            busyFor(1000)
-            return refused
-        }
+    it.each([
+        ['a refusal heard past its budget', () => edgeAndPostgres(UNREACHABLE_POSTGRES).postgres(), 2500],
+        ['an HTTP status heard past its budget', () => expectOk(unavailableUrl), 2500],
+        ['a Postgres server error heard past its budget', () => edgeAndPostgres(missingDatabase()).postgres(), 2500],
+        ['an untyped error inside its budget', () => Promise.reject(new Error('not started')), 1500],
+    ])(
+        'names a dependency gone when its busy check fails with %s',
+        async (_answer, probe, busyMs) => {
+            const busyThenProbe = (): Promise<unknown> => {
+                busyFor(busyMs)
+                return probe()
+            }
 
-        const { reason } = await watched({ postgres: heardLate })
+            const { losses } = await watched({ dependency: busyThenProbe })
 
-        expect(reason).toMatch(/^dependencies went away: postgres in the 320x step \(.*ECONNREFUSED.*\)$/)
-    }, 30_000)
+            expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['dependency gone'])
+        },
+        30_000
+    )
 
     it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
-        const sockets: net.Socket[] = []
-        const silent = net.createServer((socket) => sockets.push(socket))
-        await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
-        const { port } = silent.address() as AddressInfo
-        const silentPostgres = edgeAndPostgres(`postgres://posthog:posthog@127.0.0.1:${port}/posthog`).postgres
+        const silentPostgres = edgeAndPostgres(`postgres://posthog:posthog@127.0.0.1:${silentPort}/posthog`).postgres
         const { postgres: refused } = edgeAndPostgres(UNREACHABLE_POSTGRES)
         let calls = 0
         const silentThenRefused = async (): Promise<unknown> => {
@@ -105,14 +130,10 @@ describe('dependency watch', () => {
                 clearInterval(saturating)
             }
         }
-        try {
-            const { losses } = await watched({ postgres: silentThenRefused })
 
-            expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
-        } finally {
-            sockets.forEach((socket) => socket.destroy())
-            silent.close()
-        }
+        const { losses } = await watched({ postgres: silentThenRefused })
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
     }, 30_000)
 
     it('confirms every dependency that first fails on a confirming check before the watch stops', async () => {

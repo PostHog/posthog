@@ -3,8 +3,6 @@ import { setTimeout as sleep } from 'timers/promises'
 
 import type { ProbeFailure } from '../environment/stack'
 
-// The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
-// out against healthy services.
 export type DependencyLoss = {
     name: string
     at: number
@@ -23,13 +21,15 @@ async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     const at = Date.now()
     const before = performance.eventLoopUtilization()
     const failures = await check().catch((error: unknown) => [
-        { name: 'health check', reason: error instanceof Error ? error.message : String(error), timedOut: false },
+        { name: 'health check', reason: error instanceof Error ? error.message : String(error), unanswered: false },
     ])
     return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
 }
 
-const excused = ({ timedOut }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
-    timedOut && runnerBusy >= RUNNER_BUSY_LIMIT
+// The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
+// out against healthy services.
+const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
+    unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
 
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
     return first.failures.map((failure) => {

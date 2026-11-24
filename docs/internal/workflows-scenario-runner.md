@@ -308,7 +308,7 @@ A failed check runs again at once.
 A dependency that first fails on a confirming check gets a confirming check of its own, even when the run is stopping.
 A dependency went away when both checks failed and the runner's event loop does not explain it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
-A refusal, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
+A refusal, a reset, an unknown or unreachable host, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
 The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
 `probes.json` keeps every failed check with its reason, time, kind and the loop's busy share.
@@ -596,7 +596,7 @@ export interface Environment {
   edgeUrl(): string
   role(name: Role): RoleHandle
   actuate(action: Action): Promise<Actuation>
-  dependencyHealth(): Promise<{ healthy: boolean; down: { name: string; reason: string; timedOut: boolean }[] }>
+  dependencyHealth(): Promise<{ healthy: boolean; down: { name: string; reason: string; unanswered: boolean }[] }>
   exits(): RoleExit[]
   groupLag(group: string): Promise<number>
   down(): Promise<void>
@@ -639,7 +639,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
-- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`, and returns each failed check with its error and whether it ran out its timeout.
+- **Dependency health.** `dependencyHealth` checks Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog and the edge's `/_health`, and returns each failed check with its error and whether it ran out its timeout without a typed answer.
 - **The roles' environment.** Every role starts from `src/index.ts` with `tsx` in development mode, as its own process group, with:
   - `PLUGIN_SERVER_MODE`, its own `HTTP_SERVER_PORT`, `PGAPPNAME`, and the marker;
   - `SES_ENDPOINT` at the edge, `SES_REGION`, and placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` with `AWS_PROFILE` unset, because the SES client takes its credentials from the SDK's default chain;

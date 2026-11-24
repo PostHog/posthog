@@ -399,7 +399,7 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export type ProbeFailure = { name: string; reason: string; timedOut: boolean }
+export type ProbeFailure = { name: string; reason: string; unanswered: boolean }
 
 export type Probes = Record<string, () => Promise<unknown>>
 
@@ -420,12 +420,16 @@ export function dependencyProbes(
 
 const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
 
-const answers = (error: unknown): boolean =>
-    error instanceof HttpAnswer ||
-    error instanceof DatabaseError ||
-    ANSWER_CODES.has(String((error as { code?: unknown } | null | undefined)?.code))
+const TIMER_SLACK_MS = 10
 
-const isAnswer = (error: unknown): boolean => answers(error) || (error instanceof Error && answers(error.cause))
+const codeOf = (error: unknown): unknown =>
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+
+const isTypedAnswer = (error: unknown): boolean =>
+    error instanceof HttpAnswer || error instanceof DatabaseError || ANSWER_CODES.has(String(codeOf(error)))
+
+const isAnswer = (error: unknown): boolean =>
+    isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
 
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
@@ -435,9 +439,9 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
                 await probe()
                 return null
             } catch (error) {
-                const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS
+                const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
-                return { name, reason, timedOut: ranOutItsClock && !isAnswer(error) }
+                return { name, reason, unanswered: ranOutItsClock && !isAnswer(error) }
             }
         })
     )
