@@ -1485,6 +1485,10 @@ filters:
         - products/cdp/backend/validation.py
         - posthog/api/tagged_item.py
         - 'products/tasks/backend/**'
+        - 'products/slack_app/backend/**'
+        - '!products/slack_app/backend/**/tests/**'
+        - '!products/slack_app/backend/facade/testing.py'
+        - 'products/posthog_ai/backend/task_ownership.py'
         - 'products/feature_flags/backend/**'
         - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/api.py
@@ -1699,6 +1703,7 @@ filters:
         - 'common/hogvm/**'
         - 'ee/billing/**'
         - 'services/mcp/schema/*tool-definitions.json'
+        - ee/models/license.py
         - '!products/*/backend/**/{test,tests}/**'
         - '!products/*/backend/**/test_*.py'
         - '!products/*/backend/**/conftest.py'
@@ -2015,7 +2020,7 @@ images:
             video-export:
                 repository: posthog-temporal-workers/video-export
                 filter: videoExportWorker
-                bootstrapPolicyDigest: 4033c9c6d4366c08cd9c3d7e6893129d884d5082f2a5eb481649a217ced3967e
+                bootstrapPolicyDigest: f331ea17e80905186e0e410cc8f93e39d4b79bd9bba8ce153eaae7d5b4904ab1
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
