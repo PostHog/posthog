@@ -76,8 +76,18 @@ export const ReleaseChangeSteps = memo(function ReleaseChangeSteps({
                             {group.map((change) => (
                                 <div key={change.key} className="flex flex-col gap-0.5">
                                     {change.lines.map((line) => (
-                                        <span key={line}>{line}</span>
+                                        <span key={line} className="font-medium">
+                                            {line}
+                                        </span>
                                     ))}
+                                    {change.applied.length > 0 && (
+                                        <div className="my-0.5 flex flex-col border-l border-current/30 pl-2">
+                                            <span className="opacity-70">Now applies to</span>
+                                            {change.applied.map((condition) => (
+                                                <span key={condition}>{condition}</span>
+                                            ))}
+                                        </div>
+                                    )}
                                     <span className="tabular-nums opacity-70">
                                         {`${dayjs(change.date).format('D MMM, HH:mm')} · ${change.who}`}
                                     </span>
