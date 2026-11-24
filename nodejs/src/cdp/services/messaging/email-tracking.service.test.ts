@@ -1308,30 +1308,66 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
-            it('marks a recorded notification for 25 hours, and resets the mark when a redelivered batch skips it, even when that batch fails its flush', async () => {
-                const snsMessageId = new UUIDT().toString()
-                const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
-                await postBounce({ functionId: hogFunction.id, snsMessageId })
-                const batch = queuedSesNotifications()
-                await consumer.processBatch(batch)
-                const writtenTtl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) =>
-                    client.ttl(mark)
-                )
-                expect(writtenTtl).toBeGreaterThan(25 * 60 * 60 - 60)
-                expect(writtenTtl).toBeLessThanOrEqual(25 * 60 * 60)
-                await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
-                jest.spyOn(
-                    consumer['emailTrackingService']['hogFunctionMonitoringService'],
-                    'flush'
-                ).mockRejectedValueOnce(new Error('broker unavailable'))
+            it.each([
+                {
+                    eventType: 'Bounce',
+                    postNotification: (snsMessageId: string) =>
+                        postBounce({ functionId: hogFunction.id, snsMessageId }),
+                    minTtl: 24 * 60 * 60,
+                    maxTtl: 25 * 60 * 60,
+                    metrics: bounceMetrics,
+                },
+                {
+                    eventType: 'Delivery',
+                    postNotification: (snsMessageId: string) =>
+                        postEnvelope({
+                            Type: 'Notification',
+                            MessageId: snsMessageId,
+                            TopicArn: sesTopicArn,
+                            Message: JSON.stringify({
+                                eventType: 'Delivery',
+                                mail: {
+                                    timestamp: '2024-01-01T00:00:00.000Z',
+                                    source: 'sender@example.com',
+                                    messageId: 'ses-message-id',
+                                    destination: ['recipient@example.com'],
+                                },
+                                delivery: { timestamp: '2024-01-01T00:00:00.000Z' },
+                            }),
+                        }),
+                    minTtl: 59 * 60,
+                    maxTtl: 60 * 60,
+                    metrics: [],
+                },
+            ])(
+                'keeps the $eventType mark TTL when a redelivery fails its flush',
+                async ({ postNotification, minTtl, maxTtl, metrics }) => {
+                    const snsMessageId = new UUIDT().toString()
+                    const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
+                    expect((await postNotification(snsMessageId)).status).toBe(200)
+                    const batch = queuedSesNotifications()
+                    const redeliveredBefore = await queuedAtStage('redelivered')
+                    await consumer.processBatch(batch)
+                    const writtenTtl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) =>
+                        client.ttl(mark)
+                    )
+                    expect(writtenTtl).toBeGreaterThan(minTtl)
+                    expect(writtenTtl).toBeLessThanOrEqual(maxTtl)
+                    await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
+                    jest.spyOn(
+                        consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                        'flush'
+                    ).mockRejectedValueOnce(new Error('broker unavailable'))
 
-                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+                    await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
 
-                const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
-                expect(ttl).toBeGreaterThan(25 * 60 * 60 - 60)
-                expect(ttl).toBeLessThanOrEqual(25 * 60 * 60)
-                expect(recordedMetrics()).toEqual(bounceMetrics)
-            })
+                    const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
+                    expect(ttl).toBeGreaterThan(minTtl)
+                    expect(ttl).toBeLessThanOrEqual(maxTtl)
+                    expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
+                    expect(recordedMetrics()).toEqual(metrics)
+                }
+            )
 
             const marksUnavailable = async (): Promise<number> =>
                 (
