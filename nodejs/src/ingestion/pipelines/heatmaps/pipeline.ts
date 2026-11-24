@@ -24,7 +24,6 @@ import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processi
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
@@ -96,8 +95,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             .pipe(createDisablePersonProcessingStep())
             .pipe(createNormalizeEventStep())
             .pipe(createPrepareEventStep())
-            .pipe(createExtractHeatmapDataStep(outputs))
-            .pipe(createRecordIngestionLagStep())
+            .emit(createExtractHeatmapDataStep(outputs))
             .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
             .build()
     )

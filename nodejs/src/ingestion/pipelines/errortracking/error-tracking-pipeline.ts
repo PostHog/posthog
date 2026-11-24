@@ -41,7 +41,6 @@ import { createHogTransformEventStep } from '~/ingestion/common/steps/event-proc
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     EventUsageBatchContext,
     createEventUsageBeforeBatchStep,
@@ -241,7 +240,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             // After Cymbal, so an exception it suppresses is never billed.
             .pipe(createRecordEventUsageStep(resolveExceptionUsageKey))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
-            .pipe(createEmitEventStep({ outputs }), {
+            .emit(createEmitEventStep({ outputs }), {
                 topHog: [
                     count('emitted_events', (input) => ({
                         team_id: String(input.teamId),
@@ -253,7 +252,6 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
                 ],
             })
             .pipe(createRecordEventUsageAfterIngestStep())
-            .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())

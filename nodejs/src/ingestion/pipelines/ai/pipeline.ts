@@ -44,7 +44,6 @@ import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
@@ -273,7 +272,7 @@ export function createAiIngestionPipeline<
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep({ retentionDaysByTeam: aiEventsRetentionDaysByTeam }))
-            .pipe(createEmitEventStep({ outputs }), {
+            .emit(createEmitEventStep({ outputs }), {
                 retry: { tries: 5, sleepMs: 100, name: 'emit_event' },
                 topHog: [
                     sum(
@@ -292,7 +291,6 @@ export function createAiIngestionPipeline<
                 ],
             })
             .pipe(createRecordEventUsageAfterIngestStep())
-            .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())

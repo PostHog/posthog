@@ -21,7 +21,6 @@ import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 
 export interface ClientWarningsPipelineConfig {
@@ -77,8 +76,7 @@ export function createClientWarningsPipeline<
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyEventFiltersStep(eventFilterManager))
         .pipe(createDropOldEventsStep())
-        .pipe(createHandleClientIngestionWarningStep(outputs))
-        .pipe(createRecordIngestionLagStep())
+        .emit(createHandleClientIngestionWarningStep(outputs))
         .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
         .build()
 }

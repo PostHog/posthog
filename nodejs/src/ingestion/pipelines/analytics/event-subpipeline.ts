@@ -22,11 +22,11 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createStripAiEventBytesStep } from '~/ingestion/common/steps/event-processing/strip-ai-event-bytes-step'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createRecordEventUsageAfterIngestStep,
     createRecordEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
+import { createEmitSubpipeline } from '~/ingestion/common/subpipelines/emit-subpipeline'
 import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
@@ -193,39 +193,37 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
         pipeline = pipeline.pipe(createForkFlagEvaluationsStep(outputs, flagEvaluationsService))
     }
 
-    return pipeline
-        .pipe(
-            topHog(
-                createEmitEventStep({
-                    outputs,
-                }),
-                [
-                    sum(
-                        'emitted_events',
-                        (input) => ({ team_id: String(input.teamId) }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                    sum(
-                        'emitted_events_per_distinct_id',
-                        (input) => ({
-                            team_id: String(input.teamId),
-                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
-                            partition: String(input.message.partition),
-                        }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                    sum(
-                        'emitted_events_per_partition',
-                        (input) => ({
-                            team_id: String(input.teamId),
-                            partition: String(input.message.partition),
-                        }),
-                        (input) => input.eventsToEmit.length
-                    ),
-                ]
-            ),
-            { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
-        )
-        .pipe(createRecordEventUsageAfterIngestStep())
-        .pipe(createRecordIngestionLagStep())
+    return createEmitSubpipeline(
+        pipeline,
+        topHog(
+            createEmitEventStep({
+                outputs,
+            }),
+            [
+                sum(
+                    'emitted_events',
+                    (input) => ({ team_id: String(input.teamId) }),
+                    (input) => input.eventsToEmit.length
+                ),
+                sum(
+                    'emitted_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.teamId),
+                        distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => input.eventsToEmit.length
+                ),
+                sum(
+                    'emitted_events_per_partition',
+                    (input) => ({
+                        team_id: String(input.teamId),
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => input.eventsToEmit.length
+                ),
+            ]
+        ),
+        { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
+    ).pipe(createRecordEventUsageAfterIngestStep())
 }

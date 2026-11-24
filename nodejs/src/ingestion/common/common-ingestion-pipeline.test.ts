@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { ingestionLagGauge } from '~/common/metrics'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -9,6 +10,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
@@ -93,13 +95,14 @@ describe('CommonIngestionPipelineBuilder', () => {
     // so no batch result may ever surface any to the driver.
     const runPipeline = async (
         pipeline: {
-            feed: (batch: any[], batchContext: Record<never, never>) => Promise<{ ok: boolean }>
+            feed: (batch: any[], batchContext: Record<never, never>, budget?: BatchBudget) => Promise<{ ok: boolean }>
             next: () => Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] } | null>
         },
-        messages: Message[]
+        messages: Message[],
+        budget?: BatchBudget
     ): Promise<{ elements: any[]; sideEffects?: Promise<unknown>[] }[]> => {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        const feedResult = await pipeline.feed(batch, {})
+        const feedResult = await pipeline.feed(batch, {}, budget)
         expect(feedResult.ok).toBe(true)
 
         const batches = []
@@ -645,6 +648,54 @@ describe('CommonIngestionPipelineBuilder', () => {
             'D:user-0',
             'D:user-1',
         ])
+    })
+
+    it.each([
+        ['inside a sequential block', false],
+        ['right after a chunk step', true],
+    ])('emit %s finishes an element whose budget runs out while it produces', async (_placement, afterChunkStep) => {
+        const log: string[] = []
+        const teamStage = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+        const pipeline = (
+            afterChunkStep
+                ? teamStage.pipeChunk(teamLogChunkStep(log, 'prepare'))
+                : teamStage.pipe(teamLogStep(log, 'prepare'))
+        )
+            .emit(function produceStep() {
+                jest.advanceTimersByTime(1000)
+                return Promise.resolve(ok({ ingested: [] }))
+            })
+            .build()
+
+        const batches = await runPipeline(
+            pipeline,
+            [createMessage('user-0')],
+            BatchBudget.softDeadline(Date.now() + 1000)
+        )
+
+        expect(okValues(batches)).toEqual([{ ingested: [] }])
+    })
+
+    it('emit records the ingestion lag of the event it produced', async () => {
+        ingestionLagGauge.reset()
+        const capturedAt = new Date(Date.now() - 250)
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .emit(function produceStep(input) {
+                const { topic, partition } = input.message
+                return Promise.resolve(ok({ ingested: [Promise.resolve({ capturedAt, topic, partition })] }))
+            })
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        const lag = (await ingestionLagGauge.get()).values.find((sample) => sample.labels.topic === 'events_ingestion')
+        expect(lag?.value).toBe(250)
     })
 
     it('fans out through the skeleton and hands the fanned-in value to subsequent team-aware steps', async () => {

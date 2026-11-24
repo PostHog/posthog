@@ -23,6 +23,7 @@ import { KafkaDebugContext, aggregateKafkaDebugContexts } from '~/ingestion/fram
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
+import { StartPipeline } from '~/ingestion/framework/start-pipeline'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
@@ -37,6 +38,8 @@ import {
     parseMessageTopHogMetrics,
     resolveTeamTopHogMetrics,
 } from './steps/event-preprocessing'
+import { RecordIngestionLagInput } from './steps/record-ingestion-lag'
+import { createEmitSubpipeline } from './subpipelines/emit-subpipeline'
 import { addTeamToContext } from './subpipelines/helpers'
 
 /**
@@ -59,6 +62,7 @@ import { addTeamToContext } from './subpipelines/helpers'
  *                                              .concurrentlyPerGroup /
  *                                              .fanOut(…).via(…).fanIn(…) /
  *                                              .compose
+ *     timeout barrier, emit, ingestion lag     .emit(step)
  *     handleIngestionWarnings                  (automatic)
  *   handleResults                              (automatic)
  *   handleSideEffects                          (automatic)
@@ -167,7 +171,13 @@ interface Chain<TStart, C, ROut extends string, TCurrent> {
         step: ProcessingStep<TCurrent, U, R2>,
         options?: { retry?: RetryOptions }
     ): Chain<TStart, C, ROut, U>
+    through<U>(transform: BlockTransform<TCurrent, U, C, ROut>): Chain<TStart, C, ROut, U>
 }
+
+/** A transform over the open block's per-element builder, whatever the block's start type is. */
+type BlockTransform<TCurrent, U, C, ROut extends string> = <TBlock>(
+    block: PipelineBuilder<TBlock, TCurrent, C, ROut>
+) => PipelineBuilder<TBlock, U, C, ROut>
 
 function pendingChain<TStart, C, ROut extends string, TBlock, TCurrent>(
     committed: ChainTransform<TStart, TBlock, C, ROut>,
@@ -176,6 +186,7 @@ function pendingChain<TStart, C, ROut extends string, TBlock, TCurrent>(
     return {
         build: () => (builder) => committed(builder).sequentially(pending),
         extend: (step, options) => pendingChain(committed, (start) => pending(start).pipe(step, options)),
+        through: (transform) => pendingChain(committed, (start) => transform(pending(start))),
     }
 }
 
@@ -185,6 +196,8 @@ function committedChain<TStart, C, ROut extends string, TCurrent>(
     return {
         build: () => committed,
         extend: (step, options) => pendingChain(committed, (start) => start.pipe(step, options)),
+        through: (transform) =>
+            pendingChain(committed, () => transform(new PipelineBuilder(new StartPipeline<TCurrent, C>()))),
     }
 }
 
@@ -419,6 +432,23 @@ export class CommonTeamStage<
             this.beforeBatchCallback,
             this.preTeamTransform,
             this.chain.extend(wrapped, options)
+        )
+    }
+
+    /**
+     * The step that produces the event. A timeout barrier runs before it and the ingestion lag
+     * observer after it, in the same sequential block (see `createEmitSubpipeline`).
+     */
+    emit<U extends RecordIngestionLagInput, R2 extends ROut>(
+        step: ProcessingStep<TCurrent, U, R2>,
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
+    ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
+        return new CommonTeamStage(
+            this.config,
+            this.beforeBatchCallback,
+            this.preTeamTransform,
+            this.chain.through((block) => createEmitSubpipeline(block, wrapped, options))
         )
     }
 
