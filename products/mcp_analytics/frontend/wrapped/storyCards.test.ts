@@ -9,6 +9,7 @@ import {
     formatDuration,
     formatPercent,
     reliabilityLine,
+    speedLine,
     peakMultiple,
     rushHourLine,
 } from './storyCards'
@@ -149,5 +150,14 @@ describe('storyCards', () => {
         [0.964, '4 in every 100 tool calls hit an error.'],
     ])('counts the errors for a success rate of %d', (rate, expected) => {
         expect(errorLine(rate)).toBe(expected)
+    })
+
+    it.each([
+        [120, 'Lightning fast.'],
+        [450, 'Quick on the draw.'],
+        [4000, 'Your agents rarely waited long.'],
+        [7100, 'Some calls kept agents waiting.'],
+    ])('describes a p95 of %d ms', (p95, expected) => {
+        expect(speedLine(p95)).toBe(expected)
     })
 })

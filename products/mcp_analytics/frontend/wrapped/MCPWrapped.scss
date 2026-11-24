@@ -61,6 +61,15 @@
     }
 }
 
+// Award tiles: a frosted white on light grounds, a faint white on dark ones.
+.MCPWrapped__tile {
+    background: rgb(255 255 255 / 10%);
+
+    .MCPWrapped__card--light & {
+        background: rgb(255 255 255 / 60%);
+    }
+}
+
 .MCPWrapped__hoggie {
     position: absolute;
     right: -2%;

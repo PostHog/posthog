@@ -145,6 +145,20 @@ export function toolNameSize(name: string, sizes: readonly [string, string, stri
     return name.length <= 14 ? sizes[0] : name.length <= 24 ? sizes[1] : sizes[2]
 }
 
+/** One line on how quick the server felt, from the p95 response time across all calls. */
+export function speedLine(p95Ms: number): string {
+    if (p95Ms < 300) {
+        return 'Lightning fast.'
+    }
+    if (p95Ms < 1000) {
+        return 'Quick on the draw.'
+    }
+    if (p95Ms < 5000) {
+        return 'Your agents rarely waited long.'
+    }
+    return 'Some calls kept agents waiting.'
+}
+
 export function formatDuration(ms: number): string {
     if (ms < 1) {
         return '<1 ms'
