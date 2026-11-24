@@ -548,6 +548,18 @@ def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     return _to_team_experiments_settings(_team_experiments_config(team_id))
 
 
+def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
+    """Start the recalculation workflow for a run that ``request_recalculation`` created.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the exception propagates.
+    """
+    from products.experiments.backend.temporal.recalculation import (  # noqa: PLC0415 — dispatch imports temporalio, which must stay off the django.setup() path
+        dispatch,
+    )
+
+    dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
+
+
 def validate_recalculation_times(times: Sequence[str] | None) -> None:
     try:
         _validate_stored_recalculation_times(None if times is None else list(times))
