@@ -5,6 +5,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
+import { transactionalEmailLogSearchLogic } from './transactionalEmailLogSearchLogic'
 import { transactionalPushLogLogic } from './transactionalPushLogLogic'
 
 describe('transactionalPushLogLogic', () => {
@@ -43,6 +44,23 @@ describe('transactionalPushLogLogic', () => {
         expect(pushRequests).toHaveLength(2)
         expect(emailRequests).toBe(0)
         expect(router.values.searchParams).toEqual({ channel: 'push', status: 'bounced', date_from: '-1d' })
+    })
+
+    it('leaves the email search in place while pushes show', async () => {
+        const unmountSearch = transactionalEmailLogSearchLogic({}).mount()
+        logic.unmount()
+        const emailLog = transactionalEmailLogLogic()
+        emailLog.mount()
+        emailLog.actions.setFilters({ search: 'ada@example.com' })
+        emailLog.unmount()
+        logic.mount()
+        logic.unmount()
+        emailLog.mount()
+
+        expect(emailLog.values.filters.search).toBe('ada@example.com')
+        emailLog.unmount()
+        unmountSearch()
+        logic.mount()
     })
 
     it('hands its dates to the email log, and takes the ones the email log set', async () => {

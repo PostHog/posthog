@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { transactionalMetricsFiltersLogic } from './transactionalMetricsFiltersLogic'
 import { transactionalPushMetricsLogic } from './transactionalPushMetricsLogic'
 
 describe('transactionalPushMetricsLogic', () => {
@@ -29,5 +31,38 @@ describe('transactionalPushMetricsLogic', () => {
 
         expect(requested).toEqual(['transactional_push_log/stats/', 'transactional_push_log/stats/'])
         logic.unmount()
+    })
+
+    it('leaves the email Results form in place while push shows, and loads its results again after', async () => {
+        const resultsFor: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/transactional_push_log/stats/': [200, { results: [] }],
+                '/api/projects/:team_id/transactional_email_log/stats/': [200, { results: [] }],
+                '/api/projects/:team_id/transactional_email_log/stats_over_time/': [200, { results: [] }],
+                '/api/projects/:team_id/transactional_email_log/results/': ({ request }) => {
+                    resultsFor.push(new URL(request.url).searchParams.get('workflow_id'))
+                    return [200, { recipients: 1, converted: 0 }]
+                },
+                '/api/projects/:team_id/transactional_code_emails/': [200, []],
+                '/api/projects/:team_id/messaging_templates/': [200, { count: 0, results: [] }],
+            },
+        })
+        initKeaTests()
+        const unmountFilters = transactionalMetricsFiltersLogic.mount()
+        const email = transactionalEmailMetricsLogic()
+        email.mount()
+        email.actions.setResultsQuery({ workflowId: 'flow-1', event: 'purchase' })
+        email.unmount()
+        const push = transactionalPushMetricsLogic()
+        push.mount()
+        push.unmount()
+        email.mount()
+        await expectLogic(email).toFinishAllListeners()
+
+        expect(email.values.resultsQuery).toMatchObject({ workflowId: 'flow-1', event: 'purchase' })
+        expect(resultsFor).toEqual(['flow-1'])
+        email.unmount()
+        unmountFilters()
     })
 })
