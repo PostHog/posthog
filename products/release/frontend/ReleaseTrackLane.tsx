@@ -6,8 +6,8 @@ import { cn } from '@posthog/quill'
 import { dayjs } from 'lib/dayjs'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
-import { ReleaseChangeDots } from './ReleaseChangeDots'
 import { ActivityEntry, ReleaseChange, describeChanges, laneActivity } from './releaseChanges'
+import { ReleaseChangeSteps } from './ReleaseChangeSteps'
 import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
@@ -104,7 +104,7 @@ export function ReleaseTrackLane({
                     lane={lane}
                 />
             ) : null}
-            <ReleaseChangeDots changes={changes} scale={scale} center={height / 2} />
+            <ReleaseChangeSteps changes={changes} scale={scale} top={(height - 18) / 2} height={18} color={color} />
         </div>
     )
 }
