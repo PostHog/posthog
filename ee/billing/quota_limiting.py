@@ -358,7 +358,7 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
 def team_quota_snapshot(team: Team) -> dict[str, Any]:
     """Reads Redis fresh because the legacy gateway re-caches this for minutes, and the 30s memo would
     re-poison a just-invalidated entry. A deactivated org is limited only on the gateway credit buckets,
-    which blocks AI spend without dropping events."""
+    which blocks AI spend without dropping events. Its flag limit lives in the Redis limiter, not here."""
     organization = team.organization
     org_usage = organization.usage or {}
     org_deactivated = organization.is_active is False
@@ -1543,7 +1543,7 @@ def _iter_quota_organizations(
         yield org_teams[0].organization, org_teams
     organizations = (
         Organization.objects.filter(id__in=offline_usage.keys() - seen)
-        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id", "is_active")
         .order_by("id")
     )
     # Buffer each page because quota updates close database connections between batches.
@@ -2053,7 +2053,7 @@ def update_all_orgs_billing_quotas(
                 if token not in failed_team_tokens
             ]
 
-    # Demo projects are outside the run above, so their deactivation limit is carried over here.
+    # Covers every team of a deactivated org, including demo projects and internal-metrics orgs that the run above skips.
     flag_limited_teams = quota_limited_teams[QuotaResource.FEATURE_FLAG_REQUESTS.value]
     for token in Team.objects.filter(organization__is_active=False).values_list("api_token", flat=True):
         flag_limited_teams.setdefault(token, _deactivated_org_flags_limited_until())

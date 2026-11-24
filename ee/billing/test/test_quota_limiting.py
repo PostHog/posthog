@@ -1466,6 +1466,13 @@ class TestQuotaLimiting(BaseTest):
         assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
         assert limited(QuotaResource.EVENTS) is False
 
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 10, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        update_org_billing_quotas(self.organization)
+        assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is expected_limited
+
         self.organization.is_active = True
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.save()
@@ -1482,13 +1489,22 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
         update_org_billing_quotas(self.organization)
 
-        for is_active in (False, True):
-            self.organization.is_active = is_active
-            with self.captureOnCommitCallbacks(execute=True):
-                self.organization.save()
+        self.organization.is_active = False
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        self._run_quota_limiting()
+
+        self.organization.refresh_from_db()
+        self.organization.is_active = True
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.save()
+        update_org_billing_quotas(self.organization)
 
         assert not is_team_limited(
             self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        assert is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
         )
 
     def test_feature_flags_quota_limiting(self):

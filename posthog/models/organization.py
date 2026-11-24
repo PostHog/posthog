@@ -748,7 +748,7 @@ def remember_organization_field_changes(sender, instance: Organization, **kwargs
 
 
 @receiver(post_save, sender=Organization)
-def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+def sync_quota_limits_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
     if created or not instance._is_active_changed:
         return
 
