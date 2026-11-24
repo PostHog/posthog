@@ -244,3 +244,24 @@ SectionErrors.decorators = [
         jobStats: 500,
     }),
 ]
+
+export const NoManagedWarehouse = Template.bind({})
+NoManagedWarehouse.parameters = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE,
+        FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    ],
+    testOptions: { waitForSelector: '[data-attr="warehouse-explainer-set-up"]' },
+}
+NoManagedWarehouse.decorators = [
+    mswDecorator({
+        get: {
+            // The app reads a 404 as "this organization has no warehouse".
+            '/api/projects/:team_id/data_warehouse/warehouse_status/': (): [number, unknown] => [
+                404,
+                { detail: 'Not found.' },
+            ],
+        },
+    }),
+]

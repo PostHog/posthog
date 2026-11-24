@@ -8,6 +8,7 @@ import { Skeleton, ToastProvider } from '@posthog/quill'
 import 'scenes/project-homepage/today/Today.scss'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -77,14 +78,30 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     warehouse: { Sidebar: TodayWarehouseSidebar },
 }
 
+// Loaded only on warehouse pages, so the shell does not pull the managed warehouse logic into every page.
+const WarehouseShellStatusReporter = lazyWithRetry(() =>
+    import('products/data_warehouse/frontend/scenes/WarehouseConsole/WarehouseShellStatusReporter').then((m) => ({
+        default: m.WarehouseShellStatusReporter,
+    }))
+)
+
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
-        useValues(todayShellLogic)
+    const {
+        activePane,
+        routePane,
+        featureFlags,
+        paneHasSidebar,
+        mobileLayout,
+        phoneLayout,
+        sidebarVisible,
+        sidebarWidth,
+        phoneHeaderHidden,
+    } = useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
     useMountedLogic(todayRecentsLogic)
@@ -132,7 +149,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
-    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
+    const paneSidebar = activePane === 'home' || !paneHasSidebar ? null : PANE_SIDEBARS[activePane]
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {paneSidebar &&
@@ -175,6 +192,12 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             {activePane === 'spaces' && (
                 <Suspense fallback={null}>
                     <NewSpaceDialog />
+                </Suspense>
+            )}
+            {/* The warehouse pane's sidebar waits for this answer, so it loads on every warehouse page. */}
+            {routePane === 'warehouse' && featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE] && (
+                <Suspense fallback={null}>
+                    <WarehouseShellStatusReporter />
                 </Suspense>
             )}
             <TodayNavSwitchDialog />

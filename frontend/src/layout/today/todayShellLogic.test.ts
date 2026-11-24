@@ -377,6 +377,20 @@ describe('todayShellLogic', () => {
         }
     )
 
+    it('reopens a hidden warehouse sidebar from the rail without leaving the page', () => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+        router.actions.push('/project/1/sql')
+        logic.actions.setSidebarOpen(false)
+
+        logic.actions.clickRailPane('warehouse')
+
+        expect(logic.values.sidebarVisible).toBe(true)
+        expect(router.values.location.pathname).toBe('/project/1/sql')
+    })
+
     it('never shows a sidebar on Home, so the page takes the full width', () => {
         const logic = todayShellLogic()
         logic.mount()
@@ -600,6 +614,37 @@ describe('todayShellLogic', () => {
         logic.actions.pickPane('warehouse')
         setRailFlags({ warehouse: false })
         expect(logic.values.activePane).not.toBe('warehouse')
+    })
+
+    test.each([
+        ['console off, status unknown', false, null, true],
+        ['console off, no warehouse', false, false, true],
+        ['console on, status unknown', true, null, false],
+        ['console on, no warehouse', true, false, false],
+        ['console on, warehouse exists', true, true, true],
+    ])('the warehouse pane with %s has a sidebar: %s', (_name, consoleOn, provisioned, hasSidebar) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE, FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
+            {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: true,
+                [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]: consoleOn,
+            }
+        )
+        const logic = todayShellLogic()
+        logic.mount()
+        logic.actions.setWarehouseProvisioned(provisioned)
+        logic.actions.setSidebarOpen(true)
+        logic.actions.pickPane('warehouse')
+
+        expect(logic.values.activePane).toBe('warehouse')
+        expect(logic.values.paneHasSidebar).toBe(hasSidebar)
+        expect(logic.values.sidebarVisible).toBe(hasSidebar)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + (hasSidebar ? logic.values.sidebarWidth : 0))
+
+        logic.actions.toggleSidebar('shortcut')
+        expect(logic.values.sidebarOpen).toBe(!hasSidebar)
     })
 
     it('opens the warehouse sidebar when the pane is picked on a narrow desktop and on a phone', () => {
