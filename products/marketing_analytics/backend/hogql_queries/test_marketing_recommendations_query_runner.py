@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -16,12 +17,15 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsSource,
 )
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     FlaggedAd,
     Keyword,
@@ -35,7 +39,12 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     _policy_topics,
 )
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 PURCHASE = "customers/1/conversionActions/10"
@@ -679,6 +688,100 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("marketing_analytics", ["marketing_analytics"]),
+            ("warehouse_objects", ["googleads.acme.campaign"]),
+        ]
+    )
+    def test_save_time_access_check_sees_the_product_and_every_source_table(
+        self, denied: str, expected: list[str]
+    ) -> None:
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource=denied,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery().model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == expected
+            assert denied_query_resources(self.user, self.team, [query]) == []
+
+    def test_save_time_access_check_expands_expressions_on_source_tables(self) -> None:
+        # An expression may add a field the run reads, such as a status column older syncs lack.
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        secret = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="secret_lookup",
+            credential=credential,
+            format="Parquet",
+            url_pattern="https://example.com/secret/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String"}},
+        )
+        DataWarehouseExpression.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            table_name="googleads.acme.campaign",
+            field_name="campaign_primary_status",
+            expression="(SELECT id FROM secret_lookup LIMIT 1)",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(secret.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery().model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == ["secret_lookup"]
+            assert denied_query_resources(self.user, self.team, [query]) == []
+
+    @parameterized.expand([("fresh", False), ("cached", True)])
+    def test_running_without_marketing_access_is_refused(self, _name: str, cached: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="marketing_analytics",
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery(sources=[])
+        if cached:
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=self.user).run(
+                user=self.user
+            )
+
+        # The check runs before the cache read, so a result someone else cached is refused too.
+        with self.assertRaises(UserAccessControlError):
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=member).run(user=member)
+
+    def test_repeated_query_sources_run_once(self) -> None:
+        source = MarketingAnalyticsRecommendationsSource(sourceType="GoogleAds", campaignTable="campaign")
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(sources=[source] * 25), team=self.team, user=self.user
+        )
+
+        assert runner.sources == [source]
 
 
 class TestAdJson(SimpleTestCase):
