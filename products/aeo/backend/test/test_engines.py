@@ -153,6 +153,35 @@ def test_parse_openai_responses_citations() -> None:
     assert parsed.search_queries == ["feature flag tools comparison"]
 
 
+@parameterized.expand(
+    [
+        ("utm_only", "https://example.com/flags?utm_source=openai", "https://example.com/flags"),
+        ("utm_and_others", "https://example.com/a?id=7&utm_source=openai#top", "https://example.com/a?id=7#top"),
+        ("no_utm", "https://example.com/a?id=7&page=2", "https://example.com/a?id=7&page=2"),
+    ]
+)
+def test_parse_openai_responses_citations_drop_utm_params(_name: str, cited: str, expected: str) -> None:
+    body = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Answer.",
+                        "annotations": [
+                            {"type": "url_citation", "url": cited},
+                            {"type": "url_citation", "url": expected},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert parse_openai_responses_citations(body).cited_urls == [expected]
+
+
 OPENAI_INCOMPLETE_BODY = {
     "id": "resp_02",
     "status": "incomplete",

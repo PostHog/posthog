@@ -20,7 +20,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.conf import settings
 
@@ -199,10 +199,18 @@ def gateway_post_json(
     raise AssertionError("unreachable: the last attempt returns or raises")
 
 
+def _without_utm(url: str) -> str:
+    """OpenAI adds utm_source=openai to the links it cites, so one page would otherwise count as two URLs."""
+    parts = urlparse(url)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    kept = [(key, value) for key, value in params if not key.lower().startswith("utm_")]
+    return url if len(kept) == len(params) else parts._replace(query=urlencode(kept)).geturl()
+
+
 def _dedupe_urls(urls: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
-    for url in urls:
+    for url in map(_without_utm, urls):
         if url and url not in seen:
             seen.add(url)
             result.append(url)
