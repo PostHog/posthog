@@ -222,15 +222,13 @@ describe('HeatmapsPipeline', () => {
         expect(dlqProducedFor()).toHaveLength(0)
     })
 
-    it('finishes an event whose time budget runs out while its heatmap rows are produced', async () => {
+    it('finishes an event whose time budget runs out during cookieless processing', async () => {
         jest.useFakeTimers()
         try {
             const softAt = Date.now() + 1000
-            mockKafkaProducer.queueMessages.mockImplementation((produced) => {
-                if ([produced].flat().some(({ topic }) => topic === HEATMAPS_TOPIC)) {
-                    jest.setSystemTime(softAt)
-                }
-                return Promise.resolve()
+            mockCookielessManager.doBatch.mockImplementation((events: any[]) => {
+                jest.setSystemTime(softAt)
+                return Promise.resolve(events.map((e) => ok(e)))
             })
 
             const results = await runPipeline([createMessage('$$heatmap')], BatchBudget.softDeadline(softAt))

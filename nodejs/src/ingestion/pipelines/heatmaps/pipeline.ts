@@ -91,6 +91,9 @@ export function createHeatmapsPipeline<
             .pipe(createValidateEventPropertiesStep())
             .pipe(createApplyEventFiltersStep(eventFilterManager))
             .pipe(createDropOldEventsStep())
+            // From here on the event stores cookieless session state and produces its heatmap rows,
+            // and a redelivery would repeat both.
+            .timeoutBarrier()
             // Cookieless events arrive with a sentinel distinct id; rewrite it to the
             // deterministic server-side hash (and derive the session) before extraction,
             // which keys heatmaps on distinct id and session id.
@@ -100,8 +103,6 @@ export function createHeatmapsPipeline<
             .pipe(createDisablePersonProcessingStep())
             .pipe(createNormalizeEventStep())
             .pipe(createPrepareEventStep())
-            // From here on the event produces its heatmap rows, so a redelivery would duplicate them.
-            .timeoutBarrier()
             .pipe(createExtractHeatmapDataStep(outputs))
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
