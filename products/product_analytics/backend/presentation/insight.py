@@ -84,6 +84,7 @@ from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, Q
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.feature_flag_usage_insights import feature_flag_generated_insight_q
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -2611,8 +2612,6 @@ class InsightViewSet(
                     queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
-                    from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
-
                     queryset = queryset.exclude(feature_flag_generated_insight_q())
             elif key == "date_from":
                 queryset = queryset.filter(
