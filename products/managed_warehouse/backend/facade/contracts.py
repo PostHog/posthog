@@ -76,6 +76,7 @@ __all__ = [
     "ProvisionedWarehouseLogin",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
+    "ManagedWarehouseSourceJobDayCount",
     "ManagedWarehouseSourceJobRecord",
     "ManagedWarehouseSourceJobStatus",
     "ManagedWarehouseSourceJobUpdate",
@@ -403,6 +404,15 @@ class ManagedWarehouseSourceJobRecord:
     workflow_id: str | None
     workflow_run_id: str | None
     last_completed_at: datetime | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseSourceJobDayCount:
+    """Finished copy and register attempts for one calendar day in the requested timezone."""
+
+    day: date
+    completed: int
+    failed: int
 
 
 @dataclass(frozen=True, kw_only=True)

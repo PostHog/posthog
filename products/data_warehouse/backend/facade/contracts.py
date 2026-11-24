@@ -12,6 +12,8 @@ the contract-data surface here is intentionally small and grows as consumers mig
 from model objects to data reads.
 """
 
+import datetime
+
 from pydantic.dataclasses import dataclass
 
 
@@ -31,3 +33,22 @@ class WebhookHogFunctionCreateResult:
     webhook_url: str = ""
     error: str | None = None
     hog_function_created: bool = False
+
+
+@dataclass(frozen=True)
+class LandingHistoryBucket:
+    """Finished warehouse landing work for one calendar day in the project timezone."""
+
+    date: datetime.date
+    source_succeeded: int
+    source_failed: int
+    backfill_succeeded: int
+    backfill_failed: int
+
+
+@dataclass(frozen=True)
+class LandingHistory:
+    """Daily landing history over the requested number of days, oldest day first."""
+
+    days: int
+    buckets: list[LandingHistoryBucket]

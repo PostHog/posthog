@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Literal, TypedDict
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
+from django.db.models import Count, Q, QuerySet
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from products.data_warehouse.backend.facade.contracts import LandingHistory, LandingHistoryBucket
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.managed_warehouse.backend.facade import source_jobs
@@ -15,8 +20,12 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
 )
 from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceAccessMethod,
+)
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -29,6 +38,22 @@ ReadinessState = Literal[
     "needs_attention",
     "sync_paused",
 ]
+
+LandingState = Literal["in_sync", "behind", "failing", "not_in_warehouse", "paused"]
+
+# Worst first. A paused schema is intentional configuration, so a source with any active schema
+# reports that schema's state, and only a fully paused source reports paused.
+LANDING_PRIORITY: tuple[LandingState, ...] = ("failing", "behind", "not_in_warehouse", "in_sync", "paused")
+
+# Upstream schema statuses that mean the import is not working. Mirrors what the pipeline status
+# panel treats as a failing sync (a failed run, or a billing limit that stops runs).
+FAILING_SYNC_STATUSES: frozenset[str] = frozenset(
+    {
+        ExternalDataSchemaStatus.FAILED,
+        ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+        ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
+    }
+)
 
 # A paused schema is intentional configuration, so active and healthy schemas determine a source's
 # rollup first. A source still reports sync_paused when every visible schema is paused.
@@ -49,6 +74,11 @@ class DatasetStatus(TypedDict):
     total_partitions: int | None
     current_partition: str | None
     last_updated_at: datetime | None
+    landing_state: LandingState
+    failed_partitions: int
+    last_error: str | None
+    last_completed_at: datetime | None
+    latest_day_loaded: date | None
 
 
 class SourceTableStatus(TypedDict):
@@ -65,6 +95,21 @@ class SourceTableStatus(TypedDict):
     applied: bool
     last_applied_at: datetime | None
     last_synced_at: datetime | None
+    landing_state: LandingState
+    pending_since: datetime | None
+    workflow_finished_at: datetime | None
+    workflow_error: str | None
+    sync_status: str | None
+    sync_error: str | None
+    last_sync_rows: int | None
+
+
+class LandingCounts(TypedDict):
+    in_sync: int
+    behind: int
+    failing: int
+    not_in_warehouse: int
+    paused: int
 
 
 class SourceSummary(TypedDict):
@@ -77,6 +122,10 @@ class SourceSummary(TypedDict):
     applied_schemas: int
     last_applied_at: datetime | None
     last_synced_at: datetime | None
+    landing_state: LandingState
+    landing_counts: LandingCounts
+    pending_since: datetime | None
+    sync_failed_schemas: int
 
 
 class SourcesStatus(TypedDict):
@@ -116,6 +165,11 @@ def dataset_status(
             "total_partitions": None,
             "current_partition": None,
             "last_updated_at": None,
+            "landing_state": "not_in_warehouse",
+            "failed_partitions": 0,
+            "last_error": None,
+            "last_completed_at": None,
+            "latest_day_loaded": None,
         }
 
     relevant_partitions = partitions
@@ -152,6 +206,23 @@ def dataset_status(
         None,
     )
     last_updated_at = max((row.updated_at for row in relevant_partitions), default=None)
+    completed_rows = [
+        row
+        for row in relevant_partitions
+        if row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.COMPLETED
+    ]
+    failed_partitions = sum(
+        row.lifecycle_state == ManagedWarehouseBackfillPartition.LifecycleState.FAILED for row in relevant_partitions
+    )
+    last_completed_at = max((row.completed_at for row in completed_rows if row.completed_at is not None), default=None)
+    latest_day_loaded = max(
+        (
+            row.period_start
+            for row in completed_rows
+            if row.granularity == ManagedWarehouseBackfillPartition.Granularity.DAY and row.period_start is not None
+        ),
+        default=None,
+    )
 
     if failed is not None:
         readiness_state: ReadinessState = "needs_attention"
@@ -174,6 +245,18 @@ def dataset_status(
         detail = "Historical data is loaded and daily updates are enabled."
         current_partition = None
 
+    landing_state: LandingState
+    if failed is not None:
+        landing_state = "failing"
+    elif running is not None:
+        landing_state = "behind"
+    elif not completed_rows:
+        landing_state = "not_in_warehouse"
+    elif readiness_state == "up_to_date":
+        landing_state = "in_sync"
+    else:
+        landing_state = "behind"
+
     return {
         "dataset": dataset,
         "readiness_state": readiness_state,
@@ -182,6 +265,11 @@ def dataset_status(
         "total_partitions": total_partitions,
         "current_partition": current_partition,
         "last_updated_at": last_updated_at,
+        "landing_state": landing_state,
+        "failed_partitions": failed_partitions,
+        "last_error": failed.last_error if failed is not None else None,
+        "last_completed_at": last_completed_at,
+        "latest_day_loaded": latest_day_loaded,
     }
 
 
@@ -203,6 +291,61 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     return "waiting", f"The {workflow_name} workflow did not apply this source import."
 
 
+def _landing_state(
+    *, should_sync: bool, state: ManagedWarehouseSourceJobRecord | None, last_synced_at: datetime | None
+) -> LandingState:
+    if not should_sync:
+        return "paused"
+    if state is not None and state.status == ManagedWarehouseSourceJobStatus.FAILED:
+        return "failing"
+    last_applied_at = state.last_completed_at if state else None
+    if last_applied_at is None:
+        return "not_in_warehouse"
+    if state is not None and state.status == ManagedWarehouseSourceJobStatus.RUNNING:
+        return "behind"
+    if last_synced_at is not None and last_synced_at > last_applied_at:
+        return "behind"
+    return "in_sync"
+
+
+def _pending_since(
+    *, should_sync: bool, last_synced_at: datetime | None, last_applied_at: datetime | None
+) -> datetime | None:
+    if not should_sync or last_synced_at is None:
+        return None
+    if last_applied_at is None or last_synced_at > last_applied_at:
+        return last_synced_at
+    return None
+
+
+def _visible_schemas_queryset(
+    team_id: int, *, user_access_control: UserAccessControl, source_id: str | None = None
+) -> QuerySet[ExternalDataSchema]:
+    source_filter: dict[str, object] = {
+        "team_id": team_id,
+        "deleted": False,
+        "access_method": ExternalDataSourceAccessMethod.WAREHOUSE,
+    }
+    if source_id is not None:
+        source_filter["id"] = source_id
+    sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))
+    return ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__in=sources)
+
+
+def _latest_sync_rows(team_id: int, schema_ids: list[UUID]) -> dict[UUID, int | None]:
+    """Rows from each schema's most recent completed upstream import, in one query."""
+    if not schema_ids:
+        return {}
+    latest = (
+        ExternalDataJob.objects.filter(
+            team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJobStatus.COMPLETED
+        )
+        .order_by("schema_id", "-finished_at", "-created_at")
+        .distinct("schema_id")
+    )
+    return dict(latest.values_list("schema_id", "rows_synced"))
+
+
 def _schema_table_statuses(
     team_id: int, *, user_access_control: UserAccessControl, source_id: str | None = None
 ) -> list[SourceTableStatus]:
@@ -212,30 +355,24 @@ def _schema_table_statuses(
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    source_filter: dict[str, object] = {
-        "team_id": team_id,
-        "deleted": False,
-        "access_method": ExternalDataSourceAccessMethod.WAREHOUSE,
-    }
-    if source_id is not None:
-        source_filter["id"] = source_id
-    sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))
-
-    schema_filter: dict[str, object] = {
-        "team_id": team_id,
-        "deleted": False,
-        "source__in": sources,
-    }
-
-    schemas = list(ExternalDataSchema.objects.filter(**schema_filter).select_related("source"))
+    schemas = list(
+        _visible_schemas_queryset(team_id, user_access_control=user_access_control, source_id=source_id).select_related(
+            "source"
+        )
+    )
     latest_jobs_by_schema = {
         state.schema_id: state
         for state in source_jobs.list_latest_source_jobs(team_id=team_id, schema_ids=[schema.id for schema in schemas])
     }
 
+    last_sync_rows_by_schema = _latest_sync_rows(team_id, [schema.id for schema in schemas])
+
     tables: list[SourceTableStatus] = []
     for schema in schemas:
         state = latest_jobs_by_schema.get(schema.id)
+        last_applied_at = state.last_completed_at if state else None
+        workflow_failed = state is not None and state.status == ManagedWarehouseSourceJobStatus.FAILED
+        sync_failing = schema.status in FAILING_SYNC_STATUSES
         if schema.should_sync:
             readiness_state, detail = source_table_readiness(state)
         else:
@@ -258,6 +395,19 @@ def _schema_table_statuses(
                 "applied": state is not None and state.last_completed_at is not None,
                 "last_applied_at": state.last_completed_at if state else None,
                 "last_synced_at": schema.last_synced_at,
+                "landing_state": _landing_state(
+                    should_sync=schema.should_sync, state=state, last_synced_at=schema.last_synced_at
+                ),
+                "pending_since": _pending_since(
+                    should_sync=schema.should_sync,
+                    last_synced_at=schema.last_synced_at,
+                    last_applied_at=last_applied_at,
+                ),
+                "workflow_finished_at": state.finished_at if state else None,
+                "workflow_error": state.latest_error if state is not None and workflow_failed else None,
+                "sync_status": schema.status,
+                "sync_error": schema.latest_error if sync_failing else None,
+                "last_sync_rows": last_sync_rows_by_schema.get(schema.id),
             }
         )
     return tables
@@ -315,6 +465,16 @@ def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:
             (row["last_applied_at"] for row in rows if row["last_applied_at"] is not None), default=None
         )
         last_synced_at = max((row["last_synced_at"] for row in rows if row["last_synced_at"] is not None), default=None)
+        landing_counts: LandingCounts = {
+            "in_sync": 0,
+            "behind": 0,
+            "failing": 0,
+            "not_in_warehouse": 0,
+            "paused": 0,
+        }
+        for row in rows:
+            landing_counts[row["landing_state"]] += 1
+        landing_state: LandingState = next((state for state in LANDING_PRIORITY if landing_counts[state] > 0), "paused")
         summaries.append(
             {
                 "source_id": source_id,
@@ -326,6 +486,16 @@ def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:
                 "applied_schemas": sum(1 for row in rows if row["applied"]),
                 "last_applied_at": last_applied_at,
                 "last_synced_at": last_synced_at,
+                "landing_state": landing_state,
+                "landing_counts": landing_counts,
+                "pending_since": min(
+                    (row["pending_since"] for row in rows if row["pending_since"] is not None), default=None
+                ),
+                "sync_failed_schemas": sum(
+                    1
+                    for row in rows
+                    if row["sync_status"] in FAILING_SYNC_STATUSES and row["landing_state"] != "paused"
+                ),
             }
         )
     return sort_sources(summaries)
@@ -417,3 +587,69 @@ def get_managed_warehouse_data_status(
         "sources": sources,
         "generated_at": timezone.now(),
     }
+
+
+def _project_timezone(timezone_name: str | None) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name) if timezone_name else ZoneInfo("UTC")
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def get_managed_warehouse_landing_history(
+    team_id: int, *, days: int, timezone_name: str | None, user_access_control: UserAccessControl
+) -> LandingHistory:
+    """Per-day counts of finished warehouse source attempts and backfill partitions, oldest day first."""
+    tz = _project_timezone(timezone_name)
+    today = datetime.now(tz).date()
+    first_day = today - timedelta(days=days - 1)
+    start = datetime.combine(first_day, time.min, tzinfo=tz)
+    end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=tz)
+
+    source_counts: dict[date, tuple[int, int]] = {}
+    schema_ids = list(
+        _visible_schemas_queryset(team_id, user_access_control=user_access_control).values_list("id", flat=True)
+    )
+    for count in source_jobs.count_finished_source_jobs_by_day(
+        team_id=team_id, schema_ids=schema_ids, start=start, end=end, tz=tz
+    ):
+        source_counts[count.day] = (count.completed, count.failed)
+
+    lifecycle = ManagedWarehouseBackfillPartition.LifecycleState
+    partition_rows = (
+        ManagedWarehouseBackfillPartition.objects.for_team(team_id)
+        .filter(
+            environment_id=team_id,
+            dataset__in=[
+                ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            ],
+            lifecycle_state__in=[lifecycle.COMPLETED, lifecycle.FAILED],
+            completed_at__gte=start,
+            completed_at__lt=end,
+        )
+        .annotate(day=TruncDate("completed_at", tzinfo=tz))
+        .values("day")
+        .annotate(
+            succeeded=Count("id", filter=Q(lifecycle_state=lifecycle.COMPLETED)),
+            failed=Count("id", filter=Q(lifecycle_state=lifecycle.FAILED)),
+        )
+        .order_by("day")
+    )
+    backfill_counts = {row["day"]: (row["succeeded"], row["failed"]) for row in partition_rows}
+
+    buckets = []
+    for offset in range(days):
+        day = first_day + timedelta(days=offset)
+        source_succeeded, source_failed = source_counts.get(day, (0, 0))
+        backfill_succeeded, backfill_failed = backfill_counts.get(day, (0, 0))
+        buckets.append(
+            LandingHistoryBucket(
+                date=day,
+                source_succeeded=source_succeeded,
+                source_failed=source_failed,
+                backfill_succeeded=backfill_succeeded,
+                backfill_failed=backfill_failed,
+            )
+        )
+    return LandingHistory(days=days, buckets=buckets)

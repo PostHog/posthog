@@ -73869,6 +73869,24 @@ export namespace Schemas {
       SyncPaused: 'sync_paused',
     } as const;
 
+    /**
+     * * `in_sync` - in_sync
+     * * `behind` - behind
+     * * `failing` - failing
+     * * `not_in_warehouse` - not_in_warehouse
+     * * `paused` - paused
+     */
+    export type ManagedWarehouseLandingStateEnum = typeof ManagedWarehouseLandingStateEnum[keyof typeof ManagedWarehouseLandingStateEnum];
+
+
+    export const ManagedWarehouseLandingStateEnum = {
+      InSync: 'in_sync',
+      Behind: 'behind',
+      Failing: 'failing',
+      NotInWarehouse: 'not_in_warehouse',
+      Paused: 'paused',
+    } as const;
+
     export interface ManagedWarehouseDatasetStatus {
       /** Warehouse dataset represented by this status.
        *
@@ -73903,6 +73921,44 @@ export namespace Schemas {
          * @nullable
          */
       last_updated_at: string | null;
+      /** Whether this dataset's data has landed in the warehouse: in_sync, behind, failing or not_in_warehouse.
+       *
+       * * `in_sync` - in_sync
+       * * `behind` - behind
+       * * `failing` - failing
+       * * `not_in_warehouse` - not_in_warehouse
+       * * `paused` - paused */
+      landing_state: ManagedWarehouseLandingStateEnum;
+      /** Number of backfill partitions whose latest run failed. */
+      failed_partitions: number;
+      /**
+         * Error from the failed partition named in current_partition, when one failed.
+         * @nullable
+         */
+      last_error: string | null;
+      /**
+         * When a backfill partition most recently completed, or null if none completed.
+         * @nullable
+         */
+      last_completed_at: string | null;
+      /**
+         * Most recent day covered by a completed daily backfill partition, or null if none completed.
+         * @nullable
+         */
+      latest_day_loaded: string | null;
+    }
+
+    export interface ManagedWarehouseLandingCounts {
+      /** Schemas whose latest import is applied to the warehouse. */
+      in_sync: number;
+      /** Schemas with an import waiting or being applied. */
+      behind: number;
+      /** Schemas whose latest warehouse workflow failed. */
+      failing: number;
+      /** Schemas never applied to the warehouse. */
+      not_in_warehouse: number;
+      /** Schemas with sync paused. */
+      paused: number;
     }
 
     export interface ManagedWarehouseSourceSummary {
@@ -73937,6 +73993,23 @@ export namespace Schemas {
          * @nullable
          */
       last_synced_at: string | null;
+      /** Rolled-up landing state across this source's schemas, worst first: failing, behind, not_in_warehouse, in_sync, paused.
+       *
+       * * `in_sync` - in_sync
+       * * `behind` - behind
+       * * `failing` - failing
+       * * `not_in_warehouse` - not_in_warehouse
+       * * `paused` - paused */
+      landing_state: ManagedWarehouseLandingStateEnum;
+      /** Number of this source's schemas in each landing state. */
+      landing_counts: ManagedWarehouseLandingCounts;
+      /**
+         * Oldest time an upstream import started waiting for the warehouse, or null if nothing is waiting.
+         * @nullable
+         */
+      pending_since: string | null;
+      /** Number of active schemas whose upstream source sync is currently failing. */
+      sync_failed_schemas: number;
     }
 
     export interface ManagedWarehouseSourcesStatus {
@@ -73973,6 +74046,26 @@ export namespace Schemas {
       sources: ManagedWarehouseSourcesStatus;
       /** When this status snapshot was generated. */
       generated_at: string;
+    }
+
+    export interface ManagedWarehouseLandingHistoryBucket {
+      /** Calendar day in the project timezone. */
+      date: string;
+      /** Copy or register workflow attempts for imported sources that completed on this day. */
+      source_succeeded: number;
+      /** Copy or register workflow attempts for imported sources that failed on this day. */
+      source_failed: number;
+      /** Events and persons backfill partitions whose latest outcome was completed on this day. A partition row is overwritten on retry, so each partition counts once, at its latest outcome. */
+      backfill_succeeded: number;
+      /** Events and persons backfill partitions whose latest outcome was failed on this day. A partition row is overwritten on retry, so each partition counts once, at its latest outcome. */
+      backfill_failed: number;
+    }
+
+    export interface ManagedWarehouseLandingHistoryResponse {
+      /** Number of days covered by the buckets. */
+      days: number;
+      /** One bucket per calendar day, oldest first, zero filled. */
+      buckets: ManagedWarehouseLandingHistoryBucket[];
     }
 
     export interface ManagedWarehouseMonitoringCoverage {
@@ -74273,6 +74366,44 @@ export namespace Schemas {
          * @nullable
          */
       last_synced_at: string | null;
+      /** Whether the latest upstream import has landed in the warehouse: in_sync, behind, failing, not_in_warehouse or paused.
+       *
+       * * `in_sync` - in_sync
+       * * `behind` - behind
+       * * `failing` - failing
+       * * `not_in_warehouse` - not_in_warehouse
+       * * `paused` - paused */
+      landing_state: ManagedWarehouseLandingStateEnum;
+      /**
+         * When an upstream import started waiting for the warehouse to apply it, or null if nothing is waiting.
+         * @nullable
+         */
+      pending_since: string | null;
+      /**
+         * When the latest copy or register workflow finished, or null if it has not.
+         * @nullable
+         */
+      workflow_finished_at: string | null;
+      /**
+         * Error from the latest copy or register workflow, only when that workflow failed.
+         * @nullable
+         */
+      workflow_error: string | null;
+      /**
+         * Status of the upstream source sync for this table.
+         * @nullable
+         */
+      sync_status: string | null;
+      /**
+         * Error from the upstream source sync, only when that sync is failing.
+         * @nullable
+         */
+      sync_error: string | null;
+      /**
+         * Rows imported by the most recent completed upstream sync, or null if none.
+         * @nullable
+         */
+      last_sync_rows: number | null;
     }
 
     export interface ManagedWarehouseSourceSchemasResponse {
@@ -142487,6 +142618,24 @@ export namespace Schemas {
 
     export const DataWarehouseJobStatsRetrieveDays = {
       Number1: 1,
+      Number7: 7,
+      Number30: 30,
+    } as const;
+
+    export type DataWarehouseManagedWarehouseLandingHistoryRetrieveParams = {
+    /**
+     * Number of calendar days to return, ending today in the project timezone.
+     *
+     * * `7` - 7
+     * * `30` - 30
+     */
+    days?: DataWarehouseManagedWarehouseLandingHistoryRetrieveDays;
+    };
+
+    export type DataWarehouseManagedWarehouseLandingHistoryRetrieveDays = typeof DataWarehouseManagedWarehouseLandingHistoryRetrieveDays[keyof typeof DataWarehouseManagedWarehouseLandingHistoryRetrieveDays];
+
+
+    export const DataWarehouseManagedWarehouseLandingHistoryRetrieveDays = {
       Number7: 7,
       Number30: 30,
     } as const;

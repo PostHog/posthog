@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, tzinfo
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Count, Max, Q
+from django.db.models.functions import TruncDate
 
 from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseSourceJobDayCount,
     ManagedWarehouseSourceJobRecord,
     ManagedWarehouseSourceJobStatus,
     ManagedWarehouseSourceJobUpdate,
@@ -73,3 +75,33 @@ def list_latest_source_jobs(*, team_id: int, schema_ids: list[UUID]) -> list[Man
         .values_list("schema_id", "last_completed_at")
     )
     return [_to_record(job, last_completed_at=last_completed_by_schema.get(job.schema_id)) for job in latest_jobs]
+
+
+def count_finished_source_jobs_by_day(
+    *, team_id: int, schema_ids: list[UUID], start: datetime, end: datetime, tz: tzinfo
+) -> list[ManagedWarehouseSourceJobDayCount]:
+    """Count completed and failed attempts finished in [start, end), grouped by calendar day in `tz`."""
+    if not schema_ids:
+        return []
+
+    rows = (
+        ManagedWarehouseSourceJob.objects.for_team(team_id)
+        .filter(
+            environment_id=team_id,
+            schema_id__in=schema_ids,
+            status__in=[ManagedWarehouseSourceJob.Status.COMPLETED, ManagedWarehouseSourceJob.Status.FAILED],
+            finished_at__gte=start,
+            finished_at__lt=end,
+        )
+        .annotate(day=TruncDate("finished_at", tzinfo=tz))
+        .values("day")
+        .annotate(
+            completed=Count("id", filter=Q(status=ManagedWarehouseSourceJob.Status.COMPLETED)),
+            failed=Count("id", filter=Q(status=ManagedWarehouseSourceJob.Status.FAILED)),
+        )
+        .order_by("day")
+    )
+    return [
+        ManagedWarehouseSourceJobDayCount(day=row["day"], completed=row["completed"], failed=row["failed"])
+        for row in rows
+    ]

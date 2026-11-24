@@ -30,6 +30,7 @@ import type {
     DataWarehouseManagedViewSetApi,
     DataWarehouseManagedViewSetResponseApi,
     DataWarehouseManagedViewSetUpdateResponseApi,
+    DataWarehouseManagedWarehouseLandingHistoryRetrieveParams,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieveParams,
@@ -53,6 +54,7 @@ import type {
     ManagedWarehouseConsoleQueriesRetrieveParams,
     ManagedWarehouseConsoleUsageRetrieveParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseLandingHistoryResponseApi,
     ManagedWarehouseMonitoringSeriesResponseApi,
     ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
@@ -570,6 +572,43 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
 ): Promise<ManagedWarehouseDataStatusResponseApi> => {
     return apiMutator<ManagedWarehouseDataStatusResponseApi>(
         getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseLandingHistoryRetrieveUrl = (
+    projectId: string,
+    params?: DataWarehouseManagedWarehouseLandingHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-landing-history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-landing-history/`
+}
+
+/**
+ * Per-day counts of completed and failed source workflow attempts and backfill partitions over the last 7 or 30 days, oldest first.
+ * @summary Get daily landing history for the managed warehouse
+ */
+export const dataWarehouseManagedWarehouseLandingHistoryRetrieve = async (
+    projectId: string,
+    params?: DataWarehouseManagedWarehouseLandingHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseLandingHistoryResponseApi> => {
+    return apiMutator<ManagedWarehouseLandingHistoryResponseApi>(
+        getDataWarehouseManagedWarehouseLandingHistoryRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',
