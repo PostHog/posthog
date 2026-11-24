@@ -554,14 +554,8 @@ def collect_thread_messages(
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
-    until_ts: str | None = None,
 ) -> list[SlackThreadMessage]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
-
-    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
-    at a point in time: what was said afterwards was not what they were looking at.
-    Unbounded by default, which is what the mention path wants — it is answering the
-    thread as it stands.
 
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
@@ -579,8 +573,6 @@ def collect_thread_messages(
         logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
-    if until_ts:
-        raw_messages = [msg for msg in raw_messages if _ts_at_or_before(str(msg.get("ts") or ""), until_ts)]
 
     user_cache: dict[str, str] = {}
 
@@ -940,15 +932,23 @@ def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
 
 
 FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+FORK_TARGET_DM = "dm"
+FORK_TARGET_CHANNEL = "channel"
+
+
+def _fork_option(label: str, integration_id: int, target: str) -> dict[str, Any]:
+    return {
+        "text": {"type": "plain_text", "text": label, "emoji": True},
+        "value": json.dumps({"integration_id": integration_id, "target": target}),
+    }
 
 
 def fork_menu_element(integration_id: int) -> dict[str, Any]:
     """The overflow menu the footer carries as its accessory.
 
     An overflow renders as a bare "…" with no label, which is as close to invisible as
-    an interactive element gets — the answer above it is what the reader came for. It
-    also has somewhere to put the next destination ("fork to a channel") without
-    growing a second control.
+    an interactive element gets, because the answer above it is what the reader came for.
+    Each destination is one more option in the same menu, so it never grows a second control.
 
     Returned as a bare element rather than wrapped in an `actions` block so it can be a
     `section` accessory, which is what puts it on the footer's own line. Slack offers no
@@ -963,12 +963,29 @@ def fork_menu_element(integration_id: int) -> dict[str, Any]:
         "type": "overflow",
         "action_id": FORK_THREAD_ACTION_ID,
         "options": [
-            {
-                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": json.dumps({"integration_id": integration_id}),
-            }
+            _fork_option("Fork to DM", integration_id, FORK_TARGET_DM),
+            _fork_option("Fork to channel", integration_id, FORK_TARGET_CHANNEL),
         ],
     }
+
+
+def selected_fork_target(payload: dict[str, Any]) -> str:
+    """The destination a fork menu click picked.
+
+    A menu posted before the channel option existed carries no target, and it only ever
+    offered a DM.
+    """
+    for action in payload.get("actions", []) or ():
+        if action.get("action_id") != FORK_THREAD_ACTION_ID:
+            continue
+        try:
+            value = json.loads((action.get("selected_option") or {}).get("value") or "{}")
+        except (TypeError, ValueError):
+            break
+        if isinstance(value, dict) and value.get("target") == FORK_TARGET_CHANNEL:
+            return FORK_TARGET_CHANNEL
+        break
+    return FORK_TARGET_DM
 
 
 TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"

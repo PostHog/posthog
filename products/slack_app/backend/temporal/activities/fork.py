@@ -1,8 +1,7 @@
-"""The activity behind the "Fork to DM" menu.
+"""The activity behind the fork menu under a reply.
 
 Lives apart from the workflow, like every other Slack-app activity. See
-``products.slack_app.backend.temporal.slack_app_fork`` for what a fork is and why the
-run does not start here.
+``products.slack_app.backend.temporal.slack_app_fork`` for what a fork is.
 """
 
 from typing import Any
@@ -15,31 +14,31 @@ from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 
-# Long enough to recognise the thread, short enough to stay one line in a DM.
+# Long enough to recognise the thread, short enough to stay one line in the seed message.
 _TITLE_LIMIT = 120
 
 _SEED_UNAVAILABLE = (
-    "I couldn't set that up — you don't seem to have a PostHog account matching your Slack email, "
+    "I couldn't set that up. You don't seem to have a PostHog account matching your Slack email, "
     "or your projects have no connected repo."
 )
 
 
 @activity.defn
 def process_slack_app_fork_thread_activity(inputs: SlackAppForkThreadInputs) -> None:
-    process_slack_app_fork_thread_payload(inputs.payload)
+    process_slack_app_fork_thread_payload(inputs.payload, target_channel=inputs.target_channel)
 
 
 def _ephemeral(slack: Any, text: str, *, channel: str, thread_ts: str, user: str, response_url: str | None) -> None:
     """Answer whoever asked, and only them.
 
-    Forking must leave no trace in the source channel — half the point is asking a
-    question you would rather not ask in front of everyone, so every outcome, including
-    refusals, goes through here.
+    Forking must leave no trace in the source thread, so every outcome, including
+    refusals, goes through here. A fork into a channel shows up in the destination
+    channel only.
 
     An ephemeral post is preferred: it lands in the thread the reader is looking at and
     cannot disturb the message the menu hangs off. ``response_url`` is the fallback for
-    a channel the bot isn't in, with ``replace_original`` pinned false — a reply to an
-    interactive message otherwise overwrites the message carrying the control, which
+    a channel the bot isn't in, with ``replace_original`` pinned false, because a reply to
+    an interactive message otherwise overwrites the message carrying the control, which
     here is the agent's own answer.
     """
     from products.slack_app.backend.api import (
@@ -62,26 +61,33 @@ def _ephemeral(slack: Any, text: str, *, channel: str, thread_ts: str, user: str
         logger.warning("slack_app_fork_ephemeral_failed")
 
 
-def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
+def process_slack_app_fork_thread_payload(payload: dict[str, Any], *, target_channel: str | None = None) -> None:
+    """Start a task that continues the forked thread, in the clicker's DM or in ``target_channel``.
+
+    The task gets a link to the thread, not a copy of it. The agent reads the thread
+    through the clicker's Slack MCP, with the clicker's own Slack access, so a fork
+    needs that connection.
+    """
     from posthog.models.integration import SlackIntegration
 
+    from products.mcp_store.backend.facade.api import has_slack_mcp_connected
     from products.slack_app.backend.analytics import capture_slack_event
-    from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _channel_is_approved
+    from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _channel_is_approved, _start_mention_workflow
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
     from products.slack_app.backend.logic.feature_tips.features import SlackFeature
     from products.slack_app.backend.logic.feature_tips.state import record_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
-    from products.slack_app.backend.services.slack_fork_context import PendingFork, store_pending_fork
-    from products.slack_app.backend.services.slack_messages import context_block, thread_permalink
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
+    from products.slack_app.backend.services.slack_messages import context_block, project_web_url, thread_permalink
 
     source_channel = payload.get("channel", {}).get("id")
     message = payload.get("message", {}) or {}
-    # Forking a reply forks the discussion it belongs to, not the single message —
+    # Forking a reply forks the discussion it belongs to, not the single message:
     # "sidebar off this" always means the thread.
     source_thread_ts = message.get("thread_ts") or message.get("ts")
-    # The reply the menu hangs off. The thread is read up to here, so the fork carries
-    # the discussion as it stood when the reader forked it.
+    # The reply the menu hangs off, so the agent knows how far the reader had read.
     source_message_ts = message.get("ts") or source_thread_ts
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
@@ -102,6 +108,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         slack_team_id=slack_team_id,
         source_channel=source_channel,
         source_thread_ts=source_thread_ts,
+        to_channel=bool(target_channel),
     )
 
     workspace_result = load_integrations(
@@ -125,12 +132,12 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         "response_url": response_url,
     }
     if probe is None or not is_slack_app_forking_enabled(probe):
-        # Outside the rollout the menu is inert rather than apologetic — a
-        # workspace that never opted in should not learn the feature exists.
+        # Outside the rollout the menu is inert rather than apologetic, so a
+        # workspace that never opted in does not learn the feature exists.
         logger.info("slack_app_fork_refused", reason="flag_off", slack_team_id=slack_team_id)
         return
 
-    # The fork runs as whoever clicked, against a project *they* can reach — never
+    # The fork runs as whoever clicked, against a project *they* can reach, never
     # inherited from the source thread's original mentioner.
     resolution = resolve_user_for_workspace(
         workspace_result=workspace_result,
@@ -149,6 +156,17 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
 
     slack = SlackIntegration(integration)
 
+    if not has_slack_mcp_connected(integration.team_id, resolution.user.id):
+        logger.info("slack_app_fork_refused", reason="no_slack_mcp", slack_team_id=slack_team_id)
+        _ephemeral(
+            slack,
+            "To fork a thread, connect the Slack MCP server in PostHog first. It lets me read the thread "
+            f"with your Slack access. <{project_web_url(integration.team_id)}/mcp-servers|Connect it here>, "
+            "then fork again.",
+            **reply_to,
+        )
+        return
+
     # A DM is never externally shared, so forking would otherwise launder content out
     # of a Slack Connect channel and past the approval gate that keeps customer-facing
     # writes gated. Refuse rather than fork-and-discover-later, and carry the flag
@@ -164,25 +182,37 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         )
         return
 
-    # Without the bot in the channel, `conversations.replies` can't read the thread and
-    # the fork would silently carry one message of context. Say so instead.
-    thread_root = _read_thread_root(slack, source_channel, source_thread_ts)
-    if thread_root is None:
-        logger.info("slack_app_fork_refused", reason="bot_not_in_channel", slack_team_id=slack_team_id)
-        _ephemeral(
-            slack,
-            f"I can't read <#{source_channel}> — invite `@PostHog` to the channel and fork again "
-            "and I'll pick up the whole thread.",
-            **reply_to,
+    if target_channel:
+        # The channel picker only offers public channels. Only a thread that everyone in the
+        # workspace can already read may move into one, so a private channel, a DM or a
+        # Slack Connect channel never reaches a wider audience through a fork.
+        source_is_public = (
+            not is_ext_shared
+            and resolve_conversation_type(slack, {}, source_channel) in PUBLIC_CHANNEL_CONVERSATION_TYPES
         )
-        return
+        if not source_is_public:
+            logger.info("slack_app_fork_refused", reason="source_not_public", slack_team_id=slack_team_id)
+            _ephemeral(
+                slack,
+                'Only threads in public channels can be forked to a channel. Use "Fork to DM" to continue '
+                "this one in private.",
+                **reply_to,
+            )
+            return
+        if not _join_channel(slack, target_channel):
+            logger.info("slack_app_fork_refused", reason="target_not_joinable", slack_team_id=slack_team_id)
+            _ephemeral(
+                slack,
+                f"I can't post in <#{target_channel}>. Invite `@PostHog` to that channel, then fork again.",
+                **reply_to,
+            )
+            return
 
     # A thread the agent has already worked in has a task behind it, holding far more
-    # than the messages did: prior runs, session logs, artifacts, the PR. Carry its id
-    # so the fork can read that when the question calls for it. Its repository is
-    # deliberately not carried over: the fork runs the normal cascade, which resolves a
-    # repo against what the *requester* can access rather than what the source thread's
-    # mentioner could.
+    # than the messages did: prior runs, session logs, artifacts, the PR. Its id goes to
+    # the fork so the agent can read that task. Its repository is deliberately not
+    # carried over: the fork runs the normal cascade, which resolves a repo against what
+    # the *requester* can access rather than what the source thread's mentioner could.
     source_task = (
         SlackThreadTaskMapping.objects.filter(
             integration_id=integration.id,
@@ -195,50 +225,65 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     source_task_id = str(source_task) if source_task else None
 
     permalink = thread_permalink(slack, source_channel, source_thread_ts)
-    title = _fork_title(thread_root)
-    body = "I've read the thread. What do you want to dig into?"
-    origin = f"Fork of <{permalink}|this thread>" if permalink else "Fork of a thread"
+    title = _fork_title(_read_thread_root(slack, source_channel, source_thread_ts) or {})
+    thread_link = f"<{permalink}|this thread>" if permalink else "a thread"
+    origin = f"Forked from {thread_link} in <#{source_channel}>"
+    if target_channel:
+        origin = f"{origin} by <@{slack_user_id}>"
+    if source_task_id:
+        origin = f"{origin} · <{project_web_url(integration.team_id)}/tasks/{source_task_id}|Original task>"
+    body = "I'm reading the thread and continuing from where it stopped."
     seed_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f":thread: *{title}*\n{body}"}},
-        context_block(f"{origin} in <#{source_channel}>"),
+        context_block(origin),
     ]
+    destination = target_channel or slack_user_id
 
     try:
         seed = slack.client.chat_postMessage(
-            channel=slack_user_id,
-            text=f"{title} — {body}",
+            channel=destination,
+            text=f"{title}: {body}",
             blocks=seed_blocks,
             unfurl_links=False,
         )
     except Exception:
         logger.exception("slack_app_fork_seed_post_failed", slack_team_id=slack_team_id)
-        _ephemeral(
-            slack,
-            "I couldn't open a DM — check that you allow DMs from apps, then try again.",
-            **reply_to,
+        failure = (
+            f"I couldn't post in <#{target_channel}>. Check that `@PostHog` is in that channel, then try again."
+            if target_channel
+            else "I couldn't open a DM. Check that you allow DMs from apps, then try again."
         )
+        _ephemeral(slack, failure, **reply_to)
         return
 
-    dm_channel = seed.get("channel")
+    dest_channel = seed.get("channel")
     seed_ts = seed.get("ts")
-    if not (dm_channel and seed_ts):
+    if not (dest_channel and seed_ts):
         logger.warning("slack_app_fork_seed_missing_ids", slack_team_id=slack_team_id)
         return
 
-    # The menu has nowhere to type a question, so the DM asks and the run waits for the
-    # answer. Park the forked thread so that answer can be resolved back to it; nothing
-    # else on a plain DM reply says where it came from.
-    store_pending_fork(
-        integration.id,
-        dm_channel,
-        seed_ts,
-        PendingFork(
-            source_channel=source_channel,
-            source_thread_ts=source_thread_ts,
-            source_message_ts=source_message_ts,
-            task_id=source_task_id,
-            is_ext_shared=is_ext_shared,
-        ),
+    # The run answers in the seed's thread, so that thread owns the task, the mapping and
+    # every follow-up. The event stands in for the request a person would have typed there.
+    fork_event = {
+        "type": "message",
+        "channel": dest_channel,
+        "channel_type": "channel" if target_channel else "im",
+        "user": slack_user_id,
+        "ts": seed_ts,
+        "thread_ts": seed_ts,
+        "text": f"Fork: {title}",
+    }
+    _start_mention_workflow(
+        fork_event,
+        integration,
+        slack_team_id,
+        None,
+        posthog_user=resolution.user,
+        is_ext_shared_channel=is_ext_shared,
+        fork_source_channel=source_channel,
+        fork_source_thread_ts=source_thread_ts,
+        fork_source_message_ts=source_message_ts,
+        fork_source_task_id=source_task_id,
     )
 
     logger.info(
@@ -246,14 +291,16 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         slack_team_id=slack_team_id,
         team_id=integration.team_id,
         source_channel=source_channel,
-        dm_channel=dm_channel,
+        dest_channel=dest_channel,
         has_source_task=bool(source_task_id),
     )
-    _ephemeral(
-        slack,
-        ":envelope_with_arrow: Forked to your DMs — check your messages with PostHog. Only you can see this.",
-        **reply_to,
-    )
+    if target_channel:
+        confirmation = f":thread: Forked to <#{target_channel}>. Only you can see this."
+    else:
+        confirmation = (
+            ":envelope_with_arrow: Forked to your DMs. Check your messages with PostHog. Only you can see this."
+        )
+    _ephemeral(slack, confirmation, **reply_to)
 
     # Reported as its own event rather than folded into the mention funnel: a fork is a
     # different intent and would otherwise inflate mention counts.
@@ -263,16 +310,30 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         "slack app fork created",
         slack_user_id=slack_user_id,
         source_channel=source_channel,
+        destination="channel" if target_channel else "dm",
         is_ext_shared_channel=is_ext_shared,
         has_source_task=bool(source_task_id),
     )
 
 
-def _read_thread_root(slack: Any, channel: str, thread_ts: str) -> dict[str, Any] | None:
-    """The forked thread's opening message, or `None` if we can't read the thread.
+def _join_channel(slack: Any, channel: str) -> bool:
+    """Whether the bot is in ``channel`` after this call, so the seed message can be posted there.
 
-    Doubles as the can-we-read-this check: the fork needs an answer to that anyway, and
-    the same call returns the message the DM is titled after.
+    ``conversations.join`` needs ``channels:join``, which an install from before that
+    scope does not hold. Joining a channel the bot is already in succeeds.
+    """
+    try:
+        return bool(slack.client.conversations_join(channel=channel).get("ok"))
+    except Exception:
+        logger.info("slack_app_fork_channel_join_failed", channel=channel)
+        return False
+
+
+def _read_thread_root(slack: Any, channel: str, thread_ts: str) -> dict[str, Any] | None:
+    """The forked thread's opening message, or `None` if the bot can't read the thread.
+
+    Only names the seed message and the task. The agent reads the thread itself through
+    the Slack MCP, so an unreadable root costs the fork its title and nothing else.
     """
     try:
         response = slack.client.conversations_replies(channel=channel, ts=thread_ts, limit=1)
@@ -286,9 +347,9 @@ def _read_thread_root(slack: Any, channel: str, thread_ts: str) -> dict[str, Any
 def _fork_title(root: dict[str, Any]) -> str:
     """A one-line name for the thread, taken from the message that opened it.
 
-    The DM needs to say *which* discussion it forked, and at this point no task exists
-    to borrow a title from — the run doesn't start until the user says what they want.
-    The opening message is what a reader would recognise the thread by.
+    The seed message needs to say *which* discussion it forked, and at this point no task
+    exists to borrow a title from. The opening message is what a reader would recognise
+    the thread by.
 
     Falls back to a generic label for a thread that opens with a file, an image, or a
     bare mention: better an unhelpful title than an empty one.

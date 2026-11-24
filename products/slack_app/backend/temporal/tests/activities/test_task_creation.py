@@ -21,6 +21,7 @@ from products.slack_app.backend.temporal.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
+    _build_fork_task_description,
     _build_posthog_code_task_description,
     _format_author_token,
     _indent_body,
@@ -195,66 +196,48 @@ def test_build_description_keeps_the_initiator_message_when_no_prompt_survived()
     assert "(their message inside this tag is the actual request)" in out
 
 
-def test_build_description_for_a_fork_keeps_every_message_and_claims_none_as_the_request():
-    # A fork's context is a thread the requester never spoke in: no message in it is
-    # the ask, so none may be replaced by the placeholder, and the "tagged the PostHog
-    # app" annotation must not appear and misattribute the request to a participant.
-    out = _build_posthog_code_task_description(
-        "catch me up",
-        [
-            SlackThreadMessage(user="mira", user_id="U_MIRA", text="the retry logic looks wrong", ts="1.000"),
-            SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="agreed, it double-counts", ts="2.000"),
-        ],
-        None,
-        fork_source_permalink="https://slack.test/archives/C1/p2",
-    )
-    assert _INITIATOR_PLACEHOLDER not in out
-    assert "the retry logic looks wrong" in out
-    assert "agreed, it double-counts" in out
-    assert "tagged the PostHog app" not in out
-    assert "https://slack.test/archives/C1/p2" in out
-    assert out.endswith("catch me up")
+def _fork_description(**overrides):
+    kwargs = {
+        "title": "Fork: the retry logic looks wrong",
+        "source_channel": "C1",
+        "source_thread_ts": "1.000",
+        "source_message_ts": "2.000",
+        "permalink": "https://slack.test/archives/C1/p1",
+        "source_task_id": None,
+        "source_task_url": None,
+        "replying_in_dm": True,
+    }
+    return _build_fork_task_description(**{**kwargs, **overrides})
 
 
-def test_build_description_points_a_fork_at_the_forked_threads_own_task():
-    # The Slack messages are only what was *said*; the task behind them holds what was
-    # done. Naming it lets the agent go and read runs, logs and artifacts.
-    out = _build_posthog_code_task_description(
-        "catch me up",
-        [SlackThreadMessage(user="mira", user_id="U_MIRA", text="the retry logic looks wrong", ts="1.000")],
-        None,
-        fork_source_permalink="https://slack.test/archives/C1/p2",
-        fork_source_task_id="abc-123",
-    )
-    assert "`abc-123`" in out
+def test_fork_description_links_the_thread_instead_of_copying_it():
+    out = _fork_description()
+    # The Slack MCP reads a thread by channel and ts, so both must be there even next to the permalink.
+    assert "https://slack.test/archives/C1/p1 (channel `C1`, thread ts `1.000`)" in out
+    assert "with the Slack MCP" in out
+    assert "`2.000`" in out
+    assert "a private DM with the requester" in out
+    assert "Never ping the people from the forked thread" in out
+    assert out.rstrip().endswith("ask the requester what to do next.")
 
 
-def test_build_description_for_a_fork_of_an_unworked_thread_names_no_task():
-    # Forking a thread the agent has never touched has no task to point at; inventing a
-    # pointer would send it looking for something that does not exist.
-    out = _build_posthog_code_task_description(
-        "catch me up",
-        [SlackThreadMessage(user="mira", user_id="U_MIRA", text="the retry logic looks wrong", ts="1.000")],
-        None,
-        fork_source_permalink="https://slack.test/archives/C1/p2",
-    )
-    assert "PostHog task" not in out
+@pytest.mark.parametrize(
+    "task_id,task_url,names_task",
+    [
+        ("abc-123", "https://app.test/project/1/tasks/abc-123", True),
+        (None, None, False),
+    ],
+)
+def test_fork_description_points_at_the_forked_threads_task_only_when_there_is_one(task_id, task_url, names_task):
+    out = _fork_description(source_task_id=task_id, source_task_url=task_url)
+    assert ("PostHog task `abc-123` (https://app.test/project/1/tasks/abc-123)" in out) is names_task
+    assert ("PostHog task" in out) is names_task
 
 
-def test_build_description_for_a_fork_forbids_pinging_the_forked_participants():
-    # The reply lands in a DM with the requester. Echoing a mention token would ping
-    # someone who never asked for this and cannot see the conversation.
-    out = _build_posthog_code_task_description(
-        "catch me up",
-        [
-            SlackThreadMessage(user="mira", user_id="U_MIRA", text="something", ts="1.000"),
-            SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="else", ts="2.000"),
-        ],
-        None,
-        fork_source_permalink="https://slack.test/archives/C1/p2",
-    )
-    assert "never ping anyone quoted here" in out
-    assert "reuse those mention tokens verbatim" not in out
+def test_fork_description_without_a_permalink_still_locates_the_thread():
+    out = _fork_description(permalink=None, replying_in_dm=False)
+    assert "continue it: channel `C1`, thread ts `1.000`." in out
+    assert "a new thread in another channel" in out
 
 
 def test_build_description_collapses_role_annotations_when_same_person():

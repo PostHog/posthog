@@ -101,6 +101,7 @@ from products.slack_app.backend.models import (
 )
 from products.slack_app.backend.services import (
     bare_mention,
+    fork_interactivity,
     inbox_interactivity,
     project_picker,
     slack_welcome_messages,
@@ -127,7 +128,6 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_conversations import channel_ext_shared_state, channel_is_ext_shared
-from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.slack_messages import (
     FORK_THREAD_ACTION_ID,
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
@@ -190,13 +190,11 @@ from products.slack_app.backend.temporal import (
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
-from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
 from products.slack_app.backend.temporal.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
 from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
-from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -2340,24 +2338,7 @@ def _handle_assistant_dm_message(
     viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
     agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
 
-    # A fork parks the thread it came from and then asks what the user wants to know.
-    # This is that answer: it reads as an ordinary DM, so the pointer is the only thing
-    # that says otherwise. Consumed once — the run it starts writes a thread mapping,
-    # and every later message is a follow-up against that.
-    pending = get_pending_fork(integration.id, channel_id, thread_ts)
-    fork_kwargs: dict[str, Any] = {}
-    if pending:
-        clear_pending_fork(integration.id, channel_id, thread_ts)
-        fork_kwargs = {
-            "is_ext_shared_channel": pending.is_ext_shared,
-            "fork_source_channel": pending.source_channel,
-            "fork_source_thread_ts": pending.source_thread_ts,
-            "fork_source_message_ts": pending.source_message_ts,
-            "fork_source_task_id": pending.task_id,
-        }
-    return _start_mention_workflow(
-        agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user, **fork_kwargs
-    )
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
 
 
 def _route_assistant_event(
@@ -6546,37 +6527,6 @@ def _post_insight_alert_snooze_modal_confirmation(
         logger.warning("insight_alert_snooze_modal_confirm_failed")
 
 
-def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
-    """Hand the fork to Temporal and ack immediately.
-
-    Everything the fork does — resolving the user, reading the thread, opening the DM —
-    is too slow for Slack's three-second interactivity budget, so this only dispatches.
-    The id is keyed on the thread being forked, not the reply the menu hangs off, so
-    forking twice from the same discussion reuses the running fork instead of opening a
-    second DM about it.
-    """
-    message = payload.get("message", {}) or {}
-    team_id = payload.get("team", {}).get("id", "")
-    user_id = payload.get("user", {}).get("id", "")
-    source_ts = message.get("thread_ts") or message.get("ts", "")
-    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
-    try:
-        client = sync_connect()
-        asyncio.run(
-            client.start_workflow(
-                SlackAppForkThreadWorkflow.run,
-                SlackAppForkThreadInputs(payload=payload),
-                id=workflow_id,
-                task_queue=settings.TASKS_TASK_QUEUE,
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            )
-        )
-    except Exception as e:
-        logger.warning("slack_app_fork_submit_start_failed", workflow_id=workflow_id, error=str(e))
-    return HttpResponse(status=200)
-
-
 @csrf_exempt
 def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -6618,6 +6568,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)[0]
         or _extract_action_value_hints(payload, TURN_FEEDBACK_ACTION_ID)[0]
         or turn_feedback.extract_modal_hint(payload)
+        or fork_interactivity.fork_channel_modal_integration_hint(payload)
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
@@ -6748,6 +6699,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             return _handle_insight_alert_snooze_modal_submit(payload)
         if callback_id == turn_feedback.TURN_FEEDBACK_MODAL_CALLBACK_ID:
             return turn_feedback.handle_turn_feedback_modal_submit(payload)
+        if callback_id == fork_interactivity.FORK_CHANNEL_MODAL_CALLBACK_ID:
+            return fork_interactivity.handle_fork_channel_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
@@ -6759,7 +6712,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
             if action_id == FORK_THREAD_ACTION_ID:
-                return _handle_fork_thread_submit(payload)
+                return fork_interactivity.handle_fork_menu_click(payload)
             if action_id == TURN_FEEDBACK_ACTION_ID:
                 return turn_feedback.handle_turn_feedback_click(payload)
             if feature_tip_interactivity.is_feature_tip_action(action_id):

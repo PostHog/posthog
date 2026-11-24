@@ -182,9 +182,9 @@ def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
 
 
 def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
-    """Gate for the "Fork to DM" menu under a reply.
+    """Gate for the fork menu under a reply.
 
-    A fork lands in a DM and is answered there, so it inherits the assistant
+    A fork can land in a DM and be answered there, so it inherits the assistant
     surface's scope requirements wholesale — ``im:history`` in particular, without
     which the forked thread would answer once and then go deaf to follow-ups.
     Gating on the assistant scopes rather than its flag keeps the two rollouts
