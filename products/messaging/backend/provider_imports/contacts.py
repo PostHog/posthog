@@ -45,6 +45,7 @@ CONTACT_COUNT_LABELS = (
     ("new_people", "New people"),
     ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
+    ("unsendable", "Skipped because PostHog can't send to letters like é before the @"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
     ("repeats_merged", "Repeated addresses merged"),
     ("invalid_skipped", "Invalid addresses skipped"),
@@ -211,6 +212,11 @@ def _save_lists(
         )
     if invalid := everyone.invalid_skipped:
         notes.append(f"{_contacts(invalid)} had no valid email, so {_they(invalid)} skipped.")
+    unsendable = sum(1 for row in everyone.rows if _is_unsendable(row["email"]))
+    if unsendable:
+        notes.append(
+            f"{_contacts(unsendable)} skipped, because PostHog can't send to an address with letters like é before the @."
+        )
     if result.people:
         notes.append(
             f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
@@ -239,13 +245,18 @@ def _save_lists(
         counts={
             "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
-            "dropped": result.dropped,
+            "unsendable": unsendable,
+            "dropped": max(0, result.dropped - unsendable),
             "repeats_merged": everyone.repeats_merged,
             "invalid_skipped": everyone.invalid_skipped,
         },
         items=tuple(items),
         people_imports=tuple(plan for plan in plans if plan is not None),
     )
+
+
+def _is_unsendable(email: str) -> bool:
+    return not email.rpartition("@")[0].isascii()
 
 
 def _import(
