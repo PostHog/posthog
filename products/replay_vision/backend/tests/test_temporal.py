@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import threading
 import contextlib
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -47,8 +48,9 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 )
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
     pending_enqueue_claims_for_scanner,
@@ -73,7 +75,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     call_scanner_provider_activity,
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -97,6 +99,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.observation_steps import (
+    finalize_observation_activity,
+    prepare_observation_activity,
+)
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
     resolve_experiment_variant_activity,
 )
@@ -105,6 +111,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.errors import (
+    BILLING_SYNC_PENDING_ERROR_TYPE,
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -148,10 +155,13 @@ from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
     FetchSessionNetworkInputs,
+    FinalizeObservationInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    PrepareObservationInputs,
+    PrepareObservationOutput,
     ResolveExperimentVariantOutput,
     ScannerCallOutput,
     ScannerLlmInputs,
@@ -169,8 +179,10 @@ from products.replay_vision.backend.temporal.workflow import (
     _root_cause_message,
 )
 from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
+    unsynced_allowance,
 )
 from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 from products.signals.backend.models import SignalSourceConfig
@@ -239,9 +251,7 @@ class TestCountInFlightAppliesActivity:
         _make_observation(sibling, session_id="s4", status=ObservationStatus.PENDING)  # team only
         _make_observation(other_team_scanner, session_id="s5", status=ObservationStatus.PENDING)  # other team
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
@@ -257,9 +267,7 @@ class TestCountInFlightAppliesActivity:
             scanner_in_flight_rows=1,
         )
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=2)
 
@@ -296,7 +304,6 @@ class TestCreateObservationActivity:
         # Without these the config-versions history can't explain a sampling- or filter-only bump.
         assert observation.scanner_snapshot["query"] == scanner.query
         assert observation.scanner_snapshot["sampling_rate"] == scanner.sampling_rate
-        assert observation.scanner_snapshot["sampling_mode"] == str(scanner.sampling_mode)
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 
@@ -321,6 +328,43 @@ class TestCreateObservationActivity:
         assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["variant_sampling_rates"] == {"control": 0.055, "test": 0.5}
+
+    def test_records_that_a_scope_only_scanner_watches_an_experiment(self) -> None:
+        # The workflow gates variant attribution on this flag, and must read it from recorded
+        # activity output to stay deterministic across replays. Deriving it from `scanner_type`
+        # instead would leave every session of a scope-only scanner unlabeled.
+        scanner = _make_scanner(
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p"},
+            scope={"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]},
+        )
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-scope-only",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-scope-only",
+            )
+        )
+
+        assert result.watches_experiment is True
+
+    def test_records_that_a_scanner_with_no_scope_watches_no_experiment(self) -> None:
+        scanner = _make_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-no-scope",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-no-scope",
+            )
+        )
+
+        assert result.watches_experiment is False
 
     def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
         # A claim that never decays holds a phantom cap slot for the full TTL.
@@ -390,7 +434,13 @@ class TestCreateObservationActivity:
         )
 
         assert result == CreateObservationOutput(
-            observation_id=existing.id, was_created=False, scanner_type=ScannerType.MONITOR
+            observation_id=existing.id,
+            was_created=False,
+            scanner_type=ScannerType.MONITOR,
+            # The conflict path returns a row the workflow goes on to use, so it answers this for
+            # real. Leaving it None would read as "recorded before the field existed" and send the
+            # workflow to its scanner-type fallback.
+            watches_experiment=False,
         )
         # The original row wasn't touched.
         existing.refresh_from_db()
@@ -531,6 +581,50 @@ class TestCreateObservationActivity:
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
 
+    def test_retries_instead_of_skipping_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None), pytest.raises(ApplicationError) as raised:
+            create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert raised.value.type == BILLING_SYNC_PENDING_ERROR_TYPE
+        assert not raised.value.non_retryable
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-unsynced").exists()
+
+    def test_retry_reclaims_its_own_pending_row_while_billing_has_not_synced_the_org(self) -> None:
+        scanner = _make_scanner()
+        existing = _make_observation(
+            scanner, session_id="sess-unsynced", workflow_id="wf-unsynced", status=ObservationStatus.PENDING
+        )
+        scanner.team.organization.usage = None
+        scanner.team.organization.save()
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-unsynced",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-unsynced",
+                )
+            )
+
+        assert result.observation_id == existing.id
+        assert result.was_created is True
+
     def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
         scanner = _make_scanner()
         org = scanner.team.organization
@@ -555,7 +649,7 @@ class TestCreateObservationActivity:
     @parameterized.expand(
         [
             # Billing allows far more spend, so only the free credits stop the scanner.
-            ("free_credits_bind", 1_000_000, FREE_TIER_MONTHLY_CREDITS, "free_credits"),
+            ("free_credits_bind", 1_000_000, TEST_FREE_CREDITS, "free_credits"),
             # The org's own limit sits below the free credits, so it is the org that is out.
             ("org_limit_binds", 1_000, 1_000, "quota"),
         ]
@@ -566,7 +660,7 @@ class TestCreateObservationActivity:
         scanner = _make_scanner(free_only=True)
         seed_scanner_spend(_make_scanner(team=scanner.team, name="spender"), spent)
         with (
-            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit),
+            unsynced_allowance(credit_limit=org_limit),
             patch(
                 "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
             ) as capture,
@@ -685,7 +779,7 @@ class TestCreateObservationActivity:
         seed_scanner_spend(scanner, already_spent_credits)
 
         # This test isolates the scanner gate; keep the unsynced-org fallback quota out of the way.
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             result = create_observation_activity(
                 CreateObservationInputs(
                     scanner_id=scanner.id,
@@ -717,7 +811,7 @@ class TestCreateObservationActivity:
         # The fast path is the point of the cache: an admission inside the TTL must not re-run
         # compute_scanner_budget, or every capped admission pays the aggregate queries again.
         scanner = _make_scanner(credit_limit=1_000)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-cache-warmup").was_created
             with patch(
                 "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
@@ -730,7 +824,7 @@ class TestCreateObservationActivity:
         # first admission's cached spend must refuse the second, not just the next refresh.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-warm-a").was_created
             assert not self._admit(scanner, "sess-warm-b").was_created
         assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
@@ -745,7 +839,7 @@ class TestCreateObservationActivity:
             admission_budget_refreshed_at=timezone.now(),
             admission_budget_period_start=timezone.now() - dt.timedelta(days=400),
         )
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert self._admit(scanner, "sess-rollover").was_created
 
     def test_failed_insert_refunds_its_cached_admission(self) -> None:
@@ -753,7 +847,7 @@ class TestCreateObservationActivity:
         # rolled-back insert would make a cap that fits one observation refuse the retry forever.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             with (
                 patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
                 pytest.raises(RuntimeError),
@@ -966,7 +1060,7 @@ class TestCreateObservationActivity:
         # Free-only scanners race for the last free credits while billing still allows far more spend.
         org_limit = credits
         if free_only:
-            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), FREE_TIER_MONTHLY_CREDITS - credits)
+            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), TEST_FREE_CREDITS - credits)
             org_limit = 1_000_000
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
@@ -982,7 +1076,7 @@ class TestCreateObservationActivity:
             finally:
                 connections.close_all()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+        with unsynced_allowance(credit_limit=org_limit):
             threads = [
                 threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
                 threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
@@ -1011,9 +1105,7 @@ class TestCreateObservationActivity:
             triggered_by_user_id=None,
             workflow_id="wf-retry",
         )
-        with patch(
-            "products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000 if scanner_capped else credits
-        ):
+        with unsynced_allowance(credit_limit=1_000_000 if scanner_capped else credits):
             first_attempt = create_observation_activity(inputs)
             assert first_attempt.was_created is True
             second_attempt = create_observation_activity(inputs)
@@ -2842,6 +2934,7 @@ async def _run_workflow(
     inputs: ApplyScannerInputs,
     mocks: _WorkflowMocks,
     workflow_id: str = "wf-test",
+    folded: bool = False,
 ) -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
@@ -2852,6 +2945,8 @@ async def _run_workflow(
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
         patch("temporalio.workflow.now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+        # Histories from before the fold replay the per-step activities, so both paths stay covered.
+        patch("temporalio.workflow.patched", return_value=folded),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -2902,6 +2997,175 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert cleanup_input.gemini_file_name == "files/x"
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finalize_fails", [False, True])
+async def test_folded_apply_scanner_workflow_runs_two_activities_around_the_model_call(finalize_fails: bool) -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            prepare_observation_activity: PrepareObservationOutput(asset=EnsureSessionAssetOutput(asset_id=42)),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
+        },
+        activity_errors={finalize_observation_activity: ApplicationError("db down")} if finalize_fails else {},
+    )
+
+    if finalize_fails:
+        with pytest.raises(ApplicationError, match="db down"):
+            await _run_workflow(_build_inputs(), mocks, folded=True)
+    else:
+        await _run_workflow(_build_inputs(), mocks, folded=True)
+
+    pipeline = [
+        create_observation_activity,
+        prepare_observation_activity,
+        upload_video_to_gemini_activity,
+        call_scanner_provider_activity,
+        finalize_observation_activity,
+    ]
+    # Finalize deletes the Gemini file itself once the result is saved. When finalize fails, the
+    # workflow still marks the row failed and deletes the file.
+    expected = (
+        [*pipeline, mark_observation_failed_activity, cleanup_gemini_file_activity] if finalize_fails else pipeline
+    )
+    assert [fn for fn, _ in mocks.activity_calls] == expected
+    finalize_input = next(arg for fn, arg in mocks.activity_calls if fn is finalize_observation_activity)
+    assert finalize_input.gemini_file_name == "files/x"
+    assert finalize_input.exported_asset_id == 42
+    assert finalize_input.call_output.model_output == model_output
+
+
+_APPLY_STEPS = "products.replay_vision.backend.temporal.activities.observation_steps"
+
+
+def _inline_sync_to_async(fn: Any, **_: Any) -> Any:
+    # Runs the sync step on the test's own thread, so these database-free tests never reach Django connections.
+    async def run(*args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    return run
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failing_step, expect_error, stalled_step",
+    [
+        # The network capture is a side input, so the scan runs without it.
+        ("fetch_session_network", False, None),
+        ("fetch_session_events", True, None),
+        ("resolve_experiment_variant", True, None),
+        # An ineligible session must not wait out a stalled sibling, or the retries end it as failed.
+        ("fetch_session_events", True, "ensure_session_asset"),
+        # The network fetch is not watched for ineligibility, but must still stop when the activity ends.
+        ("fetch_session_events", True, "fetch_session_network"),
+    ],
+)
+async def test_prepare_observation_activity_only_absorbs_a_network_failure(
+    failing_step: str, expect_error: bool, stalled_step: str | None
+) -> None:
+    observation_id = uuid.uuid4()
+    async_steps = {
+        name: AsyncMock()
+        for name in (
+            "fetch_session_events",
+            "fetch_session_network",
+            "ensure_session_asset",
+            "resolve_experiment_variant",
+        )
+    }
+    async_steps["ensure_session_asset"].return_value = EnsureSessionAssetOutput(asset_id=42)
+    async_steps["resolve_experiment_variant"].return_value = ResolveExperimentVariantOutput(
+        applicable=True, experiment_variant="test"
+    )
+    async_steps[failing_step].side_effect = IneligibleSessionError("unexposed", kind=IneligibleSessionKind.NOT_EXPOSED)
+    stall_cancelled = asyncio.Event()
+    if stalled_step:
+
+        async def stall(_: object) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                stall_cancelled.set()
+                raise
+
+        async_steps[stalled_step].side_effect = stall
+    mark_running = MagicMock()
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running", mark_running))
+        stack.enter_context(patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async))
+        stack.enter_context(patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"))
+        for name, mock in async_steps.items():
+            stack.enter_context(patch(f"{_APPLY_STEPS}.{name}", mock))
+        call = prepare_observation_activity(
+            PrepareObservationInputs(observation_id=observation_id, team_id=1, session_id="s", resolve_experiment=True)
+        )
+        if expect_error:
+            with pytest.raises(IneligibleSessionError):
+                await asyncio.wait_for(call, timeout=5)
+            assert stall_cancelled.is_set() == bool(stalled_step)
+            return
+        output = await call
+
+    mark_running.assert_called_once()
+    assert output.asset.asset_id == 42
+    assert output.experiment_resolution is not None
+    assert output.experiment_resolution.experiment_variant == "test"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", ["mark_succeeded", "event"])
+async def test_finalize_observation_activity_only_raises_when_the_result_write_fails(fail: str) -> None:
+    calls: list[str] = []
+    mark_succeeded = MagicMock(side_effect=lambda _: calls.append("mark_succeeded"))
+    if fail == "mark_succeeded":
+        mark_succeeded.side_effect = RuntimeError("db down")
+
+    async def emit_event(_: object) -> None:
+        calls.append("event")
+        if fail == "event":
+            raise RuntimeError("capture down")
+
+    async def cleanup(_: object) -> None:
+        calls.append("cleanup")
+
+    inputs = FinalizeObservationInputs(
+        team_id=1,
+        session_id="s",
+        scanner_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        scanner_type=ScannerType.MONITOR,
+        exported_asset_id=42,
+        call_output=ScannerCallOutput(model_output=MonitorOutput(verdict="yes", reasoning="r", confidence=0.9)),
+        gemini_file_name="files/x",
+    )
+    with (
+        patch(f"{_APPLY_STEPS}.mark_observation_succeeded", mark_succeeded),
+        patch(f"{_APPLY_STEPS}.emit_observation_event", emit_event),
+        patch(f"{_APPLY_STEPS}.embed_observation", AsyncMock()),
+        patch(f"{_APPLY_STEPS}.cleanup_gemini_file", cleanup),
+        patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async),
+        patch(f"{_APPLY_STEPS}.asyncio.sleep", AsyncMock()),
+        patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"),
+    ):
+        if fail == "mark_succeeded":
+            with pytest.raises(RuntimeError, match="db down"):
+                await finalize_observation_activity(inputs)
+            # A retry of the activity must not repeat delivery, so nothing runs after a failed write.
+            assert calls == []
+            return
+        await finalize_observation_activity(inputs)
+
+    # The result is saved before any delivery step, and a failed delivery step neither raises nor skips the cleanup.
+    assert calls[0] == "mark_succeeded"
+    assert sorted(calls[1:]) == ["cleanup", "event", "event", "event"]
 
 
 @pytest.mark.asyncio

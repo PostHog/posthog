@@ -92,9 +92,11 @@ def report_startup_failure(failure: ResearchStartupFailure) -> dict[str, object]
 class ProjectOrganizationAdminRecipients(RecipientsResolver):
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         team = Team.objects.get(id=team_id)
-        admins = OrganizationMembership.objects.filter(
-            organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-        ).values_list("user_id", flat=True)
+        admins = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+            .values_list("user_id", flat=True)
+        )
         return list(team.all_users_with_access().filter(id__in=admins).values_list("id", flat=True))
 
 

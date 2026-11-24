@@ -92,6 +92,14 @@ def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ..
     )
 
 
+def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
+    """Match a requested model id against the catalogue, case-insensitively."""
+    if not model:
+        return None
+    normalized = model_catalog.normalize_model_id(model)
+    return next((c for c in choices if model_catalog.normalize_model_id(c.model) == normalized), None)
+
+
 def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     """Every model a picker may offer a run on the given gateway product."""
     return tuple(choice for choice in offered_model_choices() if model_allowed_by_product_pin(product, choice.model))
@@ -196,6 +204,7 @@ __all__ = [
     "runnable_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
+    "find_model_choice",
     "group_by_runtime",
     "label_for",
     "runtime_adapter_for",

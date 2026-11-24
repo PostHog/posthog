@@ -147,10 +147,8 @@ where
     read_as_with_byte_count_limited(data, usize::MAX)
 }
 
-/// Like `read_as_with_byte_count`, but fails with `Error::DecompressedTooLarge` instead of
-/// producing a payload larger than `max_bytes`. Use it for data from an untrusted source: a
-/// small zstd frame can decompress to many gigabytes, and the frame header that declares the
-/// size is written by the uploader.
+/// Like `read_as_with_byte_count`, but fails with `Error::DecompressedTooLarge` rather than
+/// produce a payload larger than `max_bytes`. Use it for data from an untrusted source.
 pub fn read_as_with_byte_count_limited<T>(
     data: &[u8],
     max_bytes: usize,
@@ -179,17 +177,15 @@ where
                     payload.to_vec()
                 }
                 Compression::Zstd => {
-                    // A declared size is safe to reject on but not to trust: zstd fails a frame
-                    // whose content does not match its declared size, and a frame can declare
-                    // no size at all, so the read below keeps its own cap.
+                    // zstd fails a frame whose content differs from its declared size, so that
+                    // size is safe to reject on. A frame can omit it, so the read keeps a cap.
                     if let Ok(Some(declared)) = known_zstd_decompressed_size(payload) {
                         assert_within_limit(declared, max_bytes)?;
                     }
                     let decoder = zstd::Decoder::new(Cursor::new(payload))
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
                     let mut out = Vec::new();
-                    // One byte past the limit is enough to tell an oversized payload from one
-                    // that is exactly at the limit.
+                    // Read one byte past the limit to tell an oversized payload from an exact fit.
                     decoder
                         .take((max_bytes as u64).saturating_add(1))
                         .read_to_end(&mut out)

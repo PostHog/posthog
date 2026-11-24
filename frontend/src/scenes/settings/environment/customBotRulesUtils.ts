@@ -1,3 +1,5 @@
+import { uuid } from 'lib/utils/dom'
+
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
@@ -48,6 +50,12 @@ export function matcherLabel(matcher: CustomBotMatcher): string {
 
 // Mirrors TRAFFIC_TYPE_BY_CATEGORY in
 // products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
+// Lowercase: the labels render mid-sentence ("when all conditions are met").
+export const combinerOptions = [
+    { label: 'all', value: FilterLogicalOperator.And },
+    { label: 'any', value: FilterLogicalOperator.Or },
+]
+
 export const CUSTOM_BOT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
     { value: CUSTOM_BOT_CATEGORY, label: 'Custom' },
     { value: 'ai_crawler', label: 'AI crawler' },
@@ -401,4 +409,35 @@ export function sanitizeCustomBotRules(rules: CustomBotRule[]): CustomBotRule[] 
                 })),
         }))
         .filter((rule) => rule.name && rule.items.length > 0)
+}
+
+export function categoryLabel(category: string | undefined): string {
+    const value = category || CUSTOM_BOT_CATEGORY
+    return CUSTOM_BOT_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? value
+}
+
+export function newCustomBotCondition(): CustomBotCondition {
+    return {
+        id: uuid(),
+        key: CustomBotField.RawUserAgent,
+        matcher: CustomBotMatcher.Contains,
+        pattern: '',
+    }
+}
+
+export function newCustomBotRule(): CustomBotRule {
+    return {
+        id: uuid(),
+        name: '',
+        category: CUSTOM_BOT_CATEGORY,
+        combiner: FilterLogicalOperator.And,
+        items: [newCustomBotCondition()],
+    }
+}
+
+export function withConditionKey(condition: CustomBotCondition, key: CustomBotField): CustomBotCondition {
+    // Regex works on every property, so treat it as a deliberate choice and keep it. Anything else
+    // follows the new property, which moves an IP condition onto ranges and a screen dimension onto equality.
+    const matcher = condition.matcher === CustomBotMatcher.Regex ? CustomBotMatcher.Regex : defaultMatcherFor(key)
+    return { ...condition, key, matcher }
 }

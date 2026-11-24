@@ -1005,10 +1005,9 @@ pub async fn insert_person_for_team_in_pg(
         r#"
         WITH inserted_person AS (
             INSERT INTO posthog_person (
-                created_at, properties, properties_last_updated_at,
-                properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                created_at, properties, team_id, is_user_id, is_identified, uuid, version
             )
-            VALUES ('2023-04-05', $1, '{}', '{}', $2, NULL, true, $3, 0)
+            VALUES ('2023-04-05', $1, $2, NULL, true, $3, 0)
             RETURNING id
         )
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
@@ -1887,27 +1886,10 @@ impl TestContext {
         Ok((key_id, raw_key))
     }
 
-    /// Records a token hash as leak-revoked (`revoke_exposed_project_secret_api_key`).
-    pub async fn create_revoked_team_secret_token(
-        &self,
-        team_id: i32,
-        raw_key: &str,
-    ) -> Result<(), Error> {
-        let secure_value = crate::api::auth::hash_token_value(raw_key);
-        let mut conn = self.non_persons_writer.get_connection().await?;
-        sqlx::query(
-            r#"INSERT INTO posthog_revokedteamsecrettoken (team_id, secure_value, created_at)
-               VALUES ($1, $2, NOW())"#,
-        )
-        .bind(team_id)
-        .bind(&secure_value)
-        .execute(&mut *conn)
-        .await?;
-        Ok(())
-    }
-
-    /// Creates a team with both public token and secret API token
-    /// Optionally accepts a backup secret token
+    /// Creates a team with a public token, plus a PSAK mirror row for the secret token and
+    /// the optional backup, as the #63111 backfill left every real team: the secret values
+    /// live only as PSAK hashes, not on the team row. Don't insert another PSAK with the
+    /// same raw token: `secure_value` is unique.
     pub async fn create_team_with_secret_token(
         &self,
         public_token: Option<&str>,
@@ -1957,49 +1939,62 @@ impl TestContext {
         .await?;
         assert_eq!(res.rows_affected(), 1);
 
-        // Insert team with secret tokens
-        let mut query_str = String::from(
-            "INSERT INTO posthog_team (id, uuid, organization_id, project_id, api_token, secret_api_token"
-        );
+        let query_str = "INSERT INTO posthog_team (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)";
 
-        // Add secret_api_token_backup column if provided
-        if backup_secret_token.is_some() {
-            query_str.push_str(", secret_api_token_backup");
-        }
-
-        query_str.push_str(", name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES ($1, $2, $3::uuid, $4, $5, $6");
-
-        // Add backup token parameter placeholder if provided
-        if backup_secret_token.is_some() {
-            query_str.push_str(", $7");
-            query_str.push_str(", $8, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $9, 'USD', '30d', false)");
-        } else {
-            query_str.push_str(", $7, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $8, 'USD', '30d', false)");
-        }
-
-        let mut query = sqlx::query(&query_str)
+        let res = sqlx::query(query_str)
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
             .bind(team.id)
             .bind(&team.api_token)
-            .bind(&secret_token);
-
-        if let Some(ref backup) = backup_secret_token {
-            query = query.bind(backup);
-        }
-
-        query = query
             .bind(&team.name)
-            .bind(team.cookieless_server_hash_mode.unwrap_or(0));
-
-        let res = query.execute(&mut *conn).await?;
+            .bind(team.cookieless_server_hash_mode.unwrap_or(0))
+            .execute(&mut *conn)
+            .await?;
         assert_eq!(res.rows_affected(), 1);
 
         // Insert group type mappings
         insert_team_group_mappings(self.persons_writer.clone(), &team).await?;
 
+        // The #63111 backfill state every real team has: legacy secret tokens
+        // authenticate only through their PSAK mirror rows.
+        self.create_project_secret_api_key_with_value(
+            team.id,
+            "Migrated legacy secret API key",
+            Some(vec!["feature_flag:read", "support_ticket:read"]),
+            &secret_token,
+        )
+        .await?;
+        if let Some(ref backup) = backup_secret_token {
+            self.create_project_secret_api_key_with_value(
+                team.id,
+                "Migrated legacy key (backup)",
+                Some(vec!["feature_flag:read", "support_ticket:read"]),
+                backup,
+            )
+            .await?;
+        }
+
         Ok((team, secret_token, backup_secret_token))
+    }
+
+    /// Removes a token's PSAK mirror rows, leaving the team as one whose legacy token
+    /// was never backfilled (or was leak-revoked).
+    pub async fn delete_project_secret_api_keys_for_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            "DELETE FROM posthog_projectsecretapikey WHERE team_id = $1 AND secure_value = $2",
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
     }
 
     /// Populates the HyperCache with flag definitions for flag_definitions endpoint

@@ -67,7 +67,7 @@ class EventsRetentionTool(ConsoleTool):
     key = "events-retention"
     title = "Events retention"
     owner = CLICKHOUSE
-    group = "Data"
+    group = "Data deletion"
     description = "Deletion retention per team, and the month the monthly cleanup deletes up to."
 
     def page(self, request: HttpRequest) -> Page:
@@ -107,3 +107,10 @@ class EventsRetentionTool(ConsoleTool):
                 *((paging,) if page.paginator.count else ()),
             )
         )
+
+
+console.register_moved_page(
+    old_path="admin/events-retention/",
+    title="Events retention",
+    url="/admin/console/tools/events-retention/",
+)

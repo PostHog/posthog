@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-home-alignment",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "native-1160",
+    "notes": "Align the Home metrics card with the Chats and Views search fields. Verify tab alignment, scrolling and navigation on iOS and Android."
+}

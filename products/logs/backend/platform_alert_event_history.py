@@ -24,6 +24,8 @@ from products.logs.backend.alert_source_cycle import LogsAlertCondition
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 
+BREACHED_KEY: Final = "threshold_breached"
+
 # A merged page loads every row up to its end from both sources, so the end is bounded. The events
 # tab loads pages of 100 and never comes near it.
 MAX_MERGED_EVENT_ROWS: Final = 10_000
@@ -52,13 +54,18 @@ class PlatformCheckRows:
     total: int
 
 
-def platform_check_rows(*, team_id: int, alert_id: UUID, since: datetime, limit: int) -> PlatformCheckRows | None:
+def platform_check_rows(
+    *, team_id: int, alert_id: UUID, since: datetime, limit: int, copies_before: bool = False
+) -> PlatformCheckRows | None:
     """The newest `limit` checks since `since` that moved the alert's state or failed, or None when
-    the platform does not own the alert.
+    the platform does not own the alert. With `copies_before`, the checks copied from
+    `LogsAlertEvent` are read too, from before `since` as well.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
-    page = notable_checks_by_public_id(team_id=team_id, public_id=alert_id, since=since, limit=limit)
+    page = notable_checks_by_public_id(
+        team_id=team_id, public_id=alert_id, since=since, limit=limit, copies_before=copies_before
+    )
     if page is None:
         return None
     return PlatformCheckRows(rows=tuple(_as_row(alert_id, check) for check in page.events), total=page.total)
@@ -83,6 +90,9 @@ def _logs_state(state: PlatformAlertState, at: datetime) -> str:
 
 
 def _breached(check: PlatformCheckEvent) -> bool:
+    copied_verdict = check.source_detail.get(BREACHED_KEY)
+    if isinstance(copied_verdict, bool):
+        return copied_verdict
     if check.value is None:
         return False
     try:
@@ -100,11 +110,12 @@ _LOGS_KIND_OF_CHANGE: Final[dict[ControlChangeKind, LogsAlertEvent.Kind]] = {
     ControlChangeKind.UNSNOOZE: LogsAlertEvent.Kind.UNSNOOZE,
     ControlChangeKind.RESET: LogsAlertEvent.Kind.RESET,
     ControlChangeKind.CONFIG_CHANGE: LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+    ControlChangeKind.HANDBACK: LogsAlertEvent.Kind.HANDBACK,
 }
-_CHANGE_OF_LOGS_KIND: Final[dict[str, ControlChangeKind]] = {
+CHANGE_OF_LOGS_KIND: Final[dict[str, ControlChangeKind]] = {
     logs_kind.value: change for change, logs_kind in _LOGS_KIND_OF_CHANGE.items()
 }
-PLATFORM_CONTROL_KINDS: Final = frozenset(_CHANGE_OF_LOGS_KIND)
+PLATFORM_CONTROL_KINDS: Final = frozenset(CHANGE_OF_LOGS_KIND)
 
 
 @frozen
@@ -135,9 +146,9 @@ def platform_control_rows(
     """The newest `limit` control-plane changes of the logs `kinds`, or None when the platform does
     not own the alert. A kind the platform does not record is ignored.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
-    changes = [_CHANGE_OF_LOGS_KIND[kind] for kind in kinds if kind in _CHANGE_OF_LOGS_KIND]
+    changes = [CHANGE_OF_LOGS_KIND[kind] for kind in kinds if kind in CHANGE_OF_LOGS_KIND]
     page = control_changes_by_public_id(team_id=team_id, public_id=alert_id, kinds=changes, limit=limit)
     if page is None:
         return None
@@ -189,7 +200,7 @@ def platform_control_timelines(
     """Each named alert's control-plane timeline in `[since, until)`. An alert the platform does not
     own, or that has no kept change, is left out.
 
-    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    Raises when ClickHouse fails.
     """
     histories = control_history_by_public_id(team_id=team_id, public_ids=alert_ids, since=since, until=until)
     return {

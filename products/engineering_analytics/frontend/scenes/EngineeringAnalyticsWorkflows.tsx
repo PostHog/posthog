@@ -1,5 +1,3 @@
-// The full workflow list behind the hub's capped workflows section. Every row opens the workflow page.
-
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'

@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
@@ -22,6 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     _current_rate,
     build_capture_kwargs,
 )
+
+UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID
+TIMED_OUT = KafkaError._TIMED_OUT
 
 hang = threading.Event()
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
@@ -174,6 +179,24 @@ class TestProcessRecord:
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
 
+    @parameterized.expand([("returned", False), ("raised", True)])
+    def test_billing_limited_rejection_gets_its_own_dlq_reason(self, _name, raised):
+        if raised:
+            exc = Exception("billing limit exceeded")
+            exc.status_code = 402  # type: ignore[attr-defined]
+            capture = MagicMock(side_effect=exc)
+        else:
+            capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        dlq = MagicMock()
+        c = self._consumer(capture, dlq=dlq)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+        labels = {"reason": "billing_limited"}
+        before = REGISTRY.get_sample_value("warehouse_person_property_dlq_total", labels) or 0
+
+        assert c.process_record(value) == DLQ
+        assert dlq.produce.call_args.kwargs["data"]["reason"] == "billing_limited"
+        assert REGISTRY.get_sample_value("warehouse_person_property_dlq_total", labels) == before + 1
+
     def test_terminal_drop_goes_to_dlq_not_retry(self):
         # A dropped event is a permanent rejection (bad token, validation): DLQ it so it can't be
         # redelivered forever and wedge the partition.
@@ -195,7 +218,7 @@ class TestProcessRecord:
     )
     def test_capture_rejection_dlq_log_names_team(self, _name, lookup_kwargs, expected_team_id):
         hang.clear()
-        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=402))
+        capture = MagicMock(return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=400))
         c = self._consumer(capture)
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
@@ -208,7 +231,7 @@ class TestProcessRecord:
             hang.set()
 
         [entry] = [e for e in logs if e["event"] == "person_property_update.dlq"]
-        assert entry["reason"] == "capture_error:402"
+        assert entry["reason"] == "capture_error:400"
         assert entry["team_id"] == expected_team_id
 
     @parameterized.expand(
@@ -351,7 +374,8 @@ class TestRateGate:
             capture_fn=capture, grant_fn=grant, dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
         )
 
-        assert c.process_record(self._VALUE) == SENT
+        with patch(f"{_MODULE}.close_old_connections"):
+            assert c.process_record(self._VALUE) == SENT
         assert capture.call_count == 1
         assert len(sleeps) == 2  # backed off once per grant error before the grant
 
@@ -391,6 +415,33 @@ class TestRateGate:
 
         assert c.process_record(self._VALUE) == SENT
         assert len(heartbeats) == 2  # one per throttled poll before the grant
+
+
+class TestCommit:
+    def test_rebalance_commit_failure_is_logged_not_raised(self):
+        # Regression: a commit can fail with UNKNOWN_MEMBER_ID when a rebalance (e.g. this consumer
+        # exceeding max.poll.interval.ms while blocked in the throttle wait) already moved the
+        # partition to another group member. The new owner re-reads from the last committed offset,
+        # so this must be logged and swallowed, not crash the consumer loop.
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(UNKNOWN_MEMBER_ID))
+        c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
+
+        with capture_logs() as logs:
+            c._commit(consumer, message=MagicMock())
+
+        [entry] = [e for e in logs if e["event"] == "person_property_update.commit_skipped_after_rebalance"]
+        assert entry["error"]
+
+    def test_unrelated_commit_failure_propagates(self):
+        # Only the known rebalance-recovery codes are safe to swallow; any other commit failure
+        # means offsets were left where they were, so it must still surface rather than be hidden.
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(TIMED_OUT))
+        c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
+
+        with pytest.raises(KafkaException):
+            c._commit(consumer, message=MagicMock())
 
 
 class TestCurrentRate:

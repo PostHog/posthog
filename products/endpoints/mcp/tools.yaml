@@ -19,9 +19,18 @@ tools:
         enrich_url: '{name}'
         title: Create endpoint
         description: >
-            Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers,
-            hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an
-            eligible query.
+            Create a new API endpoint from a HogQL or insight query. When the user wants PostHog data in code, a script,
+            a scheduled job, a backend, or a customer-facing feature, offer an endpoint, and call this tool only after
+            they agree. Production code should call an endpoint's run URL, not the /query API. Put values the caller
+            changes (user ID, customer ID, date range) in variables rather than building SQL strings. Default
+            is_materialized to true for any endpoint that code will call on a schedule or at volume: materialized reads
+            run on dedicated compute, skip the inline query timeout and inline rate limits, and a materialization nobody
+            calls for 30 days is turned off automatically. Leave it false only when the caller needs data fresher than
+            data_freshness_seconds allows, a variable takes arbitrary high-cardinality values, or the endpoint is a
+            one-off exploration. If the query can't be materialized, the request fails with the reason: create the
+            endpoint unmaterialized, tell the user why, and point at the fix. Use endpoints-materialization-preview to
+            check an existing endpoint, and see the creating-an-endpoint skill for the rules. The name must be URL-safe
+            (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars).
         include_params:
             - name
             - query
@@ -70,9 +79,10 @@ tools:
         description: >
             Retrieve execution logs for an endpoint by name. Each run emits one entry with a timestamp, level (INFO or
             ERROR), and a message whose extra data is in key=value tokens (path=materialized|inline|ducklake,
-            cache=hit|miss, duration_ms=, rows=, version=, error=). Filter by level (e.g. "ERROR"), text search (e.g.
-            "cache=miss"), time range (after/before), a specific execution (instance_id), and limit (max 500). Use to
-            debug why an endpoint failed, timed out, missed cache, or returned unexpected row counts.
+            cache=hit|miss, duration_ms=, rows=, version=, error=, refresh=, access=, variables=, limit=, offset=).
+            Filter by level (e.g. "ERROR"), text search (e.g. "cache=miss"), time range (after/before), a specific
+            execution (instance_id), and limit (max 500). Use to debug why an endpoint failed, timed out, missed cache,
+            or returned unexpected row counts.
     endpoint-materialization-status:
         operation: endpoints_materialization_status_retrieve
         enabled: true
@@ -115,7 +125,9 @@ tools:
         description: >
             Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs
             inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with
-            breakdowns, use the breakdown property name as the key.
+            breakdowns, use the breakdown property name as the key. Code outside the MCP calls POST
+            /api/environments/{project_id}/endpoints/{name}/run with the same variables body. HogQL endpoints page with
+            limit and offset in that body. Insight endpoints reject limit and offset.
         include_params:
             - variables
             - limit

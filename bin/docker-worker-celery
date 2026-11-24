@@ -67,7 +67,8 @@ done
 # Celery tasks before they can drain, even though K8s gives us 1230s of
 # grace time via terminationGracePeriodSeconds.
 cleanup() {
-  kill $(jobs -p) 2>/dev/null
+  # kill fails when no job is left. Under `set -e` that failure would replace the worker's exit code.
+  kill $(jobs -p) 2>/dev/null || true
   wait
 }
 trap cleanup EXIT
@@ -113,32 +114,6 @@ echo
 ./bin/migrate-check
 
 SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
-
-# Celery never restarts an embedded scheduler that exits, so the worker would keep running with
-# nothing scheduling tasks. Exit instead, the same way the container exits when a separate
-# scheduler process exits, so that the restart policy starts both again.
-embedded_scheduler_running() {
-  ps -eo stat=,args= | awk '$1 !~ /^Z/ && /\[celery beat\]/ { found = 1 } END { exit !found }'
-}
-watch_embedded_scheduler() {
-  local waited=0
-  until embedded_scheduler_running; do
-    if [ "$waited" -ge 600 ]; then
-      echo "The embedded scheduler did not start within 600 seconds"
-      exit 1
-    fi
-    sleep 10
-    waited=$((waited + 10))
-  done
-  while embedded_scheduler_running; do
-    sleep 30
-  done
-  echo "The embedded scheduler exited"
-  exit 1
-}
-if [ "$with_embedded_scheduler" == "true" ]; then
-  watch_embedded_scheduler &
-fi
 
 # Exit if any processes exit, and exit with it's exit code
 wait -n

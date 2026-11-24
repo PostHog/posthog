@@ -11,7 +11,7 @@ from enum import Enum
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 
 class PropertyAccessLevel(str, Enum):

@@ -1,3 +1,5 @@
+import socket
+
 import pytest
 from unittest import mock
 
@@ -8,6 +10,7 @@ from products.warehouse_sources.sources.elasticsearch._config import (
 from products.warehouse_sources.sources.elasticsearch.source import ElasticsearchSource, _auth_from_config
 
 _SOURCE_MODULE = "products.warehouse_sources.sources.elasticsearch.source"
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 def _config(selection: str = "basic") -> ElasticsearchSourceConfig:
@@ -124,3 +127,29 @@ class TestElasticsearchSource:
         assert kwargs["host"] == "https://es.example.com:9243"
         assert kwargs["index"] == "orders"
         assert kwargs["auth"].username == "elastic"
+
+    @pytest.mark.parametrize(
+        "errno, should_retry",
+        [
+            (socket.EAI_NONAME, False),
+            (socket.EAI_AGAIN, True),
+        ],
+    )
+    @mock.patch(f"{_SOURCE_MODULE}.elasticsearch_source")
+    @mock.patch(f"{_MIXINS_MODULE}.get_instance_region", return_value="US")
+    @mock.patch(f"{_MIXINS_MODULE}.is_cloud", return_value=True)
+    def test_source_for_pipeline_dns_failure_retry_classification(
+        self, _mock_is_cloud, _mock_region, mock_es_source, errno, should_retry
+    ):
+        inputs = mock.MagicMock()
+        inputs.team_id = self.team_id
+
+        with (
+            mock.patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror(errno, "lookup failed")),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            self.source.source_for_pipeline(self.config, inputs)
+
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable) is not should_retry
+        mock_es_source.assert_not_called()

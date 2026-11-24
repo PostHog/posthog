@@ -1,14 +1,14 @@
 ---
 name: monitoring-ingestion-pipeline
 description: >
-  Guide for using the Grafana MCP to monitor and diagnose the Node.js ingestion
+  Uses the PostHog MCP to monitor and diagnose the Node.js ingestion
   pipeline workers in production. Use when investigating event lag, drops,
   pipeline errors, person/group processing, Kafka consumer health, Redis,
   Postgres, ClickHouse downstream health, or any ingestion worker question.
   Covers prod-us and prod-eu environments.
 ---
 
-# Monitoring the ingestion pipeline with Grafana MCP
+# Monitoring the ingestion pipeline with PostHog MCP
 
 The ingestion pipeline (`nodejs/`) is PostHog's Node.js event processing layer.
 It consumes events from Kafka (produced by the capture service), runs them through
@@ -22,28 +22,29 @@ and is distinguished in metrics by two default Prometheus labels:
 - `ingestion_pipeline` — values: `analytics`, `heatmaps`, `clientwarnings`, `errortracking`
 - `ingestion_lane` — values: `main`, `overflow`, `historical`, `async`, `turbo`
 
-The `app` label (set by K8s pod labels) matches the deployment name and is the most
-universal scope filter across all telemetry domains.
+The `app` metric label (set by K8s pod labels) matches the deployment name.
+For logs, discover the corresponding `service.name` before filtering.
 
-This skill teaches how to **discover live metrics** using the Grafana MCP tools
+This skill teaches how to **discover live metrics** using the PostHog MCP tools
 rather than memorizing metric names that change as the code evolves.
 
 ## Environment context
 
-The Grafana MCP is connected to a **single Grafana instance** scoped to one environment.
+US and EU use separate internal PostHog projects on separate PostHog instances.
 If the user hasn't specified, **ask which environment** they want to investigate:
 
 - **prod-us** — US production (us-east-1)
 - **prod-eu** — EU production (eu-central-1)
 
-Most ingestion app metrics are environment-specific by virtue of which Grafana
-you're connected to — they don't carry an `environment` label. CloudWatch metrics
-are also scoped to the connected Grafana's AWS account.
+Use the PostHog MCP connection for the region's internal project.
+US metrics carry `environment="prod-us"`.
+For EU, run the same tools through a separate connection to the EU PostHog instance.
+Discover labels and filter or check `environment` where it exists.
+An environment filter does not switch projects or instances.
+If a region's connection is unavailable, report that region as not checked.
 
-Cross-environment comparison requires switching Grafana instances (not possible in one session).
-
-All datasource UIDs, dashboard UIDs, `ingestion_pipeline`/`ingestion_lane` label values,
-and ClickHouse `type` label values are **identical** across prod-us and prod-eu.
+The `ingestion_pipeline`/`ingestion_lane` and ClickHouse `type` label values match across regions.
+Check the dashboard section for region-specific boards.
 
 Key differences:
 
@@ -55,21 +56,20 @@ Key differences:
 
 ## Observability landscape
 
-Six telemetry domains, all validated identical across prod-us and prod-eu:
+Ingestion spans app metrics, infrastructure metrics, logs, profiles, and dashboards.
+Use PostHog for metrics and logs. Confirm each metric exists in the selected region before querying.
 
-| Domain                             | Datasource UID                  | Discovery tool                 | Scope filter                              |
-| ---------------------------------- | ------------------------------- | ------------------------------ | ----------------------------------------- |
-| App metrics (VictoriaMetrics)      | `victoriametrics`               | `list_prometheus_metric_names` | See metric prefixes below                 |
-| App metrics (realtime)             | `victoriametrics-realtime`      | same                           | same (lower retention, higher resolution) |
-| Logs                               | `P44D702D3E93867EC` (Loki-logs) | `list_loki_label_names`        | `app=~"ingestion-.*"`                     |
-| Profiling                          | `pyroscope`                     | `list_pyroscope_profile_types` | See Pyroscope services below              |
-| CloudWatch (ElastiCache, MSK, RDS) | `P034F075C744B399F`             | `query_prometheus`             | env-specific cluster IDs                  |
-| Dashboards                         | n/a                             | `search_dashboards`            | query `"ingestion"` or deployment name    |
+| Domain                                              | Discovery or access                                             |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| App metrics                                         | `posthog:metric-names-list`                                     |
+| Logs                                                | `posthog:logs-attribute-values-list`, then `posthog:query-logs` |
+| Infrastructure metrics (ElastiCache, MSK, RDS, K8s) | `posthog:metric-names-list`, then `posthog:query-metrics`       |
+| Profiling                                           | Existing Pyroscope access                                       |
+| Dashboards                                          | Existing Grafana access                                         |
 
-**Datasource notes:**
-
-- Do NOT use primary Loki (`P8E80F9AEF21F6940`) — it returns 502 intermittently in both envs. Always use **Loki-logs** (`P44D702D3E93867EC`).
-- Do NOT use `CloudWatch Root` (`PAAE47F430CFD1449`) — it exists only in prod-us.
+**Fallback:** People on managed devices with an existing Grafana MCP connection can use it.
+It supports metrics, logs, profiles, and dashboards.
+See `tools/infra-scripts/mcp/README.md` for its setup.
 
 ## Stable waypoints
 
@@ -106,8 +106,8 @@ Each golden-chart deployment runs in its **own namespace** matching the deployme
 
 ### Metric prefixes
 
-Every prefix here can be discovered live with `list_prometheus_metric_names`
-using `datasourceUid: "victoriametrics"` and `regex: "<prefix>.*"`.
+Discover each prefix with `posthog:metric-names-list` using `value: "<prefix>"`.
+The default match is a substring. Use `match: "regex"` for a regular expression.
 
 | Prefix                                                                           | Domain                                     | Key scope labels                                         |
 | -------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------- |
@@ -150,7 +150,7 @@ Redis health is inferred from ingestion-side metrics and CloudWatch ElastiCache 
 | Dedup Redis           | `ingestion-duplicates-prod-redis` | `DEDUPLICATION_REDIS_HOST` | Event deduplication                  |
 
 Ingestion-side Redis metrics: `overflow_redirect_redis_*`, `cookieless_redis_error`.
-Infrastructure-side: CloudWatch datasource `P034F075C744B399F`.
+Infrastructure-side: ingested CloudWatch metrics in PostHog.
 
 prod-eu uses the same logical cluster names but different endpoint suffixes.
 The prod-eu primary Redis is `posthog-prod-redis-encripted` (sic — the typo is in the actual cluster name).
@@ -188,7 +188,7 @@ agent pool, KMinion instance, and topic namespace:
 | VC name                          | Topics carried                                                                                                                                                                                                                                                                                                                       | KMinion instance                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
 | `warpstream-ingestion-v2`        | `clickhouse_events_json`, `clickhouse_person`, `clickhouse_person_distinct_id`, `clickhouse_groups`, `clickhouse_ai_events_json`, `clickhouse_heatmap_events`, `clickhouse_app_metrics2`, `clickhouse_tophog`, `clickhouse_ingestion_warnings`, `distinct_id_usage_events_json`, `log_entries`, `team_event_partitioned_events_json` | `kminion-warpstream-ingestion`           |
-| `warpstream-replay-v2`           | `ingestion-sessionreplay-main-*`, `clickhouse_session_replay_events`, `clickhouse_session_replay_features`                                                                                                                                                                                                                           | `kminion-warpstream-replay`              |
+| `warpstream-replay-v2`           | `ingestion-sessionreplay-main-*`, `clickhouse_session_replay_events`                                                                                                                                                                                                                                                                 | `kminion-warpstream-replay`              |
 | `warpstream-logs`                | `ingestion-logs`, `clickhouse_logs`                                                                                                                                                                                                                                                                                                  | `kminion-warpstream-logs`                |
 | `warpstream-traces`              | `ingestion-traces`, `clickhouse_traces`                                                                                                                                                                                                                                                                                              | `kminion-warpstream-traces`              |
 | `warpstream-shared`              | `clickhouse_document_embeddings`, error tracking fingerprint/issue topics, `document_embeddings_input`                                                                                                                                                                                                                               | `kminion-warpstream-shared`              |
@@ -325,39 +325,72 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ## Discovery workflows
 
-### Prometheus / VictoriaMetrics
+### Metrics
 
-1. `list_prometheus_metric_names` — `datasourceUid: "victoriametrics"`, `regex: "ingestion_.*"` to enumerate app metrics
-2. Pick a metric, then `list_prometheus_label_names` scoped to it — see available dimensions
-3. `list_prometheus_label_values` — discover actual values for a label
-   (e.g. `labelName: "cause"` on `ingestion_event_dropped_total`)
-4. `query_prometheus` with PromQL — always scope by `app` or `ingestion_pipeline` and set a time range
+1. Call `posthog:metric-names-list` with `value: "ingestion_"` to discover exact names and metric types.
+2. Call `posthog:metric-attributes-list` with `metricName` to discover labels.
+3. Call `posthog:metric-attribute-values-list` to discover values, such as `cause` on `ingestion_event_dropped_total`.
+4. Call `posthog:query-metrics` with the existing PromQL in `query.promql` as written.
+   Scope new expressions by `app` or `ingestion_pipeline`. Check `environment` where it exists.
+
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
+All query parameters go inside `query`. For a range summary:
+
+```json
+{
+  "query": {
+    "promql": "ingestion_lag_ms{groupId=~\"ingestion-analytics-main\"}",
+    "dateFrom": "-1h",
+    "output": "summary",
+    "dropEmptySeries": false
+  }
+}
+```
+
+Use `query.instant: true` for current values. Omit `dateFrom` and `dateTo` for instant queries.
+For a curve, keep the range and omit `output`. Share the returned `_posthogUrl` with the user.
+Keep existing PromQL expressions unchanged. Do not translate them into builder fields.
+If PromQL is unavailable or a metric is missing, report the limit before using the fallback.
 
 Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 `overflow_redirect_*`, `ClickHouseMetrics_*`, `kafka_connect_*`, etc.
 
-### Loki (logs)
+### Logs
 
-1. `list_loki_label_names` — `datasourceUid: "P44D702D3E93867EC"`
-2. `list_loki_label_values` for `app` — find ingestion containers (values like `ingestion-analytics-main`, `logs-ingestion`, etc.)
-3. `query_loki_logs` — e.g. `{app=~"ingestion-.*"} |= "error"` or `{namespace="clickhouse"} |= "Exception"`
+1. Discover services with `posthog:logs-attribute-values-list` using `key: "service.name"` and `attribute_type: "resource"`.
+2. Select the ingestion service. Discover resource labels with `posthog:logs-attributes-list` using `attribute_type: "resource"` when needed.
+3. Follow the tool's count and time-window guidance before calling `posthog:query-logs`.
+   Set `query.serviceNames` to the discovered services and always pass `query.dateRange`.
+   For errors, use `query.severityLevels: ["error", "fatal"]`. Use `query.searchTerm` for message text.
+   If severity filters return nothing unexpectedly, discover stored severity values before concluding there are no errors.
+
+Example after confirming the service name:
+
+```json
+{
+  "query": {
+    "serviceNames": ["ingestion-analytics-main"],
+    "dateRange": { "date_from": "-1h" },
+    "severityLevels": ["error", "fatal"]
+  }
+}
+```
 
 ### Pyroscope (profiling)
 
-1. `list_pyroscope_profile_types` — `data_source_uid: "pyroscope"`
-2. `fetch_pyroscope_profile` — `matchers: '{service_name="ingestion-analytics-main/ingestion-analytics-main"}'`,
-   `profile_type: "process_cpu:cpu:nanoseconds:cpu:nanoseconds"`
+Use existing Pyroscope access for profiles. See the service names and profile types above.
+Profiling through Grafana requires the fallback connection.
 
 ### Dashboards
 
-1. `search_dashboards` — query `"ingestion"` or `"clickhouse"` or a specific deployment name
-2. `get_dashboard_by_uid` — use a known UID (e.g. `"ingestion-health"`) to get panel details
-3. `get_dashboard_panel_queries` — extract PromQL from existing panels
+Use existing Grafana access to inspect the dashboards listed above.
+Send a panel's PromQL to `posthog:query-metrics` in `query.promql` as written.
+Dashboard access through MCP requires the fallback connection.
 
 ### Redis / ElastiCache
 
-- Ingestion-side: discover `overflow_redirect_redis_*`, `cookieless_redis_*` metrics in VictoriaMetrics
-- Infrastructure: CloudWatch datasource `P034F075C744B399F` for ElastiCache
+- Ingestion-side: discover `overflow_redirect_redis_*`, `cookieless_redis_*` metrics with `posthog:metric-names-list`
+- Infrastructure: ingested CloudWatch metrics in PostHog for ElastiCache
   (CPU, memory, connections, latency).
   Cluster IDs: `ingestion-prod-redis`, `posthog-solo` (prod-us primary),
   `ingestion-duplicates-prod-redis`, `cookieless-prod-redis`
@@ -366,20 +399,21 @@ Repeat with other prefixes: `consumed_batch_*`, `person_*`, `personhog_*`,
 
 - Ingestion-side: discover `postgres_error_total`, `person_*`, `group_*` metrics
 - Infrastructure: `prometheus-postgres-exporter` and `prometheus-postgres-persons-exporter` metrics
-- CloudWatch RDS: datasource `P034F075C744B399F` with cluster IDs
+- CloudWatch RDS: discover ingested metrics in PostHog with cluster IDs
   `posthog-cloud-prod-us-east-1` / `posthog-cloud-persons-prod-us-east-1`
 
 ### ClickHouse
 
-- Cluster health: `list_prometheus_metric_names` with regex `"ClickHouseMetrics_.*"` or `"ClickHouseProfileEvents_.*"`
+- Cluster health: `posthog:metric-names-list` with `match: "regex"` and `value` `"ClickHouseMetrics_.*"` or `"ClickHouseProfileEvents_.*"`
   Scope with `type` label for cluster role (e.g. `type="events"`)
-- Kafka engine health: regex `"ClickHouseProfileEvents_Kafka.*"`
-- Kafka Connect: regex `"kafka_connect_.*"` — scope with `namespace="kafka-connect"`
+- Kafka engine health: `posthog:metric-names-list` with `match: "regex"` and `value` `"ClickHouseProfileEvents_Kafka.*"`
+- Kafka Connect: `posthog:metric-names-list` with `match: "regex"` and `value` `"kafka_connect_.*"` — scope with `namespace="kafka-connect"`
 - Consumer lag (the bridge): `kminion_kafka_consumer_group_topic_lag` with
   `group_id=~"clickhouse_events_json|group1|group1_recent|connect-events-ducklake.*"` and `topic_name="clickhouse_events_json"`.
   **Important:** scope with `app_kubernetes_io_instance="kminion-warpstream-ingestion"` for the
   WarpStream path (primary) or `"kminion-msk-analytics"` for the MSK path.
-- Logs: `{namespace="clickhouse"} |= "Exception"` or `{namespace="kafka-connect"}`
+- Logs: use `posthog:query-logs` for discovered ClickHouse or Kafka Connect services.
+  Set the time window and search for `Exception` when relevant.
 - Dashboards: `vm-clickhouse-cluster-overview`, `clickhouse-ingestion-overview-20260615`,
   `cdzv7o1635n9ca`, `8e93b023-a544-4a3b-8fac-123459d4eb84` (WarpStream CH consumer lag)
 

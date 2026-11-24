@@ -1,18 +1,20 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconEye, IconHide, IconUndo } from '@posthog/icons'
+import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { scoutNameFromSlug } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
@@ -34,8 +36,14 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardLinkStrip } from './ReportCardLinkStrip'
+import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
+import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
+import { ReportCardPersonalReason } from './ReportCardPersonalReason'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { ReportCardTagChips } from './ReportCardTagChips'
+import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -62,6 +70,7 @@ export function InboxCardSourceMeta({
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
     scoutSkillName?: string | null
 }): JSX.Element | null {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
@@ -69,7 +78,7 @@ export function InboxCardSourceMeta({
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
     // and link the name straight to the scout's detail page.
-    const scoutName = scoutDisplayName(scoutSkillName)
+    const scoutName = scoutSkillName ? (scoutNamesBySkill[scoutSkillName] ?? scoutNameFromSlug(scoutSkillName)) : null
     const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
@@ -80,7 +89,7 @@ export function InboxCardSourceMeta({
                     {showScout && scoutSkillName ? (
                         <>
                             {' · '}
-                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                            <ScoutLink skillName={scoutSkillName} name={scoutName} className="text-tertiary" />
                         </>
                     ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
@@ -120,6 +129,7 @@ function ReportCardRaw({
     personalSort = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
+    showTags = false,
 }: {
     report: SignalReport
     attached?: boolean
@@ -143,6 +153,8 @@ function ReportCardRaw({
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
     hideOwnClaim?: boolean
+    /** Show the report's tags as chips that toggle the inbox Tags filter. Only the inbox list sets it. */
+    showTags?: boolean
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -155,15 +167,28 @@ function ReportCardRaw({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
+    // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
+    // and puts the Monitoring evidence where the impact column would be.
+    const isMonitoring = report.status === SignalReportStatus.MONITORING
+    const linkStripsEnabled = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
+    const linkSummary = linkStripsEnabled && !preview ? (report.link_summary ?? null) : null
+    const monitoringSummary = isMonitoring ? (report.monitoring_summary ?? null) : null
+    const showsPrBadge = hasPr && !isMonitoring
+    // The Monitoring band and the link strip attach to the row, so either one puts the row in a frame.
+    const framed = isMonitoring || !!linkSummary
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
-    const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const reportMetricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const showImpactColumn = reportMetricsEnabled && !isMonitoring
+    const hasRightColumn = showImpactColumn || !!monitoringSummary
+    const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
+    const showsTags = showTags && !preview && (report.tags?.length ?? 0) > 0
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -211,11 +236,17 @@ function ReportCardRaw({
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
-        showImpactColumn && 'flex-wrap @lg:flex-nowrap'
+        hasRightColumn && 'flex-wrap @lg:flex-nowrap'
+    )
+    const metaTimestamp = (
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+            {claimAvatar}
+            <TZLabel time={cardTime} className="shrink-0 text-xs text-tertiary tabular-nums" title={cardTimeTitle} />
+        </span>
     )
     const cardBody = (
         <>
-            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', hasRightColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
@@ -223,8 +254,8 @@ function ReportCardRaw({
                         'min-w-0 break-words font-semibold text-[15px] leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
-                        hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
-                        hasPr && showImpactColumn && '@lg:pr-0'
+                        showsPrBadge && (glyphStatus ? 'pr-24' : 'pr-14'),
+                        showsPrBadge && showImpactColumn && '@lg:pr-0'
                     )}
                 >
                     {/* Inline like ConventionalCommitScopeTag, so wrapped title lines use the full width. */}
@@ -263,16 +294,9 @@ function ReportCardRaw({
                         'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
-                        showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
+                        hasRightColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
-                    {report.status === SignalReportStatus.MONITORING && (
-                        <Tooltip title="The fix is being monitored.">
-                            <span className="flex shrink-0 items-center text-success" aria-label="Monitoring">
-                                <IconEye className="text-base" />
-                            </span>
-                        </Tooltip>
-                    )}
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {outcomeLabel && (
@@ -298,25 +322,18 @@ function ReportCardRaw({
                     ) : rankingPill ? (
                         <ReportCardRankingPill report={report} personalSort={personalSort} />
                     ) : null}
-                    {!showImpactColumn && (
-                        <span className="ml-auto flex shrink-0 items-center gap-2">
-                            {claimAvatar}
-                            <TZLabel
-                                time={cardTime}
-                                className="shrink-0 text-xs text-tertiary tabular-nums"
-                                title={cardTimeTitle}
-                            />
+                    {showsTags ? (
+                        // The chips share the timestamp's line and fill the space it leaves, so tags
+                        // never add a row to the card.
+                        <span className="flex flex-1 items-center gap-2">
+                            <ReportCardTagChips report={report} />
+                            {!showImpactColumn && metaTimestamp}
                         </span>
+                    ) : (
+                        !showImpactColumn && metaTimestamp
                     )}
                 </div>
-                {personalReason && (
-                    <p
-                        className="m-0 min-w-0 line-clamp-2 break-words text-xs leading-snug text-tertiary"
-                        data-attr="inbox-personal-reason"
-                    >
-                        {personalReason}
-                    </p>
-                )}
+                {personalReason && <ReportCardPersonalReason reason={personalReason} />}
             </div>
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
@@ -334,23 +351,31 @@ function ReportCardRaw({
                     </span>
                 </div>
             ) : null}
+            {monitoringSummary ? (
+                <ReportCardMonitoringPanel summary={monitoringSummary} metrics={report.metrics} now={now} />
+            ) : null}
         </>
     )
 
-    return (
+    const rowStateClassName = clsx(
+        // Closed rows recede so open work stands out in the mixed flat list; hover restores
+        // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+        (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+        isSelected && 'ring-1 ring-accent',
+        // A long press must not paint the title as selected text under the finger.
+        isHolding && 'select-none'
+    )
+
+    const row = (
         <div
             className={clsx(
-                inboxCardRowClassName(attached, { dashed: !hasPr }),
-                // Closed rows recede so open work stands out in the mixed flat list; hover restores
-                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
-                isSelected && 'ring-1 ring-accent',
-                // A long press must not paint the title as selected text under the finger.
-                isHolding && 'select-none'
+                // Inside the frame the row is attached: the frame carries the border.
+                inboxCardRowClassName(attached || framed, { dashed: !hasPr }),
+                !framed && rowStateClassName
             )}
         >
             <div className="relative flex min-w-0 flex-1">
-                {hasPr && prNumber != null ? (
+                {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
                             prNumber={prNumber}
@@ -416,6 +441,27 @@ function ReportCardRaw({
                     )}
                 </div>
             )}
+        </div>
+    )
+
+    if (!framed) {
+        return row
+    }
+    return (
+        <div
+            className={clsx(
+                'overflow-hidden',
+                attached
+                    ? 'border-b border-primary last:border-b-0'
+                    : 'rounded border border-primary hover:border-secondary',
+                rowStateClassName
+            )}
+        >
+            {isMonitoring ? (
+                <ReportCardMonitoringBand report={report} summary={monitoringSummary} now={now} preview={preview} />
+            ) : null}
+            {row}
+            {linkSummary ? <ReportCardLinkStrip report={report} summary={linkSummary} backUrl={backUrl} /> : null}
         </div>
     )
 }

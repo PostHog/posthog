@@ -20,7 +20,7 @@ FreshdeskPagination = Literal["link_header", "paging_next", "custom_objects"]
 
 @dataclass(frozen=True)
 class FreshdeskChainedFanoutConfig:
-    """A second-level fan-out whose parent is itself a fan-out child.
+    """A fan-out whose parent is itself a fan-out child, at any depth.
 
     `build_dependent_resource` resolves its path param from a top-level endpoint, so it cannot
     express `/solutions/folders/{folder_id}/articles`, where the folder rows themselves come
@@ -201,6 +201,56 @@ FRESHDESK_ENDPOINTS: dict[str, FreshdeskEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "schema_id"},
             child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "ticket_watchers": FreshdeskEndpointConfig(
+        name="ticket_watchers",
+        path="/api/v2/tickets/{ticket_id}/watchers",
+        # The endpoint returns one `{"watcher_ids": [...]}` object per ticket, which becomes one row.
+        primary_keys=["ticket_id"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="tickets",
+            resolve_param="ticket_id",
+            resolve_field="id",
+            # The response names no ticket, so the id has to come from the parent.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "ticket_id"},
+            parent_params={"order_by": "updated_at", "order_type": "asc"},
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "discussion_categories": FreshdeskEndpointConfig(
+        name="discussion_categories",
+        path="/api/v2/discussions/categories",
+        partition_key="created_at",
+    ),
+    "discussion_forums": FreshdeskEndpointConfig(
+        name="discussion_forums",
+        path="/api/v2/discussions/categories/{category_id}/forums",
+        fanout=DependentEndpointConfig(
+            parent_name="discussion_categories",
+            resolve_param="category_id",
+            resolve_field="id",
+            # Forum rows already carry `forum_category_id`.
+            include_from_parent=[],
+            child_response_actions=IGNORE_DELETED_PARENT,
+        ),
+    ),
+    "discussion_topics": FreshdeskEndpointConfig(
+        name="discussion_topics",
+        path="/api/v2/discussions/forums/{forum_id}/topics",
+        partition_key="created_at",
+        chained_fanout=FreshdeskChainedFanoutConfig(
+            parent_name="discussion_forums", resolve_param="forum_id", resolve_field="id"
+        ),
+    ),
+    "discussion_comments": FreshdeskEndpointConfig(
+        name="discussion_comments",
+        path="/api/v2/discussions/topics/{topic_id}/comments",
+        partition_key="created_at",
+        chained_fanout=FreshdeskChainedFanoutConfig(
+            parent_name="discussion_topics", resolve_param="topic_id", resolve_field="id"
         ),
     ),
     "csat_surveys": FreshdeskEndpointConfig(

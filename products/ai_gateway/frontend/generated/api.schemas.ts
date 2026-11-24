@@ -7,6 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DevTokenCreateApi {
+    /**
+     * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    cap_usd?: string | null
+    /**
+     * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     */
+    ttl_seconds?: number | null
+}
+
 export interface MintedDevTokenApi {
     /** Token id, used to revoke it. */
     id: string
@@ -33,6 +47,17 @@ export interface DevTokenRefusalApi {
 }
 
 export interface CliAuthorizeApi {
+    /**
+     * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    cap_usd?: string | null
+    /**
+     * Token lifetime in seconds, within the bounds `usage` reports. Omit for the default.
+     * @nullable
+     */
+    ttl_seconds?: number | null
     /**
      * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
      * @pattern ^[A-Za-z0-9_-]{43}$
@@ -93,7 +118,7 @@ export interface DevUserUsageApi {
     /** Tokens minted in the last 30 days that were revoked. */
     revoked_30d: number
     /**
-     * Token caps minted in the last 24 hours, in USD.
+     * Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older unexpired ones.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     reserved_usd_24h: string
@@ -213,6 +238,12 @@ export interface DevTokenApi {
      * @nullable
      */
     revoked_at: string | null
+    /**
+     * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    spent_usd: string | null
     /** Whether the token still works: live, revoked or expired.
      *
      * * `live` - Live
@@ -229,22 +260,36 @@ export interface DevTokenApi {
 
 export interface DevTokenUsageApi {
     /**
-     * Most token caps one user can mint in 24 hours, in USD.
+     * Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older unexpired ones.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     daily_cap_usd: string
     /**
-     * Token caps the user minted in the last 24 hours, in USD.
+     * Budget used, in USD, by tokens minted in the last 24 hours and older tokens not yet expired: spend for revoked tokens, the full cap otherwise.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     used_usd: string
     /**
-     * Cap of each new token, in USD.
+     * Largest cap of a new token, in USD.
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     token_cap_usd: string
-    /** Lifetime of each new token, in seconds. */
+    /**
+     * Smallest cap of a new token, and the budget that must be left to create one, in USD.
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    token_cap_min_usd: string
+    /**
+     * Cap of a new token when the request names none, in USD.
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    default_cap_usd: string
+    /** Lifetime of a new token when the request names none, in seconds. */
     ttl_seconds: number
-    /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+    /** Shortest lifetime of a new token, in seconds. */
+    ttl_min_seconds: number
+    /** Longest lifetime of a new token, in seconds. */
+    ttl_max_seconds: number
+    /** Tokens the user minted in the last 24 hours, including revoked and expired ones, plus older tokens not yet expired, newest first. */
     tokens: DevTokenApi[]
 }

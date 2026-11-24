@@ -390,6 +390,10 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
+    /// CSV list of `token=bytes` pairs raising `ai_max_event_bytes` for those
+    /// tokens, each value one of `AI_MAX_EVENT_BYTES_OVERRIDES`.
+    pub ai_max_event_bytes_overrides_csv: Option<String>,
+
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
@@ -416,12 +420,12 @@ pub struct Config {
     pub continuous_profiling: ContinuousProfilingConfig,
 
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "10485760")]
-    pub capture_v1_max_compressed_body_bytes: usize,
+    /// Unset, it is 10 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_compressed_body_bytes: Option<usize>,
 
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "52428800")]
-    pub capture_v1_max_decompressed_body_bytes: usize,
+    /// Unset, it is 50 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_decompressed_body_bytes: Option<usize>,
 
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]

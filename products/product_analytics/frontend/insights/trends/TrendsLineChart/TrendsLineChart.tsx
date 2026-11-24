@@ -27,6 +27,8 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import { RequestedAnomalyScoreOverlay } from 'products/product_analytics/frontend/insights/anomalies/RequestedAnomalyScoreOverlay'
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -39,6 +41,7 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import { canHandleTrendsChartClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
+import { TrendsAxisSettings } from '../shared/TrendsAxisSettings'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
@@ -97,6 +100,7 @@ export function TrendsLineChart({
         goalLines,
         getTrendsColor,
         getTrendsHidden,
+        getTrendsYAxisPosition,
         currentPeriodResult,
         breakdownFilter,
         insightData,
@@ -107,6 +111,7 @@ export function TrendsLineChart({
         hasPersonsModal,
         actionNames,
         querySource,
+        compareFilter,
         incompletenessOffsetFromEnd,
         showMovingAverage,
         movingAverageIntervals,
@@ -306,11 +311,19 @@ export function TrendsLineChart({
         [getTrendsColor, indexedResults, isSeriesHighlighted]
     )
 
+    const yAxisPositions = useMemo(
+        () =>
+            !isPercentStackView && display !== ChartDisplayType.ActionsAreaGraph
+                ? indexedResults?.map(getTrendsYAxisPosition)
+                : undefined,
+        [isPercentStackView, display, indexedResults, getTrendsYAxisPosition]
+    )
     const series = useMemo(
         () =>
             buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 isArea: display === ChartDisplayType.ActionsAreaGraph,
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
+                yAxisPositions,
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor,
@@ -324,6 +337,7 @@ export function TrendsLineChart({
             indexedResults,
             display,
             showMultipleYAxes,
+            yAxisPositions,
             incompletenessOffsetFromEnd,
             isStickiness,
             getColor,
@@ -354,6 +368,7 @@ export function TrendsLineChart({
                 hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisPositions,
                 yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
                 yAxisMin: trendsFilter?.yAxisMin,
                 yAxisMax: trendsFilter?.yAxisMax,
@@ -380,6 +395,7 @@ export function TrendsLineChart({
             isPercentStackView,
             isStickiness,
             yAxisScaleType,
+            yAxisPositions,
             interval,
             timezone,
             allDays,
@@ -428,12 +444,33 @@ export function TrendsLineChart({
             dataAttr="trend-line-graph"
             onError={handleChartError}
         >
+            {!embedded &&
+                !inSharedMode &&
+                !context?.hideAxes &&
+                querySource?.kind === 'TrendsQuery' &&
+                !isPercentStackView &&
+                display !== ChartDisplayType.ActionsAreaGraph && <TrendsAxisSettings insightProps={insightProps} />}
+            <RetentionDeletionOverlay
+                isStickiness={isStickiness}
+                querySource={querySource}
+                compareFilter={compareFilter}
+            />
             {insight.id ? (
                 <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}
                     getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            ) : null}
+            {insight.id ? (
+                <RequestedAnomalyScoreOverlay
+                    insightId={insight.id}
+                    dateFrom={insightData?.resolved_date_range?.date_from}
+                    dateTo={insightData?.resolved_date_range?.date_to}
+                    indexedResults={indexedResults}
                     getYAxisId={getYAxisId}
                     isHidden={getTrendsHidden}
                 />

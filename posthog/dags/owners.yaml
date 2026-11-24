@@ -4,6 +4,10 @@ rules:
     - match: '/sessions.py'
       owners: team-analytics-platform
     - match:
+          - '/personhog_shadow_lane.py'
+          - '/tests/test_personhog_shadow_lane.py'
+      owners: team-ingestion
+    - match:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
       owners: team-feature-flags

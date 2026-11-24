@@ -104,7 +104,7 @@ class ReviewProjectRefSerializer(serializers.Serializer):
     )
 
 
-class ReviewHogSettingsErrorSerializer(serializers.Serializer):
+class CodeReviewSettingsErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Why the request was rejected.")
     conflicting_project = ReviewProjectRefSerializer(
         allow_null=True, help_text="The project that already holds the repository or the installation, if any."
@@ -163,7 +163,19 @@ class ReviewRepositorySerializer(serializers.Serializer):
     )
     review_drafts = serializers.BooleanField(
         read_only=True,
-        help_text="Whether draft pull requests in this repository get their automatic review when they open.",
+        help_text="Whether draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready.",
+    )
+    review_pushes = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether later pushes to a ready pull request in this repository get automatic reviews, as the "
+        "push gate allows. False gives each pull request its reviews only when it opens or is marked ready.",
+    )
+    deep_review_gated_prs = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person "
+        "gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also "
+        "added to auto-approval.",
     )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
@@ -200,8 +212,23 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
     )
     review_drafts = serializers.BooleanField(
         required=False,
-        help_text="True lets draft pull requests in this repository get their automatic review when they open. "
-        "False waits until they are ready for review. Omit it to keep the current value.",
+        help_text="True lets draft pull requests in this repository get their automatic review when they open, "
+        "and one more when they are marked ready. False waits until they are ready for review. Omit it to keep "
+        "the current value.",
+    )
+    deep_review_gated_prs = serializers.BooleanField(
+        required=False,
+        help_text="True gives a pull request that auto-approval's size, restricted-path or tier rules send to a "
+        "person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when "
+        "the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic "
+        "review Standard. Omit it to keep the current value.",
+    )
+
+    review_pushes = serializers.BooleanField(
+        required=False,
+        help_text="True lets later pushes to a ready pull request in this repository get automatic reviews, as "
+        "the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the "
+        "current value.",
     )
 
     def validate_full_name(self, value: str) -> str:
@@ -411,7 +438,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     at most.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamRaiseOnlyPermission]
     member_write_actions = ("create", "add_person")
     posthog_feature_flag = "review-hog"
@@ -445,19 +472,20 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         request=ReviewRepositoryWriteSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositoryWriteResponseSerializer, description="The saved settings."),
-            400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid the write."),
+            400: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="The rules forbid the write."),
             403: OpenApiResponse(description="A project member asked to turn the repository's reviews down."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already has settings for the repository.",
             ),
         },
         summary="Save a repository's settings",
         description="Include a repository into this project, remove it, set or clear its exception, or turn its "
-        "draft reviews on or off. Only the "
+        "draft reviews, push reviews or Deep reviews of pull requests that need a person on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
         "takes it from that project; the response names it. Project members can only turn reviews up: include "
-        "a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.",
+        "a repository, raise its exception, or turn draft, push or Deep reviews on. Everything else needs a "
+        "project admin.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryWriteSerializer(data=request.data)
@@ -476,6 +504,8 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 selected=data.get("selected"),
                 flash_for=flash_for,
                 review_drafts=data.get("review_drafts"),
+                deep_review_gated_prs=data.get("deep_review_gated_prs"),
+                review_pushes=data.get("review_pushes"),
                 raise_only=not self.is_effective_team_admin(),
             )
         except AdminOnlyChangeError as error:
@@ -501,7 +531,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         description="Add a project member to the 'listed' or 'excepted' list of the repository exception. A "
         "project member who is not an admin can only add themselves to the 'listed' list.",
     )
-    @action(detail=True, methods=["POST"], url_path="people", required_scopes=["review_hog:write"])
+    @action(detail=True, methods=["POST"], url_path="people", required_scopes=["code_review:write"])
     def add_person(self, request: Request, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
         serializer = ReviewRepositoryPersonRequestSerializer(data=request.data)
@@ -526,7 +556,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
     @extend_schema(
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
-            404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
+            404: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="No such list entry."),
         },
         summary="Remove a person from a repository exception list",
         description="Remove one entry from the 'listed' or 'excepted' list of the repository exception.",
@@ -535,7 +565,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
         detail=True,
         methods=["DELETE"],
         url_path=rf"people/(?P<person_id>{UUID_PATH_PATTERN})",
-        required_scopes=["review_hog:write"],
+        required_scopes=["code_review:write"],
     )
     def remove_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
         repository = self._repository_or_404()
@@ -552,7 +582,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
     ones without a claim.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewInstallationClaimSerializer
@@ -575,9 +605,9 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         request=ReviewInstallationClaimCreateSerializer,
         responses={
             201: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was saved."),
-            400: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="The rules forbid it."),
+            400: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="The rules forbid it."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already takes all repositories of the installation.",
             ),
         },
@@ -605,7 +635,7 @@ class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.Gene
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
             409: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer,
+                response=CodeReviewSettingsErrorSerializer,
                 description="Another project already takes all repositories of the installation.",
             ),
         },
@@ -657,7 +687,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
     user inherits, so picking the inherited value clears it.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRepositoryChoiceSerializer
@@ -680,7 +710,7 @@ class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.Gener
         responses={
             200: OpenApiResponse(response=ReviewRepositoryChoiceWriteResponseSerializer, description="Saved."),
             400: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer, description="This project does not review the repository."
+                response=CodeReviewSettingsErrorSerializer, description="This project does not review the repository."
             ),
         },
         summary="Set my choice for a repository",

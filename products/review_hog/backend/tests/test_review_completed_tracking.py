@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.review_cadence import ReviewCadence
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
@@ -88,6 +89,11 @@ def _issue(issue_id: str) -> Issue:
         priority=IssuePriority.MUST_FIX,
         source_perspective="Logic & Correctness",
     )
+
+
+_CADENCE_LOAD = "products.review_hog.backend.temporal.activities.ReviewCadence.load"
+_PUSH_REVIEWS = ReviewCadence(review_drafts=False, review_pushes=True)
+_READY_REVIEWS_ONLY = ReviewCadence(review_drafts=True, review_pushes=False)
 
 
 class TestTrackReviewCompleted(BaseTest):
@@ -256,7 +262,15 @@ class TestTrackReviewCompleted(BaseTest):
             must_fix_on_change=1,
             must_fix_off_change=2,
         )
-        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5, arm_fallbacks=2)
+        sessions = FlashSessionStats(
+            lens_failures=1,
+            lens_timeouts=1,
+            slowest_session_seconds=412.5,
+            arm_fallbacks=2,
+            devex_failed=False,
+            devex_timed_out=True,
+            devex_session_seconds=600.0,
+        )
         trial = SingleAgentArms(main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"), lens=SINGLE_AGENT_FLASH_ARM)
 
         with (
@@ -296,6 +310,9 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_slowest_session_seconds": 412.5,
             "flash_coordinator": False,
             "flash_arm_fallbacks": 2,
+            "flash_devex_failed": False,
+            "flash_devex_timed_out": True,
+            "flash_devex_session_seconds": 600.0,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
         assert (single_agent["single_agent_arm_set"], single_agent["review_model"]) == ("trial", "gpt-6-luna")
@@ -368,6 +385,55 @@ class TestTrackReviewCompleted(BaseTest):
         assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
         assert len({full.kwargs["uuid"], flash.kwargs["uuid"], single_agent.kwargs["uuid"]}) == 3
 
+    @parameterized.expand(
+        [
+            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FLASH, "follow_up"),
+            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, REVIEW_MODE_FLASH, "merge_only"),
+            ("deep_turn_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FULL, "follow_up"),
+            ("unknown_cadence", None, False, REVIEW_MODE_FLASH, "merge_only"),
+        ]
+    )
+    def test_without_push_reviews_only_the_ready_review_after_a_draft_review_reaches_the_gate(
+        self,
+        _name: str,
+        cadence: ReviewCadence | None,
+        reviewed_draft: bool,
+        review_mode: str,
+        expected_reason: str,
+    ) -> None:
+        report_id = self._review_report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(automatic_reviewed_draft=reviewed_draft)
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(draft=False),
+            pr_comments=[],
+            pr_files=[],
+        )
+
+        with (
+            patch(_CADENCE_LOAD, return_value=cadence),
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = PushGateDecision(skip=True, would_skip=True, reason="merge_only")
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=review_mode,
+                )
+            )
+
+        assert (decision.skip, decision.reason) == (True, expected_reason)
+        assert capture.call_args.kwargs["properties"]["reason"] == expected_reason
+
     def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn
         # keeps the next turn's run_index, so a run_index-keyed event would merge two skipped pushes.
@@ -384,6 +450,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=True, would_skip=True, reason="merge_only", own_commits=2, own_code_lines=14)
 
         with (
+            patch(_CADENCE_LOAD, return_value=_PUSH_REVIEWS),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
@@ -414,6 +481,55 @@ class TestTrackReviewCompleted(BaseTest):
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
         # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
+
+    @parameterized.expand(
+        [
+            ("ready", False, {"draft": False}, (False, "no_rule_matched")),
+            # The PR turned back into a draft while its Deep turn waited in the queue.
+            ("turned_back_into_a_draft", True, {"draft": True}, (True, "draft")),
+            ("marked_ready_while_the_turn_runs", True, {"draft": False}, (False, "no_rule_matched")),
+        ]
+    )
+    def test_the_gate_lets_an_automatic_deep_turn_review_the_whole_pr_unless_it_is_a_draft(
+        self, _name: str, fetched_draft: bool, live_pr: dict[str, object], expected: tuple[bool, str]
+    ) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(draft=fetched_draft),
+            pr_comments=[],
+            pr_files=[PRFile(filename="a.py", status="modified", additions=3, deletions=1)],
+        )
+        live = MagicMock()
+        live.return_value.json.return_value = live_pr
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.github_api_request", live),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = PushGateDecision(skip=True, would_skip=True, reason="merge_only")
+            decision = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=5,
+                    review_mode=REVIEW_MODE_FULL,
+                    delta_band=True,
+                )
+            )
+
+        assert ((decision.skip, decision.reason), decision.delta_review) == (expected, False)
+        capture.assert_not_called()
+        # A skip ends the turn before any stage that returns the report to rest.
+        status = ReviewReport.objects.for_team(self.team.id).get(id=report_id).status
+        assert status == (ReviewReport.Status.IDLE if decision.skip else ReviewReport.Status.ACTIVE)
 
     @parameterized.expand(
         [
@@ -459,6 +575,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=12)
 
         with (
+            patch(_CADENCE_LOAD, return_value=_PUSH_REVIEWS),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
@@ -543,6 +660,7 @@ class TestTrackReviewCompleted(BaseTest):
         decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=100)
 
         with (
+            patch(_CADENCE_LOAD, return_value=_PUSH_REVIEWS),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
             patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
@@ -576,6 +694,7 @@ class TestTrackReviewCompleted(BaseTest):
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
         live.return_value.json.return_value = live_pr
         with (
+            patch(_CADENCE_LOAD, return_value=_PUSH_REVIEWS),
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch(
                 "products.review_hog.backend.reviewer.push_gate.github_api_request",

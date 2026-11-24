@@ -4,6 +4,7 @@ Visual regression testing that keeps baselines in git.
 
 CI captures screenshots, the backend diffs them against committed baselines, developers review and approve changes in a web UI, and a bot commits the updated baselines back to the PR.
 No external baseline service — the repo is the source of truth.
+A repo can instead keep its baselines in a ledger in the database, where an approval commits nothing; see [Baselines in the database](#baselines-in-the-database).
 
 ## The idea
 
@@ -125,6 +126,88 @@ It works for Storybook runs only, and it is best effort: a story no team owns, a
 The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
 The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
 
+### Automatic quarantine
+
+A flaky story fails the gate of merge queue runs, and every pull request in the batch is kicked out until somebody quarantines it.
+Visual review can quarantine such a story itself, once trusted runs prove that it is flaky.
+
+A trusted run is a full run on the default branch without a pull request, or a full run on a merge queue branch (`trunk-merge/`).
+The default branch comes from GitHub, not from the branch name.
+When a trusted run finishes, the backend looks at the trusted runs of the same run type from the last `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+One failure followed by a clean run is not enough.
+A pull request that broke the story and a later one that fixed or reverted it render the same way, and so does the default branch moving on between the two runs.
+A flake is proven only when the finishing run fails the story, and one of these holds:
+
+- **Same commit.** A clean run of the finishing run's commit rendered another picture against the same baseline. The code is identical, so only the rendering differs.
+- **Chain.** The story failed in run A, was clean in run B, and failed again in the finishing run C, where B's commit descends from A's and C's from B's. A deterministic story would need a break, a fix and a second break inside the window, all without a baseline edit.
+
+Tree order is plain git ancestry of the run commits, which GitHub answers; equal commits count.
+A default-branch run never descends from a merge queue run, because a squash merge writes new commits.
+The clean picture must differ from each failing picture, because a tolerated match of the failing picture is the same render.
+
+The finishing run's failing rows are read first, so a run that fails no story leaves after one query.
+Then up to `AUTO_QUARANTINE_RUNS_READ` window runs created before it or on its commit are read as possible ancestors.
+At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, built lazily and checked one at a time, and one evaluation stops after `AUTO_QUARANTINE_BUDGET_SECONDS`, leaving the rest to a later run.
+The decision is a pure function over the runs and the ancestry answers.
+Branch and pull request number are client-supplied, so before a proof counts, GitHub confirms where its runs came from: a default-branch run's commit must be in the default branch head, and a merge queue run must test the pull request its branch names.
+
+Guards:
+
+- Only `changed` counts. `new` and `removed` are problems of the baseline file.
+- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means the run's changes edited it, and the failure belongs to them.
+- An approved, tolerated, or quarantined result is no evidence either way.
+- At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
+- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed. The first proof the limit blocks in a window sends one Slack notice to whoever owns `products/visual_review/`, routed like the digest's items that no team owns.
+- The limit is counted again, and the story checked for an active quarantine, under a lock on the repository row, so two runs that finish together create one quarantine and stay within the limit.
+- A proof that is not applied is reported once per story per `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+The check runs before the finishing run is counted, so when that run completes a proof, it passes.
+An error in the check is logged and never fails the run.
+
+`auto_quarantine_mode` on the repository decides what a proof does, and also covers [automatic release](#automatic-release):
+
+- `off`, the default: nothing is checked.
+- `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
+- `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
+
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
+### Automatic release
+
+Quarantines pile up, because a person has to come back and lift each one.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for long enough.
+
+When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
+The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+It ends at the finishing run, and newer runs stay out, because the lift records the finishing run's commit.
+With fewer default-branch runs than that, nothing lifts.
+A quarantine lifts when all of these hold:
+
+- It was created before the window started, so a quarantine somebody just opened is never lifted under them.
+- No stored trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- Every default-branch run of the window rendered the story, so with no blocking row it was `unchanged` in each of them. The finishing run rendered it against a baseline.
+
+Merge queue runs are stored for 7 days and the window is usually longer, so a merge queue failure older than that is no longer visible: the evidence is the default-branch history, with the recent merge queue runs on top.
+The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
+A second read counts the story's rows in the window's default-branch runs, by the same kind of list, on the unique run and identifier index.
+
+The run's branch name and commit come from the client, so before anything lifts, GitHub must confirm that the finishing run's commit is in the default branch's history.
+When it does not, or GitHub cannot say, nothing lifts and a warning is logged.
+
+The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in the last 500 default-branch runs, since 1a2b3c4".
+A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
+No Slack notice goes out.
+A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.
+
+The same `auto_quarantine_mode` decides what happens:
+
+- `off`: nothing is checked and no task is queued.
+- `preview`: each quarantine that would lift is logged and sent as a `vr_quarantine_clean` event, once per story per 24 hours, and nothing changes.
+- `on`: the quarantine lifts, and the log line and event record it.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -192,6 +275,175 @@ Final job: `vr run complete --run-id <id>`
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
 
+Both flows describe the default `yaml` mode. In `ledger` mode the backend reads the baseline ledger instead, an approval commits nothing, and the commit status is the gate. See [Baselines in the database](#baselines-in-the-database).
+
+## Baselines in the database
+
+A repo keeps its approved baselines in one of two places, chosen by `Repo.baseline_mode`:
+
+| Mode     | What decides a run                  | What an approval does                                     |
+| -------- | ----------------------------------- | --------------------------------------------------------- |
+| `yaml`   | The baseline file in git            | Commits the updated file to the PR branch                 |
+| `shadow` | The baseline file in git            | Commits the file, and also records the approval in the DB |
+| `ledger` | The baseline ledger in the database | Records the approval. No commit                           |
+
+`yaml` is the default, and the rest of this README describes it.
+`shadow` exists to check the ledger against the file before a repo switches. It changes no run result, no finalize and no commit status: the ledger side only records and compares, and a failure there is logged.
+In `ledger` mode, finalizing a reviewed run turns the pull request green with no commit and no CI run, because the commit status is the merge gate.
+
+### The ledger
+
+The ledger is an append-only list of baseline changes per repo and run type.
+Each entry belongs to a position on the default branch: position 0 is the commit the ledger was seeded at, and every later first-parent commit gets the next number.
+The ledger at a position holds, per identifier, the newest entry at or below that position.
+An entry with an empty hash removes the identifier.
+
+Three tables hold it:
+
+- `BaselineCommit` maps a default-branch commit to its position.
+- `BaselineEntry` is one change of one identifier's baseline at a position.
+- `BaselineApproval` is one approved change of one identifier in one pull request. It outlives the run it was made on.
+
+### What a run compares against
+
+A run compares against the ledger at the merge-base of its commit and the default branch, with the approvals its commit contains laid over it.
+An approval is contained when the run belongs to the approval's pull request, when the run's commit includes the commit the approval was made or last reproduced on, or when it includes the newest run commit of the approval's pull request.
+So a pull request keeps its approvals across pushes, a stacked pull request sees its parent's approvals, and a merge-queue run sees the approvals of every pull request it tests.
+An approval that landed after the run's merge-base still counts, because the ledger at that merge-base does not hold its hash yet.
+That covers a merge-queue run whose earlier pull request merged while the run was in progress, and a stacked pull request that has not rebased since its parent merged.
+
+Per snapshot, the ledger's hash wins when the render matches it.
+The approved hash is used only when the render does not match the ledger.
+An approval stops applying when the ledger's hash for its identifier is no longer the one the reviewer compared against.
+The snapshot then shows as changed against the new baseline and needs a new approval.
+Two approvals from unrelated pull requests with different hashes for one identifier in one run are a conflict, and neither applies.
+
+Each run stores what it compared against in `metadata["baseline"]`: the mode it ran in, the merge-base, its position, the approvals it used, and any conflict.
+
+### The merge gate
+
+Each run records what gates it, in `Run.gate`, when it is created:
+
+| `gate`          | Mode at creation   | What blocks the merge                                         |
+| --------------- | ------------------ | ------------------------------------------------------------- |
+| `ci_job`        | `yaml` or `shadow` | The exit code of the CI job that completes the run            |
+| `commit_status` | `ledger`           | The commit status `Visual Review gate / <run type>` on GitHub |
+
+For a `commit_status` run, finalizing turns the pull request green at once. Nothing is committed, and nothing in CI runs again.
+`vr run complete` exits 0 for such a run when snapshots still need review, and prints the link. It still fails for a run that failed, and for drift on a merge-queue run.
+
+When the repo's commit status gate is on (`Repo.commit_status_gate_enabled`), the backend posts the context `Visual Review gate / <run type>`, and the status of a commit is the verdict of the newest run for that commit and run type:
+
+| The newest run                                        | Status                                        |
+| ----------------------------------------------------- | --------------------------------------------- |
+| Not finished                                          | `pending`                                     |
+| Failed                                                | `error`                                       |
+| Pull request run with snapshots to review             | `failure`                                     |
+| Pull request run with approved changes, not finalized | `failure`, and the text says to finalize      |
+| Pull request run that is clean or finalized           | `success`                                     |
+| The same, but an approval it rests on is stale        | `failure`, and the text says to update        |
+| Merge-queue run                                       | `failure` on drift, else `success`            |
+| Default-branch run                                    | `success` on the `(tracking)` context, always |
+
+A partial run posts to the gating context too, with "(partial run)" in the text.
+
+An open approval is stale when the ledger's hash for its story is none of these: the hash it was approved over, the baseline the reviewer saw, the approved hash.
+That happens when another pull request merged a different picture of the same story first, and this approval would be `conflicted` if it landed now.
+The approvals a run rests on are the ones finalized on it and the ones its baseline record applied, such as an earlier approval of the same pull request; a quarantined story does not count.
+The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
+A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
+Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
+In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
+
+Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.
+A post that GitHub refuses is retried.
+
+A required status has to arrive on every commit, also on one that needs no visual run.
+CI reports that case with `vr run skip`, or with one `POST` to `runs/skip/` as the PostHog workflows do to avoid building the CLI. The backend then posts `success`, "No visual run needed", for the commit.
+When a run exists for that commit and run type, the run owns the status and the report posts nothing.
+The report is not a run: it shows in no list and replaces no run.
+
+With the gate off, in any mode, none of this applies. Runs post the file's verdict to `PostHog Visual Review / <run type>`, partial runs to a `(partial)` context and observe runs to a `(tracking)` context.
+The gate has its own context name so that a pass from that publisher, still on a commit from before the switch, cannot satisfy the required check.
+With the gate on, a passing verdict of a run created before the switch also turns that old context green, "Replaced by Visual Review gate / <run type>", so a pull request that was red before the switch does not stay red there.
+
+With the gate on, in `shadow` mode too, a run that the baseline file classified passes only when the ledger agrees from the stored hashes. So the gate's context carries only ledger verdicts from the moment the gate is on.
+For each rendered snapshot whose ledger baseline differs from the stored one, the stored render must be the ledger hash, the hash of an open approval, or tolerated against one of them.
+Otherwise the status is `pending` and asks for a new run ("Merge master" when the run's merge-base is older than the ledger), and a merge-queue run fails so that the queue drops it.
+A run without a ledger record is `pending` as a whole. A real change that nobody approved fails as before.
+
+### How an approval reaches the default branch
+
+When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
+An approval lands only when both of these hold:
+
+- The ledger's hash for the identifier is still the one the reviewer compared against. If another pull request changed it first, the approval is `conflicted`.
+- The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
+
+A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.
+A pull request that merged with no merge-queue run lands its own approval only when one of its runs made or reproduced it at the merged commit. Otherwise the approval is `voided`: the pull request may no longer render that picture.
+
+The service learns of merges by reading the default branch's commits from GitHub.
+A push to the default branch starts that read at once, through the PostHog GitHub App's `push` webhook. Nothing from the push itself goes into the ledger.
+A task every five minutes reads it too, for a push that arrives late or not at all, and so does a `ledger`-mode run that needs a commit the ledger does not know yet.
+When GitHub still shows the merged pull request as open, its commit waits, and the push asks GitHub again three times within about a minute before the five-minute task takes over.
+Once an hour it also checks every open approval against its pull request: a merged one lands, a closed one is marked `abandoned`.
+
+### When the ledger and the default branch disagree
+
+A `voided` or `conflicted` approval, a direct push, or a revert can leave the default branch rendering a picture the ledger does not hold.
+Full runs then report that snapshot as changed, and the merge queue stops on it.
+Fix it the same way as a wrong baseline in `yaml` mode: open a pull request that renders the story, approve the snapshot, and merge.
+A revert pull request needs an approval for the pictures it restores.
+
+### Operating it
+
+`./manage.py visual_review_baseline_ledger <subcommand> --repo owner/name`
+
+- `seed` starts the ledger at the default branch head from the verified baseline files. `--commit` picks another commit by its full SHA, `--run-type` limits it to some run types (the others start empty), and `--replace` starts an existing ledger again.
+- `seed --from-ledger` starts a new position 0 at the default branch head from the ledger's current state. Use it after the default branch was rewritten, or when the ledger fell too far behind.
+- `mode` prints the mode. `mode --set shadow|ledger|yaml` switches it. `shadow` and `ledger` need a seeded ledger.
+- `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
+- `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
+- `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is gated by the commit status and has not finished, still has unreviewed changes, or has approved changes that are not finalized.
+- `recheck` shows the `ledger`-mode status of every open pull request head, stacked ones included and forks left out, and of every merge-queue head. It posts nothing. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type: a head without a run passes only when CI skipped that job on it, because retention may have deleted a run. A head without a run of a pull request that targets another branch gets no status: CI decided against that branch, and the push after its retarget creates a run. The same holds for a head whose pull request was retargeted after CI skipped the job. `--apply` posts the statuses, needs `--setup-check` and the commit status gate, and, behind a passing gate verdict, also turns a non-success `PostHog Visual Review / <run type>` green with "Replaced by Visual Review gate / <run type>". `--apply --only-success` posts only the greens, and only with the gate off, before the sitting. A head that already carries the same status, posted by this app, is skipped. It skips draft pull requests and pull request heads not committed within `--pushed-within-days` days (7 by default, 0 covers every open pull request), so a pass needs fewer posts. Merge-queue heads are always covered. A draft gets its status when it is marked ready for review, and a skipped old head gets it on its next push or CI re-run; until then it has no status, which blocks its merge. `--pause` sets the seconds between posts (8 by default, below GitHub's 500 writes per hour). It stops at the first refused read or post and says how many remain; run it again to go on.
+
+To move a repo to the ledger:
+
+1. `seed`, then `mode --set shadow`. The repo keeps working as in `yaml` mode. `seed` stops when a configured run type has no verified baseline entries, for example an empty baseline file. Pass `--run-type` for the run types that have a baseline.
+2. Watch `metadata["baseline"]["comparison"]` on `shadow` runs. It counts the snapshots where the ledger verdict differs from the file verdict, and `gate_differs` says whether the gate would differ. A `shadow` run does not wait for the ledger: when its merge-base is newer than the ledger's newest commit, the run has no comparison and `metadata["baseline"]["unavailable_reason"]` says why. An approval finalized on such a run is not recorded, so the ledger misses that entry until the next `seed --replace`. Count these runs apart from real differences.
+3. Approvals made before the seed are not in the ledger. Once the pull requests that carried them have merged, run `seed --replace` once more and start counting from there.
+4. `repair`: it adds ledger entries where the ledger differs from the baseline file, so that both agree at the default branch head.
+5. `recheck --run-type storybook --setup-check "Create Visual Review run"`, and the same for each other run type with its own job name. It posts nothing and shows the status every head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
+6. Phase 1, before the sitting, with the gate still off: `recheck --apply --only-success` with the same options. It posts the greens on the gate context, which nothing requires yet, so nobody sees a yellow or red status. Run it until it posts nothing new.
+7. Phase 2, the sitting. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it, and keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8. Then `status-gate --set on`, set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` (PostHog/posthog sends the "no run needed" report only then), and `mode --set ledger`. From the gate on, its context carries only ledger verdicts, so the order inside this step does not open a gap.
+8. `recheck --apply` with the same options. It posts the verdicts phase 1 left out, skips the heads that already carry theirs, and turns a red `PostHog Visual Review / <run type>` from before the switch green.
+
+To roll the sitting back, follow the way back from `ledger` to `shadow` below. Keep the ruleset as it is until every open pull request has a run created after the switch back.
+
+Do not skip a step or change the order. A required status that is not posted everywhere blocks every pull request without a visual run. `ledger` mode without the required status leaves a pull request with unreviewed changes blocked only by the merge queue.
+
+A run created in `shadow` mode keeps `gate = ci_job`. When it is finalized after step 7, nothing is committed, so finalize re-runs its CI job once and the job reads the new verdict. Its new approvals then count in the ledger check of its status.
+From step 7 on, the stale-approval rule covers such a run too.
+A run created in `yaml` mode has no ledger record, and `ledger` mode refuses to finalize it. Re-run CI on the commit and approve the new run.
+
+To go back from `ledger` to `shadow`, commit the output of `export` to the default branch first, then `mode --set shadow`. Leave the ruleset as it is. An approval made in `ledger` mode left no commit on its branch, so the next run of that pull request shows the change again.
+A pull request that merges on such an approval puts the change in the ledger and not in the baseline file, so run `export` and commit its output again once those pull requests have merged.
+To go on to `yaml`, every open pull request first needs a run created after the switch back to `shadow`.
+A run created in `ledger` mode has `gate = commit_status`, so its CI job passed on the status alone, and nothing holds its pull request once the statuses are no longer required.
+A new push or a re-run of the workflow creates a run with `gate = ci_job`. `status` lists the pull requests that still need one.
+Then remove the statuses from the ruleset with the merge queue empty, run `status-gate --set off`, and run `mode --set yaml`.
+
+### Limits
+
+- Baselines are kept apart per run type, as the baseline files are. The commit positions and the mode are per repo, so every run type of a repo switches mode together.
+- The ledger follows the default branch only. A pull request that targets another branch still compares at its merge-base with the default branch.
+- The second landing check needs a merge queue that renders every snapshot before the merge, as an observe run. A repo without one lands an approval only when a run of the pull request saw it at the merged commit.
+- A merge queue that tests pull requests in parallel lanes does not test the exact tree that lands. Two pull requests in different lanes can change the same story; the second approval is then `conflicted`.
+- Two approved pull requests that change the same story do not conflict in git, as they did on the baseline file. After the first one merges, the second turns red when the ledger learns of the merge: within seconds when the GitHub App's push webhook reaches the instance, within five minutes when it does not. The push makes the window short, but it is not a lock: in that window the second pull request is still green. The service cannot close the window, because GitHub checks the status at the moment of the merge. A repo that wants it closed uses a merge queue or the GitHub rule "Require branches to be up to date before merging" for the required status. With a merge queue, the queue run stops it. Without either, a lost race leaves the second approval `conflicted` and the default branch rendering a picture nobody approved. Every later run that renders the story then shows that picture as a change, until a pull request approves it and merges, as in [When the ledger and the default branch disagree](#when-the-ledger-and-the-default-branch-disagree).
+- Fork pull requests have no run and get no status. Their offline `vr verify` step reads the baseline file, which stops changing in `ledger` mode.
+- A commit whose workflow was cancelled before its run finished keeps a `pending` status. Push again or re-run the workflow.
+
 ## CLI
 
 The `vr` CLI (`cli/`) is a TypeScript tool that bridges CI and the backend. It's deliberately capture-agnostic: it works with any tool that produces PNGs (Storybook, Playwright, Cypress, etc.).
@@ -212,15 +464,19 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
+A run whose `gate` is `commit_status` exits 0 on unapproved changes, because the commit status gates it (see [The merge gate](#the-merge-gate)).
 Pass the same `--purpose` the run was created with.
 On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 1.
 The CLI has to be the one to say so: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical to it.
 Add `--tolerate-drift` to report the drift and still exit 0. Use it on the default branch, where there is no merge left to stop and a red job would block the repair too.
 
+**`vr run skip`** reports that a commit needs no visual run. When the repo's commit status gate is on, the backend posts a passing status for it, so a required status arrives on every commit. With the gate off it posts nothing. It exits 0 without a call when the `--baseline` file does not exist.
+
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
+  With the commit status gate on, only the default branch keeps the `(tracking)` context, and a merge-queue run posts its real verdict to the gating context (see [The merge gate](#the-merge-gate)).
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
   A merge-queue run does not heal its baseline file. When the file lacks an entry the merge-base has for a story the run still renders, the merge would delete that baseline from master, so the run fails with the missing identifiers. Restore the entries from master's baseline file and queue the PR again. `vr run complete` exits 1 for a failed run. Only an observe run under `--tolerate-drift` warns and exits 0 instead, so the failure gates the queue but not a master push.
 
@@ -237,7 +493,7 @@ A run that never got a prompt, because it found nothing to review or because the
 
 ## Current state
 
-Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
+Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. In `ledger` mode the last two steps are replaced by a green commit status. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
 **Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
@@ -249,6 +505,7 @@ When a snapshot already has 3 manual or agent tolerations, or 10 automatic ones,
 GitHub re-runs a job with every job that depends on it, so the completing job re-runs only the verdict and the gate after it, and captures nothing.
 Without it, the target stays the `run create` job, and a re-run captures every snapshot again.
 Finalize re-runs the same job when it has no baseline to commit, because no new CI run starts then.
+A run whose `gate` is `commit_status` re-runs nothing: recompute and finalize publish the commit status, which is its gate (see [The merge gate](#the-merge-gate)).
 
 **Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
 Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
@@ -264,6 +521,7 @@ This is how a quarantined story's entry keeps up with the story.
 The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
 It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
 The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+In `ledger` mode finalize records the approval instead, and the entry lands in the ledger when the PR merges.
 A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
 The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
@@ -343,6 +601,5 @@ Variants recorded against a superseded baseline can never match again.
 
 **Not yet built:**
 
-- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

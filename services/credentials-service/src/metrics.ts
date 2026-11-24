@@ -81,6 +81,22 @@ export const authFailuresTotal = new Counter({
     registers: [register],
 })
 
+// `deployment` is `unknown` until a signing key verifies the token, so a request cannot add a
+// series. Counts each authorization decision, so one request can count more than once.
+export const integrationAuthTotal = new Counter({
+    name: 'credentials_service_integration_auth_total',
+    help: 'Integration token checks, by deployment and outcome',
+    labelNames: ['deployment', 'outcome'],
+    registers: [register],
+})
+
+// Each eviction lets one live token id be used again on this pod. Alert if this grows.
+export const integrationReplayEvictionsTotal = new Counter({
+    name: 'credentials_service_integration_replay_evictions_total',
+    help: 'Live token ids dropped from the replay cache because it was full',
+    registers: [register],
+})
+
 // The signing-key reload fails open so a malformed edit cannot lock a running fleet out.
 // These two make that alertable: staleness on the gauge means a revocation has not landed
 // on this pod.
@@ -93,6 +109,19 @@ export const signingKeysLastLoadedTimestamp = new Gauge({
 export const signingKeyReloadFailuresTotal = new Counter({
     name: 'credentials_service_signing_key_reload_failures_total',
     help: 'Background signing-key reloads that failed, leaving the previous key set in place',
+    registers: [register],
+})
+
+// The same fail-open reload as the signing keys, for the integrations public keys.
+export const integrationKeysLastLoadedTimestamp = new Gauge({
+    name: 'credentials_service_integration_keys_last_loaded_timestamp',
+    help: 'Unix timestamp of the last successful load of the integrations caller public keys',
+    registers: [register],
+})
+
+export const integrationKeyReloadFailuresTotal = new Counter({
+    name: 'credentials_service_integration_key_reload_failures_total',
+    help: 'Background reloads of the integrations public keys that failed, leaving the previous set in place',
     registers: [register],
 })
 

@@ -25,4 +25,17 @@ describe('isTrustedPostHogUrl', () => {
     ])('distrusts %s', (url) => {
         expect(isTrustedPostHogUrl(url)).toBe(false)
     })
+
+    it.each([
+        ['https://media.example.com/uploaded_media/abc', true],
+        ['https://media.example.com.attacker.com/uploaded_media/abc', false],
+        ['http://media.example.com/uploaded_media/abc', false],
+    ])('with a separate media origin, %s is trusted: %s', (url, trusted) => {
+        window.POSTHOG_APP_CONTEXT = { uploaded_media_origin: 'https://media.example.com' } as any
+        try {
+            expect(isTrustedPostHogUrl(url)).toBe(trusted)
+        } finally {
+            delete window.POSTHOG_APP_CONTEXT
+        }
+    })
 })

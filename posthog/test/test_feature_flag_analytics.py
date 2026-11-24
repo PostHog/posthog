@@ -17,7 +17,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -25,7 +25,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from posthog import redis
 from posthog.constants import FlagRequestType
 from posthog.errors import CHQueryErrorUnknownTable
-from posthog.helpers.dashboard_templates import (
+from posthog.helpers.feature_flag_usage_insights import (
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
 )
@@ -48,6 +48,7 @@ from products.feature_flags.backend.flag_analytics import (
     get_cached_evaluations_7d_by_team,
     get_evaluations_7d_by_team,
     get_team_request_library_key,
+    increment_local_evaluation_request_counts,
     increment_request_count,
     report_django_local_evaluation_usage,
 )
@@ -100,6 +101,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 {b"165192618": b"7", b"165192619": b"3"},
             )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:other"), {})
+
+    @override_settings(FLAGS_BILLING_COUNTERS_ENABLED=False)
+    def test_disabled_counters_write_nothing_to_redis(self):
+        increment_request_count(3)
+        increment_request_count(3, 1, FlagRequestType.REMOTE_CONFIG)
+        increment_local_evaluation_request_counts(3)
+
+        self.assertEqual(list(redis.get_client().scan_iter("*")), [])
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_increment_request_count_uses_one_bucket_per_request_type(self):
@@ -742,6 +751,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-unity",
             "posthog-godot",
             "posthog-unreal",
+            "posthog-electron",
             "posthog-server",
             "other",
         ]
@@ -1245,6 +1255,22 @@ class TestEnrichedAnalytics(BaseTest):
 
         flag.refresh_from_db()
         self.assertEqual(flag.has_enriched_analytics, True)
+
+    def test_soft_deleted_usage_dashboard_gets_enriched_insights_for_a_restore(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="test_flag", created_by=self.user)
+        dashboard = create_usage_dashboard(flag, self.user)
+        dashboard.deleted = True
+        dashboard.save()
+
+        with patch(
+            "products.feature_flags.backend.flag_analytics.sync_execute", return_value=[(self.team.id, "test_flag")]
+        ):
+            find_flags_with_enriched_analytics(datetime.datetime(2021, 1, 1), datetime.datetime(2021, 1, 2))
+
+        dashboard.deleted = False
+        dashboard.save()
+        flag.refresh_from_db()
+        assert flag.usage_dashboard_has_enriched_insights
 
 
 class TestFindFlagsWithEnrichedAnalyticsTask(SimpleTestCase):

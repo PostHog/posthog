@@ -301,7 +301,7 @@ test.describe('Billing usage and spend', () => {
             ])
 
             const params = new URL(download.url()).searchParams
-            expect(download.url()).toContain('/api/organizations/@current/billing/usage/export/')
+            expect(download.url()).toContain(`/api/organizations/${workspace.organization_id}/billing/usage/export/`)
             expect(params.get('breakdowns')).toBe('["type"]')
             expect(params.get('start_date')).toMatch(DATE)
             expect(params.get('end_date')).toMatch(DATE)

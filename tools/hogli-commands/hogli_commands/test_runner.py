@@ -26,6 +26,12 @@ _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "
 _DESKTOP_ROOT = "products/desktop"
 _AGENT_WORKSPACE_ROOT = "packages/agent"
 _NESTED_VITEST_ROOTS = (_DESKTOP_ROOT, _AGENT_WORKSPACE_ROOT)
+_MCP_ROOT = "services/mcp"
+_MCP_VITEST_CONFIGS_BY_DIR = (
+    ("tests/hono", "vitest.hono.config.mts"),
+    ("tests/live", "vitest.live.config.mts"),
+)
+_MCP_INTEGRATION_CONFIG = "vitest.integration.config.mts"
 
 
 def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
@@ -477,6 +483,57 @@ def _detect_desktop_vitest(path: str, node_id: str | None = None) -> TestRunConf
     )
 
 
+def _is_under(path: str, root: str) -> bool:
+    return path == root or path.startswith(root + "/")
+
+
+def _mcp_vitest_config(rel: str) -> str | None:
+    for directory, config in _MCP_VITEST_CONFIGS_BY_DIR:
+        if _is_under(rel, directory):
+            return config
+    if rel.endswith(".integration.test.ts"):
+        return _MCP_INTEGRATION_CONFIG
+    return None
+
+
+def _detect_mcp_vitest(path: str, node_id: str | None = None) -> TestRunConfig:
+    rel = str(PurePosixPath(path).relative_to(_MCP_ROOT))
+    command = ["pnpm", "--dir", _MCP_ROOT, "exec", "vitest", "run"]
+    config = _mcp_vitest_config(rel)
+    if config:
+        command.extend(["--config", config])
+    if rel != ".":
+        command.append(rel)
+    if node_id:
+        command.extend(["-t", node_id])
+    return TestRunConfig(
+        test_type="vitest",
+        command=command,
+        description=f"Vitest (in {_MCP_ROOT}, {config or 'default config'})",
+    )
+
+
+def _standalone_uv_project(path: str) -> str | None:
+    lockfile = _find_nearest(path, "uv.lock")
+    repo_root = REPO_ROOT.resolve()
+    if lockfile is None or lockfile.parent == repo_root:
+        return None
+    return str(lockfile.parent.relative_to(repo_root))
+
+
+def _detect_uv_project_test(path: str, project_dir: str, node_id: str | None = None) -> TestRunConfig:
+    target = str(PurePosixPath(path).relative_to(project_dir))
+    if node_id:
+        target = f"{target}::{node_id}"
+    return TestRunConfig(
+        test_type="uv-project",
+        command=["uv", "run", "--project", ".", "--all-groups", "--all-extras", "pytest", "-s", target],
+        description=f"pytest in the {project_dir} uv project",
+        env={"UV_PROJECT_ENVIRONMENT": ""},
+        cwd=REPO_ROOT / project_dir,
+    )
+
+
 def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
     """Detect Jest test configuration by finding the nearest package.json.
 
@@ -487,6 +544,8 @@ def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None
     """
     if _nested_vitest_root(file_only):
         return _detect_desktop_vitest(file_only, node_id)
+    if _is_under(file_only, _MCP_ROOT):
+        return _detect_mcp_vitest(file_only, node_id)
     if file_only.startswith("products/"):
         pkg_name: str | None = "@posthog/frontend"
     else:
@@ -522,6 +581,11 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     normalized = dir_path.rstrip("/")
     if _nested_vitest_root(normalized):
         return _detect_desktop_vitest(normalized)
+    if _is_under(normalized, _MCP_ROOT):
+        return _detect_mcp_vitest(normalized)
+    uv_project = _standalone_uv_project(normalized)
+    if uv_project:
+        return _detect_uv_project_test(normalized, uv_project)
 
     # Product root: use Turbo pipeline (only for top-level product dirs)
     if dir_path.startswith("products/"):
@@ -604,6 +668,9 @@ def detect_test_type(file_path: str) -> TestRunConfig:
 
     # 2. Python tests
     if ext == ".py" and any(file_only.startswith(root) for root in _PYTHON_ROOTS):
+        uv_project = _standalone_uv_project(file_only)
+        if uv_project:
+            return _detect_uv_project_test(file_only, uv_project, node_id)
         return TestRunConfig(
             test_type="python",
             command=["pytest", "-s", file_path],
@@ -727,6 +794,15 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
             for pkg, (cfg, pkg_files) in by_package.items():
                 command = cfg.command[:-1] + pkg_files
                 click.secho(f"Running {len(pkg_files)} Jest test file(s) ({pkg})...", fg="cyan")
+                _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
+        elif test_type == "uv-project":
+            by_project: dict[Path | None, list[TestRunConfig]] = {}
+            for _, cfg in entries:
+                by_project.setdefault(cfg.cwd, []).append(cfg)
+            for configs in by_project.values():
+                cfg = configs[0]
+                command = cfg.command[:-1] + [c.command[-1] for c in configs]
+                click.secho(f"Running {len(configs)} Python test file(s) ({cfg.description})...", fg="cyan")
                 _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
         else:
             for f, cfg in entries:

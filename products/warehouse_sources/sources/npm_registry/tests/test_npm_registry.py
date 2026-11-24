@@ -193,6 +193,107 @@ class TestGetRowsVersionDownloads:
         ]
 
 
+def _search_hit(name: str, **overrides) -> dict:
+    hit = {
+        "downloads": {"monthly": 4000, "weekly": 1000},
+        "dependents": "42",
+        "updated": "2024-02-14T10:00:00.000Z",
+        "searchScore": 812.5,
+        "package": {
+            "name": name,
+            "version": "2.1.0",
+            "description": "An example package",
+            "keywords": ["example"],
+            "license": "MIT",
+            "date": "2024-01-02T03:04:05.000Z",
+            "publisher": {"username": "alice", "email": "alice@example.com"},
+            "maintainers": [{"username": "alice", "email": "alice@example.com"}, {"username": "bob"}],
+            "links": {"npm": f"https://www.npmjs.com/package/{name}", "repository": "https://example.com/repo"},
+        },
+        "score": {"final": 812.5, "detail": {"quality": 1, "popularity": 0.5, "maintenance": 1}},
+        "flags": {"insecure": 0},
+    }
+    hit.update(overrides)
+    return hit
+
+
+class TestGetRowsPackages:
+    @pytest.mark.parametrize(
+        "response,expected_rows",
+        [
+            # The exact name is picked even when a near match ranks above it.
+            (
+                ScriptedResponse(json={"objects": [_search_hit("react-dom"), _search_hit("react")], "total": 2}),
+                [
+                    {
+                        "package": "react",
+                        "version": "2.1.0",
+                        "description": "An example package",
+                        "keywords": ["example"],
+                        "license": "MIT",
+                        "published_at": "2024-01-02T03:04:05.000Z",
+                        "publisher": "alice",
+                        "maintainers": ["alice", "bob"],
+                        "homepage": None,
+                        "repository": "https://example.com/repo",
+                        "bugs": None,
+                        "npm_url": "https://www.npmjs.com/package/react",
+                        "weekly_downloads": 1000,
+                        "monthly_downloads": 4000,
+                        "dependents": 42,
+                        "search_score": 812.5,
+                        "score_final": 812.5,
+                        "score_quality": 1,
+                        "score_popularity": 0.5,
+                        "score_maintenance": 1,
+                        "insecure": 0,
+                        "updated_at": "2024-02-14T10:00:00.000Z",
+                    }
+                ],
+            ),
+            # The index leaves some packages out (deprecated ones), so search returns only near matches.
+            (ScriptedResponse(json={"objects": [_search_hit("react-dom")], "total": 1}), []),
+            (ScriptedResponse(json={"objects": [], "total": 0}), []),
+            (ScriptedResponse(json={"error": "unexpected"}), []),
+            (ScriptedResponse(status=404), []),
+        ],
+    )
+    def test_row_shaping(self, response: ScriptedResponse, expected_rows: list[dict]) -> None:
+        result = _driver().run("Packages", [response])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == ["/-/v1/search"]
+
+    @pytest.mark.parametrize(
+        "dependents,expected",
+        [("1375", 1375), (0, 0), (None, None), ("n/a", None)],
+    )
+    def test_dependents_coercion(self, dependents, expected) -> None:
+        result = _driver().run(
+            "Packages", [ScriptedResponse(json={"objects": [_search_hit("react", dependents=dependents)]})]
+        )
+
+        assert result.raised is None
+        assert [row["dependents"] for row in result.rows] == [expected]
+
+    def test_searches_each_package_by_its_exact_name(self) -> None:
+        result = _driver("@scope/name\nlodash").run(
+            "Packages",
+            [
+                ScriptedResponse(json={"objects": [_search_hit("@scope/name")]}),
+                ScriptedResponse(json={"objects": [_search_hit("lodash")]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r.param("text"), r.param("size")) for r in result.requests] == [
+            ("@scope/name", "20"),
+            ("lodash", "20"),
+        ]
+        assert [row["package"] for row in result.rows] == ["@scope/name", "lodash"]
+
+
 class TestFetchJson:
     def _session(self, *, status: int, chunks: list[bytes]) -> mock.MagicMock:
         response = mock.MagicMock()

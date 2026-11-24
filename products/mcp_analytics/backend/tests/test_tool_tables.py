@@ -931,3 +931,32 @@ class TestMCPToolDetailSharedFilters(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         ]
         self.team.save()
         assert run(filterTestAccounts=True) == expected_filtered
+
+
+class TestMCPToolDetailTimestamps(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "failure_occurrences",
+                MCPToolFailureOccurrencesQueryRunner,
+                MCPToolFailureOccurrencesQuery,
+                {"errorType": "unknown"},
+                "timestamp",
+            ),
+            ("descriptions", MCPToolDescriptionsQueryRunner, MCPToolDescriptionsQuery, {}, "last_seen"),
+            ("sample_intents", MCPToolSampleIntentsQueryRunner, MCPToolSampleIntentsQuery, {}, "timestamp"),
+        ]
+    )
+    def test_returns_the_call_time_with_its_utc_offset(
+        self, _name: str, runner_cls: Any, query_cls: Any, query_kwargs: dict[str, Any], time_field: str
+    ) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        called_at = datetime.now(tz=UTC).replace(microsecond=0) - timedelta(hours=1)
+        _emit_tool_call(self.team, is_error=True, description="Run a query", intent='{"goal":"x"}', timestamp=called_at)
+        flush_persons_and_events()
+
+        query = query_cls(toolName="query_run", dateRange=DateRange(date_from="-7d"), **query_kwargs)
+        rows = runner_cls(query=query, team=self.team).calculate().results
+
+        assert [datetime.fromisoformat(getattr(row, time_field)) for row in rows] == [called_at]

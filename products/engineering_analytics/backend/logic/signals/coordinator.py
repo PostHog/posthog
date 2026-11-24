@@ -1,9 +1,8 @@
 """Scheduled CI-signals coordinator: detect across enrolled teams and emit into Signals.
 
-Mirrors the job-logs coordinator: one fail-silent detect-and-emit activity per source; emit_signal
-re-checks org AI-approval and per-type config. The sweep has no request user, so it scans only the
-source ids the enabling user snapshot-authorized, under that user's current UserAccessControl
-(``list_authorized_ci_signal_sources``); deletion, revocation, or a deactivated authorizer fail closed.
+The sweep has no request user. It scans only the sources the enabling user authorized, under that
+user's current ``UserAccessControl``. A deleted source, a revoked grant, or a deactivated
+authorizer yields no scan.
 """
 
 import json
@@ -53,8 +52,8 @@ class CISignalTarget:
 
 
 def _rollout_flag_enabled(team: Team, user: "User") -> bool:
-    # Enrollment and the rollout flag are orthogonal gates, re-checked per target. Evaluated as
-    # the enabling user: a person-cohort release condition never matches a synthetic distinct_id.
+    # Evaluated as the enabling user, because a person-cohort release condition never matches a
+    # synthetic distinct_id.
     org_id = str(team.organization_id)
     project_id = str(team.id)
     return bool(
@@ -91,7 +90,7 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
     if team is None:
         return [], None
     user = resolve_authorizer(team=team, user_id=target.authorized_by_user_id)
-    # Re-check the flag and authorizer at detection time: retries can run long after discovery.
+    # The flag and the authorizer are checked again here, because a retry can run long after discovery.
     if user is None or not _rollout_flag_enabled(team, user):
         return [], None
     access_control = UserAccessControl(user=user, team=team)
@@ -99,8 +98,7 @@ def _detect_for_target(target: CISignalTarget) -> tuple[list[CISignalFinding], T
 
 
 def _unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFinding]:
-    """Findings not yet recorded in the ledger: the sweep re-detects standing conditions hourly, and
-    this is what stops it re-emitting them."""
+    # Every sweep detects a standing condition again, and the ledger is what stops a second emit.
     if not findings:
         return []
     already_emitted = emitted_keys(
@@ -116,10 +114,7 @@ def _unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFind
 
 
 def _record_emitted(team: Team, finding: CISignalFinding) -> None:
-    """Ledger the finding after a successful emit. Recorded per-finding after dispatch, not up front,
-    so a finding whose emit raised is retried next sweep instead of being suppressed for the rest of
-    its dedupe window. The org AI-approval gate, which emit_signal enforces by silently returning,
-    is checked up front in the activity so an unapproved sweep never reaches here."""
+    # Recorded after the emit, so that a finding whose emit raised is retried on the next sweep.
     record_emission(
         team_id=team.id,
         source_product=SOURCE_PRODUCT,
@@ -175,14 +170,14 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
     findings, team = await database_sync_to_async(_detect_for_target, thread_sensitive=False)(target)
     if team is None or not findings:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": 0, "emitted": 0}
-    # emit_signal enforces org AI-approval by silently returning; enabling the source never checks it,
-    # so gate here; otherwise the ledger records a finding that was never emitted.
+    # emit_signal returns silently for an organization without AI approval, so without this check
+    # the ledger would record a finding that was never emitted.
     approved = await database_sync_to_async(
         lambda: team.organization.is_ai_data_processing_approved, thread_sensitive=False
     )()
     if not approved:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
-    # Records nothing, so clearing the flag re-emits these findings rather than skipping them.
+    # A dry run records nothing in the ledger, so these findings emit once dry run is turned off.
     if await database_sync_to_async(is_dry_run, thread_sensitive=False)(team=team):
         logger.info(
             "ci_signals_dry_run",
@@ -201,9 +196,8 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
     fresh = await database_sync_to_async(_unemitted, thread_sensitive=False)(team, findings)
     if not fresh:
         return {"team_id": target.team_id, "source_id": target.source_id, "findings": len(findings), "emitted": 0}
-    # emit_signal silently drops a signal whose source_type is disabled, returning without raising.
-    # Skip those before emit rather than ledgering them; recording a phantom emission would suppress
-    # the finding on every future sweep, so a later re-enable of the type would never emit it.
+    # emit_signal returns silently for a disabled source_type. Recording such a finding would
+    # suppress it on every later sweep, so enabling the type again would never emit it.
     enabled_types = {
         source_type
         for source_type in {finding.source_type for finding in fresh}
@@ -225,7 +219,7 @@ async def detect_and_emit_ci_signals_activity(target: CISignalTarget) -> dict[st
                 weight=finding.weight,
                 extra=finding.extra,
                 remediation=finding.remediation,
-                # Closes the crash window between a successful emit and its ledger write.
+                # Covers a crash between a successful emit and its ledger write.
                 idempotency_key=f"{finding.source_type}:{finding.source_id}",
             )
         except Exception:

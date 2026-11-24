@@ -419,6 +419,8 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   goes through edit on the live report — fresh report only if that report closed and the
   page later re-crosses."_ One stable key per host+path+metric — update it in place,
   don't mint a dated variant.
+  Set `expires_at` about 30 days past the last read that confirmed it: a page back
+  under the threshold that long that re-crosses is a new episode.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
   INP finding. Edit it (`append_evidence` with the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its
@@ -477,8 +479,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   Attach the page's daily p75 series via `charts` — for a dated regression show the band crossing and its onset; for a standing-poor page show just the observed window, since a series that starts in the poor band cannot date an onset.
   The fix lives in the team's own
   frontend code, CDN, or asset pipeline — so default to
-  `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
-  `priority`+reviewers from spawning a pointless repo-selection sandbox); reserve
+  `actionability=requires_human_input` and `repository=NO_REPO`; reserve
   `actionability=immediately_actionable` + `repository=owner/repo` for a finding whose
   remediation is well-localized in a repo you can confidently name from project
   context. "Nameable" means named by a **trusted, human-authored source**: a steering

@@ -8,7 +8,7 @@ import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTracesSummaryCreate, aiObservabilityTracesSummaryRetrieve } from '../../generated/api'
-import type { TraceSummaryApi, TraceSummaryFailureReasonEnumApi } from '../../generated/api.schemas'
+import type { TraceSummaryApi } from '../../generated/api.schemas'
 import { encodeTraceIdSegment } from './traceIdSegment'
 import { traceViewTracking } from './traceViewTracking'
 import type { SummaryModeState, SummaryRequestError } from './types'
@@ -24,7 +24,6 @@ export interface SummaryRequest {
     timestampHint: string | null
 }
 
-const FINAL_FAILURE_REASONS: ReadonlySet<TraceSummaryFailureReasonEnumApi> = new Set(['too_large', 'trace_not_found'])
 const FIRST_POLL_DELAY_MS: number = 1000
 const POLL_BACKOFF = 1.5
 const MAX_POLL_DELAY_MS = 5000
@@ -238,7 +237,7 @@ export const traceSummaryLogic = kea<traceSummaryLogicType>([
                     return {
                         status: 'failed',
                         message: entry.failure.message,
-                        retryable: !FINAL_FAILURE_REASONS.has(entry.failure.reason),
+                        retryable: entry.failure.retryable,
                     }
                 }
                 return entry.status === 'pending' ? { status: 'pending' } : { status: 'error' }

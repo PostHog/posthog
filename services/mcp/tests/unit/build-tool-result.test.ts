@@ -100,6 +100,33 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         }
     )
 
+    it.each([
+        ['the formatted table', true, FORMATTED_TABLE],
+        ['the structuredContent pointer', false, STRUCTURED_CONTENT_ONLY_TEXT],
+    ])('appends the time series block after %s when asked', (_label, withFormatted, expectedBody) => {
+        const handlerResult = queryTrendsHandlerResult(withFormatted)
+        const [series] = handlerResult.results as Record<string, unknown>[]
+        series!.days = FORMATTED_TABLE.split('\n')
+            .slice(1)
+            .map((row) => row.split('|')[0])
+
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            appendTimeSeriesChartData: true,
+        })
+
+        const [body, block] = payload.content[0]!.text.split('\n\n')
+        expect(body).toBe(expectedBody)
+        expect(JSON.parse(block!.split('\n')[1]!).series[0]).toMatchObject({
+            name: '$pageview',
+            data: expect.arrayContaining([['2026-04-16', 25]]),
+        })
+    })
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),

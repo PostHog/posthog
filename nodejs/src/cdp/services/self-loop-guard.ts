@@ -22,13 +22,20 @@ export const SELF_LOOP_DEPTH_PROPERTY = '$hog_function_self_loop_depth'
 // Max self-capture hops, for a single destination, before its loop is broken.
 export const SELF_LOOP_MAX_DEPTH = 10
 
+// Capture v1 routes, which take the project token only from an `Authorization: Bearer` header.
+// The AI route can loop too, because ingestion writes `$ai_*` events to the topic destinations consume.
+const V1_INGEST_PATHS = new Set(['/i/v1/analytics/events', '/i/v1/ai/events'])
+
 // Only these paths re-enter the event pipeline. Observability (`/i/v1/logs`) and the
 // REST API (`/api/...`, `/decide`) do NOT re-trigger event processing, so a fetch to
 // them - even with the project's own token - cannot form an event-forwarding loop.
-const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e'])
+const INGEST_PATHS = new Set(['/capture', '/batch', '/e', '/track', '/i/v0/e', ...V1_INGEST_PATHS])
 
-// Top-level body fields that carry the credential a capture request authenticates with.
-const API_KEY_FIELDS = ['api_key', 'token', 'api_token'] as const
+// Body fields capture reads the project token from, on a request or on one of its events.
+const API_KEY_FIELDS = ['api_key', 'token', '$token'] as const
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value)
 
 export const selfLoopGuardCounter = new Counter({
     name: 'cdp_self_loop_guard_total',
@@ -36,35 +43,67 @@ export const selfLoopGuardCounter = new Counter({
     labelNames: ['mode', 'action'],
 })
 
-export const isPostHogIngestUrl = (urlString: string): boolean => {
+const ingestPath = (urlString: string): string | null => {
     try {
         const url = new URL(urlString)
         const host = url.hostname.toLowerCase()
         const isIngestHost = host === 'posthog.com' || host.endsWith('.posthog.com')
         if (!isIngestHost) {
-            return false
+            return null
         }
         const path = url.pathname.replace(/\/+$/, '') || '/'
-        return INGEST_PATHS.has(path)
+        return INGEST_PATHS.has(path) ? path : null
     } catch {
-        return false
+        return null
     }
 }
 
-// The credential a capture request authenticates with - either a top-level body field
-// or an `api_key`/`token` query parameter. Deliberately does NOT look at `$lib_token`
+export const isPostHogIngestUrl = (urlString: string): boolean => ingestPath(urlString) !== null
+
+// Mirrors capture's `RawEvent::extract_token`: the event's token field, else `properties.token`.
+const eventToken = (event: unknown): string | null => {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+        return null
+    }
+    const obj = event as Record<string, unknown>
+    for (const field of API_KEY_FIELDS) {
+        if (typeof obj[field] === 'string') {
+            return obj[field] as string
+        }
+    }
+    const properties = obj.properties
+    if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+        const token = (properties as Record<string, unknown>).token
+        return typeof token === 'string' ? token : null
+    }
+    return null
+}
+
+// The credential a legacy capture request authenticates with - a top-level body field, an event's
+// own token, or an `api_key`/`token` query parameter. An array body counts only when exactly one
+// distinct token appears, because capture rejects several. Deliberately does NOT look at `$lib_token`
 // (SDK metadata auto-attached to event properties) or `Authorization` headers, both of
 // which carry a token without expressing intent to ingest as that project.
 export const extractRequestApiKey = (body: string | null | undefined, urlString: string): string | null => {
     if (body) {
         try {
             const parsed = parseJSON(body)
-            if (parsed && typeof parsed === 'object') {
-                const obj = parsed as Record<string, unknown>
-                for (const field of API_KEY_FIELDS) {
-                    if (typeof obj[field] === 'string') {
-                        return obj[field] as string
-                    }
+            if (Array.isArray(parsed)) {
+                // Capture drops `$performance_event` entries before it reads the tokens.
+                const tokens = new Set(
+                    parsed
+                        .filter((event) => (event as Record<string, unknown> | null)?.event !== '$performance_event')
+                        .map(eventToken)
+                        .filter((token) => token !== null)
+                )
+                if (tokens.size === 1) {
+                    return [...tokens][0]
+                }
+            } else {
+                // Capture ignores `api_token`, so it counts only when the body has no token capture reads.
+                const token = eventToken(parsed) ?? (isPlainObject(parsed) ? parsed.api_token : null)
+                if (typeof token === 'string') {
+                    return token
                 }
             }
         } catch {
@@ -79,6 +118,19 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
     }
 }
 
+// Mirrors capture v1: the header name and the scheme are case-insensitive, and the token is trimmed.
+export const extractBearerToken = (headers: Record<string, string> | null | undefined): string | null => {
+    if (!headers) {
+        return null
+    }
+    const name = Object.keys(headers).find((key) => key.toLowerCase() === 'authorization')
+    const value = name ? headers[name]?.trim() : undefined
+    if (!value || value.length <= 7 || value.slice(0, 7).toLowerCase() !== 'bearer ') {
+        return null
+    }
+    return value.slice(7).trim() || null
+}
+
 const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: string): boolean => {
     return token === team.api_token || (team.secret_api_token !== null && token === team.secret_api_token)
 }
@@ -90,13 +142,32 @@ const ownsToken = (team: Pick<Team, 'api_token' | 'secret_api_token'>, token: st
 export const isSelfReferentialIngestFetch = (input: {
     url: string
     body: string | null | undefined
+    headers?: Record<string, string> | null
     team: Pick<Team, 'api_token' | 'secret_api_token'>
 }): boolean => {
-    if (!isPostHogIngestUrl(input.url)) {
+    const path = ingestPath(input.url)
+    if (path === null) {
         return false
     }
-    const requestToken = extractRequestApiKey(input.body, input.url)
+    const requestToken = V1_INGEST_PATHS.has(path)
+        ? extractBearerToken(input.headers)
+        : extractRequestApiKey(input.body, input.url)
     return requestToken !== null && ownsToken(input.team, requestToken)
+}
+
+// Capture v1 also reads an event, or the whole batch, written as a positional array. The depth
+// cannot be stamped onto those, so such a request would loop without ever reaching the cap.
+export const canCarrySelfLoopDepth = (urlString: string, body: string | null | undefined): boolean => {
+    const path = ingestPath(urlString)
+    if (path === null || !V1_INGEST_PATHS.has(path)) {
+        return true
+    }
+    try {
+        const parsed = parseJSON(body ?? '')
+        return isPlainObject(parsed) && Array.isArray(parsed.batch) && parsed.batch.every(isPlainObject)
+    } catch {
+        return false
+    }
 }
 
 // How many times the given hog function has already re-fed the pipeline on this chain,
@@ -157,9 +228,10 @@ export const injectSelfLoopDepth = (
         event.properties = properties
     }
     const obj = parsed as Record<string, unknown>
-    if (Array.isArray(obj.batch)) {
-        for (const entry of obj.batch) {
-            if (entry && typeof entry === 'object') {
+    const entries = Array.isArray(parsed) ? parsed : Array.isArray(obj.batch) ? obj.batch : null
+    if (entries) {
+        for (const entry of entries) {
+            if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
                 stamp(entry as Record<string, unknown>)
             }
         }

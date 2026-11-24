@@ -17,6 +17,7 @@ export function SendDayPickerStatus(): JSX.Element {
         suggestion,
         rule,
         isTransactional,
+        ignoresCap,
         effectiveTimezone,
     } = useValues(sendDayPickerLogic(props))
     const { applySuggestion, loadScheduledFlows } = useActions(sendDayPickerLogic(props))
@@ -48,6 +49,9 @@ export function SendDayPickerStatus(): JSX.Element {
                 Transactional emails don't count toward the frequency cap, so any day works.
             </LemonBanner>
         )
+    }
+    if (ignoresCap) {
+        return <LemonBanner type="info">This email skips the frequency cap, so any day works.</LemonBanner>
     }
     if (sendAt && !selectedCrowding.length) {
         return <LemonBanner type="success">This time stays within {describeRule(rule)}.</LemonBanner>

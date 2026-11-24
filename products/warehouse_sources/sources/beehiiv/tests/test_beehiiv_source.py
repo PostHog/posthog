@@ -133,7 +133,7 @@ class TestBeehiivPipelineDispatch:
         assert result.response is not None
         response = result.response
         assert response.name == endpoint
-        assert response.primary_keys == [endpoint_config.primary_key]
+        assert response.primary_keys == endpoint_config.primary_keys
         assert response.sort_mode == endpoint_config.sort_mode
         if endpoint_config.partition_key is None:
             assert response.partition_keys is None

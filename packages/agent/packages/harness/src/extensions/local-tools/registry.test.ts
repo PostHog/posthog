@@ -90,6 +90,37 @@ describe("local-tools registry", () => {
     expect(hasSummaryTool).toBe(expected);
   });
 
+  it.each([
+    { provider: undefined, gitlab: false },
+    { provider: "github", gitlab: false },
+    { provider: "gitlab", gitlab: true },
+  ])(
+    "swaps the GitHub git tools for the GitLab MR tool when POSTHOG_GIT_PROVIDER=$provider",
+    ({ provider, gitlab }) => {
+      const saved = process.env.POSTHOG_GIT_PROVIDER;
+      if (provider === undefined) delete process.env.POSTHOG_GIT_PROVIDER;
+      else process.env.POSTHOG_GIT_PROVIDER = provider;
+      try {
+        const names = enabledLocalTools(
+          { cwd: "/repo" },
+          { environment: "cloud" },
+        ).map((t) => t.name);
+        for (const githubTool of [
+          "git_signed_commit",
+          "git_signed_merge",
+          "git_signed_rewrite",
+          "gh_stack",
+        ]) {
+          expect(names.includes(githubTool)).toBe(!gitlab);
+        }
+        expect(names.includes("gitlab_merge_request")).toBe(gitlab);
+      } finally {
+        if (saved === undefined) delete process.env.POSTHOG_GIT_PROVIDER;
+        else process.env.POSTHOG_GIT_PROVIDER = saved;
+      }
+    },
+  );
+
   it("does not treat legacy taskRunId-only metadata as cloud", () => {
     const tools = enabledLocalTools({ cwd: "/repo", token: undefined }, {
       taskRunId: "run-1",

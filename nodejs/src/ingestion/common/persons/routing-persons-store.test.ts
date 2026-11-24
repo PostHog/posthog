@@ -729,8 +729,6 @@ describe('RoutingPersonsStore', () => {
             const result = await store.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -742,8 +740,8 @@ describe('RoutingPersonsStore', () => {
             )
 
             expect(result).toBe(pgResult)
-            expect(stores.pg.createPerson.mock.calls[0][7]).toBe('caller-supplied-uuid')
-            expect(stores.personhogMock.createPerson.mock.calls[0][7]).toBe('caller-supplied-uuid')
+            expect(stores.pg.createPerson.mock.calls[0][5]).toBe('caller-supplied-uuid')
+            expect(stores.personhogMock.createPerson.mock.calls[0][5]).toBe('caller-supplied-uuid')
         })
 
         it.each([
@@ -771,8 +769,6 @@ describe('RoutingPersonsStore', () => {
                 await store.createPerson(
                     DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                     { plan: 'pro' },
-                    {},
-                    {},
                     1,
                     null,
                     false,
@@ -799,8 +795,6 @@ describe('RoutingPersonsStore', () => {
             store.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 { plan: 'pro' },
-                {},
-                {},
                 1,
                 null,
                 isIdentified,

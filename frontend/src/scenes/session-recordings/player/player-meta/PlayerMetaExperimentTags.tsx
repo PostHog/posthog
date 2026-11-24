@@ -54,7 +54,11 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
           }. Click to view.`
 
     return (
-        <span className="flex flex-row items-center gap-x-1 shrink-0" data-attr="replay-experiment-context-chip">
+        <span
+            data-not-quill
+            className="flex flex-row items-center gap-x-1 shrink-0"
+            data-attr="replay-experiment-context-chip"
+        >
             <Tooltip title={seenTooltip}>
                 <LemonTag
                     type={hasMultipleVariantWarning ? 'warning' : 'default'}

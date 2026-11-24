@@ -22,8 +22,7 @@ class TestCostModel:
             ("depot_pinned_os_4cpu", ["depot-ubuntu-22.04-4"], RunnerProvider.DEPOT, RunnerOS.LINUX, 4),
             ("depot_8cpu", ["depot-ubuntu-latest-8"], RunnerProvider.DEPOT, RunnerOS.LINUX, 8),
             ("depot_macos", ["depot-macos-latest"], RunnerProvider.DEPOT, RunnerOS.MACOS, 2),
-            # Non-Linux Depot labels can carry a bare-integer OS version: it sits in the version
-            # slot, not the size slot, so vcpu stays the 2-core default (never read as 14 / 2022).
+            # A bare integer after a non-Linux OS is the OS version, not the vCPU count.
             ("depot_macos_versioned", ["depot-macos-14"], RunnerProvider.DEPOT, RunnerOS.MACOS, 2),
             ("depot_windows", ["depot-windows-2022"], RunnerProvider.DEPOT, RunnerOS.WINDOWS, 2),
             ("github_hosted", ["ubuntu-latest"], RunnerProvider.GITHUB_HOSTED, RunnerOS.LINUX, 2),
@@ -45,8 +44,7 @@ class TestCostModel:
         [
             ("empty", []),
             ("unrecognized", ["self-hosted", "linux", "x64"]),
-            # Contains/prefixed with "depot" but names no runner OS: organizational and cache
-            # labels must not be costed as a Depot runner.
+            # A "depot" label that names no runner OS is not a Depot runner.
             ("depot_cache_label", ["depot-docker-cache"]),
             ("depot_only_flag", ["depot-only"]),
             ("depot_prefixed_non_runner", ["depot-cache-linux"]),
@@ -93,11 +91,8 @@ class TestCostModel:
 
     @parameterized.expand(
         [
-            # Depot doesn't bill the runner boot GitHub stamps into started_at.
             ("provisioning_subtracted", 600, 23, 577),
-            # No steps payload -> nothing to subtract, so the wall-clock stands (under-correct, never over).
             ("no_steps_keeps_wall_clock", 600, None, 600),
-            # Clock skew can't hand the rate a negative.
             ("clamped_at_zero", 10, 25, 0),
         ]
     )
@@ -105,12 +100,9 @@ class TestCostModel:
         assert billed_elapsed_seconds(elapsed, provisioning) == expected
 
     def test_billed_elapsed_seconds_is_none_for_unknown_elapsed(self):
-        # An unsettled job has no elapsed to bill — None, never a measured 0 that would cost $0.00.
         assert billed_elapsed_seconds(None, 23) is None
 
     def test_estimate_job_cost_uses_the_billed_elapsed(self):
-        # The provisioning seconds must never reach the rate: a 10-minute job that spent 23s booting
-        # costs 577s, not 600s, worth of Depot minutes.
         labels = ["depot-ubuntu-latest"]
         billed = billed_elapsed_seconds(600, 23)
         cost_billed = estimate_job_cost_usd(labels, billed)
@@ -120,15 +112,11 @@ class TestCostModel:
         assert cost_billed < cost_wall_clock
 
     def test_estimate_job_cost_is_none_for_a_rerun_copy(self):
-        # GitHub re-lists an already-passed job under the next run_attempt with the earlier attempt's
-        # timestamps. Nothing ran, so there are no minutes to bill — None, not the elapsed-derived
-        # figure the same labels and duration would otherwise produce.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600) is not None
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600, is_rerun_copy=True) is None
 
     def test_estimate_job_cost_is_none_for_unknown_elapsed(self):
-        # A queued / not-yet-started Depot job has no elapsed time: report None ("cost unknown"),
-        # never 0.0 — so a consumer never shows a pending job as $0.00.
+        # None and not 0.0, so that a consumer never shows a pending job as $0.00.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], None) is None
 
     @parameterized.expand(
@@ -138,6 +126,4 @@ class TestCostModel:
         ]
     )
     def test_estimate_job_cost_is_zero_for_non_positive_elapsed(self, _name, elapsed):
-        # A Depot job that ran for no measurable time (started == completed, or clock skew) is a
-        # real, measured 0.0 — distinct from the unknown-elapsed case above.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], elapsed) == 0.0

@@ -19,7 +19,6 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "event": "$ai_span",
         "timestamp": T0,
         "distinct_id": "user-1",
-        "session_id": None,
         "parent_id": "trace-1",
         "span_id": None,
         "generation_id": None,
@@ -39,6 +38,13 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "ingestion_source": None,
         "git_branch": None,
         "git_repo": None,
+        "error_text": None,
+        "tools_called": (),
+        "is_support": False,
+        "trace_latency_s": None,
+        "trace_cost_usd": None,
+        "trace_distinct_id": None,
+        "trace_session_id": None,
     }
     return TraceEventRow(**{**fields, **overrides})
 

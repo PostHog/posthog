@@ -7,14 +7,22 @@ person deletion — extracted from test_person.py.
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.core.cache import cache
+from django.core.signing import TimestampSigner
 from django.test import override_settings
 
+from loginas import settings as loginas_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.person import PersonsDeleteBurstThrottle, PersonsDeleteTeamBurstThrottle
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_uuid
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_secret, hash_key_value
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -378,6 +386,146 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
 
 
 class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
+    def _authenticate_psak(self, scopes: list[str] | None = None) -> None:
+        token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label=f"Person deletion {ProjectSecretAPIKey.objects.filter(team=self.team).count()}",
+            secure_value=hash_key_value(token),
+            scopes=["person:write"] if scopes is None else scopes,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand([(False, False), (True, False), (False, True), (True, True)])
+    def test_psak_bulk_delete_without_user(self, queued: bool, keep_person: bool) -> None:
+        person = self._seed_person(team=self.team, distinct_ids=["delete-me"])
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_person = self._seed_person(team=other_team, distinct_ids=["delete-me"])
+        self._authenticate_psak()
+        temporal = mock.Mock(start_workflow=mock.AsyncMock())
+
+        with (
+            override_settings(PERSON_BULK_DELETE_ASYNC=queued),
+            mock.patch("posthog.models.person.bulk_delete.sync_connect", return_value=temporal),
+        ):
+            result = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/bulk_delete/",
+                {
+                    "distinct_ids": ["delete-me"],
+                    "keep_person": keep_person,
+                    "delete_events": True,
+                    "delete_recordings": True,
+                },
+                format="json",
+            )
+
+        assert result.status_code == 202, result.json()
+        assert ActivityLog.objects.filter(team_id=self.team.pk, activity="bulk_delete_requested").count() == 1
+        data = result.json()
+        assert data["persons_found"] == 1
+        assert data["persons_deleted"] == int(not queued and not keep_person)
+        assert data["persons_queued_for_deletion"] == int(queued and not keep_person)
+        assert data["deletion_errors"] == []
+        assert data["events_queued_for_deletion"] is True
+        assert data["recordings_queued_for_deletion"] is True
+        assert (get_person_by_uuid(self.team.pk, str(person.uuid)) is not None) == keep_person
+        assert get_person_by_uuid(other_team.pk, str(other_person.uuid)) is not None
+        deletion = AsyncDeletion.objects.get(team_id=self.team.pk, key=str(person.uuid))
+        assert deletion.deletion_type == DeletionType.Person
+        assert deletion.created_by_id is None
+        logs = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
+        if keep_person:
+            assert not logs.exists()
+        else:
+            log = logs.get(item_id=str(person.pk))
+            assert log.user_id is None
+            assert log.organization_id == self.organization.pk
+        assert len(temporal.start_workflow.call_args_list) == 1
+        workflow_name, payload = temporal.start_workflow.call_args.args
+        assert workflow_name == "delete-recordings-with-person"
+        assert payload.team_id == self.team.pk
+        assert payload.distinct_ids == ["delete-me"]
+        assert payload.config.deleted_by == "system"
+
+    @parameterized.expand([(False, False), (True, False), (False, True), (True, True)])
+    def test_psak_bulk_delete_records_request_without_matching_persons(self, queued: bool, impersonated: bool) -> None:
+        self._authenticate_psak()
+        key = ProjectSecretAPIKey.objects.get(team=self.team)
+        if impersonated:
+            session = self.client.session
+            session[loginas_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(self.user.pk))
+            session.save()
+
+        with override_settings(PERSON_BULK_DELETE_ASYNC=queued):
+            result = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/bulk_delete/",
+                {"distinct_ids": ["missing-person"]},
+                format="json",
+            )
+
+        assert result.status_code == 202, result.json()
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", activity="bulk_delete_requested")
+        assert log.user_id is None
+        assert log.credential_type == "project_secret_key"
+        assert log.credential_id == key.id
+        assert log.ip_address == "127.0.0.1"
+        assert log.was_impersonated is False
+        assert log.organization_id == self.organization.pk
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, activity="deleted").exists()
+
+    @parameterized.expand([("missing_scope",), ("other_project",), ("no_auth",)])
+    def test_psak_bulk_delete_rejects_unauthorized_requests(self, case: str) -> None:
+        target_team = self.team
+        if case == "other_project":
+            target_team = Team.objects.create(organization=self.organization, name="Other project")
+        person = self._seed_person(team=target_team, distinct_ids=["delete-me"])
+        self._authenticate_psak(["endpoint:read"] if case == "missing_scope" else None)
+        if case == "no_auth":
+            self.client.credentials()
+
+        result = self.client.post(
+            f"/api/projects/{target_team.pk}/persons/bulk_delete/",
+            {"distinct_ids": ["delete-me"]},
+            format="json",
+        )
+
+        assert result.status_code in (401, 403), result.json()
+        assert get_person_by_uuid(target_team.pk, str(person.uuid)) is not None
+        assert not ActivityLog.objects.filter(scope="Person", activity="deleted").exists()
+
+    @parameterized.expand([("get", ""), ("delete", "{uuid}/"), ("post", "{uuid}/delete_events/")])
+    def test_psak_cannot_access_other_person_actions(self, method: str, suffix: str) -> None:
+        person = self._seed_person(team=self.team, distinct_ids=["keep-me"])
+        self._authenticate_psak()
+
+        result = getattr(self.client, method)(f"/api/projects/{self.team.pk}/persons/{suffix.format(uuid=person.uuid)}")
+
+        assert result.status_code == 403, result.json()
+        assert "does not support project secret" in result.json()["detail"]
+        assert get_person_by_uuid(self.team.pk, str(person.uuid)) is not None
+        assert not AsyncDeletion.objects.filter(team_id=self.team.pk).exists()
+
+    @parameterized.expand([("per_key", "1/minute", "100/minute"), ("per_project", "100/minute", "1/minute")])
+    def test_psak_bulk_delete_is_throttled(self, case: str, key_rate: str, team_rate: str) -> None:
+        cache.clear()
+        person = self._seed_person(team=self.team, distinct_ids=["keep-me"])
+        self._authenticate_psak()
+        url = f"/api/projects/{self.team.pk}/persons/bulk_delete/"
+        with (
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            mock.patch.object(PersonsDeleteBurstThrottle, "rate", key_rate),
+            mock.patch.object(PersonsDeleteTeamBurstThrottle, "rate", team_rate),
+        ):
+            first = self.client.post(url, {"distinct_ids": ["missing"]}, format="json")
+            assert first.status_code == 202, first.json()
+            if case == "per_project":
+                self._authenticate_psak()
+            second = self.client.post(url, {"distinct_ids": ["keep-me"]}, format="json")
+
+        assert second.status_code == 429, second.json()
+        assert get_person_by_uuid(self.team.pk, str(person.uuid)) is not None
+
     def test_bulk_delete_by_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])

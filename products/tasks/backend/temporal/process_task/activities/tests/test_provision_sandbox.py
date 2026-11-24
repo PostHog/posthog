@@ -15,14 +15,17 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.integrations import RepositoryCache
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
-from posthog.models.integration import Integration
+from posthog.models.integration import GitLabIntegrationError, Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
     ActiveSessionCapError,
     ComputeBillingLimitError,
+    CredentialUnavailableError,
     OrganizationExecutionError,
+    ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
@@ -30,11 +33,15 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_housekeeping import SandboxHousekeeping
 from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY,
+    TaskProcessingContext,
+)
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
@@ -93,6 +100,60 @@ def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is
 
     assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
     assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
+
+
+@pytest.mark.parametrize(
+    "github_token, gitlab_token, expected",
+    [
+        ("gh-token", "", {"GH_TOKEN": "gh-token", "GITLAB_TOKEN": None, "POSTHOG_GIT_PROVIDER": None}),
+        ("", "gl-token", {"GH_TOKEN": None, "GITLAB_TOKEN": "gl-token", "POSTHOG_GIT_PROVIDER": "gitlab"}),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_environment_variables_name_the_git_provider(mocker, github_token, gitlab_token, expected) -> None:
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    environment = provision_sandbox_module._build_environment_variables(
+        _context_for_desktop_bootstrap(),
+        mocker.Mock(is_scout_experiment=False),
+        github_token,
+        "fake-token",
+        gitlab_token,
+    )
+
+    assert {key: environment.get(key) for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    "check, expected",
+    [
+        (True, "glpat-synthetic"),
+        (False, CredentialUnavailableError),
+        (GitLabIntegrationError("rate limited", transient=True), ProcessTaskTransientError),
+        (GitLabIntegrationError("revoked"), CredentialUnavailableError),
+    ],
+    ids=["project_token", "broader_token", "gitlab_unavailable", "revoked_token"],
+)
+def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, check, expected) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.repository_integration_id = 5
+    mocker.patch.object(provision_sandbox_module.IntegrationManager.gitlab.token, "get", return_value=mocker.Mock())
+    gitlab = mocker.Mock()
+    if isinstance(check, Exception):
+        gitlab.token_reaches_only_connected_project.side_effect = check
+    else:
+        gitlab.token_reaches_only_connected_project.return_value = check
+    gitlab.credentials.access_token.return_value.token = "glpat-synthetic"
+    mocker.patch.object(provision_sandbox_module, "GitLabIntegration", return_value=gitlab)
+
+    if isinstance(expected, str):
+        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == expected
+    else:
+        with pytest.raises(expected):
+            provision_sandbox_module._resolve_sandbox_gitlab_token(context)
+        gitlab.credentials.access_token.assert_not_called()
 
 
 class _ShellSandbox:
@@ -322,8 +383,17 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 
 
-@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
-def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+@pytest.mark.parametrize(
+    ("value", "profile_value", "expected"),
+    [(None, None, "v2"), ("0", None, "v1"), ("1", False, "v2"), (None, False, "v1")],
+)
+def test_modal_sandbox_backend_label(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, profile_value: bool | None, expected: str
+) -> None:
+    monkeypatch.setattr("modal.config._profile", "test")
+    monkeypatch.setattr(
+        "modal.config._user_config", {"test": {"sandbox_v2": profile_value}} if profile_value is not None else {}
+    )
     if value is None:
         monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
     else:
@@ -430,7 +500,10 @@ async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch: 
         ({}, None),
     ],
 )
-def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_environment, state, expected_branch):
+@pytest.mark.parametrize("baked_repo_clone_enabled", [True, False])
+def test_clone_repository_uses_saved_branch_only_for_resumes(
+    mocker, activity_environment, state, expected_branch, baked_repo_clone_enabled
+):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -443,6 +516,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         state=state,
         _branch="feature-branch",
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
     )
     sandbox = mocker.Mock()
     sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
@@ -472,6 +546,8 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
         blobless=True,
+        baked_repo_clone=baked_repo_clone_enabled,
+        gitlab_token="",
     )
 
 
@@ -523,6 +599,8 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch="branch-from-a-sibling-repository",
             blobless=False,
+            baked_repo_clone=False,
+            gitlab_token="",
         ),
         mocker.call(
             "posthog/posthog",
@@ -530,8 +608,53 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch=None,
             blobless=False,
+            baked_repo_clone=False,
+            gitlab_token="",
         ),
     ]
+
+
+def test_clone_records_fetch_and_checkout_phases_from_clone_output(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="clone_phases_ms mode=baked fetch=6012 checkout=640\n", stderr="", exit_code=0
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    record_phases = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.record_repository_clone_phases_ms"
+    )
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox,
+        CloneRepositoryInSandboxInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            repository="posthog/posthog",
+            github_token="github-token",
+            shallow_clone=True,
+        ),
+    )
+
+    record_phases.assert_called_once_with(
+        "baked",
+        {"fetch": 6012, "checkout": 640},
+        origin_product=Task.OriginProduct.USER_CREATED,
+        runtime=mocker.ANY,
+    )
 
 
 def test_clone_failure_records_failed_latency_and_captures_command_result(mocker, activity_environment):
@@ -871,12 +994,16 @@ def test_denial_classification_resolves_team_installation_state(
         if unavailable:
             config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = "2026-01-01T00:00:00Z"
         row.config = config
+        row.auth_type = "oauth"
         row.errors = ""
-        row.repository_cache_updated_at = None
-        row.repository_cache = None
         row.integration_id = str(index + 1)
         rows.append(row)
     mocker.patch("posthog.integrations.IntegrationManager.github.oauth.list", return_value=rows)
+    # The adapter reads the repository list through the SDK, not from the row.
+    mocker.patch(
+        "posthog.integrations.accessors.AuthAccessor.get_repository_cache",
+        return_value=RepositoryCache(repositories=None, updated_at=None),
+    )
     mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
     context = _clone_context(state={"github_read_access": True})
     stderr = "fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n"
@@ -1113,15 +1240,17 @@ def test_active_session_cap_refuses_a_cold_start_before_create(mocker, warm: boo
 
 
 @pytest.mark.parametrize(
-    "failing_step,destroy_fails",
+    "failing_step,destroy_fails,agent_version_persisted",
     [
-        ("get_connect_credentials", False),
-        ("get_connect_credentials", True),
-        ("start_cpu_billing_sampler", False),
-        ("persist_sandbox_connection", False),
+        ("get_connect_credentials", False, False),
+        ("get_connect_credentials", True, False),
+        ("run_post_create_housekeeping", False, False),
+        ("persist_sandbox_connection", False, True),
     ],
 )
-def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
+def test_a_failure_after_create_destroys_the_fresh_sandbox(
+    mocker, failing_step: str, destroy_fails: bool, agent_version_persisted: bool
+):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -1137,8 +1266,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.config.image_fallback = None
     sandbox.config.snapshot_restored = False
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    sandbox.start_cpu_billing_sampler.return_value = True
-    sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+    sandbox.run_post_create_housekeeping.return_value = _housekeeping("1.2.3")
     failure: Exception = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
@@ -1173,36 +1301,44 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_called_once_with(
-        "run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[]
+    expected_state_writes = (
+        [mocker.call("run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[])]
+        if agent_version_persisted
+        else []
     )
+    assert task_run.update_state_atomic.call_args_list == expected_state_writes
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 
-_MANIFEST_1_2_3 = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
+def _housekeeping(agent_version: str | None) -> SandboxHousekeeping:
+    return SandboxHousekeeping(
+        agent_version=agent_version,
+        cpu_billing_sampler_started=True,
+        cpu_usage_usec=None,
+        billed_cpu_usage_usec=None,
+        cpu_usage_measured_at=None,
+    )
 
 
 def _create_and_record_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    agent_version: str | None,
     pinned: str | None,
     *,
     context: TaskProcessingContext | None = None,
     prepared: PrepareSandboxForRepositoryOutput | None = None,
     snapshot_restored: bool = False,
-) -> tuple[MagicMock, list[dict[str, str]]]:
+    extra_state: dict[str, str] | None = None,
+    image_fallback: str | None = None,
+) -> tuple[MagicMock, list[dict[str, str]], CreateSandboxForRepositoryOutput]:
     context = context or _context_for_desktop_bootstrap()
-    context.state = {"await_user_message": True}
+    context.state = {"await_user_message": True, **(extra_state or {})}
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.config.image_fallback = None
+    sandbox.config.image_fallback = image_fallback
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
-    sandbox.start_cpu_billing_sampler.return_value = True
     sandbox.launch_dev_stack_bootstrap.return_value = False
-    if isinstance(manifest_result, Exception):
-        sandbox.execute.side_effect = manifest_result
-    else:
-        sandbox.execute.return_value = manifest_result
+    sandbox.run_post_create_housekeeping.return_value = _housekeeping(agent_version)
     mocker.patch.object(
         provision_sandbox_module,
         "get_sandbox_class_for_run_backend",
@@ -1233,48 +1369,28 @@ def _create_and_record_agent_version(
         for call in warning.call_args_list
         if call.args[0] == "Sandbox agent version differs from the pinned version"
     ]
-    return update_state, mismatch_extras
+    return update_state, mismatch_extras, result
 
 
 @pytest.mark.parametrize(
-    ("manifest_result", "pinned", "updates", "remove_keys", "warns"),
+    ("agent_version", "pinned", "updates", "remove_keys", "warns"),
     [
-        (_MANIFEST_1_2_3, "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
-        (_MANIFEST_1_2_3, "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
-        (_MANIFEST_1_2_3, None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
-        (
-            ExecutionResult(stdout="{}", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="not json", stderr="", exit_code=0),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (
-            ExecutionResult(stdout="", stderr="not found", exit_code=1),
-            "1.2.4",
-            {"agent_version_expected": "1.2.4"},
-            ["agent_version"],
-            False,
-        ),
-        (RuntimeError("manifest read failed"), None, {}, ["agent_version", "agent_version_expected"], False),
+        ("1.2.3", "1.2.3", {"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, [], False),
+        ("1.2.3", "1.2.4", {"agent_version": "1.2.3", "agent_version_expected": "1.2.4"}, [], True),
+        ("1.2.3", None, {"agent_version": "1.2.3"}, ["agent_version_expected"], False),
+        (None, "1.2.4", {"agent_version_expected": "1.2.4"}, ["agent_version"], False),
+        (None, None, {}, ["agent_version", "agent_version_expected"], False),
     ],
 )
 def test_create_sandbox_records_installed_agent_version(
     mocker,
-    manifest_result: ExecutionResult | Exception,
+    agent_version: str | None,
     pinned: str | None,
     updates: dict[str, str],
     remove_keys: list[str],
     warns: bool,
 ) -> None:
-    update_state, mismatch_extras = _create_and_record_agent_version(mocker, manifest_result, pinned)
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(mocker, agent_version, pinned)
 
     update_state.assert_called_once_with("run-id", updates=updates, remove_keys=remove_keys)
     expected_extras = (
@@ -1310,8 +1426,8 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
             used_snapshot=True,
         )
 
-    update_state, mismatch_extras = _create_and_record_agent_version(
-        mocker, _MANIFEST_1_2_3, "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(
+        mocker, "1.2.3", "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
     )
 
     if compared:
@@ -1326,7 +1442,41 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
         assert mismatch_extras == []
 
 
-def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
+@pytest.mark.parametrize(
+    ("extra_state", "image_fallback", "expected_reason"),
+    [
+        ({"custom_image_id": "image-id"}, None, None),
+        ({"custom_image_id": "image-id"}, "custom image custom:latest unavailable -> base image", "boot_failed"),
+        (
+            {"custom_image_id": "image-id"},
+            "custom image custom:latest with local package overlay -> custom image custom:latest",
+            None,
+        ),
+        ({}, "custom image custom:latest unavailable -> base image", None),
+    ],
+    ids=["custom_image_booted", "base_image_booted", "overlay_dropped", "environment_image_fell_back"],
+)
+def test_create_records_a_per_run_custom_image_boot_fallback(
+    mocker, extra_state: dict[str, str], image_fallback: str | None, expected_reason: str | None
+) -> None:
+    context = _context_for_desktop_bootstrap(image_name="custom:latest")
+    context.use_modal_vm_sandbox = True
+
+    update_state, _, result = _create_and_record_agent_version(
+        mocker, "1.2.3", "1.2.3", context=context, extra_state=extra_state, image_fallback=image_fallback
+    )
+
+    reason_writes = [
+        call.kwargs["updates"]
+        for call in update_state.call_args_list
+        if CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in call.kwargs.get("updates", {})
+    ]
+    assert reason_writes == ([{CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: expected_reason}] if expected_reason else [])
+    assert result.custom_image_fallback_reason == expected_reason
+
+
+@pytest.mark.parametrize("observe", [False, True])
+def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observe: bool):
     # The prepare output carries no template on purpose: a prepare activity claimed by an
     # older worker during a rolling deploy returns the old shape.
     context = TaskProcessingContext(
@@ -1338,7 +1488,9 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
-        state={"await_user_message": True, "sandbox_template": "autoresearch_base"},
+        state={"await_user_message": True, "sandbox_template": "default_base" if observe else "autoresearch_base"},
+        use_modal_vm_sandbox=observe,
+        agent_egress_observation_config="/run/egress/observation.json" if observe else None,
     )
     create = mocker.Mock(
         side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
@@ -1356,4 +1508,8 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
             CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
         )
 
-    assert create.call_args.args[0].template == SandboxTemplate.AUTORESEARCH_BASE
+    config = create.call_args.args[0]
+    assert config.template == (SandboxTemplate.VM_BASE if observe else SandboxTemplate.AUTORESEARCH_BASE)
+    assert config.agent_egress_observation is observe
+    assert config.outbound_domain_allowlist is None
+    assert config.block_network is False
