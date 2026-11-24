@@ -33,6 +33,7 @@ const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'import', 'model', 'manag
 const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
     import: 'Import',
     model: 'Model',
+    manage: 'Manage',
 }
 
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
