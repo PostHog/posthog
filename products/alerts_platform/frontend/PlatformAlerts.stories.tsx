@@ -86,7 +86,7 @@ const DISABLED_CONFIGURATION: PlatformAlertConfigurationApi = {
 const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000003',
-    name: 'Errors per service above 50',
+    name: 'Errors per service above 100',
     legacy_configuration_id: null,
     owner: 'platform',
     labels: { team: 'checkout', severity: 'page' },
