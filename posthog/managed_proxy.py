@@ -92,9 +92,9 @@ def provision_cloudflare_hostname(
             ProxyRecord.objects.filter(
                 organization_id=organization_id,
                 pk=proxy_record_id,
-                organization__is_pending_deletion=False,
             )
             .exclude(organization__is_active=False)
+            .exclude(organization__is_pending_deletion=True)
             .exclude(status=ProxyRecord.Status.DELETING)
             .first()
         )

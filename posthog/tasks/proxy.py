@@ -69,8 +69,9 @@ def enqueue_proxy_reconciliation(organization_id: str, proxy_record_id: str, *, 
 def reconcile_proxy_root_redirect(proxy_record_id: str) -> None:
     with cloudflare_proxy_lock(proxy_record_id):
         record = (
-            ProxyRecord.objects.filter(id=proxy_record_id, organization__is_pending_deletion=False)
+            ProxyRecord.objects.filter(id=proxy_record_id)
             .exclude(organization__is_active=False)
+            .exclude(organization__is_pending_deletion=True)
             .exclude(status=ProxyRecord.Status.DELETING)
             .first()
         )
@@ -129,7 +130,7 @@ def reconcile_managed_proxies() -> None:
         (Q(organization__is_active=False) & ~Q(cloudflare_activation_state__in=CLOUDFLARE_DEPROVISIONED_STATES))
         | Q(status=ProxyRecord.Status.DELETING)
         | (
-            Q(organization__is_pending_deletion=False)
+            ~Q(organization__is_pending_deletion=True)
             & ~Q(organization__is_active=False)
             & (
                 Q(status=ProxyRecord.Status.ISSUING)
