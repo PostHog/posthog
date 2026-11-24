@@ -1,52 +1,94 @@
 import 'react-grid-layout/css/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useSelector } from 'kea'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout } from 'react-grid-layout'
-import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
+import type { Layout, LayoutItem } from 'react-grid-layout'
 
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
-import { type DropTarget, dashboardV2Logic } from '../dashboardV2Logic'
-import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../grid/placeTiles'
-import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
-import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
-import { type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
-import { widgetSize } from '../layout/widgetSizes'
-import { TileFrame } from './TileFrame'
+import {
+    GRID,
+    type SizeOf,
+    type Tile,
+    type TilePlace,
+    columnWidthPx,
+    isSection,
+    spanPx,
+    widgetSize,
+} from '../dashboard/dashboardTypes'
+import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
+import { createGridCompactor } from './gridCompactor'
+import { useGridDrag } from './gridDrag'
+import { contentRows, dropIntoGrid, toPlacedItems, withSectionRows } from './gridTiles'
+import { type Gesture, type PlacedItem, bottomOf } from './placeTiles'
+import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './resizeFeedback'
+import { scrollParentOf } from './scrollParent'
 
 const GHOST_ID = '__drop-preview'
+const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's', 'sw', 'se']
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
 const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
 
-interface TileGridProps {
+/** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
+export type OnSectionRows = (id: string, rows: number | null) => void
+
+export interface TileGridProps {
     gridId: string
     tiles: Tile[]
     cols: number
     width: number
     editable: boolean
+    sizeOf: SizeOf
+    /** Draws a cell. Keep it stable: a new function re-renders every tile on each drag move. */
+    renderTile: (tile: Tile, columnPx: number, onSectionRows: OnSectionRows) => ReactNode
+    /** Looks up a tile carried in from another grid, so this grid can preview where it lands. */
+    findCarried: (id: string) => Tile | null
+    onPlaceTiles: (places: Record<string, TilePlace>, resized?: string) => void
+    /** Left out when the person may not move tiles between grids, so a tile only moves within its own. */
+    onMoveTile?: (id: string, target: DropTarget) => void
     onLiveRows?: (rows: number | null) => void
 }
 
-function toLayout(tiles: Tile[]): Layout {
-    return toPlacedItems(tiles).map((item, index) => {
+function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
+    return toPlacedItems(tiles, sizeOf).map((item, index) => {
         const tile = tiles[index]
-        return {
-            ...item,
-            minH: isSection(tile) ? item.h : widgetSize(tile.widget).minH,
-            maxH: isSection(tile) ? item.h : undefined,
-            resizeHandles: isSection(tile) ? ['w', 'e'] : ['w', 'e', 's', 'sw', 'se'],
+        // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
+        // need, but never shorter.
+        if (isSection(tile)) {
+            if (tile.widget.collapsed) {
+                return { ...item, minH: item.h, maxH: item.h, resizeHandles: ['w', 'e'] }
+            }
+            return { ...item, minH: contentRows(tile.widget), maxH: undefined, resizeHandles: ALL_HANDLES }
         }
+        return { ...item, minH: widgetSize(tile.widget, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
     })
 }
 
-export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: TileGridProps): JSX.Element {
-    const { applyDashboardEdit, setDropTarget } = useActions(dashboardV2Logic)
-    const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
+export function TileGrid({
+    gridId,
+    tiles,
+    cols,
+    width,
+    editable,
+    sizeOf,
+    renderTile,
+    findCarried,
+    onPlaceTiles,
+    onMoveTile,
+    onLiveRows,
+}: TileGridProps): JSX.Element {
+    const { dropTarget, setDropTarget } = useGridDrag()
     const rootRef = useRef<HTMLDivElement>(null)
+    const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll(
+        () => rootRef.current && scrollParentOf(rootRef.current)
+    )
+    const resizeHandle = useRef('')
+    // The grid reports a resize only when the size changes, so a tile already at its minimum would never show it.
+    // While a resize runs, every pointer move updates the feedback from the latest size.
+    const resizeFeedback = useRef<{ tile: HTMLElement; item: LayoutItem; stop: () => void } | null>(null)
     const gesture = useRef<Gesture | null>(null)
     const lastTarget = useRef<DropTarget | null>(null)
     const dropZones = useRef<DropZones | null>(null)
@@ -62,26 +104,23 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
         })
     }, [])
 
-    // A tile carried in from another grid. Only the grid under the pointer gets a value, so only it re-renders.
-    const incoming: DropTarget | null = useSelector((state) => {
-        const target = dashboardV2Logic.selectors.dropTarget(state)
-        return target?.grid === gridId ? target : null
-    })
+    // A tile carried in from another grid. Only the grid under the pointer gets a value.
+    const incoming: DropTarget | null = dropTarget?.grid === gridId ? dropTarget : null
     const shownTiles = useMemo(() => {
-        const carried = incoming && findTile(dashboardV2Logic.values.dashboard, incoming.tileId)
+        const carried = incoming && findCarried(incoming.tileId)
         // The sections get their heights first, as the drop does, so the preview is where the tile will land.
-        const sized = withSectionRows(tiles, cols, liveSectionRows)
+        const sized = withSectionRows(tiles, cols, liveSectionRows, sizeOf)
         if (!incoming || !carried) {
             return sized
         }
-        return dropIntoGrid(sized, cols, { ...carried, id: GHOST_ID }, incoming.x ?? 0, incoming.y ?? 0)
-    }, [tiles, cols, incoming, liveSectionRows])
+        return dropIntoGrid(sized, cols, { ...carried, id: GHOST_ID }, incoming.x ?? 0, incoming.y ?? 0, sizeOf)
+    }, [findCarried, tiles, cols, incoming, liveSectionRows, sizeOf])
     const layout = useMemo(
         () =>
-            toLayout(shownTiles).map((item) =>
+            toLayout(shownTiles, sizeOf).map((item) =>
                 liveSectionRows[item.i] ? { ...item, minH: 1, maxH: undefined } : item
             ),
-        [shownTiles, liveSectionRows]
+        [shownTiles, liveSectionRows, sizeOf]
     )
 
     const reportRows = useCallback(
@@ -125,33 +164,15 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
     const liveRows = useRef(liveSectionRows)
     liveRows.current = liveSectionRows
 
-    const compactor = useMemo<Compactor>(
-        () => ({
-            type: 'vertical',
-            // The grid must not push tiles itself: `placeTiles` decides every place.
-            allowOverlap: true,
-            compact: (current: Layout, columns: number): Layout => {
-                const active = gesture.current
-                if (!active) {
-                    return placeTiles(current as PlacedItem[], columns) as Layout
-                }
-                if (!lastTarget.current) {
-                    const placed = placeTiles(current as PlacedItem[], columns, active)
-                    reportRows(bottomOf(placed))
-                    showLanding(placed.find((item) => item.i === active.activeId))
-                    return placed as Layout
-                }
-                const rest = placeTiles(
-                    active.baseline
-                        .filter((item) => item.i !== active.activeId)
-                        .map((item) => ({ ...item, h: liveRows.current[item.i] ?? item.h })),
-                    columns
-                )
-                reportRows(bottomOf(rest))
-                const byId = new Map(rest.map((item) => [item.i, item]))
-                return current.map((item) => ({ ...item, ...byId.get(item.i) }))
-            },
-        }),
+    const compactor = useMemo(
+        () =>
+            createGridCompactor({
+                gesture: () => gesture.current,
+                tileAway: () => lastTarget.current !== null,
+                liveRows: () => liveRows.current,
+                onRows: reportRows,
+                onLanding: showLanding,
+            }),
         [reportRows, showLanding]
     )
 
@@ -175,14 +196,14 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
     )
 
     const savePlaces = useCallback(
-        (finalLayout: Layout): void => {
+        (finalLayout: Layout, resized?: string): void => {
             const places: Record<string, TilePlace> = {}
             for (const { i, x, y, w, h } of finalLayout) {
                 places[i] = { x, y, w, h }
             }
-            applyDashboardEdit({ edit: 'placeTiles', grid: gridId, places })
+            onPlaceTiles(places, resized)
         },
-        [applyDashboardEdit, gridId]
+        [onPlaceTiles]
     )
 
     // A grid can leave the page while a tile from it is still carried: undo, or its section closing.
@@ -192,6 +213,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                 setDropTarget(null)
             }
             onLiveRows?.(null)
+            resizeFeedback.current?.stop()
         },
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs once, when the grid leaves the page
         []
@@ -210,16 +232,11 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                     <div key={GHOST_ID} className="DashboardV2__drop-preview" />
                 ) : (
                     <div key={tile.id} data-dv2-tile={tile.id} className="DashboardV2__tile">
-                        <TileFrame
-                            tile={tile}
-                            columnPx={columnWidthPx(width, cols)}
-                            editable={editable}
-                            onSectionRows={setSectionRows}
-                        />
+                        {renderTile(tile, columnWidthPx(width, cols), setSectionRows)}
                     </div>
                 )
             ),
-        [shownTiles, width, cols, editable, setSectionRows]
+        [shownTiles, width, cols, renderTile, setSectionRows]
     )
 
     return (
@@ -246,7 +263,7 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                 }}
                 onDrag={(_current, _old, item, _placeholder, event, node) => {
                     autoScrollOnDrag(event)
-                    if (!item || !node || !gesture.current || !dropZones.current) {
+                    if (!onMoveTile || !item || !node || !gesture.current || !dropZones.current) {
                         return
                     }
                     const under = gridUnderPointer(event, node, dropZones.current)
@@ -260,22 +277,43 @@ export function TileGrid({ gridId, tiles, cols, width, editable, onLiveRows }: T
                     const target = lastTarget.current
                     setAway(null)
                     end()
-                    if (target && item) {
-                        applyDashboardEdit({
-                            edit: 'moveTile',
-                            id: item.i,
-                            grid: target.grid,
-                            x: target.x,
-                            y: target.y,
-                        })
+                    if (target && item && onMoveTile) {
+                        onMoveTile(item.i, target)
                     } else {
                         savePlaces(finalLayout)
                     }
                 }}
-                onResizeStart={(current, _old, item) => begin(current, item, 'resize')}
-                onResizeStop={(finalLayout) => {
+                onResizeStart={(current, _old, item, _placeholder, event) => {
+                    resizeHandle.current = resizeHandleOf(event)
+                    begin(current, item, 'resize')
+                    const tile =
+                        item && rootRef.current?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(item.i)}"]`)
+                    if (item && tile) {
+                        const onMove = (move: MouseEvent): void => {
+                            const active = resizeFeedback.current
+                            if (active) {
+                                showResizeFeedback(active.tile, active.item, resizeHandle.current, move)
+                            }
+                        }
+                        document.addEventListener('mousemove', onMove)
+                        resizeFeedback.current = {
+                            tile,
+                            item,
+                            stop: () => document.removeEventListener('mousemove', onMove),
+                        }
+                    }
+                }}
+                onResize={(_current, _old, item) => {
+                    if (item && resizeFeedback.current) {
+                        resizeFeedback.current.item = item
+                    }
+                }}
+                onResizeStop={(finalLayout, _old, item) => {
+                    resizeFeedback.current?.stop()
+                    endResizeFeedback(resizeFeedback.current?.tile ?? null)
+                    resizeFeedback.current = null
                     end()
-                    savePlaces(finalLayout)
+                    savePlaces(finalLayout, item?.i)
                 }}
             >
                 {children}

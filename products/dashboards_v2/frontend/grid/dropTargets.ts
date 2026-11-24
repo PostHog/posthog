@@ -1,4 +1,4 @@
-import { GRID, columnWidthPx } from './dashboardTypes'
+import { GRID, columnWidthPx } from '../dashboard/dashboardTypes'
 
 export interface PointerTarget {
     grid: string
@@ -6,6 +6,8 @@ export interface PointerTarget {
     x?: number
     y?: number
 }
+
+export type DropTarget = PointerTarget & { tileId: string }
 
 interface DropZone {
     id: string
