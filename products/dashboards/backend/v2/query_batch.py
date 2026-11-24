@@ -17,7 +17,7 @@ from contextvars import copy_context
 from datetime import datetime
 from functools import partial
 from queue import Empty, Queue
-from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread, Timer
+from threading import BoundedSemaphore, Condition, Event, Lock, Semaphore, Thread, Timer
 from time import monotonic
 from typing import Any, Optional
 from uuid import UUID
@@ -67,6 +67,7 @@ MAX_READY_BYTES = 128 * 1024 * 1024
 MAX_READ_BYTES = 4 * MAX_READY_BYTES
 CACHE_READ_CHUNK = 5
 MAX_UNREAD_LINES = WORKERS_PER_BATCH
+MAX_UNREAD_BYTES = 64 * 1024 * 1024
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
@@ -79,21 +80,39 @@ MAX_STREAM_SECONDS = 600.0
 # response still open after this long is cut.
 STALLED_RESPONSE_GRACE_SECONDS = 2 * HEARTBEAT_SECONDS
 _open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
-_org_open: dict[UUID, int] = {}
-_org_batches: dict[UUID, int] = {}
+_org_open: dict[Any, int] = {}
+_org_batches: dict[Any, int] = {}
 _org_lock = Lock()
 # Finalizers only queue a release: one can run during garbage collection while this thread holds `_org_lock`.
 _deferred_releases: deque["_OpenSlot"] = deque()
 
 
-def _admit_batch(org_id: UUID) -> bool:
-    # A per-organization share below the process cap, so one organization's slow readers cannot hold every slot.
+def _shares_full(counts: dict[Any, int], keys: tuple[Any, ...], cap: int) -> bool:
+    return any(counts.get(key, 0) >= cap for key in keys)
+
+
+def _add_shares(counts: dict[Any, int], keys: tuple[Any, ...], delta: int) -> None:
+    for key in keys:
+        count = counts.get(key, 0) + delta
+        if count > 0:
+            counts[key] = count
+        else:
+            counts.pop(key, None)
+
+
+def _share_keys(org_id: UUID, user_id: int) -> tuple[Any, ...]:
+    # Per user as well as per organization: one account can own several organizations.
+    return (("org", org_id), ("user", user_id))
+
+
+def _admit_batch(keys: tuple[Any, ...]) -> bool:
+    # A share below the process cap, so one organization's or user's slow readers cannot hold every slot.
     with _org_lock:
-        if _org_batches.get(org_id, 0) >= MAX_BATCHES_PER_ORG:
+        if _shares_full(_org_batches, keys, MAX_BATCHES_PER_ORG):
             return False
         if not _batch_slots.acquire(blocking=False):
             return False
-        _org_batches[org_id] = _org_batches.get(org_id, 0) + 1
+        _add_shares(_org_batches, keys, 1)
         return True
 
 
@@ -102,17 +121,17 @@ class _OpenSlot:
     cached results all that time. Released once, by the stream or, if the stream never runs, when the batch is
     collected."""
 
-    def __init__(self, org_id: UUID) -> None:
-        self._org_id = org_id
+    def __init__(self, keys: tuple[Any, ...]) -> None:
+        self._keys = keys
         self._held = False
 
     def acquire(self) -> bool:
         _drain_deferred_releases()
         deadline = monotonic() + OPEN_WAIT_SECONDS
         with _org_lock:
-            if _org_open.get(self._org_id, 0) >= MAX_OPEN_BATCHES_PER_ORG:
+            if _shares_full(_org_open, self._keys, MAX_OPEN_BATCHES_PER_ORG):
                 return False
-            _org_open[self._org_id] = _org_open.get(self._org_id, 0) + 1
+            _add_shares(_org_open, self._keys, 1)
         if not _open_slots.acquire(timeout=max(0.0, deadline - monotonic())):
             self._release_org()
             return False
@@ -129,11 +148,7 @@ class _OpenSlot:
 
     def _release_org(self) -> None:
         with _org_lock:
-            count = _org_open.get(self._org_id, 0) - 1
-            if count > 0:
-                _org_open[self._org_id] = count
-            else:
-                _org_open.pop(self._org_id, None)
+            _add_shares(_org_open, self._keys, -1)
 
 
 def _drain_deferred_releases() -> None:
@@ -145,13 +160,9 @@ def _drain_deferred_releases() -> None:
         slot.release()
 
 
-def _release_batch(org_id: UUID) -> None:
+def _release_batch(keys: tuple[Any, ...]) -> None:
     with _org_lock:
-        count = _org_batches.get(org_id, 0) - 1
-        if count > 0:
-            _org_batches[org_id] = count
-        else:
-            _org_batches.pop(org_id, None)
+        _add_shares(_org_batches, keys, -1)
         _batch_slots.release()
 
 
@@ -165,6 +176,8 @@ _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
 _BUSY = "Too many dashboards are loading at once. Try again shortly."
 _TIMED_OUT = "The dashboard took too long to load. Try again."
+# Marks an entry already read and found stale, so its repeats run without being fetched again.
+_RUN_FRESH = b""
 _TIMED_OUT_BODY = json.dumps({"error": _TIMED_OUT}).encode()
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
@@ -382,11 +395,11 @@ class QueryBatch:
         # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
         self._context = copy_context()
         self._jobs: list[tuple[int, str, _Job]] = []
-        self._queue: Queue[dict[str, Any]] = Queue()
+        self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._response: tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]] | None = None
         self._expired = False
-        self._async_queue: asyncio.Queue[dict[str, Any]] | None = None
+        self._async_queue: asyncio.Queue[tuple[int, bytes]] | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._futures: list[Future[None]] = []
         self._active: set[str] = set()
@@ -396,9 +409,12 @@ class QueryBatch:
         self._lock = Lock()
         self._idle = Event()
         self._unread = Semaphore(MAX_UNREAD_LINES)
+        self._unread_bytes = 0
+        self._unread_space = Condition()
         self._closed = False
         self._deadline = monotonic() + MAX_STREAM_SECONDS
-        self._open = _OpenSlot(team.organization_id)
+        self._shares = _share_keys(team.organization_id, user.pk)
+        self._open = _OpenSlot(self._shares)
         if not self._open.acquire():
             raise QueryBatchBusy()
         weakref.finalize(self, _deferred_releases.append, self._open)
@@ -488,7 +504,10 @@ class QueryBatch:
             for index in chunk:
                 item = inputs[index]
                 if index in duplicates:
-                    self._add_shared(index, duplicates[index])
+                    if duplicates[index] == _RUN_FRESH:
+                        to_run.append(index)
+                    else:
+                        self._add_shared(index, duplicates[index])
                     continue
                 planned = planned_queries.get(index)
                 if planned is None:
@@ -507,7 +526,10 @@ class QueryBatch:
                     continue
                 same_entry = _served_key(planned, item)
                 if same_entry in served:
-                    self._add_shared(index, served[same_entry])
+                    if served[same_entry] == _RUN_FRESH:
+                        to_run.append(index)
+                    else:
+                        self._add_shared(index, served[same_entry])
                     continue
                 try:
                     response = run_planned_query(
@@ -530,6 +552,9 @@ class QueryBatch:
                     continue
                 stale = _is_stale(response)
                 if stale and not (item.swr or item.cache_only):
+                    # Read and parsed already, so it counts against the read budget. Repeats run without a refetch.
+                    self._read_bytes += len(_render_body(_result_line(index, response, hit=True, stale=stale)))
+                    served[same_entry] = _RUN_FRESH
                     to_run.append(index)
                     continue
                 body = _render_body(_result_line(index, response, hit=True, stale=stale))
@@ -669,7 +694,7 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
 
-    def _emit(self, line: dict[str, Any]) -> None:
+    def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():
             return
         if self._loop is None or self._async_queue is None:
@@ -679,6 +704,12 @@ class QueryBatch:
             self._loop.call_soon_threadsafe(self._async_queue.put_nowait, line)
         except RuntimeError:
             pass
+
+    def _consumed(self, size: int) -> None:
+        self._unread.release()
+        with self._unread_space:
+            self._unread_bytes -= size
+            self._unread_space.notify_all()
 
     def _is_cancelled(self) -> bool:
         with self._lock:
@@ -692,11 +723,20 @@ class QueryBatch:
                 self._active.add(query_id)
             with tags_context(team_id=self._team.pk, client_query_id=query_id):
                 line = job()
-            # Waits while the client is behind, so a slow reader holds a few results, not every finished one.
+            index, data = line["i"], self._encode(line)
+            del line
+            # Waits while the client is behind, so a slow reader holds a few results and a bounded number of bytes,
+            # not every finished one. One result is always let through, however large, so the batch cannot stall.
             while not self._unread.acquire(timeout=1.0):
                 if self._is_cancelled():
                     return
-            self._emit(line)
+            with self._unread_space:
+                while self._unread_bytes > 0 and self._unread_bytes + len(data) > MAX_UNREAD_BYTES:
+                    if self._is_cancelled():
+                        return
+                    self._unread_space.wait(timeout=1.0)
+                self._unread_bytes += len(data)
+            self._emit((index, data))
         finally:
             with self._lock:
                 self._active.discard(query_id)
@@ -711,7 +751,7 @@ class QueryBatch:
         with self._lock:
             if self._closed:
                 return False
-            self._admitted = _admit_batch(self._team.organization_id)
+            self._admitted = _admit_batch(self._shares)
             if not self._admitted:
                 return False
             self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
@@ -741,7 +781,7 @@ class QueryBatch:
             # A running query keeps its thread after a disconnect, so the slot is freed when the last one ends.
             remaining = [future for future in self._futures if not future.done()]
             if not remaining:
-                _release_batch(self._team.organization_id)
+                _release_batch(self._shares)
             else:
                 pending = [len(remaining)]
                 counter_lock = Lock()
@@ -751,7 +791,7 @@ class QueryBatch:
                         pending[0] -= 1
                         last = pending[0] == 0
                     if last:
-                        _release_batch(self._team.organization_id)
+                        _release_batch(self._shares)
 
                 for future in remaining:
                     future.add_done_callback(done)
@@ -830,9 +870,10 @@ class QueryBatch:
                     # Proxies close a response that sends nothing for a while, which would end the batch early.
                     yield b"\n"
                     continue
-                pending.discard(line["i"])
-                yield self._encode(line)
-                self._unread.release()
+                index, data = line
+                pending.discard(index)
+                yield data
+                self._consumed(len(data))
             complete = True
         finally:
             self._close(complete)
@@ -861,9 +902,10 @@ class QueryBatch:
                 except TimeoutError:
                     yield b"\n"
                     continue
-                pending.discard(line["i"])
-                yield self._encode(line)
-                self._unread.release()
+                index, data = line
+                pending.discard(index)
+                yield data
+                self._consumed(len(data))
             complete = True
         finally:
             # A thread of its own: cancelling on the cluster blocks, and slow queries can fill the loop's executor.
