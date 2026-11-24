@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -25,6 +26,7 @@ from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation
+from products.tasks.backend.agent_run_policy import task_agent_run_policy
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
@@ -69,6 +71,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
@@ -388,6 +391,21 @@ class _LaunchParams:
     task_run_session_token: str | None = field(repr=False)
     codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
+    run_policy: str
+
+
+def _launch_run_policy(task: Task, run_id: str, run_state: dict[str, Any] | None) -> str:
+    profile = task.stored_profile
+    # The agent splits a Signals product by the run's stage itself, so it needs the product before that split.
+    billing_product = resolve_sandbox_ai_product(
+        task.origin_product,
+        None,
+        internal=task.internal,
+        billing_product=(run_state or {}).get("billing_product"),
+        profile_billing_product=profile.billing_product if profile else None,
+    )
+    policy = asdict(task_agent_run_policy(task, run_state))
+    return json.dumps({**policy, "billing_product": billing_product, "run_id": run_id}, separators=(",", ":"))
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -598,6 +616,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
+        run_policy=_launch_run_policy(task, str(ctx.run_id), task_run.state),
     )
 
 
@@ -614,6 +633,7 @@ def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> N
         },
         remove_keys=["startup_failure", "startup_completed_at", "startup_provider"],
     )
+    TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).update(agent_status=TaskRun.AgentStatus.STARTING)
 
 
 def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
@@ -630,6 +650,9 @@ def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
             run.error_message = None
             update_fields.append("error_message")
         run.save(update_fields=update_fields)
+        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id, agent_status=TaskRun.AgentStatus.STARTING).update(
+            agent_status=TaskRun.AgentStatus.READY
+        )
 
 
 def _invoke_start_agent_server(
@@ -680,6 +703,7 @@ def _invoke_start_agent_server(
             sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
             if isinstance(sandbox, ModalSandbox)
             else None,
+            run_policy=params.run_policy,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 

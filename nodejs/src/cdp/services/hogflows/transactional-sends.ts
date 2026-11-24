@@ -429,7 +429,7 @@ export class TransactionalSends {
                 return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
             }
             stages.start('queue_insert')
-            committed = (await this.deps.runIntake.launch([run], { wait: 'committed', settlement }))[0]
+            committed = (await this.deps.runIntake.launch([run]))[0]
         } catch (error) {
             if (isLockTimeout(error)) {
                 return { outcome: 'idempotency_unavailable' }

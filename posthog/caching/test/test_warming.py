@@ -17,6 +17,7 @@ from posthog.caching.warming import (
     warm_insight_cache_task,
 )
 from posthog.constants import AvailableFeature
+from posthog.errors import unknown_type_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.query_cache import QueryCache
@@ -379,12 +380,19 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("no timestamp binding"), "hogql_query_error"),
+            ("clickhouse_user_safe", unknown_type_error("Variant(Int64, UInt64)", code=50), "unknown_type"),
+        ]
+    )
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")
-    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=QueryError("no timestamp binding"))
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
     def test_query_errors_are_reported_as_an_event_instead_of_being_captured(
-        self, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
+        self, _name, error, expected_error_code, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
     ):
+        mock_calculate.side_effect = error
         insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
         capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
 
@@ -394,4 +402,4 @@ class TestWarmInsightCacheTask(APIBaseTest):
         capture_ph_event.assert_called_once()
         assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
-        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"
+        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == expected_error_code

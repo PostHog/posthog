@@ -1,6 +1,6 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, PostHogTestCase
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -22,8 +22,15 @@ ZONE_NAMESERVERS = {"ns1.example-dns.net": "34.120.0.1", "ns2.example-dns.net": 
 ALL_KINDS = ("verification", "dkim", "spf", "mail_from_mx", "mail_from_spf", "dmarc")
 
 
-@override_settings(SES_REGION="us-east-1", SES_TENANT_CONFIGURATION_SETS=[])
-class EmailDomainApiTestCase(APIBaseTest):
+if TYPE_CHECKING:
+    _PostHogTest = PostHogTestCase
+else:
+    _PostHogTest = object
+
+email_domain_settings = override_settings(SES_REGION="us-east-1", SES_TENANT_CONFIGURATION_SETS=[])
+
+
+class EmailDomainApi(_PostHogTest):
     zone_nameservers: dict[str, str] = ZONE_NAMESERVERS
 
     def setUp(self) -> None:
@@ -78,7 +85,7 @@ class EmailDomainApiTestCase(APIBaseTest):
 
     def publish(self, records: list[dict[str, Any]], *kinds: str) -> None:
         for record in records:
-            if record["kind"] in kinds:
+            if record["kind"] in kinds and record["status"] != "verified":
                 self.world.publish_record(record)
 
     def is_verified(self, integration_id: int) -> bool:
@@ -93,6 +100,11 @@ class EmailDomainApiTestCase(APIBaseTest):
 
     def verified_event_methods(self) -> list[str]:
         return [properties["method"] for properties in self.verified_events()]
+
+
+@email_domain_settings
+class EmailDomainApiTestCase(EmailDomainApi, APIBaseTest):
+    pass
 
 
 def record_statuses(body: dict[str, Any]) -> dict[str, list[str]]:

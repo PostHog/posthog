@@ -1139,6 +1139,51 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it.each([
+        {
+            answer: 'a broadcast that does not exist',
+            response: [404, { detail: 'Not found.' }],
+            toasts: [],
+            reportedStatuses: [],
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            toasts: [expect.stringContaining("Couldn't load the broadcast.")],
+            reportedStatuses: [500],
+        },
+    ])(
+        'loading $answer toasts at most once and reports only an unexpected failure',
+        async ({ response, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
+            })
+            useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => response } })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            const opened = broadcastWizardLogic({ id: '01a1f39d-0000-7000-8000-000000000001' })
+            try {
+                await expectLogic(opened, () => {
+                    opened.mount()
+                })
+                    .toDispatchActions(['loadBroadcastFailure'])
+                    .toMatchValues({ broadcast: null })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                opened.unmount()
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        }
+    )
+
     it('drops the rejection of an audience size check that a newer check replaced', async () => {
         await expectLogic(logic).toFinishAllListeners().clearHistory()
         let releaseFirst = (): void => {}

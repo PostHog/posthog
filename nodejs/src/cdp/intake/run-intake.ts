@@ -151,7 +151,7 @@ export class RunIntake {
         )
     }
 
-    async launch(runs: Run[], options: { wait: 'committed'; settlement?: PublishSettlement }): Promise<Committed[]> {
+    async launch(runs: Run[]): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
         // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
@@ -164,30 +164,11 @@ export class RunIntake {
                 rows.queuePreparedRow(row)
             }
         })
-        await this.produceShadowCopies(
-            runs.filter((_, i) => claims[i].outcome === 'created'),
-            options.settlement
-        )
         return invocations.map((invocation, i) => ({
             runId: invocation.id,
             outcome: claims[i].outcome,
             claimedFingerprint: claims[i].storedFingerprint,
         }))
-    }
-
-    // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
-    private async produceShadowCopies(created: Run[], settlement?: PublishSettlement): Promise<void> {
-        const intake = this.deps.intake
-        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
-        await Promise.all(
-            shadow.map((run) =>
-                intake!.producer.produce(
-                    { kind: run.kind, invocation: run.invocation, fingerprint: run.claim?.fingerprint },
-                    'shadow',
-                    settlement
-                )
-            )
-        )
     }
 
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {

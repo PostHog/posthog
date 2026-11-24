@@ -54,7 +54,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
-from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
 from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -2512,6 +2512,24 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("dcr_empty_ceiling", "is_dcr_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("cimd_empty_ceiling", "is_cimd_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("dcr_seeded_ceiling", "is_dcr_client", ["experiment:read"], "* openid", {"experiment:read", "openid"}),
+        ]
+    )
+    def test_refresh_resolves_wildcard_token_of_self_registered_client(
+        self, _name, registration_field, ceiling, token_scope, expected
+    ):
+        setattr(self.confidential_application, registration_field, True)
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
             ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
             ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
         ]
@@ -4102,15 +4120,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("metrics:read", wildcard_reads)
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
-    def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
-        # Existing clients (the PostHog Desktop CLI today) still send scope=*
-        # against apps that have no explicit ceiling. Until wildcard retirement
-        # (#60342) lands, those broad-default apps keep accepting it.
+    @parameterized.expand(
+        [
+            # Existing clients (the PostHog Desktop CLI today) still send scope=*
+            # against apps that have no explicit ceiling. Until wildcard retirement
+            # (#60342) lands, those broad-default apps keep accepting it.
+            ("manual", None, {"*"}),
+            ("dcr", "is_dcr_client", set(UNPRIVILEGED_SCOPES)),
+            ("cimd", "is_cimd_client", set(UNPRIVILEGED_SCOPES)),
+        ]
+    )
+    def test_authorize_wildcard_under_empty_app_ceiling(self, _name, registration_field, expected_scopes):
+        if registration_field:
+            setattr(self.confidential_application, registration_field, True)
+            self.confidential_application.save()
+
         response = self._authorize_post("*")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        code = parse_qs(urlparse(redirect_to).query)["code"][0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.content)
+        self.assertEqual(set(token_response.json()["scope"].split()), expected_scopes)
 
     # --- Required vs. optional scopes (OAuthApplication.optional_scopes) ---
 

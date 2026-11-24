@@ -343,7 +343,6 @@ export enum AccessControlResourceType {
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Evaluation = 'evaluation',
-    Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
@@ -675,7 +674,6 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
     external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
@@ -3559,6 +3557,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -6739,6 +6741,7 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    last_checked_at?: ExternalDataSchemaApi['last_checked_at']
     /** The live table the schema syncs into, also before its first sync when the schema already names one. */
     table_id?: string | null
     /** The schema is linked to a self-managed table that its first sync will import. */

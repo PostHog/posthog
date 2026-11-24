@@ -64,7 +64,7 @@ class ExternalDataSourceReadQuerySerializer(serializers.Serializer):
         help_text=(
             "Return source health only: id, created_at, source_type, prefix, description, access_method, status, "
             "latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, "
-            "latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
+            "last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
         ),
     )
     include_schemas = serializers.BooleanField(
@@ -164,6 +164,15 @@ class ExternalDataSourceViewSet(
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        scopes = super().dangerously_get_required_scopes(request, view)
+        if scopes is not None:
+            return scopes
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     @extend_schema(responses=ExternalDataSourceExistsSerializer)
     @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
     def exists(self, request: Request, **kwargs: object) -> Response:
@@ -198,6 +207,7 @@ class ExternalDataSourceViewSet(
                 "sync_type",
                 "latest_error",
                 "last_synced_at",
+                "last_checked_at",
                 "table_id",
                 "table__row_count",
                 "table__deleted",
