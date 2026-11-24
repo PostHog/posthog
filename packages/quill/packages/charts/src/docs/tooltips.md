@@ -35,6 +35,10 @@ Usable from a custom `tooltip` render prop by spreading the context: `<DefaultTo
 - `onRowClick(entry)` makes each row clickable. The tooltip must be pinned for clicks to land. Use it for a per-series drill-down (the persons modal).
 - `footer` renders arbitrary content below all rows, after a divider. Useful for "click to inspect" hints.
 
+A row label that is too wide for the panel ends in an ellipsis.
+Hovering a clipped label on a pinned tooltip shows its full text as a native browser title.
+The check includes nested spans, so a `labelRenderer` label that clips inside its own markup also gets the title.
+
 Pinned tooltips are copy-friendly.
 Outside dismissal keys off where the press started (pointer-down outside the tooltip or chart, or Escape), so a text-selection drag that releases outside the tooltip does not dismiss it, and a click that completes a selection inside a row does not fire `onRowClick`.
 
