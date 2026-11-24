@@ -9,3 +9,5 @@ rules:
       owners: team-platform-features
     - match: '/DataDeletion/'
       owners: team-growth
+    - match: '/SessionRecordingSettings.test.tsx'
+      owners: team-replay
