@@ -142,6 +142,18 @@ class TestValidateCredentials:
                 ],
                 False,
             ),
+            (
+                "schedule_overrides",
+                "schedules",
+                [{"id": "S1"}],
+                200,
+                [
+                    "https://api.incident.io/v2/schedules?page_size=1",
+                    "https://api.incident.io/v2/schedules",
+                    "https://api.incident.io/v2/schedule_overrides?schedule_id=S1&page_size=1",
+                ],
+                True,
+            ),
             # No parent row to bind, so the child scope can't be probed and the parent probe decides.
             (
                 "catalog_entries",
@@ -276,6 +288,40 @@ class TestGetRows:
         assert result.params("updated_at[gte]") == [expected_updated_at_gte] * 2
         assert result.params("page_size") == ["250", "250"]
 
+    @pytest.mark.parametrize(
+        "endpoint, pages, expected_params",
+        [
+            (
+                "postmortem_documents",
+                [
+                    _page_body("postmortem_documents", [{"id": "01A", "incident_id": "I1"}], "01A"),
+                    _page_body("postmortem_documents", [{"id": "01B", "incident_id": "I2"}], None),
+                ],
+                [
+                    {"page_size": "250", "sort_by": "created_at_oldest_first", "after": None},
+                    {"page_size": "250", "sort_by": "created_at_oldest_first", "after": "01A"},
+                ],
+            ),
+            # Workflows come back in one unpaginated response.
+            (
+                "workflows",
+                [{"workflows": [{"id": "01A"}, {"id": "01B"}]}],
+                [{"page_size": None, "sort_by": None, "after": None}],
+            ),
+        ],
+    )
+    def test_top_level_list_request_shaping(
+        self, endpoint: str, pages: list[dict[str, Any]], expected_params: list[dict[str, str | None]]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=page) for page in pages])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["01A", "01B"]
+        assert set(result.paths) == {INCIDENT_IO_ENDPOINTS[endpoint].path}
+        assert [
+            {name: request.param(name) for name in ("page_size", "sort_by", "after")} for request in result.requests
+        ] == expected_params
+
     def test_alert_sources_drop_secret_token(self) -> None:
         body = {"alert_sources": [{"id": "01A", "name": "Datadog", "secret_token": "not-a-real-token"}]}
         result = _driver().run("alert_sources", [ScriptedResponse(json=body)])
@@ -357,6 +403,54 @@ class TestFanout:
         workload_requests = [request for request in result.requests if request.path != "/v2/incidents"]
         assert [request.param("incident_id") for request in workload_requests] == ["I1", "I2"]
         assert all(request.param("page_size") is None for request in workload_requests)
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_key, child_rows, expected_keys",
+        [
+            # A stream's items come back when its parent incident is listed, carrying the stream's id.
+            (
+                "incident_timeline_items",
+                "incidents",
+                "incident_timeline_items",
+                [[{"id": "T1", "incident_id": "I1"}], [{"id": "T2", "incident_id": "STREAM1"}]],
+                [("I1", "T1", "I1"), ("I1", "T2", "STREAM1")],
+            ),
+            (
+                "schedule_overrides",
+                "schedules",
+                "overrides",
+                [[{"id": "O1", "schedule_id": "I1"}], [{"id": "O2", "schedule_id": "I1"}]],
+                [("I1", "O1", None), ("I1", "O2", None)],
+            ),
+        ],
+    )
+    def test_fanout_child_walks_its_pages_per_parent(
+        self,
+        endpoint: str,
+        parent_key: str,
+        child_key: str,
+        child_rows: list[list[dict[str, Any]]],
+        expected_keys: list[tuple[str, str, str | None]],
+    ) -> None:
+        config = INCIDENT_IO_ENDPOINTS[endpoint]
+        assert config.fanout is not None
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=_page_body(parent_key, [{"id": "I1"}], None)),
+                ScriptedResponse(json=_page_body(child_key, child_rows[0], child_rows[0][0]["id"])),
+                ScriptedResponse(json=_page_body(child_key, child_rows[1], None)),
+            ],
+        )
+
+        assert result.raised is None
+        parent_column, _ = config.primary_keys
+        assert [(row[parent_column], row["id"], row.get("incident_id")) for row in result.rows] == expected_keys
+        child_requests = result.requests[1:]
+        assert {request.path for request in child_requests} == {config.path.split("?")[0]}
+        assert [request.param(config.fanout.resolve_param) for request in child_requests] == ["I1", "I1"]
+        assert [request.param("after") for request in child_requests] == [None, child_rows[0][0]["id"]]
+        assert {request.param("page_size") for request in child_requests} == {"250"}
 
 
 class TestIncidentIoSourceResponse:

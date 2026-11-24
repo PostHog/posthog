@@ -52,8 +52,8 @@ class IncidentIoEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
-    # Server-side sort. Only the incidents list supports sorting; `created_at_oldest_first`
-    # keeps pages stable and lets the incremental watermark advance monotonically.
+    # Server-side sort. Only the incidents and post-mortem document lists support sorting;
+    # `created_at_oldest_first` keeps pages stable and lets the incremental watermark advance monotonically.
     sort_by: Optional[str] = None
     # Set for endpoints that require a parent id filter and so are fetched once per parent row.
     fanout: Optional[DependentEndpointConfig] = None
@@ -126,6 +126,25 @@ _INCIDENT_PARTICIPANT_WORKLOADS_FANOUT = DependentEndpointConfig(
     include_from_parent=["id"],
     parent_field_renames={"id": "incident_id"},
     parent_params={"page_size": 250, "sort_by": "created_at_oldest_first"},
+)
+
+# Listing an incident also returns the items on its streams, and those rows carry the stream's id in
+# `incident_id`, so the listed incident's id is copied under its own name.
+_INCIDENT_TIMELINE_ITEMS_FANOUT = DependentEndpointConfig(
+    parent_name="incidents",
+    resolve_param="incident_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "parent_incident_id"},
+    parent_params={"page_size": 250, "sort_by": "created_at_oldest_first"},
+)
+
+_SCHEDULE_OVERRIDES_FANOUT = DependentEndpointConfig(
+    parent_name="schedules",
+    resolve_param="schedule_id",
+    resolve_field="id",
+    include_from_parent=[],
+    parent_params={"page_size": 250},
 )
 
 # Full refresh re-reads this window on every sync, so shifts older than the lookback drop out of the table.
@@ -350,6 +369,43 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
         name="alert_attributes",
         path="/v2/alert_attributes",
         data_key="alert_attributes",
+    ),
+    "incident_timeline_items": IncidentIoEndpointConfig(
+        name="incident_timeline_items",
+        # `{incident_id}` is bound per parent incident row by the fan-out.
+        path="/v2/incident_timeline_items?incident_id={incident_id}",
+        data_key="incident_timeline_items",
+        paginated=True,
+        page_size=250,
+        primary_keys=["parent_incident_id", "id"],
+        partition_key="created_at",
+        fanout=_INCIDENT_TIMELINE_ITEMS_FANOUT,
+    ),
+    "schedule_overrides": IncidentIoEndpointConfig(
+        name="schedule_overrides",
+        # `{schedule_id}` is bound per parent schedule row by the fan-out.
+        path="/v2/schedule_overrides?schedule_id={schedule_id}",
+        data_key="overrides",
+        paginated=True,
+        page_size=250,
+        primary_keys=["schedule_id", "id"],
+        partition_key="created_at",
+        fanout=_SCHEDULE_OVERRIDES_FANOUT,
+    ),
+    "workflows": IncidentIoEndpointConfig(
+        name="workflows",
+        path="/v2/workflows",
+        data_key="workflows",
+    ),
+    # The list has no time filter, so it stays full refresh.
+    "postmortem_documents": IncidentIoEndpointConfig(
+        name="postmortem_documents",
+        path="/v1/postmortem_documents",
+        data_key="postmortem_documents",
+        paginated=True,
+        page_size=250,
+        partition_key="created_at",
+        sort_by="created_at_oldest_first",
     ),
 }
 

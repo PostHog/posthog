@@ -7685,7 +7685,7 @@ Note: Parsed the official Imperva OpenAPI specification, including statistics pa
 
 ## IncidentIo — gaps
 
-Today (26): `actions`, `alert_attributes`, `alert_sources`, `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalation_paths`, `escalations`, `follow_ups`, `incident_alerts`, `incident_participant_workloads`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedule_entries`, `schedules`, `severities`, `status_page_incidents`, `status_pages`, `teams`, `users`
+Today (30): `actions`, `alert_attributes`, `alert_sources`, `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalation_paths`, `escalations`, `follow_ups`, `incident_alerts`, `incident_participant_workloads`, `incident_roles`, `incident_statuses`, `incident_timeline_items`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `postmortem_documents`, `schedule_entries`, `schedule_overrides`, `schedules`, `severities`, `status_page_incidents`, `status_pages`, `teams`, `users`, `workflows`
 
 Diffed against: <https://api-docs.incident.io/>
 
@@ -7707,12 +7707,12 @@ Note: The Mintlify docs site serves the same 537KB SPA shell for every path (inc
 
 Re-audited 2026-11-19 against: <https://docs.incident.io/_llms/api-reference.txt>
 
-- [ ] `Incident timeline items (GET /v2/incident_timeline_items)` — chronological events per incident for response-time and activity analysis; needs incident_id so fan-out over incidents (high)
+- [x] `Incident timeline items (GET /v2/incident_timeline_items)` — chronological events per incident for response-time and activity analysis; needs incident_id so fan-out over incidents (high). Added as `incident_timeline_items` (fan-out over `incidents`). Listing an incident also returns the items on its streams, with the stream's id in `incident_id`, so the listed incident's id is kept as `parent_incident_id`.
 - [ ] `Workflow runs (GET /v2/workflow_runs)` — automation execution history, newest first (medium)
-- [ ] `Workflows (GET /v2/workflows)` — automation definitions, lookup for workflow runs (medium)
+- [x] `Workflows (GET /v2/workflows)` — automation definitions, lookup for workflow runs (medium). Added as `workflows` (one unpaginated list of the slim workflow shape).
 - [ ] `Alert routes (GET /v3/alert_routes)` — routing rules that decide which alerts page whom, lookup for alert handling (medium)
-- [ ] `Post-mortem documents (GET /v1/postmortem_documents)` — post-incident write-ups linked to incidents (medium)
-- [ ] `Schedule overrides (GET /v2/schedule_overrides)` — on-call swaps and overrides, needed to know who really was on call; needs schedule_id so fan-out over schedules (medium)
+- [x] `Post-mortem documents (GET /v1/postmortem_documents)` — post-incident write-ups linked to incidents (medium). Added as `postmortem_documents` (metadata only, full refresh: the list has no time filter).
+- [x] `Schedule overrides (GET /v2/schedule_overrides)` — on-call swaps and overrides, needed to know who really was on call; needs schedule_id so fan-out over schedules (medium). Added as `schedule_overrides` (fan-out over `schedules`).
 - [ ] `Status page components (GET /v2/status_page_components)` — components shown on status pages, lookup for status page incidents (low)
 - [ ] `Status page maintenances (GET /v2/status_page_maintenances)` — scheduled maintenance on status pages, sibling of status_page_incidents (low)
 - [ ] `Incident templates (GET /v1/incident_templates)` — templates used to create incidents, lookup (low)
