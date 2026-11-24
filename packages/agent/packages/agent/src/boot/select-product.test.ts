@@ -11,11 +11,11 @@ describe("selectProduct", () => {
     [undefined, {}, undefined],
   ] as const)(
     "selects the product for origin %s with %o",
-    (originProduct, launchOptions, expected) => {
+    (interactionOrigin, launchOptions, expected) => {
       const product = selectProduct({
         taskId: "task-1",
         runId: "run-1",
-        originProduct,
+        interactionOrigin,
         launchOptions,
       });
 

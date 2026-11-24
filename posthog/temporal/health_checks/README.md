@@ -33,7 +33,7 @@ GROUP BY team_id
 class StaleDataCheck(HealthCheck):
     name = "stale_data"
     kind = "stale_data"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 8 * * *"  # daily at 08:00 UTC
 

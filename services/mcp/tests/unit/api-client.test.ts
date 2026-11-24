@@ -902,6 +902,7 @@ describe('ApiClient', () => {
             '/api/environments/17/query/',
             '/api/environments/17/mcp_tools/execute_sql/',
             '/api/projects/17/external_data_sources/draft_custom_manifest/',
+            '/api/projects/17/external_data_sources/0191b6a4-5c1e-7000-8000-000000000001/repair_cdc/',
         ])('gives a long-running request to %s more time than the default deadline', async (path) => {
             stubStalledFetch()
             const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })

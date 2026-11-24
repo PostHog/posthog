@@ -51,9 +51,8 @@ from products.signals.backend.activity_summary.search import (
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
-from products.signals.backend.anomaly_scores.read import MIN_CHART_BUCKETS as MIN_CHART_BUCKETS
 from products.signals.backend.anomaly_scores.search import (
-    DEFAULT_MAX_ANOMALY_RATE as DEFAULT_MAX_ANOMALY_RATE,
+    VIEWED_WITHIN_DAYS as VIEWED_WITHIN_DAYS,
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
     AnomalyGroupBy as AnomalyGroupBy,
     AnomalyHistoryFilters as AnomalyHistoryFilters,

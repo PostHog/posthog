@@ -555,6 +555,10 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "other_draft_experiment_count",
         "Other draft experiments on the same feature flag that are not archived",
     )
+    FILTERS_TEST_ACCOUNTS = (
+        "filters_test_accounts",
+        "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None
@@ -609,16 +613,33 @@ class ExperimentHealthCheckResult:
 @frozen
 class ExperimentHealthReleaseCondition:
     """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
-    must match, and the group type it assigns variants by (None for users)."""
+    must match, the group type it assigns variants by (None for users), and the variant it serves to all of them (None
+    when the split picks one)."""
 
     rollout_percentage: float
     property_count: int
     aggregation_group_type_index: int | None
+    variant: str | None
+    # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
+    # None on a flag that buckets by device ID, because a request without a device ID skips the earlier sets that need
+    # the bucketing hash and can reach the set anyway.
+    reachable: bool | None
+
+
+@frozen
+class ExperimentHealthExposureSetup:
+    """What the exposure criteria count as an exposure. Neither an event nor an action means the flag's calls."""
+
+    event: str | None
+    action: str | None
+    # The event, or the action's name, that has to follow a user's flag call before the user counts.
+    activation: str | None
 
 
 @frozen
 class ExperimentHealthSetup:
-    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, and who
+    counts as exposed."""
 
     # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
@@ -628,6 +649,8 @@ class ExperimentHealthSetup:
     evaluation_runtime: str
     evaluation_contexts: tuple[str, ...]
     ensure_experience_continuity: bool
+    # None when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+    exposure: ExperimentHealthExposureSetup | None
 
 
 @frozen

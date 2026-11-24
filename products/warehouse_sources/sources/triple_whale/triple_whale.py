@@ -2,10 +2,11 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     Endpoint,
+    OffsetPaginator,
     PageNumberPaginator,
     Resource,
     RESTAPIConfig,
@@ -23,6 +24,7 @@ from products.warehouse_sources.sources.triple_whale.settings import (
     ENDPOINTS,
     MAX_PAGE,
     PAGE_SIZE,
+    SQL_PAGE_SIZE,
     TripleWhaleEndpoint,
 )
 
@@ -33,6 +35,7 @@ class TripleWhaleResumeConfig:
     end_time: str
     page: int = 1
     seen: int = 0
+    offset: int = 0
 
 
 class OrdersPaginator(PageNumberPaginator):
@@ -66,7 +69,28 @@ class OrdersPaginator(PageNumberPaginator):
         self.seen = int(state.get("seen", 0))
 
 
+class SqlPaginator(OffsetPaginator):
+    """Pages a custom SQL query by appending LIMIT and OFFSET to its text."""
+
+    def __init__(self, sql: str) -> None:
+        super().__init__(limit=SQL_PAGE_SIZE, total_path=None)
+        self.sql = sql
+
+    def init_request(self, request: Request) -> None:
+        self.update_request(request)
+
+    def update_request(self, request: Request) -> None:
+        request.json = {**(request.json or {}), "query": f"{self.sql} LIMIT {self.limit} OFFSET {self.offset}"}
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        if response.json().get("success") is False:
+            raise ValueError("Triple Whale could not run the table query. Check the shop and API key access.")
+        super().update_state(response, data)
+
+
 def next_window(start: date, endpoint: TripleWhaleEndpoint) -> date:
+    if endpoint.window == "all":
+        return date.max
     if endpoint.window == "day":
         return start + timedelta(days=1)
     return (start.replace(day=1) + timedelta(days=32)).replace(day=1)
@@ -76,6 +100,22 @@ def request_endpoint(
     endpoint: TripleWhaleEndpoint, shop: str, start: date, end_time: datetime, *, probe: bool = False
 ) -> Endpoint:
     body: dict[str, Any] = {endpoint.shop_field: shop}
+    if endpoint.sql is not None:
+        end = end_time.date()
+        if endpoint.window == "month":
+            end = min(next_window(start, endpoint) - timedelta(days=1), end)
+        body.update(
+            query=f"{endpoint.sql} LIMIT 1" if probe else endpoint.sql,
+            period={"startDate": start.isoformat(), "endDate": end.isoformat()},
+        )
+        return {
+            "path": endpoint.path,
+            "method": "POST",
+            "json": body,
+            "data_selector": endpoint.data_selector,
+            "data_selector_required": True,
+            "paginator": SqlPaginator(endpoint.sql),
+        }
     if endpoint.window == "month":
         end = min(
             datetime.combine(next_window(start, endpoint), datetime.min.time(), UTC) - timedelta(milliseconds=1),
@@ -101,6 +141,14 @@ def request_endpoint(
         "data_selector_required": True,
         "paginator": OrdersPaginator() if endpoint.window == "month" else "single_page",
     }
+
+
+def paginator_state(endpoint: TripleWhaleEndpoint, page: int, seen: int, offset: int) -> dict[str, Any] | None:
+    if endpoint.sql is not None:
+        return {"offset": offset}
+    if endpoint.window == "month":
+        return {"page": page, "seen": seen}
+    return None
 
 
 def probe_credentials(config: TripleWhaleSourceConfig, api_version: str, schema_name: str | None = None) -> Response:
@@ -133,6 +181,7 @@ def triple_whale_source(
         start = date.fromisoformat(initial.window_start)
         page = initial.page
         seen = initial.seen
+        offset = initial.offset
         while start <= end_time.date():
             following = next_window(start, endpoint)
 
@@ -141,8 +190,9 @@ def triple_whale_source(
                     TripleWhaleResumeConfig(
                         window_start=start.isoformat() if state else following.isoformat(),
                         end_time=initial.end_time,
-                        page=int(state["page"]) if state else 1,
-                        seen=int(state["seen"]) if state else 0,
+                        page=int(state.get("page", 1)) if state else 1,
+                        seen=int(state.get("seen", 0)) if state else 0,
+                        offset=int(state.get("offset", 0)) if state else 0,
                     )
                 )
 
@@ -168,7 +218,7 @@ def triple_whale_source(
                 inputs.job_id,
                 None,
                 resume_hook=checkpoint,
-                initial_paginator_state={"page": page, "seen": seen} if endpoint.window == "month" else None,
+                initial_paginator_state=paginator_state(endpoint, page, seen, offset),
             )
             if endpoint.window == "day":
 
@@ -178,7 +228,7 @@ def triple_whale_source(
                 resource.add_map(add_date)
             yield from resource
             manager.safe_point()
-            start, page, seen = following, 1, 0
+            start, page, seen, offset = following, 1, 0, 0
 
     # This wrapper forwards each page without buffering, so framework checkpoints cover the yielded rows.
     resource = Resource(pages, name=inputs.schema_name, hints={})
@@ -186,11 +236,11 @@ def triple_whale_source(
         name=inputs.schema_name,
         items=lambda: resource,
         primary_keys=list(endpoint.primary_keys),
-        partition_keys=[endpoint.partition_key],
-        partition_mode="datetime",
-        partition_format="month",
-        partition_size=1,
-        partition_count=1,
+        partition_keys=[endpoint.partition_key] if endpoint.partition_key else None,
+        partition_mode="datetime" if endpoint.partition_key else None,
+        partition_format="month" if endpoint.partition_key else None,
+        partition_size=1 if endpoint.partition_key else None,
+        partition_count=1 if endpoint.partition_key else None,
         sort_mode=endpoint.sort_mode,
         on_complete=manager.clear_state,
     )

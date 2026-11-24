@@ -68,6 +68,7 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckBrand
                               |AEOCheckCitation
                               |AEOCheckSearch
                               |AEOCitationCheck
@@ -230,6 +231,7 @@ rules:
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
@@ -267,6 +269,7 @@ rules:
                               |HogFlow
                               |HogFlowBatchJob
                               |HogFlowBatchJobAudienceMember
+                              |HogFlowConversionGoal
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -826,6 +829,7 @@ rules:
                         |HogFlow
                         |HogFlowBatchJob
                         |HogFlowBatchJobAudienceMember
+                        |HogFlowConversionGoal
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -1515,6 +1519,7 @@ rules:
                               |OrganizationIPRestrictions
                               |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1601,6 +1606,7 @@ rules:
                         |OrganizationIPRestrictions
                         |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
