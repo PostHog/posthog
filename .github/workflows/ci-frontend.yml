@@ -596,15 +596,15 @@ jobs:
     # The base branch's five report files are a pure function of the base tree, and every pull
     # request based on the same master commit needs exactly the same five.
     # They used to be produced by `frontend-bundle-size` itself, after its own pull-request build
-    # and in the same workspace, which put the base build on that job's critical path whenever the
-    # per-commit cache missed.
+    # and in the same workspace, which put the base build on the required check's critical path
+    # whenever the per-commit cache missed.
     # Measured over 396 pull-request runs of that job (2026-11-24): 93 cache hits had a median wall
-    # of 250 s and 51 misses a median of 387 s, the difference being the 119 s median base build —
-    # 35% of the 144 runs that consider it.
-    # Producing the reports here, beside that build instead of after it, makes a miss take the
-    # 250 s path: both jobs start together and the required check waits on whichever is slower.
-    # The trade is one more GitHub-hosted runner on a miss, which this public repository does not
-    # bill for; the base work itself is unchanged, plus this job's own dependency install.
+    # of 250 s and 51 misses a median of 387 s, the difference being the 132 s median base build
+    # step — 35% of the 144 runs that consider it.
+    # Building them here instead lets the required check drop that step entirely, while this job
+    # runs beside it on its own runner.
+    # The trade is one GitHub-hosted runner per frontend pull request, which this public repository
+    # does not bill for; on a cache hit this job is a restore and an upload that install nothing.
     frontend-base-reports:
         name: Frontend base reports
         needs: [changes]
@@ -724,25 +724,23 @@ jobs:
 
     frontend-bundle-size:
         name: Frontend checks
-        # `frontend-base-reports` produces the vs-base baseline the report sections read. It is not
-        # a gate dependency: the `if` below is `!cancelled()`, which GitHub evaluates as true when
-        # that job fails, so its failure costs the size deltas and never this required check.
-        needs: [changes, frontend-base-reports]
+        # `needs` is a completion dependency, so this required check must not list
+        # `frontend-base-reports`: it would then start only after the base build finished, which is
+        # the serialisation this change removes. The vs-base sections are posted by
+        # `frontend-size-report`, which waits for both builds instead.
+        needs: [changes]
         # Not on the hourly cron: the vs-base comparison build is pull_request-only,
         # so a cron run measures an absolute size with nothing to compare it against.
-        # `!cancelled()` rather than `always()`: a superseded run must stop instead of holding
-        # the concurrency slot, while a failed base-reports job must not skip this one.
-        if: ${{ !cancelled() && needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule' }}
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.FRONTEND_CHECKS_RUNNER || 'ubuntu-24.04' }}
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # The bundle-size build below git-resets to the base branch mid-job, which
-            # removes this repo's local actions from the workspace — a local
-            # ./.github/actions/pnpm-install would then fail in its post phase. Use
-            # inline cache steps (remote actions, no workspace-dependent post) sharing
-            # the same pnpm-<os>-<lockhash> key.
+            # The base build that used to git-reset this workspace mid-job now runs in
+            # `frontend-base-reports`, so this job keeps the pull request's own tree throughout.
+            # The inline cache steps stay: they cost nothing extra and share the
+            # pnpm-<os>-<lockhash> key with every other job.
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
@@ -809,58 +807,39 @@ jobs:
                   fi
                   node frontend/bin/check-layers.mjs --from-report "$REPORT"
 
-            # The PR's layer graph, written by build:with-report before the base build replaces it.
-            - name: Upload frontend layer graph
-              id: layer-graph
-              if: github.event_name == 'pull_request' && hashFiles('frontend/layer-graph.html') != ''
-              continue-on-error: true
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: frontend-layer-graph
-                  path: frontend/layer-graph.html
-                  retention-days: 14
-
-            # Measured before the base build overwrites dist/. Untracked, so it survives the
-            # git reset --hard onto the base tree; the dist-size section reads it back.
+            # Read back by the dist-size steps below and in `frontend-size-report`.
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
-            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            # Runs against the PR's own build, whose numbers the reports below and in
+            # `frontend-size-report` compare with the base branch's.
             - name: Check toolbar bundle stays under the CloudFront gzip limit
               run: pnpm --filter=@posthog/frontend check-toolbar-size
 
-            # Runs against the PR's own metafile, before the base rebuild overwrites it.
+            # Runs against the PR's own metafile.
             - name: Check toolbar graph stays inside its module boundary
               run: pnpm --filter=@posthog/frontend check-toolbar-graph
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
-            # The base branch's five report files are a pure function of the base tree, and
-            # `frontend-base-reports` produces them beside this job instead of at the end of it.
-            # A file that is missing degrades the one report section that reads it, which is how a
-            # failed base build already behaved, so neither step may fail this required job.
-            - name: Download base branch reports
-              continue-on-error: true
-              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+            # The five vs-base report sections are written by `frontend-size-report`, which needs
+            # this job's reports as well as the base branch's. Hand them over as an artifact
+            # rather than leaving them in this job's workspace.
+            - name: Upload pull request reports
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: frontend-base-reports
-                  path: .base-reports
-
-            - name: Install base branch reports
-              continue-on-error: true
-              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              run: |
-                  # Same filenames and same base tree as the build in `frontend-base-reports`, so
-                  # every step below reads them exactly as it did when that build ran here.
-                  for file in bundle-size-report.json eager-graph-report.json layer-report.json toolbar-size-report.json dist-size-base.txt; do
-                      if [ -f ".base-reports/$file" ]; then
-                          cp ".base-reports/$file" "frontend/$file"
-                      else
-                          echo "::warning::no base $file for ${{ github.event.pull_request.base.sha }}; that section shows no delta"
-                      fi
-                  done
+                  name: frontend-pr-reports
+                  path: |
+                      frontend/bundle-size-report-*.json
+                      frontend/eager-graph-report-*.json
+                      frontend/layer-report-*.json
+                      frontend/toolbar-size-report-*.json
+                      frontend/dist-size-pr.txt
+                      frontend/layer-graph.html
+                  if-no-files-found: ignore
+                  retention-days: 1
 
             # Only a default-branch write is readable from every PR's ref, so the cache is
             # filled by master pushes rather than by whichever PR happens to miss first.
@@ -898,84 +877,6 @@ jobs:
                   path: .base-reports
                   key: frontend-base-reports-${{ github.sha }}
 
-            # Each frontend check contributes one section to a single ci-report comment
-            # (how a section writer picks the PR vs base report is report-files.mjs's story).
-            # After the base build the tree is on the BASE branch, so guard for the scripts'
-            # absence (also covers branches predating a check). Budgets are surfaced
-            # warn-only further down.
-            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
-            # unread, and each section write spends shared GITHUB_TOKEN budget.
-            - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
-                      node frontend/bin/ci-report/delete-legacy-comments.mjs
-                  else
-                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
-                  fi
-
-            - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
-                      node frontend/bin/post-eager-graph-comment.mjs
-                  else
-                      echo "Skipping eager graph section — script not present on this checkout"
-                  fi
-
-            - name: Post CI report — frontend layers
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-                  LAYER_GRAPH_URL: ${{ steps.layer-graph.outputs.artifact-url }}
-              run: |
-                  if [ -f frontend/bin/post-layer-comment-pr.mjs ]; then
-                      node frontend/bin/post-layer-comment-pr.mjs
-                  elif [ -f frontend/bin/post-layer-comment.mjs ]; then
-                      node frontend/bin/post-layer-comment.mjs
-                  else
-                      echo "Skipping frontend layers section, script not present on this checkout"
-                  fi
-
-            - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
-                      node frontend/bin/post-bundle-size-comment.mjs
-                  else
-                      echo "Skipping bundle size section — script not present on this checkout"
-                  fi
-
-            - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
-                      node frontend/bin/post-dist-size-comment.mjs
-                  else
-                      echo "Skipping dist size section — script not present on this checkout"
-                  fi
-
-            - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-              run: |
-                  if [ -f frontend/bin/post-toolbar-size-comment-pr.mjs ]; then
-                      node frontend/bin/post-toolbar-size-comment-pr.mjs
-                  elif [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
-                      node frontend/bin/post-toolbar-size-comment.mjs
-                  else
-                      echo "Skipping toolbar bundle section — script not present on this checkout"
-                  fi
-
             - name: Check eager graph budgets and forbidden imports
               if: always() && github.event_name == 'pull_request'
               run: |
@@ -995,10 +896,8 @@ jobs:
 
             - name: Calculate dist folder size
               id: dist-size
-              # After the base build the workspace's dist/ holds the BASE branch's build, so
-              # read back the PR measurement taken before it — the captured metric must be
-              # the PR's size. The du fallback covers runs where that file wasn't written
-              # (dist/ is still the PR's own build then).
+              # Read back the measurement taken above; the du fallback covers a run where the
+              # step that writes the file did not run.
               run: |
                   size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
@@ -1629,6 +1528,155 @@ jobs:
                         "pr_number": ${{ github.event.pull_request.number || 'null' }},
                         "run_id": ${{ toJSON(github.run_id) }}
                       }
+
+    # The five vs-base sections of the CI report need both builds, so they are posted here
+    # rather than inside the required check: `needs` is a completion dependency, and listing
+    # `frontend-base-reports` on `frontend-bundle-size` would put the base build back in front of
+    # it. This job is not a required check, so nothing about it can block a merge, and it costs
+    # a checkout, a Node install and five short `node` runs.
+    frontend-size-report:
+        name: Frontend size report
+        needs: [changes, frontend-base-reports, frontend-bundle-size]
+        # `!cancelled()` and not `always()`: a superseded run must stop, while a build that
+        # failed must still post whatever sections its reports support — exactly what the
+        # `always()` posters inside the required check used to do. Skipped when the required
+        # check skipped, so an unrelated pull request pays for nothing.
+        if: >-
+            !cancelled() &&
+            github.event_name == 'pull_request' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            needs.changes.outputs.frontend_code == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            # Only the poster scripts and the node version are needed here: the reports arrive as
+            # artifacts. report-files.mjs finds the pull request's report by checkout sha, so this
+            # ref must be the one the required check built — the default merge ref.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .nvmrc
+                      frontend/bin
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            # Both downloads tolerate absence: a build that failed to write a report degrades the
+            # one section that reads it, which is how a missing base build already behaved.
+            - name: Download pull request reports
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-pr-reports
+                  path: frontend
+
+            - name: Download base branch reports
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: frontend-base-reports
+                  path: .base-reports
+
+            # The base reports carry the plain filenames the posters read as the baseline, and
+            # report-files.mjs treats a plain file whose sha differs from the pull request's as
+            # exactly that. The base build already wrote them under those names.
+            - name: Install base branch reports
+              run: |
+                  for file in bundle-size-report.json eager-graph-report.json layer-report.json toolbar-size-report.json dist-size-base.txt; do
+                      if [ -f ".base-reports/$file" ]; then
+                          cp ".base-reports/$file" "frontend/$file"
+                      else
+                          echo "::warning::no base $file for ${{ github.event.pull_request.base.sha }}; that section shows no delta"
+                      fi
+                  done
+
+            # Moved out of the required check: its artifact URL is what the layers section links.
+            - name: Upload frontend layer graph
+              id: layer-graph
+              if: hashFiles('frontend/layer-graph.html') != ''
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: frontend-layer-graph
+                  path: frontend/layer-graph.html
+                  retention-days: 14
+
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # The tree here is the pull request's own, so a script absence means the branch
+            # predates that check; the guards below cover it. Budgets are enforced in the
+            # required check, not here.
+            # Merge-queue draft PRs are excluded by this job's `if`: they are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
+            - name: Clean up legacy per-check CI comments
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — eager graph
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
+                      node frontend/bin/post-eager-graph-comment.mjs
+                  else
+                      echo "Skipping eager graph section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — frontend layers
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  LAYER_GRAPH_URL: ${{ steps.layer-graph.outputs.artifact-url }}
+              run: |
+                  if [ -f frontend/bin/post-layer-comment.mjs ]; then
+                      node frontend/bin/post-layer-comment.mjs
+                  else
+                      echo "Skipping frontend layers section, script not present on this checkout"
+                  fi
+
+            - name: Post CI report — bundle size
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
+                      node frontend/bin/post-bundle-size-comment.mjs
+                  else
+                      echo "Skipping bundle size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — dist size
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
+                      node frontend/bin/post-dist-size-comment.mjs
+                  else
+                      echo "Skipping dist size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — toolbar bundle
+              if: always()
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-toolbar-size-comment.mjs ]; then
+                      node frontend/bin/post-toolbar-size-comment.mjs
+                  else
+                      echo "Skipping toolbar bundle section — script not present on this checkout"
+                  fi
 
     frontend_tests:
         needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
