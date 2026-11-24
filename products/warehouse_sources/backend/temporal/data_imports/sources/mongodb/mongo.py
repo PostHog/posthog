@@ -38,6 +38,7 @@ from pymongo.uri_parser import parse_uri
 from pymongo.uri_parser_shared import _validate_uri, split_options
 from structlog.types import FilteringBoundLogger
 
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
@@ -55,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     TemporaryHostResolutionError,
     _is_host_safe,
+    _single_host_error,
     check_oob_domain,
     check_resolved_addresses,
     log_connection_open,
@@ -347,6 +349,10 @@ def _refuse_oob_domain(host: str, team_id: int) -> None:
     # before any DNS lookup of the host.
     if check_oob_domain(host, team_id) is not None:
         raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
+    # The domain matcher skips a name that holds "/" or "@", and pymongo decodes those from %2F and
+    # %40 and still looks the name up, so refuse a name that is not one plain host first.
+    if is_cloud() and (malformed_host_error := _single_host_error(host)) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {malformed_host_error}")
 
 
 _pymongo_create_connection = pool_shared._create_connection

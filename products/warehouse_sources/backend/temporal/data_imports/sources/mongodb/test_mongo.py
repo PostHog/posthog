@@ -250,6 +250,8 @@ class TestSafeServerSelector(SimpleTestCase):
             ("plain", "mongodb+srv://user:pw@cluster.oast.fun/db"),
             ("percent_encoded", "mongodb+srv://user:pw@cluster.oast%2efun/db"),
             ("fragment_delimiter_in_the_password", "mongodb+srv://user:p#x@cluster.oast.fun/db"),
+            ("percent_encoded_slash", "mongodb+srv://user:pw@x%2Fy.cluster.oast.fun/db"),
+            ("percent_encoded_at_sign", "mongodb+srv://user:pw@x%40y.cluster.oast.fun/db"),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
