@@ -80160,19 +80160,19 @@ export namespace Schemas {
     } as const;
 
     export interface RegisteredPartnerDetails {
-      /** The name the metadata document gives the app. */
+      /** The app's name, as of its last metadata refresh. */
       readonly client_name: string;
-      /** The app's homepage. Empty when the document has none. */
+      /** The homepage in the document saved when the review opened. Empty when it had none. */
       readonly client_uri: string;
-      /** The app's logo. Empty when the document has none. */
+      /** The app's logo, as of its last metadata refresh. */
       readonly logo_uri: string;
-      /** The app's terms of service. Empty when it has none. */
+      /** The terms of service in the document saved when the review opened. Empty when it had none. */
       readonly tos_uri: string;
-      /** The app's privacy policy. Empty when it has none. */
+      /** The privacy policy in the document saved when the review opened. Empty when it had none. */
       readonly policy_uri: string;
-      /** Contact emails the document lists. */
+      /** Contact emails in the document saved when the review opened. */
       readonly contacts: readonly string[];
-      /** Where PostHog may send people after they sign in. */
+      /** Where PostHog sends people after they sign in, as of the last metadata refresh. */
       readonly redirect_uris: readonly string[];
       /** Where the app publishes the public keys it signs with. Empty for a public client. */
       readonly jwks_uri: string;
@@ -80182,8 +80182,10 @@ export namespace Schemas {
        * * `client_secret_post` - Client secret
        * * `private_key_jwt` - Signs with a private key */
       readonly authentication: PartnerAuthenticationEnum;
-      /** The scopes the app can ask people to grant. */
+      /** Every scope the app can ask people to grant. */
       readonly scopes: readonly string[];
+      /** Whether the scopes are PostHog's default set, because the app names no scopes or asks for @default. */
+      readonly uses_default_scopes: boolean;
       /** Whether the app can create PostHog accounts once provisioning is on. */
       readonly can_create_accounts: boolean;
       /** Whether the app can create projects and resources once provisioning is on. */
@@ -80194,7 +80196,7 @@ export namespace Schemas {
        * * `other_region` - Linked to an organization in another region
        * * `not_linked` - Not linked */
       readonly organization_link: OrganizationLinkStateEnum;
-      /** The metadata document PostHog registered the app from, as formatted JSON. Empty when PostHog kept none. */
+      /** The metadata document saved when the review opened, as formatted JSON. Empty when PostHog kept none. */
       readonly metadata_document: string;
     }
 

@@ -60,6 +60,22 @@ function List({ values }: { values: readonly string[] }): JSX.Element {
     )
 }
 
+function Scopes({ registration }: { registration: RegisteredPartnerDetailsApi }): JSX.Element {
+    if (!registration.uses_default_scopes) {
+        return <List values={registration.scopes} />
+    }
+    return (
+        <Collapsible>
+            <CollapsibleHeader>
+                <CollapsibleTrigger>{`PostHog's default set, ${registration.scopes.length} scopes`}</CollapsibleTrigger>
+            </CollapsibleHeader>
+            <CollapsibleContent className="pt-1">
+                <List values={registration.scopes} />
+            </CollapsibleContent>
+        </Collapsible>
+    )
+}
+
 export function QuillOAuthApplicationRegistration({
     clientId,
     registration,
@@ -74,8 +90,8 @@ export function QuillOAuthApplicationRegistration({
                     What PostHog sees
                 </Heading>
                 <Text size="sm" variant="muted" render={<p className="m-0" />}>
-                    What PostHog read from your client metadata document, and how it treats the application. PostHog
-                    staff review the same details.
+                    How PostHog treats the application now. The homepage, policy links and contacts come from your
+                    metadata document as it was when the review opened. PostHog staff review the same details.
                 </Text>
             </div>
             <dl className="m-0 flex flex-col gap-2 rounded-md border border-border p-3">
@@ -106,7 +122,7 @@ export function QuillOAuthApplicationRegistration({
                     <Url value={registration.jwks_uri} />
                 </Field>
                 <Field label="Scopes">
-                    <List values={registration.scopes} />
+                    <Scopes registration={registration} />
                 </Field>
                 <Field label="Provisioning">
                     {[
@@ -121,7 +137,7 @@ export function QuillOAuthApplicationRegistration({
             {registration.metadata_document && (
                 <Collapsible className="rounded-md border border-border p-2">
                     <CollapsibleHeader>
-                        <CollapsibleTrigger>The metadata document PostHog registered</CollapsibleTrigger>
+                        <CollapsibleTrigger>Your metadata document when the review opened</CollapsibleTrigger>
                     </CollapsibleHeader>
                     <CollapsibleContent className="pt-2">
                         <pre className="m-0 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">

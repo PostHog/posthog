@@ -43,6 +43,7 @@ from posthog.models.oauth_provisioning_review import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.scopes.ceilings import DEFAULT_CEILING_SENTINEL, effective_ceiling
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.utils import get_instance_region
 
@@ -711,8 +712,9 @@ def _partner_event(entry: Mapping[str, Any], organization_id: str | None) -> Par
 
 @frozen
 class RegisteredPartnerDetails:
-    """What PostHog read from the app's client ID metadata document when it registered, and how PostHog treats the
-    app now. The document is the app's own public file, so its owners can see all of it."""
+    """How PostHog treats the app now, from the app's own record, which every metadata refresh updates. The homepage,
+    policy links and contacts are kept only in the document saved when the review opened. The document is the app's own
+    public file, so its owners can see all of it."""
 
     client_name: str
     client_uri: str
@@ -724,6 +726,7 @@ class RegisteredPartnerDetails:
     jwks_uri: str
     authentication: PartnerAuthentication
     scopes: list[str]
+    uses_default_scopes: bool
     can_create_accounts: bool
     can_provision_resources: bool
     organization_link: OrganizationLinkState
@@ -740,6 +743,11 @@ def _document_list(document: Mapping[str, Any], key: str) -> list[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
+def _uses_default_scopes(app_scopes: list[str]) -> bool:
+    stripped = {scope.strip() for scope in app_scopes} - {""}
+    return not stripped or DEFAULT_CEILING_SENTINEL in stripped
+
+
 def registered_partner_details(
     app: OAuthApplication, review: CIMDProvisioningReview | None
 ) -> RegisteredPartnerDetails:
@@ -751,16 +759,17 @@ def registered_partner_details(
     else:
         link = OrganizationLinkState.NOT_LINKED
     return RegisteredPartnerDetails(
-        client_name=_document_text(document, "client_name") or app.name,
+        client_name=app.name,
         client_uri=_document_text(document, "client_uri"),
-        logo_uri=_document_text(document, "logo_uri"),
+        logo_uri=app.logo_uri or "",
         tos_uri=_document_text(document, "tos_uri"),
         policy_uri=_document_text(document, "policy_uri"),
         contacts=_document_list(document, "contacts"),
-        redirect_uris=_document_list(document, "redirect_uris") or app.redirect_uris.split(),
+        redirect_uris=app.redirect_uris.split(),
         jwks_uri=app.jwks_uri or "",
         authentication=PartnerAuthentication(app.token_endpoint_auth_method.value),
-        scopes=app.ceiling_scopes,
+        scopes=sorted(effective_ceiling(app.ceiling_scopes)),
+        uses_default_scopes=_uses_default_scopes(app.ceiling_scopes),
         can_create_accounts=app.provisioning.can_create_accounts,
         can_provision_resources=app.provisioning.can_provision_resources,
         organization_link=link,

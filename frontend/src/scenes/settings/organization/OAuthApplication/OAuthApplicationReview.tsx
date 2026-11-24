@@ -10,13 +10,13 @@ import {
     PROVISIONING_STATUS_TAG_TYPES,
     oauthAppActions,
 } from '../oauthAppProvisioningStatus'
-import { oauthAppsLogic } from '../oauthAppsLogic'
+import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
 import { OAuthAppReviewProgress } from './OAuthAppReviewProgress'
 import { OAuthAppReviewTimeline } from './OAuthAppReviewTimeline'
 
 export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
-    const { contactSupport } = useActions(oauthAppsLogic)
+    const { contactSupport } = useActions(oauthApplicationLogic({ id: app.id }))
     const { takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
     const review = app.provisioning_review
 
@@ -38,7 +38,7 @@ export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicat
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={() => contactSupport(app, 'review')}
+                            onClick={() => contactSupport('review')}
                             data-attr="oauth-app-review-contact-support"
                         >
                             Contact support about this review
@@ -48,7 +48,7 @@ export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicat
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={() => contactSupport(app, 'verification')}
+                            onClick={() => contactSupport('verification')}
                             data-attr="oauth-app-request-verification"
                             tooltip="People who connect an unverified application to PostHog see a warning that PostHog has not verified it."
                         >

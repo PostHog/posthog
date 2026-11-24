@@ -39,6 +39,24 @@ function List({ values }: { values: readonly string[] }): JSX.Element {
     )
 }
 
+function Scopes({ registration }: { registration: RegisteredPartnerDetailsApi }): JSX.Element {
+    if (!registration.uses_default_scopes) {
+        return <List values={registration.scopes} />
+    }
+    return (
+        <LemonCollapse
+            size="small"
+            panels={[
+                {
+                    key: 'scopes',
+                    header: `PostHog's default set, ${registration.scopes.length} scopes`,
+                    content: <List values={registration.scopes} />,
+                },
+            ]}
+        />
+    )
+}
+
 export function OAuthApplicationRegistration({
     clientId,
     registration,
@@ -51,8 +69,8 @@ export function OAuthApplicationRegistration({
             <div>
                 <h2 className="text-lg font-semibold m-0">What PostHog sees</h2>
                 <p className="text-secondary m-0">
-                    What PostHog read from your client metadata document, and how it treats the application. PostHog
-                    staff review the same details.
+                    How PostHog treats the application now. The homepage, policy links and contacts come from your
+                    metadata document as it was when the review opened. PostHog staff review the same details.
                 </p>
             </div>
             <dl className="m-0 flex flex-col gap-2 border rounded p-3 bg-surface-primary">
@@ -83,7 +101,7 @@ export function OAuthApplicationRegistration({
                     <Url value={registration.jwks_uri} />
                 </Field>
                 <Field label="Scopes">
-                    <List values={registration.scopes} />
+                    <Scopes registration={registration} />
                 </Field>
                 <Field label="Provisioning">
                     {[
@@ -100,7 +118,7 @@ export function OAuthApplicationRegistration({
                     panels={[
                         {
                             key: 'document',
-                            header: 'The metadata document PostHog registered',
+                            header: 'Your metadata document when the review opened',
                             content: (
                                 <CodeSnippet language={Language.JSON} wrap>
                                     {registration.metadata_document}

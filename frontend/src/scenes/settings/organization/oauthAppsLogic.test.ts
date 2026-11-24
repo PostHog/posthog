@@ -55,6 +55,7 @@ const REGISTRATION = {
     jwks_uri: '',
     authentication: 'none' as const,
     scopes: [],
+    uses_default_scopes: false,
     can_create_accounts: true,
     can_provision_resources: true,
     organization_link: 'this_organization' as const,
@@ -178,8 +179,11 @@ describe('oauthAppsLogic', () => {
         ['verification', 'verify our OAuth application', "Our product's website:"],
     ] as const)('opens a %s request that any plan can send', async (request, opening, prompt) => {
         supportLogic.mount()
+        const pageLogic = oauthApplicationLogic({ id: MOCK_APPS[1].id })
+        pageLogic.mount()
+        pageLogic.actions.replaceApplication({ ...MOCK_APPS[1], registration: REGISTRATION })
 
-        logic.actions.contactSupport(MOCK_APPS[1], request)
+        pageLogic.actions.contactSupport(request)
 
         const form = supportLogic.values.sendSupportRequest
         expect(form.oauth_app_request).toBe(true)

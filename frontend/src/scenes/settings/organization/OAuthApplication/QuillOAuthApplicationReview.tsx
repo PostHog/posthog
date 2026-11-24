@@ -5,14 +5,14 @@ import { Button, Heading, Text } from '@posthog/quill'
 import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.schemas'
 
 import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from '../oauthAppProvisioningStatus'
-import { oauthAppsLogic } from '../oauthAppsLogic'
 import { QuillProvisioningStatusBadge } from '../QuillProvisioningStatusBadge'
+import { oauthApplicationLogic } from './oauthApplicationLogic'
 import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
 import { QuillOAuthAppReviewProgress } from './QuillOAuthAppReviewProgress'
 import { QuillOAuthAppReviewTimeline } from './QuillOAuthAppReviewTimeline'
 
 export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
-    const { contactSupport } = useActions(oauthAppsLogic)
+    const { contactSupport } = useActions(oauthApplicationLogic({ id: app.id }))
     const { takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
     const review = app.provisioning_review
 
@@ -35,7 +35,7 @@ export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApp
                     {needsSupport && (
                         <Button
                             variant="outline"
-                            onClick={() => contactSupport(app, 'review')}
+                            onClick={() => contactSupport('review')}
                             data-attr="oauth-app-review-contact-support"
                         >
                             Contact support about this review
@@ -44,7 +44,7 @@ export function QuillOAuthApplicationReview({ app }: { app: OrganizationOAuthApp
                     {canRequestVerification && (
                         <Button
                             variant="outline"
-                            onClick={() => contactSupport(app, 'verification')}
+                            onClick={() => contactSupport('verification')}
                             data-attr="oauth-app-request-verification"
                             tooltip="People who connect an unverified application to PostHog see a warning that PostHog has not verified it."
                         >
