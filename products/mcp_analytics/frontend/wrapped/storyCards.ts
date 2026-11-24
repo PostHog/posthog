@@ -13,7 +13,10 @@ export type WrappedCardKey =
     | 'archetype'
     | 'share'
 
+export type ShareTileKind = 'calls' | 'tool' | 'reliability' | 'app' | 'rush_hour' | 'model' | 'speed'
+
 export interface ShareTile {
+    kind: ShareTileKind
     label: string
     value: string
 }
@@ -252,27 +255,30 @@ export function peakMultiple(heat: readonly number[]): string | null {
 
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
 export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
-    const tiles: ShareTile[] = [{ label: 'Tool calls', value: formatCallCount(cards.tool_calls.total_calls) }]
+    const tiles: ShareTile[] = [
+        { kind: 'calls', label: 'Tool calls', value: formatCallCount(cards.tool_calls.total_calls) },
+    ]
     const topTool = cards.top_tools.tools[0]
     if (topTool) {
-        tiles.push({ label: 'Top tool', value: topTool.tool })
+        tiles.push({ kind: 'tool', label: 'Top tool', value: topTool.tool })
     }
-    tiles.push({ label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
+    tiles.push({ kind: 'reliability', label: 'Error-free calls', value: formatPercent(cards.reliability.success_rate) })
     const topApp = cards.apps?.shares.find((share) => share.name !== OTHER)
     if (topApp) {
-        tiles.push({ label: 'Top app', value: topApp.name })
+        tiles.push({ kind: 'app', label: 'Top app', value: topApp.name })
     }
     if (cards.rush_hour) {
         tiles.push({
+            kind: 'rush_hour',
             label: 'Rush hour',
             value: formatHour(cards.rush_hour.weekday, cards.rush_hour.hour).replace(',', ''),
         })
     }
     const topModel = cards.models?.shares.find((share) => share.name !== OTHER)
     if (topModel) {
-        tiles.push({ label: 'Top model', value: topModel.name })
+        tiles.push({ kind: 'model', label: 'Top model', value: topModel.name })
     } else if (cards.speed) {
-        tiles.push({ label: '95% answered in', value: formatDuration(cards.speed.p95_duration_ms) })
+        tiles.push({ kind: 'speed', label: '95% answered in', value: formatDuration(cards.speed.p95_duration_ms) })
     }
     return tiles.slice(0, 6)
 }
