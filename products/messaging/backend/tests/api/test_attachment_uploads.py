@@ -16,8 +16,10 @@ from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.rate_limit import is_rate_limit_enabled
 from posthog.token_bucket import Budget, consume
 
 from products.access_control.backend.facade.testing import create_access_control
@@ -260,8 +262,10 @@ class TestAttachmentUploads(APIBaseTest):
         mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
         client = self._psak_client(["transactional_email:write"]) if auth == "project_secret_api_key" else self.client
 
+        is_rate_limit_enabled.cache_clear()
+        self.addCleanup(is_rate_limit_enabled.cache_clear)
         with (
-            patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
+            override_instance_config("RATE_LIMIT_ENABLED", True),
             patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=1, per_hour=1)),
             patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
             patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
