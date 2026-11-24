@@ -2,14 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { Button } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconSelfDriving } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { computeIsSelfDrivingSetUp } from 'products/signals/frontend/inbox/logics/inboxOnboardingLogic'
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
 import { TodayPromptItem } from './TodayPromptItem'
@@ -18,20 +17,20 @@ import { todayPromptsLogic } from './todayPromptsLogic'
 const SELF_DRIVING_ICON = { color: 'var(--color-product-self-driving-light)', glyph: <IconSelfDriving /> }
 
 export function TodaySelfDrivingRow(): JSX.Element | null {
-    const { aiEnabled, selfDrivingDismissed } = useValues(todayPromptsLogic)
-    const selfDrivingAvailable = useFeatureFlag('PRODUCT_AUTONOMY')
+    const { selfDrivingDismissed } = useValues(todayPromptsLogic)
 
-    if (!selfDrivingAvailable || !aiEnabled || selfDrivingDismissed) {
+    if (selfDrivingDismissed) {
         return null
     }
     return <SelfDrivingSetUpCheck />
 }
 
 function SelfDrivingSetUpCheck(): JSX.Element | null {
-    const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount } = useValues(signalSourcesLogic)
-    const { scoutConfigs } = useValues(scoutFleetLogic)
+    const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount, hasEmittingScanner } =
+        useValues(signalSourcesLogic)
+    const { scoutConfigs } = useValues(scoutNamesLogic)
 
-    if (sourceConfigs === null || sourceConfigsLoadFailed || scoutConfigs === null) {
+    if (sourceConfigs === null || sourceConfigsLoadFailed || hasEmittingScanner === null || scoutConfigs === null) {
         return null
     }
     if (computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs)) {

@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
@@ -18,6 +19,7 @@ import { todayLogic } from './todayLogic'
 import { TodayNewProjectForYou } from './TodayNewProjectForYou'
 import { reportWorkKind } from './todayNextStep'
 import { TodayProductPushRow } from './TodayProductPushRow'
+import { todayPromptsLogic } from './todayPromptsLogic'
 import { TodayReportRow } from './TodayReportRow'
 
 const TodaySelfDrivingRow = lazyWithRetry(() =>
@@ -57,6 +59,8 @@ function countFixes(rows: TodayForYouRow[]): number {
 
 function TodayForYouBody(): JSX.Element | null {
     const { forYouReady, forYouRows, forYouVisibleRows, forYouFailedNote } = useValues(todayLogic)
+    const { aiEnabled, selfDrivingDismissed } = useValues(todayPromptsLogic)
+    const selfDrivingAvailable = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!forYouReady) {
         return <TodayRowsSkeleton />
@@ -68,9 +72,11 @@ function TodayForYouBody(): JSX.Element | null {
     return (
         <ol className="TodayRows">
             <TodayAiRow />
-            <Suspense fallback={null}>
-                <TodaySelfDrivingRow />
-            </Suspense>
+            {selfDrivingAvailable && aiEnabled && !selfDrivingDismissed ? (
+                <Suspense fallback={null}>
+                    <TodaySelfDrivingRow />
+                </Suspense>
+            ) : null}
             {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
             {forYouVisibleRows.map(renderRow)}
         </ol>

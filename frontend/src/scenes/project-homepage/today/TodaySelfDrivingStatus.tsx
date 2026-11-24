@@ -10,7 +10,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { computeIsSelfDrivingSetUp } from 'products/signals/frontend/inbox/logics/inboxOnboardingLogic'
-import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { scoutNamesLogic } from 'products/signals/frontend/inbox/logics/scoutNamesLogic'
 import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
 import { TodayRow } from './TodayRow'
@@ -33,10 +33,15 @@ export function TodaySelfDrivingStatus({ quietRow }: { quietRow: ReactNode }): J
 }
 
 function TodaySelfDrivingVerdict({ quietRow }: { quietRow: ReactNode }): JSX.Element {
-    const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount } = useValues(signalSourcesLogic)
-    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount, hasEmittingScanner } =
+        useValues(signalSourcesLogic)
+    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutNamesLogic)
 
-    if ((sourceConfigs === null && !sourceConfigsLoadFailed) || (scoutConfigs === null && scoutConfigsLoading)) {
+    if (
+        (sourceConfigs === null && !sourceConfigsLoadFailed) ||
+        hasEmittingScanner === null ||
+        (scoutConfigs === null && scoutConfigsLoading)
+    ) {
         return <Skeleton className="h-12 w-full" />
     }
     if (!computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs ?? [])) {
