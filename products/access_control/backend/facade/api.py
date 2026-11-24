@@ -920,6 +920,26 @@ class _RuleChange:
     activity: str
 
 
+def _log_entries_for_rule_changes(*, team: Team, rule_changes: list[_RuleChange]) -> list[LogActivityEntry]:
+    # Resolve names for the whole batch at once, so the log entries add no query per rule
+    names = resolve_access_rule_names(
+        team=team, rules=[rule for change in rule_changes if (rule := change.after or change.before)]
+    )
+    entries: list[LogActivityEntry] = []
+    for change in rule_changes:
+        entry = get_access_control_log_entry(
+            before_update=change.before,
+            after_update=change.after,
+            activity=change.activity,
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+            names=names,
+        )
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
 @frozen
 class _ObjectAccessControlKey:
     resource: str
@@ -1013,22 +1033,7 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
                     updated.append(rule)
                     activity = "updated"
                 rule_changes.append(_RuleChange(before=before, after=rule, activity=activity))
-        # Resolve names for the whole batch at once, so the log entries add no query per rule
-        names = resolve_access_rule_names(
-            team=team, rules=[rule for change in rule_changes if (rule := change.after or change.before)]
-        )
-        entries: list[LogActivityEntry] = []
-        for change in rule_changes:
-            entry = get_access_control_log_entry(
-                before_update=change.before,
-                after_update=change.after,
-                activity=change.activity,
-                user=get_current_user(),
-                was_impersonated=get_was_impersonated(),
-                names=names,
-            )
-            if entry is not None:
-                entries.append(entry)
+        entries = _log_entries_for_rule_changes(team=team, rule_changes=rule_changes)
         AccessControl.objects.bulk_create(created)
         AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
         AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()

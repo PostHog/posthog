@@ -53,6 +53,20 @@ class AccessRuleNames:
     members: dict[UUID, str]
 
 
+def _resolve_object_names(*, team: Team, object_ids: dict[str, set[str]]) -> dict[AccessRuleObject, str]:
+    objects: dict[AccessRuleObject, str] = {}
+    for resource, ids in object_ids.items():
+        if resource == "project":
+            # A project rule points at the team that owns the rule
+            if str(team.pk) in ids:
+                objects[AccessRuleObject(resource=resource, resource_id=str(team.pk))] = team.name
+            continue
+        for resource_id, resolved in resolve_object_names(resource, sorted(ids), team.pk).items():
+            if resolved.name:
+                objects[AccessRuleObject(resource=resource, resource_id=resource_id)] = str(resolved.name)
+    return objects
+
+
 def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> AccessRuleNames:
     """Look up display names with one query per resource type, one for roles, and one for members.
 
@@ -69,17 +83,7 @@ def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> 
         if rule.organization_member_id:
             member_ids.add(rule.organization_member_id)
 
-    objects: dict[AccessRuleObject, str] = {}
-    for resource, ids in object_ids.items():
-        if resource == "project":
-            # A project rule points at the team that owns the rule
-            if str(team.pk) in ids:
-                objects[AccessRuleObject(resource=resource, resource_id=str(team.pk))] = team.name
-            continue
-        for resource_id, resolved in resolve_object_names(resource, sorted(ids), team.pk).items():
-            if resolved.name:
-                objects[AccessRuleObject(resource=resource, resource_id=resource_id)] = str(resolved.name)
-
+    objects = _resolve_object_names(team=team, object_ids=object_ids)
     roles: dict[UUID, str] = {}
     if role_ids:
         roles = dict(
