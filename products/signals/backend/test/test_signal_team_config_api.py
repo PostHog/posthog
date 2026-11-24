@@ -29,7 +29,7 @@ from products.signals.backend.agent_instructions import (
 )
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.implementation_repositories import MAX_IMPLEMENTATION_REPOSITORIES
-from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.models import SignalReport, SignalTeamConfig, effective_autostart_priority
 from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRIES, SignalTeamConfigSerializer
 from products.signals.backend.views import SignalTeamConfigViewSet
 
@@ -314,7 +314,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         for field in STEERING_FIELDS.values():
             assert getattr(self.config, field) is None
             assert data[field] == ""
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P2"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
         assert data["anomaly_scoring_enabled"] is True
@@ -333,7 +333,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
-        assert data["default_autostart_priority"] == "P4"
+        assert data["default_autostart_priority"] == "P2"
         assert data["default_slack_notification_channel"] is None
         assert SignalTeamConfig.objects.filter(team=self.team).exists()
 
@@ -461,6 +461,31 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is sent
 
+    @parameterized.expand(
+        [
+            ("picks_p4", {"default_autostart_priority": "P4"}, True, "P4"),
+            (
+                "picks_p4_with_a_null_switch",
+                {"autostart_enabled": None, "default_autostart_priority": "P4"},
+                True,
+                "P4",
+            ),
+            ("picks_p0", {"default_autostart_priority": "P0"}, None, "P0"),
+            ("turns_prs_off", {"autostart_enabled": False}, False, "P2"),
+            ("turns_prs_on", {"autostart_enabled": True}, True, "P2"),
+            ("other_setting", {"default_slack_notification_channel": "C123|#posthog-signals"}, None, "P4"),
+        ]
+    )
+    def test_first_autonomy_write_stores_the_applied_threshold(self, _name, sent, stored_switch, stored_priority):
+        response = self.client.post(self._url(), data=sent, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self.config.refresh_from_db()
+        assert (self.config.autostart_enabled, self.config.default_autostart_priority) == (
+            stored_switch,
+            stored_priority,
+        )
+
     def test_get_config_defaults_daily_report_limit_fields(self):
         response = self.client.get(self._url())
         data = response.json()
@@ -546,51 +571,45 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
 
-    # Each case starts from the model default, so the POST is the only change on the row.
+    # Each case starts from the model default, so the POST is the only change on the row. Setting
+    # the switch on that row also stores the P2 threshold.
     @parameterized.expand(
         [
-            ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            (
+                "threshold",
+                "default_autostart_priority",
+                "P1",
+                [("project PR threshold", "changed", "P4", "P1")],
+            ),
             (
                 "slack_threshold",
                 "default_slack_notification_min_priority",
                 "P2",
-                "team Slack minimum priority",
-                "created",
-                None,
-                "P2",
+                [("team Slack minimum priority", "created", None, "P2")],
             ),
-            ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
+            (
+                "pr_generation",
+                "autostart_enabled",
+                False,
+                [("PR generation", "created", None, False), ("project PR threshold", "changed", "P4", "P2")],
+            ),
             (
                 "slack_channel",
                 "default_slack_notification_channel",
                 "C123|#posthog-signals",
-                "team Slack channel",
-                "created",
-                None,
-                "C123|#posthog-signals",
+                [("team Slack channel", "created", None, "C123|#posthog-signals")],
             ),
             (
                 "base_branches",
                 "autostart_base_branches",
                 {"acme/web": "staging"},
-                "base branch overrides",
-                "created",
-                None,
-                {"acme/web": "staging"},
+                [("base branch overrides", "created", None, {"acme/web": "staging"})],
             ),
-            (
-                "pr_state",
-                "default_open_pull_request_ready",
-                True,
-                "PRs open as",
-                "changed",
-                False,
-                True,
-            ),
-            ("anomaly_scoring", "anomaly_scoring_enabled", False, "anomaly scoring", "changed", True, False),
+            ("pr_state", "default_open_pull_request_ready", True, [("PRs open as", "changed", False, True)]),
+            ("anomaly_scoring", "anomaly_scoring_enabled", False, [("anomaly scoring", "changed", True, False)]),
         ]
     )
-    def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
+    def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, changes):
         response = self.client.post(self._url(), data={field: sent}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
@@ -603,6 +622,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert entry.detail is not None
         assert entry.detail["changes"] == [
             {"type": "SignalTeamConfig", "action": action, "field": label, "before": before, "after": after}
+            for label, action, before, after in changes
         ]
 
     def test_reading_config_does_not_record_activity(self):
@@ -678,6 +698,23 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.config.implementation_repositories == (
             expected if expected_status == status.HTTP_200_OK else stored
         )
+
+
+class TestEffectiveAutostartPriority(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_row", None, "P2"),
+            ("never_chose", SignalTeamConfig(autostart_enabled=None, default_autostart_priority="P4"), "P2"),
+            (
+                "threshold_without_switch",
+                SignalTeamConfig(autostart_enabled=None, default_autostart_priority="P3"),
+                "P3",
+            ),
+            ("switch_on_at_p4", SignalTeamConfig(autostart_enabled=True, default_autostart_priority="P4"), "P4"),
+        ]
+    )
+    def test_threshold(self, _name: str, config: SignalTeamConfig | None, expected: str) -> None:
+        assert effective_autostart_priority(config) == expected
 
 
 class TestSignalTeamConfigSerializerValidation(SimpleTestCase):

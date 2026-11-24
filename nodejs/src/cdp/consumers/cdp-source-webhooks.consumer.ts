@@ -419,7 +419,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return answerQuotaLimited()
                 }
 
-                const committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
+                const committed = (await this.runIntake.launch([run]))[0]
                 if (committed.outcome !== 'created') {
                     return answerDuplicate()
                 }

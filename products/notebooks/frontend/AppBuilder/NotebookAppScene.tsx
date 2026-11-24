@@ -12,6 +12,8 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { NotebookAppAgentIntegration } from './NotebookAppAgentIntegration'
 
+const PublishedNotebookApp = lazyWithRetry(() => import('./PublishedNotebookApp'))
+
 const NotebookAppBuilder = lazyWithRetry(() =>
     import('./NotebookAppBuilder').then(({ NotebookAppBuilder }) => ({ default: NotebookAppBuilder }))
 )
@@ -70,12 +72,16 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
     }, [view, hashParams.node, markdownEditorValue])
     return (
         <>
-            <NotebookAppAgentIntegration shortId={shortId} />
+            {view !== 'app' && <NotebookAppAgentIntegration shortId={shortId} />}
             {view === 'notebook' ? (
                 children
             ) : (
                 <Suspense fallback={<Spinner />}>
-                    <NotebookAppBuilder shortId={shortId} published={view === 'app'} />
+                    {view === 'app' ? (
+                        <PublishedNotebookApp key={shortId} shortId={shortId} />
+                    ) : (
+                        <NotebookAppBuilder shortId={shortId} />
+                    )}
                 </Suspense>
             )}
         </>

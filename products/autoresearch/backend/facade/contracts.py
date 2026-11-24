@@ -65,6 +65,28 @@ class TrainingRunCapReached(Exception):
         super().__init__(message)
 
 
+class TrainingBudgetReached(Exception):
+    """The project has used its monthly training budget.
+
+    The viewset maps it to a 429, so the message is user-facing copy.
+    """
+
+    code = "training_budget_reached"
+
+    def __init__(self, *, spent_usd: float, limit_usd: int, resets_at: datetime) -> None:
+        self.spent_usd = spent_usd
+        self.limit_usd = limit_usd
+        self.resets_at = resets_at
+        if limit_usd == 0:
+            message = "Training runs are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has used ${spent_usd:,.2f} of its ${limit_usd:,} monthly training budget. "
+                f"Training can start again on {resets_at:%B} {resets_at.day} (UTC)."
+            )
+        super().__init__(message)
+
+
 class LivePipelineCapReached(AutoresearchConflict):
     """The project already has its limit of live pipelines, so another cannot go live.
 
@@ -394,10 +416,15 @@ class ProjectLimits:
     max_iterations_per_run: int
     max_live_pipelines: int
     live_pipelines: int
+    max_training_spend_usd_per_month: int
+    # Token plus compute cost of this UTC calendar month's sandbox training runs, in US dollars.
+    training_spend_usd: float
+    training_spend_resets_at: datetime
     # Where each limit came from: project, default or code.
     max_training_runs_per_day_source: str
     max_iterations_per_run_source: str
     max_live_pipelines_source: str
+    max_training_spend_usd_per_month_source: str
 
 
 # ── Write contracts ────────────────────────────────────────────────────────

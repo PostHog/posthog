@@ -7,6 +7,8 @@ const TODAY_PANE_FLAGS: Partial<Record<TodayRailPane, FeatureFlagKey>> = {
     release: FEATURE_FLAGS.RELEASES_AREA,
     monitor: FEATURE_FLAGS.MONITOR_AREA,
     warehouse: FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE,
+    // Automate shares Data's flag, because Destinations move from Data to Automate and neither pane should show alone.
+    automate: FEATURE_FLAGS.DATA_AREA,
     data: FEATURE_FLAGS.DATA_AREA,
 }
 

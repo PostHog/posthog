@@ -1,16 +1,21 @@
+from typing import TYPE_CHECKING
+
 from django.db import router
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
+
 STARTER_DASHBOARD_NAME = "Your starter dashboard"
 
 
-def create_global_template_if_missing(template: DashboardTemplateDefinition) -> bool:
-    if DashboardTemplate.objects.filter(template_name=template.template_name, team__isnull=True).exists():
-        return False
-    DashboardTemplate.objects.create(
+def unsaved_template(template: DashboardTemplateDefinition) -> DashboardTemplate:
+    return DashboardTemplate(
         team_id=None,
         template_name=template.template_name,
         dashboard_description=template.dashboard_description,
@@ -22,6 +27,12 @@ def create_global_template_if_missing(template: DashboardTemplateDefinition) -> 
         scope=template.scope.value if template.scope is not None else None,
         availability_contexts=template.availability_contexts,
     )
+
+
+def create_global_template_if_missing(template: DashboardTemplateDefinition) -> bool:
+    if DashboardTemplate.objects.filter(template_name=template.template_name, team__isnull=True).exists():
+        return False
+    unsaved_template(template).save(force_insert=True)
     return True
 
 
@@ -48,4 +59,21 @@ def create_starter_dashboard(*, team_id: int) -> Dashboard:
         customization=stored_customization(template.customization),
     )
     create_from_template(dashboard, template)
+    return dashboard
+
+
+def create_unlisted_dashboard(*, team: "Team", user: "User", template: DashboardTemplateDefinition) -> Dashboard:
+    # Imported at call time for the same import cycle as in create_starter_dashboard.
+    from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415
+
+    template_row = unsaved_template(template)
+    dashboard = Dashboard.objects.create(
+        team_id=team.id,
+        name=template_row.template_name,
+        description=template_row.dashboard_description or "",
+        filters={**(template_row.dashboard_filters or {}), "__template_version": 1},
+        created_by=user,
+        creation_mode=Dashboard.CreationMode.UNLISTED,
+    )
+    create_from_template(dashboard, template_row, user, user_access_control=UserAccessControl(user=user, team=team))
     return dashboard

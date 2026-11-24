@@ -133,6 +133,26 @@ def mentioned_names(request: str) -> set[str]:
     return {token.strip("-") for token in re.findall(r"[a-z0-9-]+", request.lower())} - {""}
 
 
+def collapse_duplicate_passages(candidates: list[Candidate], exclude: frozenset[str]) -> list[Candidate]:
+    groups: dict[str, list[Candidate]] = {}
+    for candidate in candidates:
+        if candidate.kind == "business_knowledge":
+            groups.setdefault(candidate.text, []).append(candidate)
+    collapsed: list[Candidate] = []
+    for candidate in candidates:
+        if candidate.kind != "business_knowledge":
+            collapsed.append(candidate)
+            continue
+        group = groups[candidate.text]
+        if group[0] is not candidate:
+            continue
+        kept = next((member for member in group if reference_key(member.kind, member.id) in exclude), candidate)
+        if len({member.url for member in group}) > 1:
+            kept = replace(kept, url="")
+        collapsed.append(kept)
+    return collapsed
+
+
 def elapsed_ms(started: float) -> int:
     return round((time.monotonic() - started) * 1000)
 
@@ -192,6 +212,7 @@ def selection_flag(run: TaskRun, actor: User) -> FlagDecision:
         or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
+        or run.task.title.startswith("[sandbox_prompt:")
     ):
         return FlagDecision()
     try:
@@ -457,6 +478,7 @@ class ContextSelector:
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
         remaining = time_remaining(deadline)
         candidates = self.timed("retrieval", lambda: self.retrieve(deadline - remaining / 2))
+        candidates = collapse_duplicate_passages(candidates, self.selection.exclude)
         # A skill the request names by its whole name is the context the user asked for, so it skips the rerank.
         names = mentioned_names(self.request)
         named = [c for c in candidates if c.kind == "skill" and c.id in names]

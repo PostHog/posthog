@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    UNSUPPORTED_AUTH_OPTION_ERROR,
     UNSUPPORTED_FILE_OPTION_ERROR,
+    UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
@@ -26,8 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_SERVER_TOO_OLD_MESSAGE,
+    _MONGO_SRV_RECORD_MISSING_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
+    _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
     _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
     MongoDBSource,
 )
@@ -208,6 +212,16 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 False,
             ),
             (
+                # dnspython's NoAnswer, wrapped by pymongo as ConfigurationError, when the host
+                # resolves but publishes no `_mongodb._tcp` SRV record at all.
+                ConfigurationError(
+                    "The DNS response does not contain an answer to the question: "
+                    "_mongodb._tcp.cluster.abc.mongodb.net. IN SRV"
+                ),
+                _MONGO_SRV_RECORD_MISSING_MESSAGE,
+                False,
+            ),
+            (
                 # pymongo's server-selection wording for a server below the driver's minimum wire version.
                 ConfigurationError(
                     "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
@@ -234,6 +248,11 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
             (
                 UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR),
                 _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+                False,
+            ),
+            (
+                UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR),
+                _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
                 False,
             ),
         ],

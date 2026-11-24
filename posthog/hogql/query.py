@@ -136,6 +136,7 @@ tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
+QUERY_AST_LIMIT_SETTINGS = {"max_ast_elements", "max_expanded_ast_elements"}
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
@@ -722,7 +723,7 @@ class HogQLQueryExecutor:
             isinstance(self.clickhouse_settings, HogQLGlobalSettings)
             and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
         ):
-            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # Not a real modifier. It marks the queries that ran with the setting, so the query log can tell them apart.
             # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
             tag["teamFirstPrewhere"] = True
         return tag
@@ -1130,10 +1131,15 @@ class HogQLQueryExecutor:
                 return run_on_clickhouse(clickhouse_sql, with_column_types=True)
 
             def describe_column_types() -> list[str]:
+                ast_limits = (
+                    self.clickhouse_settings.model_dump(include=QUERY_AST_LIMIT_SETTINGS, exclude_none=True)
+                    if self.clickhouse_settings is not None
+                    else {}
+                )
                 rows = run_on_clickhouse(
                     f"DESCRIBE TABLE ({clickhouse_sql})",
                     with_column_types=False,
-                    settings={"max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
+                    settings={**ast_limits, "max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
                     send_receive_timeout=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
                 )
                 return [column_type for _, column_type, *_ in rows]

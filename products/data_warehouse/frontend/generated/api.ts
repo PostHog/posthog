@@ -16,6 +16,7 @@ import type {
     CheckSchemaNameResponseApi,
     ConsoleSettingsApi,
     CreateLoginRequestApi,
+    CreateTableFromFileApi,
     CreateTableFromUploadApi,
     DataHealthIssuesResponseApi,
     DataModelingJobApi,
@@ -46,6 +47,7 @@ import type {
     HoglakeCredentialListResponseApi,
     HoglakeCredentialRevokedApi,
     IncrementalEligibilityApi,
+    InlineUploadApi,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseConsoleQueriesRetrieveParams,
@@ -121,6 +123,7 @@ import type {
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
+    WarehouseTablesRetrieveParams,
     WarehouseTablesUploadFileCreateBody,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -2675,8 +2678,24 @@ export const warehouseTablesCreate = async (
     })
 }
 
-export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+export const getWarehouseTablesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: WarehouseTablesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_tables/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_tables/${id}/`
 }
 
 /**
@@ -2685,9 +2704,10 @@ export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => 
 export const warehouseTablesRetrieve = async (
     projectId: string,
     id: string,
+    params?: WarehouseTablesRetrieveParams,
     options?: RequestInit
 ): Promise<TableApi> => {
-    return apiMutator<TableApi>(getWarehouseTablesRetrieveUrl(projectId, id), {
+    return apiMutator<TableApi>(getWarehouseTablesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -2828,6 +2848,33 @@ export const warehouseTablesReplaceFileCreate = async (
     })
 }
 
+export const getWarehouseTablesReplaceWithFileCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/replace_with_file/`
+}
+
+/**
+ * Replace the rows of a file-upload table with the file in this request.
+ */
+export const warehouseTablesReplaceWithFileCreate = async (
+    projectId: string,
+    id: string,
+    inlineUploadApi: InlineUploadApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    const formData = new FormData()
+    if (inlineUploadApi.notebook_cell !== undefined) {
+        formData.append(`notebook_cell`, inlineUploadApi.notebook_cell)
+    }
+    formData.append(`file_format`, inlineUploadApi.file_format)
+    formData.append(`file`, inlineUploadApi.file)
+
+    return apiMutator<TableApi>(getWarehouseTablesReplaceWithFileCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
 export const getWarehouseTablesUpdateSchemaCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_tables/${id}/update_schema/`
 }
@@ -2846,6 +2893,33 @@ export const warehouseTablesUpdateSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tableApi),
+    })
+}
+
+export const getWarehouseTablesCreateFromFileCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/create_from_file/`
+}
+
+/**
+ * Create a warehouse table from the file in this request.
+ */
+export const warehouseTablesCreateFromFileCreate = async (
+    projectId: string,
+    createTableFromFileApi: CreateTableFromFileApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    const formData = new FormData()
+    if (createTableFromFileApi.notebook_cell !== undefined) {
+        formData.append(`notebook_cell`, createTableFromFileApi.notebook_cell)
+    }
+    formData.append(`file_format`, createTableFromFileApi.file_format)
+    formData.append(`file`, createTableFromFileApi.file)
+    formData.append(`table_name`, createTableFromFileApi.table_name)
+
+    return apiMutator<TableApi>(getWarehouseTablesCreateFromFileCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 
@@ -2917,9 +2991,7 @@ export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
 /**
  * Store an uploaded file for a new warehouse table and FileUpload source.
  *
- * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
- * this returns an `upload_id` the caller passes back to build the table. The file is written under
- * a team-scoped prefix, so a table can only ever read back its own team's uploads.
+ * Returns an upload ID for a subsequent create or replacement.
  * @summary Upload a file for a new warehouse table and FileUpload source
  */
 export const warehouseTablesUploadFileCreate = async (
