@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 from products.mcp_analytics.backend.wrapped.model_families import OTHER_FAMILY, UNKNOWN_FAMILY
 from products.mcp_analytics.backend.wrapped.queries import DimensionRow, MonthCalls, WrappedAggregates
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # A project needs this many months with real traffic. One month leaves the monthly cards nothing to compare,
 # and the first month is often a test install.
@@ -131,11 +131,14 @@ class RushHourCard:
 class ToolErrorRate:
     tool: str
     error_rate: float
+    calls: int
 
 
 @frozen
 class ReliabilityCard:
     success_rate: float
+    # The lowest error rate among busy tools, with more calls winning a tie.
+    most_reliable_tool: ToolErrorRate | None
     struggling_tool: ToolErrorRate | None
 
 
@@ -327,12 +330,21 @@ def _reliability_card(aggregates: WrappedAggregates) -> ReliabilityCard:
     total = aggregates.total
     success_rate = 1 - total.errors / total.calls if total.calls else 1.0
     candidates = [row for row in _chosen_tools(aggregates.tools) if row.calls >= MIN_TOOL_CALLS]
-    struggling: ToolErrorRate | None = None
-    if len(candidates) >= MIN_TOOLS_FOR_WORST:
-        worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
-        if worst.errors > 0:
-            struggling = ToolErrorRate(tool=worst.key, error_rate=_ratio(worst.errors / worst.calls))
-    return ReliabilityCard(success_rate=_ratio(success_rate), struggling_tool=struggling)
+    if len(candidates) < MIN_TOOLS_FOR_WORST:
+        return ReliabilityCard(success_rate=_ratio(success_rate), most_reliable_tool=None, struggling_tool=None)
+    best = min(candidates, key=lambda row: (row.errors / row.calls, -row.calls))
+    worst = max(candidates, key=lambda row: (row.errors / row.calls, row.calls))
+    # Without a gap between the two rates there is no struggling tool to point at, only the same rate twice.
+    struggling = worst if worst.errors / worst.calls > best.errors / best.calls else None
+    return ReliabilityCard(
+        success_rate=_ratio(success_rate),
+        most_reliable_tool=_tool_error_rate(best),
+        struggling_tool=_tool_error_rate(struggling) if struggling else None,
+    )
+
+
+def _tool_error_rate(row: DimensionRow) -> ToolErrorRate:
+    return ToolErrorRate(tool=row.key, error_rate=_ratio(row.errors / row.calls), calls=row.calls)
 
 
 def _speed_card(aggregates: WrappedAggregates) -> SpeedCard | None:

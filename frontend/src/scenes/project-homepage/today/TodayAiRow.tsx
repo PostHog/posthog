@@ -5,7 +5,7 @@ import { Button } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
-import { TodayPromptRow } from './TodayPromptRow'
+import { TodayPromptItem } from './TodayPromptItem'
 import { todayPromptsLogic } from './todayPromptsLogic'
 
 const AI_ICON = { glyph: <IconSparkles /> }
@@ -25,7 +25,7 @@ export function TodayAiRow(): JSX.Element | null {
     )
     if (canEnableAi) {
         return (
-            <TodayPromptRow
+            <TodayPromptItem
                 icon={AI_ICON}
                 title="Turn on PostHog AI"
                 meta="Get reports on what needs you, and fixes for them. You approve this for the whole organization."
@@ -52,7 +52,7 @@ export function TodayAiRow(): JSX.Element | null {
         )
     }
     return (
-        <TodayPromptRow
+        <TodayPromptItem
             icon={AI_ICON}
             title="PostHog AI is off"
             meta={
