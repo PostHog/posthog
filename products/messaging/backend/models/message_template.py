@@ -64,7 +64,7 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
     def get_file_system_unfiled(cls, team: Team, surface: str = DEFAULT_SURFACE) -> QuerySet["MessageTemplate"]:
         return cls._filter_unfiled_queryset(
             cls.objects.filter(team=team, deleted=False).only(
-                "id", "team_id", "name", "created_at", "created_by_id", "deleted"
+                "id", "team_id", "name", "created_at", "created_by_id", "deleted", "type"
             ),
             team,
             type="message_template",
