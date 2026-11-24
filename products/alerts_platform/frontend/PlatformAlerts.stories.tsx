@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -443,8 +444,7 @@ export const ListGroupMenuAlertSnoozed: Story = {
     ],
     play: async ({ canvasElement }) => {
         await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
-        const item = await within(document.body).findByText('Snooze group for 1 hour')
-        item.closest('button')?.dispatchEvent(new MouseEvent('mouseenter'))
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
         await within(document.body).findByText('The whole alert is snoozed')
     },
 }
