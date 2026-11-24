@@ -20,7 +20,6 @@ export function PlatformAlertStateSummary({
 }: {
     configuration: PlatformAlertConfigurationApi
 }): JSX.Element {
-    // One group has no count to show, because its state is the alert's state.
     const showCounts = configuration.enabled && configuration.alerts.length > 1
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

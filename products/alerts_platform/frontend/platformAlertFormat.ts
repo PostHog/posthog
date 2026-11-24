@@ -81,7 +81,6 @@ export interface PlatformAlertStateCount {
     count: number
 }
 
-// One entry for each state the configuration's groups are in, most urgent first.
 export function configurationStateCounts(configuration: PlatformAlertConfigurationApi): PlatformAlertStateCount[] {
     if (!configuration.enabled) {
         return [{ status: 'disabled', count: configuration.alerts.length }]
