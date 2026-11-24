@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandParser
 from products.tasks.backend.facade import api as tasks_facade
 
 _SKIP_REASONS = {
+    "mode_unknown": "the sweep flag could not be read",
     "still_enforced": "the profile still enforces",
     "workflow_gone": "the workflow is no longer running",
     "moved_on": "the task has a newer run or the run changed",

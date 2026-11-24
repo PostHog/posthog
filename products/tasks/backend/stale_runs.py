@@ -21,7 +21,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.profiles import find_task_profile
-from products.tasks.backend.models import LIVE_RUN_STALE_AFTER, Task, TaskRun
+from products.tasks.backend.models import ENDED_BY_STALE_SWEEP_STATE_KEY, LIVE_RUN_STALE_AFTER, Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -50,15 +50,10 @@ class SweepMode(StrEnum):
 
 class ReopenOutcome(StrEnum):
     REOPENED = "reopened"
+    MODE_UNKNOWN = "mode_unknown"
     STILL_ENFORCED = "still_enforced"
     WORKFLOW_GONE = "workflow_gone"
     MOVED_ON = "moved_on"
-
-
-SWEEP_ERROR_MESSAGES: dict[StaleRule, str] = {
-    StaleRule.HEARTBEAT: "This run stopped responding, so it was ended.",
-    StaleRule.NO_WRITES_24H: "This run made no progress for a day, so it was ended.",
-}
 
 
 @frozen
@@ -307,7 +302,7 @@ def reopen_swept_run(run_id: UUID, team_id: int, *, dry_run: bool = False) -> bo
                 id=run_id,
                 team_id=team_id,
                 status=TaskRun.Status.FAILED,
-                error_message__in=list(SWEEP_ERROR_MESSAGES.values()),
+                state__has_key=ENDED_BY_STALE_SWEEP_STATE_KEY,
             )
             .first()
         )
@@ -320,29 +315,35 @@ def reopen_swept_run(run_id: UUID, team_id: int, *, dry_run: bool = False) -> bo
         run.status = TaskRun.Status.IN_PROGRESS
         run.error_message = None
         run.completed_at = None
-        run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
+        run.state.pop(ENDED_BY_STALE_SWEEP_STATE_KEY)
+        run.save(update_fields=["status", "error_message", "completed_at", "state", "updated_at"])
     return True
 
 
 def reopen_swept_runs(
     *, profile: str, hours: int, team_id: int | None, check_workflows: bool, dry_run: bool
 ) -> Iterator[ReopenOutcome]:
-    profile_key = None if profile == NO_PROFILE else profile
     swept = TaskRun.objects.filter(
         status=TaskRun.Status.FAILED,
         environment=TaskRun.Environment.CLOUD,
-        error_message__in=list(SWEEP_ERROR_MESSAGES.values()),
-        updated_at__gte=timezone.now() - timedelta(hours=hours),
-        task__profile=profile_key,
+        state__has_key=ENDED_BY_STALE_SWEEP_STATE_KEY,
+        completed_at__gte=timezone.now() - timedelta(hours=hours),
+        task__profile=None if profile == NO_PROFILE else profile,
     )
     if team_id is not None:
         swept = swept.filter(team_id=team_id)
     runs = list(swept.order_by("id").values_list("id", "team_id", "task_id", "state__workflow_id"))
     teams = Team.objects.only("id", "uuid", "organization_id").in_bulk({run_team_id for _, run_team_id, _, _ in runs})
+    modes: dict[int, SweepMode | None] = {}
     workflows = WorkflowLiveness()
     for run_id, run_team_id, task_id, persisted_workflow_id in runs:
         workflow_id = persisted_workflow_id or TaskRun.get_workflow_id(task_id, run_id)
-        if sweep_mode(profile_key, teams[run_team_id]) == SweepMode.ENFORCE:
+        if run_team_id not in modes:
+            modes[run_team_id] = _resolve_mode(SWEEP_FLAG, profile, teams[run_team_id])
+        mode = modes[run_team_id]
+        if mode is None:
+            yield ReopenOutcome.MODE_UNKNOWN
+        elif mode == SweepMode.ENFORCE:
             yield ReopenOutcome.STILL_ENFORCED
         elif check_workflows and not workflows.is_running(workflow_id):
             yield ReopenOutcome.WORKFLOW_GONE
