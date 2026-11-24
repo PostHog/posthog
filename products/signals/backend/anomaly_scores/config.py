@@ -86,7 +86,7 @@ DEFAULT_PROFILE = ScoringProfile(
     },
 )
 
-# The local part is `default-v1`, so it flags the same buckets before the judge, and reads the same stored models.
+# The local part is `default-v1`, so it flags the same buckets before the judge.
 AI_JUDGE_PROFILE = ScoringProfile(
     name="default-v2",
     model_profile=DEFAULT_PROFILE.model_profile,
