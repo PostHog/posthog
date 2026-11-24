@@ -450,7 +450,7 @@ class TestProxyRecordAPI(APIBaseTest):
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
     def test_allowlisted_org_can_retry_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock()
+        mock_temporal = AsyncMock(spec=Client)
         mock_sync_connect.return_value = mock_temporal
         record = ProxyRecord.objects.create(
             organization=self.organization,
@@ -548,49 +548,24 @@ class TestProxyRecordAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
-            ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+            ("erroring_retry_first", ProxyRecord.Status.ERRORING, "Cloudflare API error", False),
+            ("timed_out_retry_first", ProxyRecord.Status.TIMED_OUT, None, False),
+            ("erroring_sweep_first", ProxyRecord.Status.ERRORING, "Cloudflare API error", True),
         ]
     )
-    @patch("posthog.api.proxy_record.sync_connect")
-    @patch("posthoganalytics.capture")
-    def test_retry_proxy_record(self, _name, initial_status, initial_message, mock_capture, mock_sync_connect):
-        mock_temporal = AsyncMock(spec=Client)
-        mock_sync_connect.return_value = mock_temporal
-
-        record = ProxyRecord.objects.create(
-            organization=self.organization,
-            created_by=self.user,
-            domain="retry.example.com",
-            target_cname="abc123.proxy.posthog.com",
-            status=initial_status,
-            message=initial_message,
-        )
-
-        response = self.client.post(
-            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
-        )
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["status"] == "waiting"
-        assert data["message"] is None
-
-        record.refresh_from_db()
-        assert record.status == ProxyRecord.Status.WAITING
-        assert record.message is None
-        assert mock_temporal.start_workflow.call_args.kwargs["id"] == f"proxy-create-{record.id}"
-
-    @parameterized.expand([("retry_first", False), ("sweep_first", True)])
     @override_settings(CLOUDFLARE_PROXY_BASE_CNAME="proxy.example.com")
-    def test_retry_and_reconciliation_share_a_workflow(self, _name: str, sweep_first: bool) -> None:
+    def test_retry_and_reconciliation_share_a_workflow(
+        self, _name: str, initial_status: str, initial_message: str | None, sweep_first: bool
+    ) -> None:
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
             domain="retry.example.com",
             target_cname="abc123.proxy.example.com",
-            status=ProxyRecord.Status.ERRORING,
+            status=initial_status,
+            message=initial_message,
         )
-        running = set()
+        running: set[str] = set()
 
         async def start_workflow(
             workflow: str, inputs: object, *, id: str, task_queue: str, id_conflict_policy: WorkflowIDConflictPolicy
@@ -612,10 +587,9 @@ class TestProxyRecordAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
 
             record.refresh_from_db()
-            if sweep_first:
-                assert record.status == ProxyRecord.Status.ERRORING
-            else:
-                assert record.status == ProxyRecord.Status.WAITING
+            assert response.json()["status"] == record.status == (initial_status if sweep_first else "waiting")
+            assert response.json()["message"] == record.message == (initial_message if sweep_first else None)
+            if not sweep_first:
                 ProxyRecord.objects.filter(id=record.id).update(status=ProxyRecord.Status.ISSUING)
                 reconcile_proxy.run(str(self.organization.id), str(record.id))
 
