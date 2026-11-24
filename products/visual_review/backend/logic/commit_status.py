@@ -24,7 +24,7 @@ from posthog.models.instance_setting import get_instance_setting
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
 from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
-from ..models import Repo, Run
+from ..models import BaselineApproval, Repo, Run
 from . import (
     app_urls,
     baseline_approvals,
@@ -46,6 +46,7 @@ NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
 NO_SETUP_CHECK_DESCRIPTION = "No setup check given"
 NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
 RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
+CLAMPED_CHANGES_DESCRIPTION = "Merge master, then re-run Visual Review: this branch is older than the baseline history"
 # The state of a recheck verdict that posts nothing on the head.
 NO_STATUS_STATE = "skipped"
 
@@ -131,6 +132,9 @@ class RunFacts:
     stale_approvals: int = 0
     # Set for a run the baseline file classified, which passes only when the ledger agrees.
     ledger_recheck: ledger_recheck.LedgerRecheck | None = None
+    # The ledger resolved the run at its first commit, because the merge base is older. The run
+    # then also lists the default branch's changes since the merge base, and only a merge fixes that.
+    clamped: bool = False
 
 
 @frozen
@@ -151,6 +155,8 @@ def _review_verdict(facts: RunFacts) -> StatusVerdict:
     if facts.approved:
         return StatusVerdict(state="success", description="Visual changes approved")
     if facts.unresolved > 0:
+        if facts.clamped:
+            return StatusVerdict(state="failure", description=CLAMPED_CHANGES_DESCRIPTION)
         return StatusVerdict(state="failure", description=f"Visual changes detected: {facts.changes_summary}")
     if facts.awaiting_finalize > 0:
         return StatusVerdict(
@@ -244,6 +250,8 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
             stale = len(baseline_approvals.stale_approvals(run))
         if passes_review and stale == 0:
             recheck = ledger_recheck.recheck_run(run)
+    record = baseline_record.record_for_run(run)
+    clamped = record is not None and record.mode == BaselineMode.LEDGER and record.clamped_to_seed
     return RunFacts(
         status=RunStatus(run.status),
         error_message=run.error_message,
@@ -257,6 +265,7 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
         hidden_by_quarantine=hidden,
         stale_approvals=stale,
         ledger_recheck=recheck,
+        clamped=clamped,
     )
 
 
@@ -396,6 +405,45 @@ def publish_for_pull_requests(repo: Repo, pull_requests: set[tuple[int, str]]) -
     }
     for commit_sha, run_type in sorted(commits):
         schedule_publish(repo, commit_sha, run_type)
+
+
+def pull_requests_applying(repo: Repo, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
+    """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
+
+    A stack child applies its parent's approval through the overlay without owning it, so only its
+    record links the two.
+    """
+    if not approvals:
+        return set()
+    runs = (
+        Run.objects.using(WRITER_DB)
+        .filter(
+            repo_id=repo.id,
+            run_type__in={approval.run_type for approval in approvals},
+            status=RunStatus.COMPLETED,
+            superseded_by__isnull=True,
+            pr_number__isnull=False,
+            metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
+        )
+        .values_list("pr_number", "run_type")
+        .distinct()
+    )
+    return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
+
+
+def publish_after_approvals_close(repo: Repo, closed: list[BaselineApproval]) -> None:
+    """Publish again, once the caller's transaction commits, for the current runs that applied a closed approval.
+
+    A stack layer's approval can count through the open approval of the layer below it, so its passing
+    status rests on that approval staying open. Closing an approval without a ledger entry changes no
+    ledger hash, so nothing else publishes those runs again. The reads and posts run after the commit,
+    so none of them runs under the ledger lock.
+    """
+    if not closed or not guards_stale_approvals(repo):
+        return
+    transaction.on_commit(
+        lambda: publish_for_pull_requests(repo, pull_requests_applying(repo, closed)), using=WRITER_DB, robust=True
+    )
 
 
 def publish(repo: Repo, commit_sha: str, run_type: str) -> None:

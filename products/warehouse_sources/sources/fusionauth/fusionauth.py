@@ -250,16 +250,24 @@ def _build_search_body(config: FusionAuthEndpointConfig, search_extra: dict[str,
     return {"search": search}
 
 
+def _drop_path(target: Any, keys: list[str]) -> None:
+    if not isinstance(target, dict):
+        return
+    key, *rest = keys
+    if not rest:
+        target.pop(key, None)
+        return
+    # A `*` segment matches every value of a map keyed by ids.
+    children = list(target.values()) if key == "*" else [target.get(key)]
+    for child in children:
+        _drop_path(child, rest)
+
+
 def _drop_fields(row: Any, paths: tuple[str, ...]) -> Any:
     if not isinstance(row, dict):
         return row
     for path in paths:
-        *parents, leaf = path.split(".")
-        target: Any = row
-        for key in parents:
-            target = target.get(key) if isinstance(target, dict) else None
-        if isinstance(target, dict):
-            target.pop(leaf, None)
+        _drop_path(row, path.split("."))
     return row
 
 

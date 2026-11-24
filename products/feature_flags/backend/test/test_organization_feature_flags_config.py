@@ -9,9 +9,10 @@ from posthog.models.organization import Organization
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import (
-    flag_calls_only_in_flag_evaluations,
+    events_lack_new_flag_calls,
     is_flag_evaluations_table_enabled,
     reads_flag_calls_from_flag_evaluations,
+    reads_flag_calls_without_events_fallback,
 )
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -100,6 +101,23 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
                 reads_forced_to_events=True,
             ),
             param("legacy_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, reads=True, only=True),
+            param(
+                "legacy_only_that_keeps_events_writes",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                reads=True,
+                only=False,
+                no_fallback=True,
+                keeps_events_writes=True,
+            ),
+            param(
+                "legacy_only_that_keeps_events_writes_forced_to_events",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                reads=False,
+                only=False,
+                no_fallback=False,
+                keeps_events_writes=True,
+                reads_forced_to_events=True,
+            ),
             param("native_events", FlagEvaluationsMode.EVENTS, reads=True, only=True, native=True),
             param("native_read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, reads=True, only=True, native=True),
             param(
@@ -147,9 +165,13 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
         query_reads_native: bool | None = None,
         cloud: bool = True,
         reads_forced_to_events: bool = False,
+        keeps_events_writes: bool = False,
+        no_fallback: bool | None = None,
     ) -> None:
         modifiers = HogQLQueryModifiers(useNewEventsSchema=query_reads_native)
-        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=mode, keep_writing_flag_calls_to_events=keeps_events_writes
+        )
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native),
@@ -157,4 +179,7 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(reads_flag_calls_from_flag_evaluations(self.team, modifiers), reads)
-            self.assertEqual(flag_calls_only_in_flag_evaluations(self.team), only)
+            self.assertEqual(events_lack_new_flag_calls(self.team), only)
+            self.assertEqual(
+                reads_flag_calls_without_events_fallback(self.team), only if no_fallback is None else no_fallback
+            )

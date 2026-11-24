@@ -60,7 +60,7 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-// Semantic `tone` tints a callout: a status or warning that sits in the page, not a clickable row.
+// Semantic `tone` tints a row, such as an entry in a status list. For an inline message, use `Callout`.
 export const Tones: Story = {
     render: () => {
         const tones = [

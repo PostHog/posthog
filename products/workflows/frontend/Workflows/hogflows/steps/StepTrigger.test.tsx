@@ -105,6 +105,7 @@ describe('StepTriggerConfiguration', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            flag_calls_only_in_flag_evaluations: true,
         })
         useMocks({
             get: {

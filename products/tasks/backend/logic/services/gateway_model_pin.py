@@ -18,8 +18,8 @@ _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
-    # Only ReviewHog's arm-set trial calls it.
-    "gpt-6.1-terra": frozenset({"review_hog"}),
+    # Only ReviewHog's arm-set trial and the first-report model experiment call it.
+    "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
 }
 
 
@@ -73,6 +73,7 @@ FREE_TIER_PIN_KEY = "posthog_code:free"
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _first_party_pin("posthog_ai"),
     "account_audit": _first_party_pin("account_audit"),
+    "autoresearch": _first_party_pin("autoresearch"),
     "onboarding": ["claude-sonnet-5", "claude-opus-4-8"],
     "conversations": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"],
     "background_agents": _first_party_pin("background_agents"),
