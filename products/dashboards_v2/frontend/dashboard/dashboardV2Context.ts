@@ -46,7 +46,8 @@ export interface DashboardV2State extends Omit<DashboardV2Controller, 'activeTab
     activeTab: GridTab
     sizeOf: SizeOf
     can: (action: DashboardV2Action) => boolean
-    downloadImage: (format: ImageFormat) => void
+    /** Downloads the tab on screen, or with `tileId`, just that tile. */
+    downloadImage: (format: ImageFormat, tileId?: string) => void
     downloadingImage: boolean
 }
 

@@ -19,6 +19,7 @@ import { type ImageFormat, downloadDashboardImage } from './dashboardImage'
 import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
 import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
+import { findTile } from './tileTree'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
 const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
@@ -37,6 +38,39 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
+/** The image's file name and the toasts while it is drawn. */
+function imageWords(
+    dashboard: Dashboard,
+    activeTabId: string | null,
+    tileId: string | undefined
+): { file: string; pending: string; success: string } {
+    const tile = tileId ? findTile(dashboard, tileId) : null
+    if (tile?.widget.title) {
+        const title = tile.widget.title
+        return {
+            file: `${dashboard.title} ${title}`,
+            pending: `Drawing "${title}"`,
+            success: `Image of "${title}" downloaded`,
+        }
+    }
+    if (tile) {
+        return {
+            file: `${dashboard.title} tile`,
+            pending: 'Drawing the tile',
+            success: 'Image of the tile downloaded',
+        }
+    }
+    const tab = activeGridTab(dashboard, activeTabId).title
+    if (gridTabs(dashboard).length > 1) {
+        return {
+            file: `${dashboard.title} ${tab}`,
+            pending: `Drawing every tile on the "${tab}" tab`,
+            success: `Image of the "${tab}" tab downloaded`,
+        }
+    }
+    return { file: dashboard.title, pending: 'Drawing every tile', success: 'Image downloaded' }
+}
+
 export function DashboardV2View({ controller, header }: DashboardV2ViewProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
@@ -52,24 +86,20 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     // While set, every tile mounts, so the image has no placeholders.
     const [downloadingImage, setDownloadingImage] = useState(false)
     const downloadImage = useCallback(
-        async (format: ImageFormat): Promise<void> => {
-            const root = rootRef.current
+        async (format: ImageFormat, tileId?: string): Promise<void> => {
+            const page = rootRef.current
+            const root = tileId ? page?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(tileId)}"]`) : page
             if (!root) {
                 return
             }
             setDownloadingImage(true)
             try {
-                const { dashboard, activeTabId } = controller
-                const tab = activeGridTab(dashboard, activeTabId).title
-                const oneOfMany = gridTabs(dashboard).length > 1
-                await lemonToast.promise(
-                    downloadDashboardImage(root, oneOfMany ? `${dashboard.title} ${tab}` : dashboard.title, format),
-                    {
-                        pending: oneOfMany ? `Drawing every tile on the "${tab}" tab` : 'Drawing every tile',
-                        success: oneOfMany ? `Image of the "${tab}" tab downloaded` : 'Image downloaded',
-                        error: 'Could not create the image. Try again.',
-                    }
-                )
+                const words = imageWords(controller.dashboard, controller.activeTabId, tileId)
+                await lemonToast.promise(downloadDashboardImage(root, words.file, format), {
+                    pending: words.pending,
+                    success: words.success,
+                    error: 'Could not create the image. Try again.',
+                })
             } catch {
                 // The toast already says it failed.
             } finally {
@@ -94,7 +124,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             can: (action) => disabledReasonFor(action) === null,
             onEdit: (edit) => hostOnEdit(edit, view),
             onSectionFoldedChange,
-            downloadImage: (format) => void downloadImage(format),
+            downloadImage: (format, tileId) => void downloadImage(format, tileId),
             downloadingImage,
         }
     }, [controller, stacked, sizeOf, folds, onSectionFoldedChange, downloadImage, downloadingImage])

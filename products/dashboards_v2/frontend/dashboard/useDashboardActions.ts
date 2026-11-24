@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
 import { showAction } from '../presentation/tileAppearance'
-import { IMAGE_FORMATS, canWriteImage } from './dashboardImage'
+import { downloadImageAction } from './dashboardImage'
 import { gridTabs } from './dashboardTypes'
 import { useDashboardV2 } from './dashboardV2Context'
 import type { MenuAction } from './menuAction'
@@ -25,21 +25,10 @@ export function useDashboardActions(): MenuAction[] {
     // The image shows only the tab on screen, so with several tabs the menu names it.
     const label = gridTabs(dashboard).length > 1 ? `Download "${activeTab.title}" tab as image` : 'Download image'
     return useMemo(() => {
-        const busy = downloadingImage ? 'Making the image' : null
         const actions: MenuAction[] = [
-            {
-                key: 'download-image',
-                label,
-                dataAttr: 'dashboard-v2-download-image',
-                disabledReason: busy,
-                submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
-                    key: format,
-                    label,
-                    dataAttr: `dashboard-v2-download-image-${format}`,
-                    disabledReason: busy,
-                    onSelect: () => downloadImage(format),
-                })),
-            },
+            downloadImageAction(label, 'dashboard-v2-download-image', downloadingImage, (format) =>
+                downloadImage(format)
+            ),
         ]
         const appearance = showAction(
             { key: 'tab-appearance', label: 'All tiles', dataAttr: 'dashboard-v2-tab-appearance' },

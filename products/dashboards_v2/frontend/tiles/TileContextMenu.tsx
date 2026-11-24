@@ -17,8 +17,9 @@ import {
 } from '@posthog/quill'
 
 import type { DashboardEdit } from '../dashboard/dashboardEdits'
+import { downloadImageAction } from '../dashboard/dashboardImage'
 import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
-import { useDashboardV2 } from '../dashboard/dashboardV2Context'
+import { type DashboardV2State, useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
@@ -52,7 +53,8 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
 }
 
 export function useContentTileActions(id: string, widget: ContentWidget): MenuAction[] {
-    const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions } = useDashboardV2()
+    const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } =
+        useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const definition = findWidget(widgets, widget.type)
 
@@ -93,6 +95,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
             }),
         })
     }
+    actions.push(tileImageAction(id, downloadingImage, downloadImage))
     const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
     if (show) {
         actions.push(show)
@@ -125,6 +128,16 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
 // pinned: `dashboard-v2-tile-parts` data-attrs shipped before border and background joined this menu.
 const TILE_SHOW = { key: 'parts', label: 'Show', dataAttr: 'dashboard-v2-tile-parts' }
 
+function tileImageAction(
+    id: string,
+    downloadingImage: boolean,
+    downloadImage: DashboardV2State['downloadImage']
+): MenuAction {
+    return downloadImageAction('Download as image', 'dashboard-v2-tile-download-image', downloadingImage, (format) =>
+        downloadImage(format, id)
+    )
+}
+
 const AUTO_LAYOUT_COLUMNS = [1, 2, 3, 4]
 
 function autoLayoutAction(
@@ -150,7 +163,7 @@ function autoLayoutAction(
 }
 
 export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
-    const { widgets, disabledReasonFor, onEdit, tileActions } = useDashboardV2()
+    const { widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } = useDashboardV2()
     const show = showAction(TILE_SHOW, [{ id, widget }], widgets, disabledReasonFor('setTilesSetting'), onEdit)
     const actions: MenuAction[] = [
         {
@@ -160,6 +173,7 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             disabledReason: disabledReasonFor('updateSection'),
             onSelect: onStartRename,
         },
+        tileImageAction(id, downloadingImage, downloadImage),
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
         ...(show ? [show] : []),
         {

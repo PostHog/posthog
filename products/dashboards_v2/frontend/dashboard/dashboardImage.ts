@@ -2,6 +2,8 @@ import { captureElementAsImage } from 'lib/utils/copyImageToClipboard'
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
+import type { MenuAction } from './menuAction'
+
 export type ImageFormat = 'png' | 'webp'
 
 export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
@@ -31,4 +33,26 @@ export async function downloadDashboardImage(root: HTMLElement, title: string, f
     await waitUntilReady(root)
     const blob = await captureElementAsImage(root, LEFT_OUT, `image/${format}`)
     downloadFile(new File([blob], `${slugify(title) || 'dashboard'}.${format}`, { type: blob.type }))
+}
+
+export function downloadImageAction(
+    label: string,
+    dataAttr: string,
+    downloadingImage: boolean,
+    download: (format: ImageFormat) => void
+): MenuAction {
+    const busy = downloadingImage ? 'Making the image' : null
+    return {
+        key: 'download-image',
+        label,
+        dataAttr,
+        disabledReason: busy,
+        submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
+            key: format,
+            label,
+            dataAttr: `${dataAttr}-${format}`,
+            disabledReason: busy,
+            onSelect: () => download(format),
+        })),
+    }
 }
