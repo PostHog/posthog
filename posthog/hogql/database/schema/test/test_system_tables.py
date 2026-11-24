@@ -107,7 +107,12 @@ from products.error_tracking.backend.facade.testing import (
     create_symbol_set,
 )
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
-from products.experiments.backend.facade.testing import create_experiment
+from products.experiments.backend.facade.testing import (
+    create_experiment,
+    create_saved_metric,
+    link_saved_metric,
+    update_experiment,
+)
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
@@ -182,6 +187,8 @@ TEAM_ID_FILTER_PATTERNS: dict[str, str | tuple[str, ...]] = {
     # Runs have no team_id column; isolation is enforced via a predicate scoping through the
     # run's parent (scheduled or on-demand batch export)
     "batch_export_runs": "system__batch_exports.team_id",
+    # Saved metric links have no team_id column; isolation flows through system.experiments
+    "experiment_to_saved_metrics": "system__experiments.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_event_definition_tagged_items": "system___event_definition_tagged_items.team_id",
@@ -699,6 +706,16 @@ def _create_hog_function(team: Team, label: str) -> HogFunction:
 def _create_experiment(team: Team, label: str) -> int:
     flag = FeatureFlag.objects.create(team=team, key=f"flag_for_exp_{label}")
     return create_experiment(team_id=team.id, name=f"experiment_{label}", feature_flag_id=flag.id)
+
+
+def _create_experiment_saved_metric(team: Team, label: str) -> int:
+    return create_saved_metric(team_id=team.id, name=f"saved_metric_{label}", query={"kind": "ExperimentMetric"})
+
+
+def _create_experiment_to_saved_metric(team: Team, label: str) -> int:
+    return link_saved_metric(
+        experiment_id=_create_experiment(team, label), saved_metric_id=_create_experiment_saved_metric(team, label)
+    )
 
 
 def _create_export(team: Team, label: str) -> ExportedAsset:
@@ -1260,6 +1277,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("event_definitions", _create_event_definition),
     ("evaluations", _create_evaluation),
     ("experiments", _create_experiment),
+    ("experiment_saved_metrics", _create_experiment_saved_metric),
+    ("experiment_to_saved_metrics", _create_experiment_to_saved_metric),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
     ("feature_request_account_links", _create_feature_request_account_link),
@@ -2464,6 +2483,94 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
             user=self.user,
         )
         assert response.results == []
+
+
+class TestSystemExperimentAndFlagColumns(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("enabled", True, 1), ("disabled", False, 0)])
+    def test_feature_flag_active(self, _name, active, expected):
+        FeatureFlag.objects.create(team=self.team, key="flag", active=active)
+
+        response = execute_hogql_query("SELECT key, active FROM system.feature_flags", team=self.team, user=self.user)
+
+        assert response.results == [("flag", expected)]
+
+    def test_experiment_metric_config_and_status_columns(self):
+        metric = {"kind": "ExperimentMetric", "metric_type": "funnel", "conversion_window": 14}
+        secondary_metric = {"kind": "ExperimentMetric", "metric_type": "mean"}
+        exposure_criteria = {"filterTestAccounts": True, "multiple_variant_handling": "exclude"}
+        stats_config = {"method": "frequentist", "frequentist": {"alpha": 0.05}}
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            name="checkout",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            end_date=datetime(2026, 2, 1, tzinfo=UTC),
+            metrics=[metric],
+            metrics_secondary=[secondary_metric],
+            exposure_criteria=exposure_criteria,
+        )
+        update_experiment(
+            team_id=self.team.id,
+            experiment_id=experiment_id,
+            stats_config=stats_config,
+            conclusion="won",
+            conclusion_comment="clear winner",
+        )
+
+        response = execute_hogql_query(
+            "SELECT status, conclusion, conclusion_comment, metrics, metrics_secondary, exposure_criteria, "
+            "stats_config, deleted FROM system.experiments",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:3] == ("stopped", "won", "clear winner")
+        assert [json.loads(value) for value in row[3:7]] == [
+            [metric],
+            [secondary_metric],
+            exposure_criteria,
+            stats_config,
+        ]
+        assert row[7] == 0
+
+    @parameterized.expand([("not_deleted", False, 0), ("deleted", True, 1), ("legacy_null", None, 0)])
+    def test_experiment_deleted(self, _name, deleted, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, deleted=deleted)
+
+        response = execute_hogql_query("SELECT deleted FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    def test_saved_metrics_join_to_their_experiments(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="checkout")
+        unused_flag = FeatureFlag.objects.create(team=self.team, key="other_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=unused_flag.id, name="unused")
+        saved_metric_id = create_saved_metric(
+            team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric", "metric_type": "mean"}
+        )
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id, metadata={"type": "secondary"})
+
+        response = execute_hogql_query(
+            "SELECT e.name, m.name, m.query, l.metadata "
+            "FROM system.experiment_to_saved_metrics AS l "
+            "JOIN system.experiments AS e ON e.id = l.experiment_id "
+            "JOIN system.experiment_saved_metrics AS m ON m.id = l.saved_metric_id",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        experiment_name, metric_name, query, metadata = response.results[0]
+        assert (experiment_name, metric_name) == ("checkout", "revenue")
+        assert json.loads(query) == {"kind": "ExperimentMetric", "metric_type": "mean"}
+        assert json.loads(metadata) == {"type": "secondary"}
 
 
 class TestSystemDefinitionTables(NonAtomicBaseTest):

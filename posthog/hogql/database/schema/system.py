@@ -942,6 +942,105 @@ experiments: PostgresTable = PostgresTable(
             name="feature_flag_id",
             description="Feature flag controlling variant assignment; joins to feature_flags.id.",
         ),
+        "status": StringDatabaseField(
+            name="status",
+            nullable=True,
+            description="Lifecycle status: 'draft', 'running' or 'stopped'.",
+        ),
+        "conclusion": StringDatabaseField(
+            name="conclusion",
+            nullable=True,
+            description="Outcome set when the experiment ends: 'won', 'lost', 'inconclusive', 'stopped_early' "
+            "or 'invalid'; NULL until concluded.",
+        ),
+        "conclusion_comment": StringDatabaseField(
+            name="conclusion_comment", nullable=True, description="Free-text note on the conclusion."
+        ),
+        "metrics": StringJSONDatabaseField(
+            name="metrics",
+            nullable=True,
+            description="JSON list of the primary metric definitions (metric type, source, conversion window, "
+            "math). Saved metrics are in experiment_to_saved_metrics.",
+        ),
+        "metrics_secondary": StringJSONDatabaseField(
+            name="metrics_secondary",
+            nullable=True,
+            description="JSON list of the secondary metric definitions, same shape as metrics.",
+        ),
+        "exposure_criteria": StringJSONDatabaseField(
+            name="exposure_criteria",
+            nullable=True,
+            description="JSON config that decides which users count as exposed, e.g. the exposure event and "
+            "multiple-variant handling.",
+        ),
+        "stats_config": StringJSONDatabaseField(
+            name="stats_config",
+            nullable=True,
+            description="JSON statistical settings, e.g. the method (bayesian or frequentist) and its parameters.",
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", nullable=True, hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(
+                name="ifNull",
+                args=[ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]), ast.Constant(value=0)],
+            ),
+            description="1 if the experiment has been deleted, 0 otherwise.",
+        ),
+    },
+)
+
+experiment_saved_metrics: PostgresTable = PostgresTable(
+    name="experiment_saved_metrics",
+    postgres_table_name="posthog_experimentsavedmetric",
+    access_scope="experiment",
+    # Grants on experiments are keyed by experiment id, which can never match a saved metric id.
+    resource_level_access_only=True,
+    description="Reusable experiment metrics shared across experiments; one row per saved metric. "
+    "Link them to experiments through experiment_to_saved_metrics.",
+    fields={
+        "id": IntegerDatabaseField(name="id", description="Saved metric id."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+        "name": StringDatabaseField(name="name", description="Saved metric name."),
+        "description": StringDatabaseField(name="description", nullable=True, description="Saved metric description."),
+        "query": StringJSONDatabaseField(
+            name="query", description="JSON metric definition, same shape as an item of experiments.metrics."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the saved metric."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the saved metric was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the saved metric was last updated."),
+    },
+)
+
+
+class _ExperimentScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """The link table has no `team_id` column; isolation flows through `system.experiments`."""
+
+    predicates: list[Expr] = [parse_expr("experiment_id IN (SELECT id FROM system.experiments)")]
+
+
+experiment_to_saved_metrics: _ExperimentScopedPostgresTable = _ExperimentScopedPostgresTable(
+    name="experiment_to_saved_metrics",
+    postgres_table_name="posthog_experimenttosavedmetric",
+    access_scope="experiment",
+    access_control_id_field="experiment_id",
+    description="Links experiments to the saved metrics they use; one row per experiment and saved metric pair.",
+    fields={
+        "id": IntegerDatabaseField(name="id", description="Link row id."),
+        "experiment_id": IntegerDatabaseField(
+            name="experiment_id", description="Experiment that uses the metric; joins to experiments.id."
+        ),
+        "saved_metric_id": IntegerDatabaseField(
+            name="saved_metric_id", description="Saved metric used; joins to experiment_saved_metrics.id."
+        ),
+        "metadata": StringJSONDatabaseField(
+            name="metadata",
+            description="JSON settings for this use of the metric, e.g. type 'primary' or 'secondary'.",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the metric was added."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the link was last updated."),
     },
 )
 
@@ -1361,6 +1460,12 @@ feature_flags: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the flag has been deleted, 0 otherwise.",
+        ),
+        "_active": BooleanDatabaseField(name="active", hidden=True),
+        "active": ExpressionField(
+            name="active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_active"])]),
+            description="1 if the flag is enabled, 0 if it is disabled.",
         ),
     },
 )
@@ -4842,6 +4947,8 @@ class SystemTables(TableNode):
         "evaluation_directories": TableNode(name="evaluation_directories", table=evaluation_directories),
         "evaluations": TableNode(name="evaluations", table=evaluations),
         "experiments": TableNode(name="experiments", table=experiments),
+        "experiment_saved_metrics": TableNode(name="experiment_saved_metrics", table=experiment_saved_metrics),
+        "experiment_to_saved_metrics": TableNode(name="experiment_to_saved_metrics", table=experiment_to_saved_metrics),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "feature_request_account_links": TableNode(
