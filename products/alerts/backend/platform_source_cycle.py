@@ -617,7 +617,7 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
 
     A failed check moves no instance, so its incident stays open with its firing. Closing it would
     leave a re-enabled alert that still breaches firing with no incident. The check after it reads
-    ERRORED, so the firing start the instance kept is what says that check closes the incident.
+    ERRORED, so the firing the instance kept is what says that check closes the incident.
     """
     policy = _policy(check) if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
     actions: dict[str, IncidentAction] = {}
@@ -627,7 +627,7 @@ def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutc
             AlertState(before.state),
             AlertState(group.new_state),
             policy=policy,
-            firing_started_at=before.firing_started_at,
+            failed_while_firing=before.failed_while_firing,
         )
         if action is not None:
             actions[group.grouping_key] = action
@@ -651,6 +651,7 @@ def _snapshot(
         AlertState(instance.state),
         last_notified_at=instance.last_notified_at,
         firing_started_at=instance.firing_started_at,
+        failed_while_firing=instance.failed_while_firing,
         snooze_until=snooze_until,
     )
 
