@@ -415,7 +415,13 @@ export async function accepts(url: string): Promise<void> {
     })
 }
 
-export type ProbeFailure = { name: string; reason: string; unanswered: boolean; hostLimit?: string }
+export type ProbeFailure = {
+    name: string
+    reason: string
+    unanswered: boolean
+    hostLimit?: string
+    sockets?: Record<string, number>
+}
 
 export type Probes = Record<string, () => Promise<unknown>>
 
@@ -444,6 +450,25 @@ const HOST_LIMITS: Record<string, string> = {
 
 const TIMER_SLACK_MS = 10
 
+const SOCKET_GROUPS_KEPT = 20
+
+// What held the host's ports is gone once the run ends, so the check keeps the busiest TCP states and peers.
+async function socketsOf(): Promise<Record<string, number> | undefined> {
+    try {
+        const { stdout } = await promisify(execFile)('ss', ['-tanH'], { timeout: PROBE_TIMEOUT_MS })
+        const counts = new Map<string, number>()
+        for (const line of stdout.split('\n')) {
+            const [state, , , , peer] = line.trim().split(/\s+/)
+            if (peer !== undefined) {
+                counts.set(`${state} ${peer}`, (counts.get(`${state} ${peer}`) ?? 0) + 1)
+            }
+        }
+        return Object.fromEntries([...counts].sort(([, a], [, b]) => b - a).slice(0, SOCKET_GROUPS_KEPT))
+    } catch {
+        return undefined
+    }
+}
+
 const codeOf = (error: unknown): unknown =>
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
 
@@ -468,11 +493,13 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
                 const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
                 const reason = error instanceof Error ? error.message : String(error)
                 const hostLimit = hostLimitOf(error)
+                const sockets = hostLimit ? await socketsOf() : undefined
                 return {
                     name,
                     reason,
                     unanswered: ranOutItsClock && !isAnswer(error),
                     ...(hostLimit ? { hostLimit } : {}),
+                    ...(sockets ? { sockets } : {}),
                 }
             }
         })

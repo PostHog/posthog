@@ -12,6 +12,7 @@ const POSTGRES = defaultConfig.DATABASE_URL!
 const UNREACHABLE_POSTGRES = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
 const VALKEY = { host: '127.0.0.1', port: 6379 }
 const RUNNER_BLOCKS_MS = 2100
+const HELD_SOCKETS = 200
 
 const busyFor = (ms: number): void => {
     const until = performance.now() + ms
@@ -118,11 +119,23 @@ describe('dependency watch', () => {
             code: 'EADDRNOTAVAIL',
         })
 
-        const { reason } = await watched({ 'provider-edge': () => Promise.reject(noPort) })
-
-        expect(reason).toBe(
-            'the run host ran out of local ports to check provider-edge in the 320x step (connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)), a harness limit: the run cannot tell whether it stayed up'
+        const held = await Promise.all(
+            Array.from({ length: HELD_SOCKETS }, async () => {
+                const socket = net.connect(silentPort, '127.0.0.1')
+                await new Promise((resolve) => socket.once('connect', resolve))
+                return socket
+            })
         )
+        try {
+            const { losses, reason } = await watched({ 'provider-edge': () => Promise.reject(noPort) })
+
+            expect({ reason, held: losses[0].sockets?.[`ESTAB 127.0.0.1:${silentPort}`] }).toEqual({
+                reason: 'the run host ran out of local ports to check provider-edge in the 320x step (connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)), a harness limit: the run cannot tell whether it stayed up',
+                held: HELD_SOCKETS,
+            })
+        } finally {
+            held.forEach((socket) => socket.destroy())
+        }
     })
 
     it('names a harness limit when a busy Redis check runs out its budget without an answer', async () => {

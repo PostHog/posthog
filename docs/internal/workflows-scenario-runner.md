@@ -306,8 +306,12 @@ sequenceDiagram
 During drive and convergence the Runner polls `Environment.dependencyHealth()` every 5 seconds.
 A failed check runs again at once.
 A dependency that fails on a confirming check gets a confirming check of its own, even when the run is stopping and even after it recovered, up to two confirmations per poll and none after a loss.
-A dependency went away when both checks failed and the runner's event loop does not explain it.
-A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
+The probes run in a child process of the runner, so a drive that saturates the runner's event loop does not time them out.
+The provider edge runs in the runner, so its probe is a TCP connect, which the kernel completes without the edge's event loop.
+A dependency went away when both checks failed and neither the run host nor the runner's event loop explains it.
+A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard, because a host that busy can starve the probe process too.
+A check that failed because the run host ran out of local ports or file descriptors is a harness limit that names the resource, not a lost dependency.
+That check keeps the host's 20 largest groups of TCP sockets by state and peer in `probes.json`, since whatever held the ports is gone once the run ends.
 An error that carries a refusal, reset or unknown-host code, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
 An untyped error past the budget, such as ioredis's `Connection is closed.`, is not: on a busy loop it reads as unheard, with its error kept in `probes.json`.
 The dependency is unheard only when both of its checks were unheard.

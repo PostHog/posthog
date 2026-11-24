@@ -10,6 +10,7 @@ export type DependencyLoss = {
     runnerBusy: number
     kind: 'gone' | 'unheard' | 'host-limit' | 'recovered'
     hostLimit?: string
+    sockets?: Record<string, number>
 }
 
 type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
@@ -28,8 +29,8 @@ async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
 }
 
-// The probes run on their own thread, but a host busy enough to saturate the runner's loop can still starve that
-// thread. So a probe that ran out its budget without an answer while the runner was busy is a harness limit.
+// The probes run in their own process, but a host busy enough to saturate the runner's loop can still starve that
+// process. So a probe that ran out its budget without an answer while the runner was busy is a harness limit.
 const excused = ({ unanswered }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     unanswered && runnerBusy >= RUNNER_BUSY_LIMIT
 
@@ -56,6 +57,7 @@ function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
         const again = second.failures.find(({ name }) => name === failure.name)
         const last = again ?? failure
         const hostLimit = again?.hostLimit ?? failure.hostLimit
+        const sockets = again?.sockets ?? failure.sockets
         return {
             name: failure.name,
             at: first.at,
@@ -63,6 +65,7 @@ function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
             runnerBusy: Math.max(first.runnerBusy, second.runnerBusy),
             kind: kindOf(failure, again, first, second),
             ...(hostLimit ? { hostLimit } : {}),
+            ...(sockets ? { sockets } : {}),
         }
     })
 }
