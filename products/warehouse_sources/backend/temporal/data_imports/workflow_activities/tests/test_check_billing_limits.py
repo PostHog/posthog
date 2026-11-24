@@ -1,16 +1,25 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import redis.exceptions
 
 from posthog.models import Organization, Team
+from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     _team_is_rows_synced_limited,
     check_billing_limits_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
 )
 
 
@@ -34,6 +43,26 @@ class TestCheckBillingLimitsActivity:
         )
 
         assert result is False
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits.is_team_limited"
+    )
+    def test_quota_redis_outage_fails_with_posthog_side_message(self, mock_is_team_limited, _mock_sleep) -> None:
+        team = _team()
+        source = ExternalDataSource.objects.create(
+            source_id="src", connection_id="conn", team=team, source_type="Stripe"
+        )
+        ExternalDataSource.objects.filter(id=source.id).update(created_at=timezone.now() - dt.timedelta(days=30))
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, status=ExternalDataJob.Status.RUNNING, billable=True
+        )
+        mock_is_team_limited.side_effect = redis.exceptions.TimeoutError("Timeout connecting to server")
+
+        with pytest.raises(NonReportableError) as exc_info:
+            check_billing_limits_activity(CheckBillingLimitsActivityInputs(team_id=team.id, job_id=str(job.id)))
+
+        assert str(exc_info.value) == POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
 
 
 class TestTeamIsRowsSyncedLimitedRetry:
