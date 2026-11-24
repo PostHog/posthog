@@ -63,6 +63,7 @@ tools:
         exclude_params:
             - from_integration_id
             - expected_type
+            - confirmed_digest
         inject_body:
             expected_type: push
         feature_flag: workflows-transactional-push-api
@@ -87,6 +88,7 @@ tools:
                 Reply 'confirm' to proceed. If the template changes first, it isn't made sendable and you're asked
                 again.
             preview: workflows/pushTemplatePreview
+            preview_digest_param: confirmed_digest
     workflows-send-push:
         operation: messaging_send_push_create
         enabled: false

@@ -331,10 +331,15 @@ export const ToolConfigSchema = z
                  * fingerprint changed in between.
                  */
                 preview: z.string().optional(),
+                /** Body field that carries the preview's `digest`, for an API that compares it under its own lock. */
+                preview_digest_param: z.string().optional(),
             })
             .strict()
             .refine((data) => !!data.preview === data.message.includes('{preview}'), {
                 message: '`preview` and a `{preview}` placeholder in `message` need each other.',
+            })
+            .refine((data) => !data.preview_digest_param || !!data.preview, {
+                message: '`preview_digest_param` needs `preview`.',
             })
             .optional(),
     })

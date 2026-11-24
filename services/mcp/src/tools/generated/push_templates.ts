@@ -7,6 +7,7 @@ import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
     prepareConfirmedAction,
+    refuseChangedPreview,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -137,16 +138,21 @@ const workflowsMakePushTemplateTransactionalExecute = (): ToolBase<
             return __guard.result as never
         }
         const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
-        const body: Record<string, unknown> = {}
-        body['expected_type'] = 'push'
-        const result = await context.api.request<Schemas.MessageTemplate>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,
-            body,
+        return await refuseChangedPreview('workflows-make-push-template-transactional', async () => {
+            const projectId = __scopeProjectId
+            const body: Record<string, unknown> = {}
+            body['expected_type'] = 'push'
+            if (__guard.previewDigest !== undefined) {
+                body['confirmed_digest'] = __guard.previewDigest
+            }
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,
+                body,
+            })
+            const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
+            return await withPostHogUrl(context, filtered, `/transactional/push/${filtered.id}`)
         })
-        const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
-        return await withPostHogUrl(context, filtered, `/transactional/push/${filtered.id}`)
     },
 })
 
