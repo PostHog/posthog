@@ -78,7 +78,8 @@ Where it would be paused, the sweep sends its admins the warning email instead, 
 While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
 Its warning email says it is not paused automatically and that staff can pause it by hand.
 Its sends and feedback stay out of the project totals that can pause other workflows.
-The project's transactional workflows get their own project check instead, on the same rule: when their sends together breach, each one at the rate gets the warning and the transactional log with `scope="project"`, never a pause.
+The sweep checks the project's transactional workflows as a group and gives each workflow's own breach or warning priority.
+When pooled bounces cross a threshold, the sweep uses the project result for the remaining workflows that also cross it. Their warnings describe the project rate, and their logs have `scope="project"`.
 Transactional email sent from code, by template or by key, runs a workflow built with one transactional email step, so this rule covers it.
 A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
 That includes a code-sent workflow whose email step someone switched to marketing in the editor.

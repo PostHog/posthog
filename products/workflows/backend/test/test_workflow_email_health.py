@@ -1,6 +1,8 @@
 import os
+import sys
 import uuid
-import importlib.util
+import importlib
+import subprocess
 from datetime import datetime, timedelta
 from typing import TypedDict
 
@@ -20,6 +22,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.settings import ses as ses_settings
+from posthog.settings.base_variables import BASE_DIR
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.facade.contracts import TransactionalEmailContent
@@ -323,19 +326,23 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("exempt_breach_beside_a_quiet_sibling", (300, 60), (8, 1), ["exempt"], []),
-            ("sibling_breach_beside_a_quiet_exempt_workflow", (1, 1), (300, 60), ["sibling"], ["sibling"]),
+            ("exempt_breach_beside_a_quiet_sibling", [], (300, 60), (8, 1), ["exempt"], []),
+            ("sibling_breach_beside_a_quiet_exempt_workflow", [], (1, 1), (300, 60), ["sibling"], ["sibling"]),
+            ("exempt_transactional_breach", TRANSACTIONAL_ACTIONS, (300, 60), (8, 1), ["exempt"], []),
         ]
     )
     def test_an_exempt_workflow_is_judged_only_on_its_own_sends(
         self,
         _name: str,
+        actions: list[dict[str, object]],
         exempt_seed: tuple[int, int],
         sibling_seed: tuple[int, int],
         decided: list[str],
         paused: list[str],
     ):
-        sibling = HogFlow.objects.create(name="Second blast", team=self.team)
+        self.flow.actions = actions
+        self.flow.save(update_fields=["actions"])
+        sibling = HogFlow.objects.create(name="Second blast", team=self.team, actions=actions)
         self._seed(sent=exempt_seed[0], hard_bounces=exempt_seed[1])
         self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
         names = {str(self.flow.id): "exempt", str(sibling.id): "sibling"}
@@ -349,6 +356,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
+        assert sibling.email_sending_warned_at is None
 
     @parameterized.expand(
         [
@@ -617,6 +625,34 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("breach", 1_000, 30, "would_pause_workflow_email_sending"),
+            ("warning_band", 5_850, 12, "would_warn_workflow_email_sending"),
+        ]
+    )
+    def test_a_transactional_project_bounce_preserves_a_workflows_complaint(
+        self, _name: str, earlier_sends: int, bounces: int, event: str
+    ):
+        self.flow.actions = TRANSACTIONAL_ACTIONS
+        self.flow.save(update_fields=["actions"])
+        sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=TRANSACTIONAL_ACTIONS)
+        self._seed(sent=earlier_sends, complaints=12, at=self.now - timedelta(hours=4))
+        self._seed(sent=150, hard_bounces=bounces)
+        self._seed(source_id=str(sibling.id), sent=150, hard_bounces=bounces)
+
+        with override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE=False), capture_logs() as logs:
+            sweep_workflow_email_health(now=self.now)
+
+        assert {
+            (log["hog_flow_id"], log["signal"], log["window"], log["scope"])
+            for log in logs
+            if log["event"] == event and log["mode"] == "dry_run"
+        } == {
+            (str(self.flow.id), "complaint", "24h", "workflow"),
+            (str(sibling.id), "bounce", "1h", "project"),
+        }
+
+    @parameterized.expand(
+        [
             (
                 "marketing",
                 [],
@@ -684,35 +720,6 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             )
             == []
         )
-
-    @parameterized.expand(
-        [
-            ("old_key_only", {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": "true"}, False),
-            ("new_key", {"WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE": "true"}, True),
-        ]
-    )
-    def test_only_the_enforce_key_turns_enforcement_on(self, _name: str, env: dict[str, str], enforced: bool):
-        self._seed(sent=400, complaints=8)
-        try:
-            with patch.dict(os.environ, env):
-                for key in {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", "WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE"} - env.keys():
-                    os.environ.pop(key, None)
-                importlib.reload(ses_settings)
-                spec = importlib.util.find_spec("posthog.settings")
-                assert spec is not None and spec.loader is not None
-                django_settings = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(django_settings)
-                started = {
-                    key: value for key, value in vars(django_settings).items() if key.startswith("WORKFLOW_EMAIL_")
-                }
-        finally:
-            importlib.reload(ses_settings)
-
-        with override_settings(**started):
-            self._sweep()
-
-        self.flow.refresh_from_db()
-        assert (self.flow.email_sending_paused_at is not None) is enforced
 
     @parameterized.expand(
         [
@@ -1031,6 +1038,35 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert resume_workflow_email_sending(self.flow) is False
         self.flow.refresh_from_db()
         assert self.flow.email_sending_resumed_at is None
+
+
+@pytest.mark.parametrize(
+    "key,enforced",
+    [
+        ("WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", False),
+        ("WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE", True),
+    ],
+)
+def test_django_startup_reads_only_the_enforce_key(key: str, enforced: bool):
+    env = os.environ.copy()
+    env.pop("DJANGO_SETTINGS_MODULE", None)
+    env.pop("WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", None)
+    env.pop("WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE", None)
+    env.update({key: "true", "TEST": "true"})
+
+    subprocess.run(
+        [
+            sys.executable,
+            "manage.py",
+            "shell",
+            "-c",
+            f"from django.conf import settings; assert settings.WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE is {enforced}",
+        ],
+        cwd=BASE_DIR,
+        env=env,
+        check=True,
+        timeout=60,
+    )
 
 
 @pytest.mark.parametrize(

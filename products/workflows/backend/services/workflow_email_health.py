@@ -543,6 +543,8 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
     pauses: list[PauseDecision] = []
     warnings_by_flow: dict[str, PauseDecision] = {}
     paused_flow_ids: set[str] = set()
+    transactional_project_breaches: dict[str, PauseDecision] = {}
+    transactional_project_warnings: dict[str, PauseDecision] = {}
     transactional_by_flow: dict[str, bool] = {}
     # Whole hours only: the metrics table collapses rows per clock hour with an arbitrary surviving
     # raw timestamp, so a mid-hour bound would include or exclude a whole collapsed hour by merge
@@ -605,22 +607,24 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                 None: None,
             }
             for flow_id, (flow, flow_counts) in judged.items():
-                # One pause per workflow per sweep. The first breach is the one reported, and the
-                # windows are walked shortest first so the reason names the tightest signal.
                 if flow_id in paused_flow_ids:
                     continue
                 flow_name = names_by_flow_id.get(flow_id, "")
+                project = projects[_project_pool(flow_id, flow_counts)]
                 decision = _first_breach(
                     flow=flow,
                     flow_name=flow_name,
                     judged=flow_counts,
-                    project=projects[_project_pool(flow_id, flow_counts)],
+                    project=project,
                     thresholds=group,
                 )
                 if decision is not None:
-                    pauses.append(decision)
-                    paused_flow_ids.add(flow_id)
-                    continue
+                    if not decision.transactional or decision.project is None:
+                        pauses.append(decision)
+                        paused_flow_ids.add(flow_id)
+                        continue
+                    transactional_project_breaches.setdefault(flow_id, decision)
+                    project = None
                 if flow_id in warnings_by_flow:
                     continue
                 warned_at = flow.email_sending_warned_at
@@ -630,12 +634,21 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                     flow=flow,
                     flow_name=flow_name,
                     judged=flow_counts,
-                    project=projects[_project_pool(flow_id, flow_counts)],
+                    project=project,
                     thresholds=warn_group,
                     below_pause_rate=True,
                 )
                 if warning is not None:
-                    warnings_by_flow[flow_id] = warning
+                    if warning.transactional and warning.project is not None:
+                        transactional_project_warnings.setdefault(flow_id, warning)
+                    else:
+                        warnings_by_flow[flow_id] = warning
+    for flow_id, decision in transactional_project_breaches.items():
+        if flow_id not in paused_flow_ids and flow_id not in warnings_by_flow:
+            pauses.append(decision)
+            paused_flow_ids.add(flow_id)
+    for flow_id, warning in transactional_project_warnings.items():
+        warnings_by_flow.setdefault(flow_id, warning)
     # A pause found in a longer window outranks a warning found in a shorter one, so the warning
     # list is settled only after every window ran.
     warnings = [decision for flow_id, decision in warnings_by_flow.items() if flow_id not in paused_flow_ids]
