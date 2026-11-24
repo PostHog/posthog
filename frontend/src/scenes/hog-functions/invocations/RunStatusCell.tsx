@@ -49,6 +49,7 @@ export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
             {problemLevel && !emailOutcome ? (
                 <Tooltip title={`This run finished but ${problem}. Expand the row to view it.`}>
                     <IconWarning
+                        role="img"
                         aria-label={problemLevel === 'error' ? 'Logged an error' : 'Logged a warning'}
                         className={problemLevel === 'error' ? 'text-danger text-base' : 'text-warning text-base'}
                     />
