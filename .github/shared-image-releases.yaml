@@ -1718,6 +1718,7 @@ filters:
         - products/autoresearch/backend/signals.py
         - products/autoresearch/backend/task_profiles.py
         - 'products/tasks/backend/**'
+        - 'products/posthog_ai/backend/task_ownership.py'
         - products/actions/backend/facade/api.py
         - products/actions/backend/facade/contracts.py
         - products/actions/backend/logic/actions.py
@@ -1779,11 +1780,11 @@ filters:
         - '!ee/hogai/**/test/**'
         - '!ee/hogai/**/tests/**'
         - '!ee/hogai/**/test_*.py'
-        - 'products/posthog_ai/backend/models/**'
-        - products/posthog_ai/backend/temporal/activities.py
-        - products/posthog_ai/backend/temporal/workflows.py
-        - products/posthog_ai/backend/conversation_mirror.py
-        - products/posthog_ai/backend/task_profiles.py
+        - 'products/posthog_ai/backend/**'
+        - '!products/posthog_ai/backend/**/tests/**'
+        - '!products/posthog_ai/backend/**/test_*.py'
+        - '!products/posthog_ai/backend/turn_suggestions/benchmark.py'
+        - '!products/posthog_ai/backend/turn_suggestions/benchmark_cases.yaml'
         - posthog/temporal/alerts/__init__.py
         - posthog/temporal/alerts/activities.py
         - posthog/temporal/alerts/admission.py
@@ -1800,6 +1801,9 @@ filters:
         - 'products/alerts_platform/backend/**'
         - 'products/replay_vision/backend/**'
         - 'products/tasks/backend/**'
+        - 'products/slack_app/backend/**'
+        - '!products/slack_app/backend/**/tests/**'
+        - '!products/slack_app/backend/facade/testing.py'
         - 'products/mcp_store/backend/**'
         - 'products/feature_flags/backend/**'
         - 'products/ml_inference/backend/**'
@@ -2079,8 +2083,8 @@ images:
             self-driving:
                 repository: posthog-temporal-workers/self-driving
                 filter: selfDrivingWorker
-                bootstrapPolicyDigest: b3fbdcf35a97871b63a11cd23cab83772e269abaf9168047fec11284d65b66d3
+                bootstrapPolicyDigest: 8594ffaa0694d5e5d766de8c76386e6ef9645b9e3a58e983160982345464b551
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
-                bootstrapPolicyDigest: 2b4941b9ff72f37d5a04b3802ef5a81dbe7a87768c8234e732d28858705fc028
+                bootstrapPolicyDigest: e9fa6b1d5bb6cf0c91ef440fea23f7e174ffd77d6750d548e193cb724f1fd978
