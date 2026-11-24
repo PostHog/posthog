@@ -39,7 +39,7 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
     return (
         <WrappedCard cardKey={cardKey} kicker={kicker}>
             {leader && (
-                <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
+                <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight [overflow-wrap:anywhere]">
                     {headline(leader.name, formatPercent(leader.share))}
                 </h2>
             )}
@@ -63,7 +63,9 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                                 <Logo cardKey={cardKey} name={row.name} className="size-4" />
                             )}
                         </span>
-                        <span className="truncate">{row.isOther ? otherLabel : row.name}</span>
+                        <span className="line-clamp-2 [overflow-wrap:anywhere]">
+                            {row.isOther ? otherLabel : row.name}
+                        </span>
                         <span>{formatPercent(row.share)}</span>
                         <span className="col-span-2 col-start-2 row-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span

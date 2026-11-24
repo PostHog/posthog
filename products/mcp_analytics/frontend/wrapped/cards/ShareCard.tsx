@@ -1,10 +1,9 @@
 import { forwardRef } from 'react'
 
 import { colors } from '@posthog/brand/colors'
-import { IconBolt, IconCheckCircle, IconClock, IconLogomark, IconTerminal, IconWrench } from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconClock, IconTerminal, IconWrench } from '@posthog/icons'
 
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
 import { labMark, modelLab } from '../../aiLabs'
@@ -20,8 +19,7 @@ import {
 } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
-
-const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
+import { SharePlug } from './SharePlug'
 
 // Each number gets its own brand colour, so the list reads like a poster rather than a table.
 const STAT_ICONS = {
@@ -53,6 +51,24 @@ function StatIcon({ tile }: { tile: ShareTile }): JSX.Element {
             <Icon className="size-3.5" />
         </span>
     )
+}
+
+// Tool, app and model names can be long, and a versioned model id longer still. The picture has no
+// tooltip, so a name wraps smaller instead of being cut off.
+function valueClassName(tile: ShareTile): string {
+    if (tile.kind === 'tool') {
+        return cn(
+            'line-clamp-3 font-mono [overflow-wrap:anywhere]',
+            toolNameSize(tile.value, ['text-base', 'text-sm', 'text-xs'])
+        )
+    }
+    if (tile.kind === 'app' || tile.kind === 'model') {
+        return cn(
+            'line-clamp-2 [overflow-wrap:anywhere]',
+            toolNameSize(tile.value, ['text-base', 'text-base', 'text-sm'])
+        )
+    }
+    return 'truncate text-base'
 }
 
 /** The poster at the end of the story, which the share actions turn into an image. */
@@ -91,40 +107,14 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                             <StatIcon tile={tile} />
                             <div className="min-w-0">
                                 <dt className="text-xs opacity-60">{tile.label}</dt>
-                                <dd
-                                    className={cn(
-                                        'm-0 font-bold',
-                                        // A tool name can be long, and the picture has no tooltip, so it wraps
-                                        // smaller instead of being cut off.
-                                        tile.kind === 'tool'
-                                            ? cn(
-                                                  'line-clamp-3 font-mono [overflow-wrap:anywhere]',
-                                                  toolNameSize(tile.value, ['text-base', 'text-sm', 'text-xs'])
-                                              )
-                                            : 'truncate text-base'
-                                    )}
-                                    title={tile.value}
-                                >
+                                <dd className={cn('m-0 font-bold', valueClassName(tile))} title={tile.value}>
                                     {tile.kind === 'tool' ? wrappableToolName(tile.value) : tile.value}
                                 </dd>
                             </div>
                         </div>
                     ))}
                 </dl>
-                <LinkPrimitive
-                    to={MCP_ANALYTICS_URL}
-                    target="_blank"
-                    className="MCPWrapped__rise mt-auto flex items-center justify-center gap-2.5 border-t-2 border-dashed border-white/15 pt-3 text-current no-underline"
-                    data-attr="mcp-wrapped-share-plug"
-                >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-black">
-                        <IconLogomark className="size-5" />
-                    </span>
-                    <span className="text-xs leading-tight">
-                        <span className="block font-bold">Which personality is your MCP server?</span>
-                        <span className="opacity-75">Find out at posthog.com/mcp-analytics</span>
-                    </span>
-                </LinkPrimitive>
+                <SharePlug />
             </WrappedCard>
         )
     }
