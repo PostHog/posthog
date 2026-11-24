@@ -46,8 +46,17 @@ def _report(repo: Path, before_root: Path | None = None) -> upkeep.UpkeepReport:
         ("Use the served-sibling skill.", []),
         ("Read it with skill-get: `signals-scout-general`.", []),
         ("The internal-runbook-extra file is something else.", []),
+        ("For copy, see `writing-repo-copy`.", ["writing-repo-copy"]),
+        ("Run `hogli` to lint.", []),
     ],
-    ids=["names-an-unserved-skill", "names-a-served-skill", "names-a-store-skill", "longer-name"],
+    ids=[
+        "names-an-unserved-skill",
+        "names-a-served-skill",
+        "names-a-store-skill",
+        "longer-name",
+        "names-a-repository-only-skill",
+        "one-word-repository-skill-name",
+    ],
 )
 def test_report_finds_served_skills_that_name_an_unserved_skill(tmp_path: Path, body: str, expected: list[str]) -> None:
     _write_repo(tmp_path, {"served-skill": {}, "served-sibling": {}})
@@ -55,6 +64,8 @@ def test_report_finds_served_skills_that_name_an_unserved_skill(tmp_path: Path, 
     _write_skill(tmp_path, "served-sibling")
     _write_skill(tmp_path, "internal-runbook", "Use `served-skill`.")
     _write_skill(tmp_path, "signals-scout-general")
+    for repository_skill in ("writing-repo-copy", "hogli"):
+        (tmp_path / ".agents" / "skills" / repository_skill).mkdir(parents=True)
 
     report = _report(tmp_path)
 
@@ -91,6 +102,9 @@ def test_report_measures_growth_against_an_older_checkout(tmp_path: Path) -> Non
     _write_skill(repo, "grown-skill", "x" * 3000)
     _write_skill(repo, "new-skill")
     old_size = _write_skill(before, "grown-skill", "x" * 1000).stat().st_size
+    tests_dir = repo / "products" / "alpha" / "skills" / "grown-skill" / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_helper.py").write_text("y" * 5000)
 
     report = _report(repo, before)
 
@@ -108,9 +122,10 @@ def test_report_measures_growth_against_an_older_checkout(tmp_path: Path) -> Non
         ("x" * 1_000, None),
         ("x" * 30_000, "the full text"),
         ("x\n" * 600, "the full text"),
+        ("x" * 44_000, "an outline, or close to it"),
         ("x" * 50_000, "an outline only"),
     ],
-    ids=["short", "over-5000-tokens", "over-500-lines", "over-the-learn-limit"],
+    ids=["short", "over-5000-tokens", "over-500-lines", "near-the-learn-limit", "over-the-learn-limit"],
 )
 def test_report_lists_skills_with_a_long_entry_file(tmp_path: Path, body: str, row: str | None) -> None:
     _write_repo(tmp_path, {"served-skill": {}})
@@ -122,7 +137,7 @@ def test_report_lists_skills_with_a_long_entry_file(tmp_path: Path, body: str, r
     assert ("| `served-skill` | team-alpha |" in markdown.split("## Largest served skills")[0]) is (row is not None)
     assert row is None or f"| {row} |" in markdown
     assert upkeep.summary(report)["over_recommended_size"] == (0 if row is None else 1)
-    assert upkeep.summary(report)["outline_only"] == (1 if row == "an outline only" else 0)
+    assert upkeep.summary(report)["outline_only"] == (1 if row and "outline" in row else 0)
 
 
 def test_report_counts_commits_by_bot_accounts(tmp_path: Path) -> None:

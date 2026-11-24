@@ -41,6 +41,7 @@ jobs:
                   filter: blob:none
                   sparse-checkout: |
                       /.github/actions/setup-uv/
+                      /.agents/skills/*/SKILL.md
                       /products/__init__.py
                       /products/posthog_ai/__init__.py
                       /products/posthog_ai/scripts/build_skills/
