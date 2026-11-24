@@ -19,7 +19,11 @@ import { earlyAccessFeatureList } from 'products/early_access_features/frontend/
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
-import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
+import {
+    featureFlagsList,
+    featureFlagsPartialUpdate,
+    scheduledChangesList,
+} from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import { hogFlowsList, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -176,6 +180,7 @@ interface ReleaseLogicActions {
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
     autoLinkBroadcasts: (id: string) => { id: string }
     unlinkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
+    setFlagActive: (flagId: number, active: boolean) => { flagId: number; active: boolean }
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
     loadBroadcastSendsFailure: (error: string) => { error: string }
@@ -346,6 +351,7 @@ export const releaseLogic = kea<releaseLogicType>([
         autoLinkBroadcasts: (id: string) => ({ id }),
         addLink: (id: string, candidate: LinkCandidate) => ({ id, candidate }),
         unlinkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
+        setFlagActive: (flagId: number, active: boolean) => ({ flagId, active }),
     }),
     loaders(({ values, actions }) => ({
         releases: [
@@ -1056,6 +1062,17 @@ export const releaseLogic = kea<releaseLogicType>([
                     undefined,
                     { event: 'release item unlinked', properties: { release_id: id, kind: 'broadcast' } }
                 )
+            }
+        },
+        setFlagActive: async ({ flagId, active }) => {
+            try {
+                await featureFlagsPartialUpdate(String(values.currentProjectId), flagId, { active })
+                posthog.capture('release flag status changed', { active })
+                lemonToast.success(active ? 'The flag is on' : 'The flag is off')
+                actions.loadFlags()
+            } catch (error) {
+                const detail = (error as { detail?: string | null })?.detail
+                lemonToast.error(detail ? `The flag did not change. ${detail}` : 'The flag did not change. Try again.')
             }
         },
         addLink: ({ id, candidate }) => {

@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import { hogFlowsList } from 'products/workflows/frontend/generated/api'
 
 import { releasesList, releasesPartialUpdate } from './generated/api'
@@ -29,6 +30,7 @@ jest.mock('./generated/api', () => ({
 }))
 jest.mock('products/feature_flags/frontend/generated/api', () => ({
     featureFlagsList: jest.fn(async () => EMPTY_PAGE),
+    featureFlagsPartialUpdate: jest.fn(),
     featureFlagsRetrieve: jest.fn(),
     scheduledChangesList: jest.fn(async () => EMPTY_PAGE),
 }))
@@ -73,6 +75,29 @@ describe('releaseLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockedReleasesList).toHaveBeenCalledTimes(calls)
+    })
+
+    it.each([
+        ['turns a flag on and reloads the flags', true, true],
+        ['turns a flag off and reloads the flags', false, true],
+        ['keeps the flags when the change fails', true, false],
+    ])('%s', async (_name, active, succeeds) => {
+        const update = jest.mocked(featureFlagsPartialUpdate)
+        update.mockReset()
+        if (succeeds) {
+            update.mockResolvedValue({} as never)
+        } else {
+            update.mockRejectedValue(new Error('denied'))
+        }
+        const logic = releaseLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const run = expectLogic(logic, () => logic.actions.setFlagActive(7, active))
+        await run.toFinishAllListeners()
+        await (succeeds ? run.toDispatchActions(['loadFlags']) : run.toNotHaveDispatchedActions(['loadFlags']))
+
+        expect(update).toHaveBeenCalledWith(expect.any(String), 7, { active })
     })
 
     it('counts a release page open once per page, not per hash change', async () => {

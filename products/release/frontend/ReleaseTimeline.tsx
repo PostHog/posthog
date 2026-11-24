@@ -15,6 +15,7 @@ import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { RolloutStep } from './releaseRollout'
 import { ReleaseRolloutBar } from './ReleaseRolloutBar'
+import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleaseStageDot } from './ReleaseStageDot'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTimelineSkeleton } from './ReleaseTimelineSkeleton'
@@ -333,6 +334,7 @@ export function ReleaseTimeline(): JSX.Element {
                 </CalendarStateContext.Provider>
             )}
             <ReleaseCalendarItemPanel />
+            <ReleaseScheduleDialog />
         </div>
     )
 }
