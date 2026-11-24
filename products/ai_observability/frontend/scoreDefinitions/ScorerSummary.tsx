@@ -113,7 +113,15 @@ export function ScorerSummary({
                                 {draft.inputs.map((input, index) => (
                                     <li key={index} className="flex flex-wrap justify-between gap-1 text-sm">
                                         <span className="break-words">{input.name}</span>
-                                        <span className="text-muted">{`v${input.version}`}</span>
+                                        <span className="text-muted">
+                                            {draft.scope === 'experiment' &&
+                                                `${input.statistic?.replaceAll('_', ' ')} · `}
+                                            {draft.scope === 'item' || input.version_policy === 'exact'
+                                                ? `v${input.version}`
+                                                : input.version_policy === 'combine'
+                                                  ? 'Combine versions'
+                                                  : "Run's version"}
+                                        </span>
                                     </li>
                                 ))}
                             </ul>

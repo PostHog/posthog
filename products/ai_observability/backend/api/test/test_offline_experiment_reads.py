@@ -85,6 +85,25 @@ class TestOfflineExperimentReads(APIBaseTest):
     def _endpoint(self, suffix: str = "", team_id: int | None = None) -> str:
         return f"/api/projects/{team_id or self.team.id}/ai_observability/offline_experiments/{suffix}"
 
+    def test_experiment_score_preview_is_read_only_and_requires_both_read_scopes(self) -> None:
+        endpoint = self._endpoint(f"{self.experiment.id}/preview_score/")
+        body = {
+            "kind": "boolean",
+            "composition": {
+                "expression": "correct >= 0.9",
+                "inputs": [{"alias": "correct", "scorer_version_id": str(self.version.id), "statistic": "pass_rate"}],
+            },
+        }
+        self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
+        preview = self.client.post(endpoint, body, format="json")
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertIs(preview.data["value"], True)
+        self.assertEqual(preview.data["inputs"][0]["sources"][0]["successful_items"], 1)
+        self.experiment.refresh_from_db()
+        self.assertIsNone(self.experiment.experiment_scorer_version_id)
+        self._authenticate("personal_key", ["evaluation:read"])
+        self.assertEqual(self.client.post(endpoint, body, format="json").status_code, 403)
+
     def _history(self, definition_id: str | None = None, team_id: int | None = None) -> str:
         return (
             f"/api/projects/{team_id or self.team.id}/ai_observability/"

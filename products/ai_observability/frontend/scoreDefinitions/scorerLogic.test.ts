@@ -38,6 +38,8 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 2,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],

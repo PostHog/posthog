@@ -229,7 +229,40 @@ class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
         fields = [*OfflineHistoryQuerySerializer.Meta.fields, "breakdown"]
 
 
+class ExperimentScoreSourceSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField()
+    version = serializers.IntegerField()
+    successful_items = serializers.IntegerField()
+    value = serializers.FloatField(allow_null=True)
+
+
+class ExperimentScoreInputSerializer(serializers.Serializer):
+    alias = serializers.CharField()
+    statistic = serializers.CharField()
+    version_policy = serializers.CharField()
+    status = serializers.CharField()
+    value = serializers.FloatField(allow_null=True)
+    sources = ExperimentScoreSourceSerializer(many=True)
+
+
+class ExperimentScorePreviewSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    value = ResultValueField(allow_null=True)
+    inputs = ExperimentScoreInputSerializer(many=True)
+
+
+class ExperimentScoreSerializer(ExperimentScorePreviewSerializer):
+    scorer_version_id = serializers.UUIDField()
+    version = serializers.IntegerField()
+    name = serializers.CharField()
+
+
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    experiment_score = ExperimentScoreSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Overall score from the run's pinned experiment formula, when visible.",
+    )
     updated_at = serializers.DateTimeField(
         required=False, allow_null=True, help_text="Most recent item, result, or payload change."
     )

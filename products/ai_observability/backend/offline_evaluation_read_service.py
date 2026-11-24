@@ -16,6 +16,7 @@ from django.db.models.functions import Coalesce
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.composite_scorers import CompositeScorers
+from products.ai_observability.backend.experiment_scores import calculate_experiment_score
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -26,6 +27,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_types import (
+    ExperimentScore,
     OfflineCategorySummary,
     OfflineExperimentAuthor,
     OfflineExperimentRead,
@@ -318,12 +320,14 @@ class OfflineEvaluationReadService:
         prefetch_related_objects(experiments, ResourceTags.prefetch())
         ids = [experiment.id for experiment in experiments]
         visible_counts = self._experiment_counts(ids)
+        scores = self._experiment_scores(experiments)
         output = []
         for experiment in experiments:
             counts = visible_counts.get(experiment.id, _ExperimentCounts())
             author = experiment.created_by
             output.append(
                 OfflineExperimentRead(
+                    experiment_score=scores.get(experiment.id),
                     tags=tuple(ResourceTags.names(experiment)),
                     created_by=OfflineExperimentAuthor(
                         id=author.id,
@@ -762,6 +766,133 @@ class OfflineEvaluationReadService:
                 )
                 for row in cursor.fetchall()
             }
+
+    def _experiment_scores(self, experiments: list[OfflineExperiment]) -> dict[UUID, ExperimentScore]:
+        selected = {run.id: run.experiment_scorer_version_id for run in experiments if run.experiment_scorer_version_id}
+        if not selected or not self.can_read_scores:
+            return {}
+        versions = {
+            version.id: version
+            for version in self._versions().filter(pk__in=selected.values()).select_related("definition")
+        }
+        anchors = {
+            str(pk): definition_id
+            for pk, definition_id in self._versions()
+            .filter(
+                id__in={spec["scorer_version_id"] for version in versions.values() for spec in version.formula_inputs}
+            )
+            .values_list("pk", "definition_id")
+        }
+        targets = {run_id: versions[version_id] for run_id, version_id in selected.items() if version_id in versions}
+        complete = {
+            run.id for run in experiments if run.status == OfflineExperiment.Status.COMPLETED and run.id in targets
+        }
+        scores = self._calculate_scores(targets, complete, anchors)
+        for run in experiments:
+            if run.status == OfflineExperiment.Status.FAILED and run.id in scores:
+                scores[run.id] = replace(scores[run.id], status="failed")
+        return scores
+
+    def preview_experiment_score(
+        self, experiment_id: UUID, *, composition: dict, kind: str, config: dict
+    ) -> ExperimentScore:
+        self._require_experiment(experiment_id)
+        CompositeScorers.validate(
+            composition=composition,
+            scope="experiment",
+            calculation="composite",
+            kind=kind,
+            config=config,
+            team_id=self.team_id,
+            user_access_control=self._user_access_control,
+        )
+        anchors = {
+            str(pk): definition_id
+            for pk, definition_id in self._versions()
+            .filter(id__in=[spec["scorer_version_id"] for spec in composition["inputs"]])
+            .values_list("pk", "definition_id")
+        }
+        draft = ScoreDefinitionVersion(
+            definition=ScoreDefinition(
+                team_id=self.team_id, name="Preview", kind=kind, scope="experiment", calculation="composite"
+            ),
+            version=0,
+            composition=composition,
+            config=config,
+        )
+        result = self._calculate_scores({experiment_id: draft}, {experiment_id}, anchors).get(experiment_id)
+        if result is None:
+            raise OfflineEvaluationNotFound
+        return result
+
+    def _calculate_scores(
+        self, targets: dict[UUID, ScoreDefinitionVersion], complete: set[UUID], anchors: dict[str, UUID]
+    ) -> dict[UUID, ExperimentScore]:
+        targets_by_definition = {
+            run_id: {anchors[spec["scorer_version_id"]] for spec in version.formula_inputs}
+            for run_id, version in targets.items()
+        }
+        grouped: dict[tuple[UUID, UUID], list[OfflineScorerSummary]] = defaultdict(list)
+        required_versions = {
+            run_id: {
+                (
+                    anchors[spec["scorer_version_id"]],
+                    UUID(spec["scorer_version_id"]) if spec.get("version_policy") == "exact" else None,
+                )
+                for spec in version.formula_inputs
+            }
+            for run_id, version in targets.items()
+        }
+        overlapping: dict[UUID, set[UUID]] = defaultdict(set)
+        if complete:
+            results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(
+                item__experiment_id__in=complete, scorer_definition_id__in=set(anchors.values())
+            )
+            observed = list(
+                results.order_by()
+                .values_list("item__experiment_id", "scorer_definition_id", "scorer_version_id")
+                .distinct()
+            )
+            allowed = set(self._versions().filter(pk__in={row[2] for row in observed}).values_list("pk", flat=True))
+            identities = []
+            for run_id, definition_id, version_id in observed:
+                if (definition_id, None) not in required_versions[run_id] and (
+                    definition_id,
+                    version_id,
+                ) not in required_versions[run_id]:
+                    continue
+                if version_id not in allowed:
+                    targets.pop(run_id, None)
+                else:
+                    identities.append(_SummaryIdentity(experiment_id=run_id, version_id=version_id))
+            for identity, row in self._summaries(identities).items():
+                grouped[identity.experiment_id, row.scorer.definition_id].append(row)
+            combine = {
+                anchors[spec["scorer_version_id"]]
+                for version in targets.values()
+                for spec in version.formula_inputs
+                if spec.get("version_policy") == "combine"
+            }
+            if combine:
+                duplicates = (
+                    results.filter(scorer_definition_id__in=combine)
+                    .order_by()
+                    .values("item__experiment_id", "scorer_definition_id")
+                    .annotate(results=Count("pk"), items=Count("item_id", distinct=True))
+                    .filter(results__gt=F("items"))
+                )
+                for duplicate in duplicates:
+                    overlapping[duplicate["item__experiment_id"]].add(duplicate["scorer_definition_id"])
+        return {
+            run_id: calculate_experiment_score(
+                version,
+                anchors,
+                {definition_id: grouped[run_id, definition_id] for definition_id in targets_by_definition[run_id]},
+                overlapping[run_id],
+                complete=run_id in complete,
+            )
+            for run_id, version in targets.items()
+        }
 
     def _summaries(
         self,

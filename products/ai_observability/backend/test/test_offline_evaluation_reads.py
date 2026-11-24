@@ -89,6 +89,87 @@ class TestOfflineEvaluationReads(TestCase):
         )
         self.now = timezone.now()
 
+    def test_experiment_score_resolves_observed_versions_and_pools_by_successful_item(self) -> None:
+        experiment = self._experiment()
+        definition = ScoreDefinition.objects.create(
+            team=self.team, name="Overall", scope="experiment", kind="numeric", calculation="composite"
+        )
+        spec = {"alias": "quality", "scorer_version_id": str(self.numeric.id), "statistic": "mean"}
+
+        def pin(policy: str) -> None:
+            experiment.experiment_scorer_version = definition.create_new_version(
+                config={},
+                composition={"expression": "quality", "inputs": [{**spec, "version_policy": policy}]},
+                created_by=None,
+            )
+            experiment.save(update_fields=["experiment_scorer_version"])
+
+        first = self._item(experiment)
+        self._result(first, self.numeric_v2, 0.75)
+        pin("run")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual(score.value, 0.75)
+        self.assertEqual(score.inputs[0].sources[0].version_id, self.numeric_v2.id)
+        self._result(self._item(experiment), self.numeric, 0.0)
+        self._result(self._item(experiment), self.numeric, 0.0)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("mixed_versions", None))
+        self.assertEqual([source.successful_items for source in score.inputs[0].sources], [2, 1])
+        pin("combine")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual(score.value, 0.25)
+        self._result(first, self.numeric, 1.0)
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertEqual((score.status, score.value), ("overlapping_items", None))
+        pin("exact")
+        score = self.service.get_experiment(experiment.id).experiment_score
+        assert score is not None
+        self.assertAlmostEqual(score.value, 1 / 3)
+        experiment.status = OfflineExperiment.Status.FAILED
+        experiment.save(update_fields=["status"])
+        failed = self.service.get_experiment(experiment.id).experiment_score
+        assert failed is not None
+        self.assertEqual((failed.status, failed.value), ("failed", None))
+
+    def test_formula_uses_category_rate_and_boolean_polarity_and_keeps_missing_inputs_unset(self) -> None:
+        experiment = self._experiment()
+        boolean = self.boolean.definition.create_new_version(config={"true_is_failure": True}, created_by=None)
+        source = str(boolean.id)
+        inputs = [
+            {"alias": "passed", "statistic": "pass_rate", "scorer_version_id": source},
+            {"alias": "flagged", "statistic": "true_rate", "scorer_version_id": source},
+            {
+                "alias": "alpha",
+                "statistic": "category_rate",
+                "category": "a",
+                "scorer_version_id": str(self.categorical.id),
+            },
+        ]
+
+        def preview():
+            return self.service.preview_experiment_score(
+                experiment.id,
+                composition={"expression": "0.5 * passed + 0.3 * flagged + 0.2 * alpha", "inputs": inputs},
+                kind="numeric",
+                config={},
+            )
+
+        first = self._item(experiment)
+        second = self._item(experiment)
+        self._result(first, boolean, True)
+        self._result(second, boolean, True)
+        missing = preview()
+        self.assertEqual((missing.status, missing.value), ("missing_input", None))
+        self._result(first, self.categorical, ["a"])
+        self._result(second, self.categorical, ["b"])
+        score = preview()
+        self.assertEqual({row.alias: row.value for row in score.inputs}, {"passed": 0, "flagged": 1, "alpha": 0.5})
+        self.assertEqual(score.value, 0.4)
+
     def _experiment(
         self,
         *,

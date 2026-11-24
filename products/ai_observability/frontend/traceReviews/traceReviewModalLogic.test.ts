@@ -43,6 +43,8 @@ describe('traceReviewModalLogic', () => {
         archived: false,
         current_version: 1,
         current_version_id: null,
+        scope: 'item',
+        suite_keys: [],
         calculation: 'reported',
         composition: null,
         input_scorers: [],
@@ -59,6 +61,8 @@ describe('traceReviewModalLogic', () => {
     }
 
     const numericDefinition: ScoreDefinition = {
+        scope: 'item',
+        suite_keys: [],
         calculation: 'reported',
         composition: null,
         input_scorers: [],

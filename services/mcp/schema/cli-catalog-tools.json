@@ -32712,6 +32712,10 @@
                     "key": "suite_key"
                 },
                 {
+                    "param": "experiment_scorer_version_id",
+                    "key": "experiment_scorer_version_id"
+                },
+                {
                     "param": "dataset_source",
                     "key": "dataset_source"
                 },
@@ -33392,6 +33396,55 @@
                 {
                     "param": "error_code",
                     "key": "error_code"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-offline-experiment-score-preview": {
+        "name": "llma-offline-experiment-score-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/ai_observability/offline_experiments/{id}/preview_score/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "scope",
+                    "key": "scope"
+                },
+                {
+                    "param": "kind",
+                    "key": "kind"
+                },
+                {
+                    "param": "composition",
+                    "key": "composition"
+                },
+                {
+                    "param": "config",
+                    "key": "config"
                 }
             ],
             "injectBody": {},
@@ -34608,6 +34661,11 @@
                     "csv": false
                 },
                 {
+                    "param": "scope",
+                    "key": "scope",
+                    "csv": false
+                },
+                {
                     "param": "search",
                     "key": "search",
                     "csv": false
@@ -34662,6 +34720,14 @@
                 {
                     "param": "tags",
                     "key": "tags"
+                },
+                {
+                    "param": "apply_to_suite_keys",
+                    "key": "apply_to_suite_keys"
+                },
+                {
+                    "param": "suite_version_id",
+                    "key": "suite_version_id"
                 },
                 {
                     "param": "name",

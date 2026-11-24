@@ -34,6 +34,7 @@ import { getApiErrorDetail, getCurrentProjectId } from './scoreDefinitionModalUt
 export const SCORE_DEFINITIONS_PER_PAGE = 30
 
 export interface ScoreDefinitionFilters extends ResourceTagFilters {
+    scope?: 'item' | 'experiment'
     page: number
     search: string
     created_by: number | null
@@ -64,6 +65,7 @@ function cleanFilters(values: ScoreDefinitionFilterInput): ScoreDefinitionFilter
 
     return {
         ...cleanTagFilters(values),
+        scope: values.scope === 'item' || values.scope === 'experiment' ? values.scope : undefined,
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         created_by:
@@ -94,6 +96,7 @@ function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown>
         search: filters.search || undefined,
         created_by: filters.created_by || undefined,
         kind: filters.kind || undefined,
+        scope: filters.scope,
         archived: filters.archived === 'false' ? undefined : filters.archived === '' ? 'all' : 'true',
         order_by: filters.order_by === '-updated_at' ? undefined : filters.order_by,
     }
@@ -283,6 +286,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
                             ? { tags: JSON.stringify(filters.tags), tag_match: filters.tag_match }
                             : {}),
                         kind: filters.kind || undefined,
+                        scope: filters.scope,
                         archived: filters.archived === '' ? undefined : filters.archived === 'true' ? true : false,
                         order_by: filters.order_by,
                         offset: Math.max(0, (filters.page - 1) * SCORE_DEFINITIONS_PER_PAGE),
@@ -331,6 +335,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
                 count === 0 &&
                 !filters.search &&
                 !filters.kind &&
+                !filters.scope &&
                 !filters.created_by &&
                 filters.tags.length === 0 &&
                 filters.archived === 'false' &&

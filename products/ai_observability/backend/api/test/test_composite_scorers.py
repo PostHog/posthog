@@ -37,6 +37,37 @@ class TestCompositeScorers(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.data)
         return response.data
 
+    def test_experiment_scope_formula_and_suite_assignment(self) -> None:
+        self.payload.update(scope="experiment", apply_to_suite_keys=["agent-ci"])
+        self.payload["composition"] = {
+            "expression": "passed",
+            "inputs": [{"alias": "passed", "statistic": "pass_rate", "scorer_version_id": str(self.version.id)}],
+        }
+        created = self.create_composite()
+        self.assertEqual(created["scope"], "experiment")
+        self.assertEqual(created["suite_keys"], ["agent-ci"])
+        version = self.client.post(
+            f"{self.endpoint}{created['id']}/new_version/",
+            {
+                "base_version": 1,
+                "config": {},
+                "composition": self.payload["composition"],
+            },
+            format="json",
+        )
+        self.assertEqual(version.status_code, 200, version.data)
+        self.assertEqual(version.data["suite_keys"], [])
+        history_url = f"{self.endpoint}{created['id']}/versions/{created['current_version_id']}/"
+        self.assertEqual(self.client.get(history_url).data["suite_keys"], ["agent-ci"])
+        moved = self.client.patch(
+            f"{self.endpoint}{created['id']}/",
+            {"suite_version_id": version.data["current_version_id"], "apply_to_suite_keys": ["agent-ci"]},
+            format="json",
+        )
+        self.assertEqual(moved.status_code, 200, moved.data)
+        self.assertEqual(moved.data["suite_keys"], ["agent-ci"])
+        self.assertEqual(self.client.get(history_url).data["suite_keys"], [])
+
     def test_dependency_notices_and_explicit_repinned_version(self) -> None:
         composite = self.create_composite()
         latest = self.source.create_new_version(config={"true_is_failure": True}, created_by=self.user)

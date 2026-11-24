@@ -26,6 +26,7 @@ import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { cleanTagFilters } from '../components/resourceTagFilters'
 import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
+import { experimentScoreLabel } from './ExperimentScoreResult'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -57,6 +58,24 @@ export function OfflineExperimentsOverview({
     } = useValues(logic)
     const { setFilters, openChooser, nextPage, previousPage, refresh, loadOfflineSuggestedScorers, toggleScoreTrends } =
         useActions(logic)
+    const versionsByRun = new Map<string, string>()
+    const versionsBySuite = new Map<string, Set<string>>()
+    for (const run of experiments?.results ?? []) {
+        const score = run.experiment_score
+        if (!score?.inputs.length || score.inputs.some((input) => !input.sources.length)) {
+            continue
+        }
+        const versions = score.inputs
+            .map((input) => `${input.alias}: ${input.sources.map((source) => `v${source.version}`).join(', ')}`)
+            .join(' · ')
+        versionsByRun.set(run.id, versions)
+        if (run.suite_key) {
+            const key = JSON.stringify([run.suite_key, score.scorer_version_id])
+            const suiteVersions = versionsBySuite.get(key) ?? new Set<string>()
+            suiteVersions.add(versions)
+            versionsBySuite.set(key, suiteVersions)
+        }
+    }
     const columns: LemonTableColumns<OfflineExperimentReadApi> = [
         {
             title: 'Experiment',
@@ -74,6 +93,29 @@ export function OfflineExperimentsOverview({
                     </Link>
                 </Tooltip>
             ),
+        },
+        {
+            title: 'Experiment score',
+            key: 'experiment_score',
+            isHidden: !experiments?.results.some((run) => run.experiment_score),
+            render: (_, run) => {
+                const score = run.experiment_score
+                if (!score) {
+                    return '—'
+                }
+                const sources = versionsByRun.get(run.id)
+                const changed =
+                    sources &&
+                    (versionsBySuite.get(JSON.stringify([run.suite_key, score.scorer_version_id]))?.size ?? 0) > 1
+                return (
+                    <div>
+                        <Tooltip title={[`${score.name} v${score.version}`, sources].filter(Boolean).join(' · ')}>
+                            <span>{experimentScoreLabel(score)}</span>
+                        </Tooltip>
+                        {changed && <div className="text-xs text-muted">Input versions differ · {sources}</div>}
+                    </div>
+                )
+            },
         },
         {
             title: 'Tags',

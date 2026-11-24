@@ -228,6 +228,7 @@ rules:
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
@@ -790,6 +791,7 @@ rules:
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob

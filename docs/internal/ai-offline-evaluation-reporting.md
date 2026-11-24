@@ -106,6 +106,26 @@ Scorers have an optional **Short name** (up to 40 characters) for experiment tab
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
 
+### Experiment scores
+
+An experiment scorer produces one value for a completed run. Create one under **Evaluations → Scorers** or
+use **Set up experiment score** on an existing run to preview a formula with its real results.
+Each input has a name, an item scorer and a statistic. For example, using `correct` and `grounded` as
+pass rates, `0.7 * correct + 0.3 * grounded` gives correctness a 70% weight. Rates range from 0 to 1.
+Other inputs include a numeric mean, the fraction of Boolean values that are true, and the fraction of
+successful items with a selected category. An item composite can supply any statistic its output supports.
+
+A suite key can have one default experiment scorer version per project. The first successful experiment
+creation pins that version. Supply `experiment_scorer_version_id` in Python or the API, or
+`experimentScorerVersionId` in JavaScript, to select a specific version. Changing a suite default applies
+to future runs. A preview on a historical run leaves its official score unchanged.
+
+By default an input uses the scorer version observed in the run. If several versions contributed, the
+experiment shows each version's statistic and successful item count and leaves the score unset. Choose
+an exact version to use just its results, or **Combine versions** to pool the successful items across versions.
+For example, 9 passes out of 10 on v3 and 1 out of 2 on v4 give 10/12 overall. If both versions scored
+the same item, the pooled input is unavailable. A missing input also leaves the score unset.
+
 The SQL suite uses these existing scorers:
 
 | Metric name                          | Scorer kind                      |

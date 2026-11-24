@@ -307,6 +307,33 @@ export interface InstrumentationCheckActionApi {
     check: AIObservabilityInstrumentationCheckEnumApi
 }
 
+export interface ExperimentScoreSourceApi {
+    version_id: string
+    version: number
+    successful_items: number
+    /** @nullable */
+    value: number | null
+}
+
+export interface ExperimentScoreInputApi {
+    alias: string
+    statistic: string
+    version_policy: string
+    status: string
+    /** @nullable */
+    value: number | null
+    sources: ExperimentScoreSourceApi[]
+}
+
+export interface ExperimentScoreApi {
+    status: string
+    value: number | boolean | string[] | null
+    inputs: ExperimentScoreInputApi[]
+    scorer_version_id: string
+    version: number
+    name: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -393,6 +420,8 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /** Overall score from the run's pinned experiment formula, when visible. */
+    experiment_score?: ExperimentScoreApi | null
     /**
      * Most recent item, result, or payload change.
      * @nullable
@@ -606,6 +635,11 @@ export interface ExperimentSubmissionApi {
      * @nullable
      */
     suite_key?: string | null
+    /**
+     * Exact experiment scorer version. Omit to use the suite default.
+     * @nullable
+     */
+    experiment_scorer_version_id?: string | null
     /**
      * Source of an external dataset. Hosted dataset provenance is derived from its revision.
      * @maxLength 255
@@ -863,6 +897,34 @@ export const ScoreDefinitionCalculationEnumApi = {
     Composite: 'composite',
 } as const
 
+/**
+ * * `pass_rate` - pass_rate
+ * * `mean` - mean
+ * * `true_rate` - true_rate
+ * * `category_rate` - category_rate
+ */
+export type StatisticEnumApi = (typeof StatisticEnumApi)[keyof typeof StatisticEnumApi]
+
+export const StatisticEnumApi = {
+    PassRate: 'pass_rate',
+    Mean: 'mean',
+    TrueRate: 'true_rate',
+    CategoryRate: 'category_rate',
+} as const
+
+/**
+ * * `run` - run
+ * * `exact` - exact
+ * * `combine` - combine
+ */
+export type VersionPolicyEnumApi = (typeof VersionPolicyEnumApi)[keyof typeof VersionPolicyEnumApi]
+
+export const VersionPolicyEnumApi = {
+    Run: 'run',
+    Exact: 'exact',
+    Combine: 'combine',
+} as const
+
 export interface CompositeInputApi {
     /**
      * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
@@ -870,8 +932,12 @@ export interface CompositeInputApi {
      * @pattern ^[a-z][a-z0-9_]{0,31}$
      */
     alias: string
-    /** Exact immutable version of an ordinary input scorer. */
+    /** Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact. */
     scorer_version_id: string
+    statistic?: StatisticEnumApi
+    version_policy?: VersionPolicyEnumApi
+    /** @maxLength 128 */
+    category?: string
 }
 
 export interface CompositeConfigApi {
@@ -880,7 +946,7 @@ export interface CompositeConfigApi {
      * @maxLength 1024
      */
     expression: string
-    /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+    /** Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers. */
     inputs: CompositeInputApi[]
 }
 
@@ -1270,6 +1336,37 @@ export interface OfflineResultPageApi {
     next_cursor: string | null
     /** Result page. */
     results: OfflineResultReadApi[]
+}
+
+/**
+ * * `item` - Item
+ * * `experiment` - Experiment
+ */
+export type ScoreDefinitionScopeEnumApi = (typeof ScoreDefinitionScopeEnumApi)[keyof typeof ScoreDefinitionScopeEnumApi]
+
+export const ScoreDefinitionScopeEnumApi = {
+    Item: 'item',
+    Experiment: 'experiment',
+} as const
+
+export interface CompositeValidationApi {
+    scope?: ScoreDefinitionScopeEnumApi
+    /** Expected formula output kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Formula and pinned input versions to validate without saving. */
+    composition: CompositeConfigApi
+    /** Output configuration to check literal categories and composite scoring rules. */
+    config?: ScoreDefinitionConfigApi
+}
+
+export interface ExperimentScorePreviewApi {
+    status: string
+    value: number | boolean | string[] | null
+    inputs: ExperimentScoreInputApi[]
 }
 
 export interface OfflineResultCellsApi {
@@ -5884,12 +5981,15 @@ export interface ScoreDefinitionApi {
     /** Project tag names assigned to this resource. */
     readonly tags: readonly string[]
     readonly kind: ScoreDefinitionKindEnumApi
-    /** Whether results are reported by the caller or calculated from other item scores.
+    readonly scope: ScoreDefinitionScopeEnumApi
+    /** Suites that currently use this exact version for new experiments. */
+    readonly suite_keys: readonly string[]
+    /** Whether results are reported by the caller or calculated with a formula.
      *
      * * `reported` - Reported
      * * `composite` - Composite */
     readonly calculation: ScoreDefinitionCalculationEnumApi
-    /** Formula and exact input versions for a composite scorer. */
+    /** Formula and input selections for an item or experiment scorer. */
     readonly composition: CompositeConfigApi | null
     /** Pinned inputs and their latest versions. Empty for reported scorers. */
     readonly input_scorers: readonly CompositeInputReadApi[]
@@ -5931,6 +6031,13 @@ export interface ScoreDefinitionCreateApi {
      * @items.maxLength 255
      */
     tags?: string[]
+    /**
+     * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    apply_to_suite_keys?: string[]
+    scope?: ScoreDefinitionScopeEnumApi
     /** Reported or composite. This cannot be changed after creation.
      *
      * * `reported` - Reported
@@ -5973,6 +6080,14 @@ export interface PatchedScoreDefinitionMetadataApi {
      */
     tags?: string[]
     /**
+     * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    apply_to_suite_keys?: string[]
+    /** Exact version to assign to the selected suites. Defaults to the current version. */
+    suite_version_id?: string
+    /**
      * Updated scorer name.
      * @maxLength 255
      */
@@ -5992,6 +6107,12 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Apply this version to these suites for future runs. Omit to preserve existing assignments.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    apply_to_suite_keys?: string[]
     /** Required for a composite scorer. Creates a new immutable formula and input selection. */
     composition?: CompositeConfigApi | null
     /**
@@ -6025,12 +6146,15 @@ export interface ScoreDefinitionVersionApi {
     readonly definition_id: string
     /** Immutable version number within this scorer. */
     readonly version: number
+    /** Suites currently assigned to this exact version. */
+    readonly suite_keys: readonly string[]
     /** Scorer value kind.
      *
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
     readonly kind: ScoreDefinitionKindEnumApi
+    readonly scope: ScoreDefinitionScopeEnumApi
     /** How this scorer's results are produced.
      *
      * * `reported` - Reported
@@ -6069,19 +6193,6 @@ export interface ScoreDefinitionVersionPageApi {
     next_cursor: string | null
     /** Versions on this page, newest first. */
     results: ScoreDefinitionVersionApi[]
-}
-
-export interface CompositeValidationApi {
-    /** Expected formula output kind.
-     *
-     * * `categorical` - categorical
-     * * `numeric` - numeric
-     * * `boolean` - boolean */
-    kind: ScoreDefinitionKindEnumApi
-    /** Formula and pinned input versions to validate without saving. */
-    composition: CompositeConfigApi
-    /** Output configuration to check literal categories and composite scoring rules. */
-    config?: ScoreDefinitionConfigApi
 }
 
 export interface CompositeValidationResponseApi {
@@ -7800,6 +7911,11 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     order_by?: string
     /**
+     * * `item` - Item
+     * * `experiment` - Experiment
+     */
+    scope?: LlmAnalyticsScoreDefinitionsListScope
+    /**
      * Search scorers by name, short name, or description.
      */
     search?: string
@@ -7823,6 +7939,14 @@ export type LlmAnalyticsScoreDefinitionsListCalculation =
 export const LlmAnalyticsScoreDefinitionsListCalculation = {
     Composite: 'composite',
     Reported: 'reported',
+} as const
+
+export type LlmAnalyticsScoreDefinitionsListScope =
+    (typeof LlmAnalyticsScoreDefinitionsListScope)[keyof typeof LlmAnalyticsScoreDefinitionsListScope]
+
+export const LlmAnalyticsScoreDefinitionsListScope = {
+    Experiment: 'experiment',
+    Item: 'item',
 } as const
 
 export type LlmAnalyticsScoreDefinitionsListTagMatch =

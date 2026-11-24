@@ -9,6 +9,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 2,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -23,6 +25,8 @@ export const OFFLINE_STORY_DEFINITION: ScoreDefinitionApi = {
 }
 
 export const OFFLINE_STORY_VERSION: ScoreDefinitionVersionApi = {
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     id: OFFLINE_STORY_DEFINITION.current_version_id!,

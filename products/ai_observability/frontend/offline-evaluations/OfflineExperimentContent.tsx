@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
+import { ExperimentScoreResult } from './ExperimentScoreResult'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
@@ -97,6 +98,29 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                             )}
                         </div>
                         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                            {experiment.experiment_score ? (
+                                <section className="w-full">
+                                    <h3>Experiment score</h3>
+                                    <span>
+                                        {experiment.experiment_score.name} · v{experiment.experiment_score.version}
+                                    </span>
+                                    <ExperimentScoreResult score={experiment.experiment_score} />
+                                </section>
+                            ) : (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        data-attr="aio-set-up-experiment-score"
+                                        to={`${urls.aiObservabilityScorer('new')}?${new URLSearchParams({ experiment: experiment.id, ...(experiment.suite_key ? { suite: experiment.suite_key } : {}) })}`}
+                                    >
+                                        Set up experiment score
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )}
                             <span>{`${experiment.accepted_item_count} items${experiment.expected_item_count === null ? '' : ` / ${experiment.expected_item_count} expected`}`}</span>
                             <span>
                                 {experiment.visible_result_count === null

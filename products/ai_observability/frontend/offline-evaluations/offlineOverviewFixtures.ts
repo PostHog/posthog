@@ -10,6 +10,8 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         kind: index === 1 ? 'boolean' : 'numeric',
         archived: false,
         current_version: 2,
+        scope: 'item',
+        suite_keys: [],
         calculation: 'reported',
         composition: null,
         input_scorers: [],

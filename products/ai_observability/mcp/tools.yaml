@@ -974,7 +974,8 @@ tools:
             externally executed work; it does not run an application or evaluator. Reuse the same UUID and identical
             fields for exact retries. Optional expected item/result counts are fixed at creation and checked on
             completion. Scorers and any hosted dataset references must belong to the current project/environment. Pin
-            scorer-version UUIDs before uploading results.
+            scorer-version UUIDs before uploading results. On creation, experiment_scorer_version_id overrides the
+            suite_key's default experiment scorer version. Future changes to that default apply only to new runs.
     llma-offline-experiment-fail:
         operation: ai_observability_offline_experiments_fail_create
         enabled: true
@@ -1258,6 +1259,18 @@ tools:
             idempotent: true
         title: Update offline experiment result
         description: Update a reported score. The server recalculates its existing composite results.
+    llma-offline-experiment-score-preview:
+        operation: ai_observability_offline_experiments_preview_score_create
+        enabled: true
+        scopes:
+            - evaluation:read
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview experiment score
+        description: Preview a formula against a run's scorer summaries. Returns the overall value, source versions and coverage or the reason an input is unavailable.
     llma-offline-experiment-scorer-summary-list:
         operation: ai_observability_offline_experiments_scorer_summaries_list
         enabled: true
@@ -1725,8 +1738,10 @@ tools:
             evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not
             archived) and at version 1. `calculation` defaults to `reported`. For an offline composite scorer, set
             `calculation: composite` and provide `composition` with an expression and 1–16 inputs, each with an alias
-            and exact `scorer_version_id` from a reported scorer. Both kind and calculation are immutable. Composite
-            inputs cannot themselves be composites. When available, use `llma-score-definition-validate` to check the
+            and a `scorer_version_id`. Item formulas use reported scorers. For an experiment formula, use
+            `scope: experiment` and provide a statistic per input (pass_rate, mean, true_rate or category_rate).
+            Its inputs can include item composites. Set version_policy to run, exact or combine. Use apply_to_suite_keys
+            to assign the version to future runs. Scope, kind and calculation are immutable. Use `llma-score-definition-validate` to check the
             formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with `calculate:
             true`. Numeric composites do not accept `step`.
         param_overrides:
@@ -1762,7 +1777,7 @@ tools:
             to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
             name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata,
             tags, and the current config snapshot. Filter by `calculation=reported` or `composite`, or use
-            `input_definition_id` to find composites that depend on a source scorer.
+            `input_definition_id` to find composites that depend on a source scorer. Filter by scope=item or experiment.
     llma-score-definition-new-version:
         operation: llm_analytics_score_definitions_new_version_create
         enabled: true
@@ -1783,7 +1798,9 @@ tools:
             saved atomically with the version. For a composite scorer, also provide the full `composition`, even when
             only the output rules change. Its formula and input version UUIDs are pinned to the new version; updating a
             source scorer never updates dependent composites automatically. When available, validate the proposed
-            composition with `llma-score-definition-validate` before saving. Numeric composites do not accept `step`.
+            composition with `llma-score-definition-validate` before saving. For an experiment scorer, pass
+            apply_to_suite_keys to roll this version out to selected suites. Omitted suites keep their previous version.
+            Numeric composites do not accept `step`.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
@@ -1800,7 +1817,8 @@ tools:
         description: >
             Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or
             restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules
-            instead, call `llma-score-definition-new-version`. `kind` cannot be changed.
+            instead, call `llma-score-definition-new-version`. For experiment scorers, replace an exact version's
+            suite assignments with suite_version_id and apply_to_suite_keys. An empty list releases its suites.
     llma-score-definition-validate:
         operation: llm_analytics_score_definitions_validate_composition_create
         enabled: true
@@ -1814,7 +1832,8 @@ tools:
         description: >
             Validate a composite scorer's formula without creating or changing a scorer. Pass the output `kind` and
             `composition` with `expression` and 1–16 inputs, each containing `alias` and an exact `scorer_version_id`
-            from an accessible reported scorer in this project. Every alias must appear in the formula. Supports +, -,
+            from an accessible item scorer in this project. For scope=experiment, specify a statistic per input;
+            each alias is numeric. Use llma-offline-experiment-score-preview to try it on a run. Every alias must appear in the formula. Supports +, -,
             *, /, comparisons, categorical membership, and/or/not, conditional expressions, and number(), min(), max(),
             abs(). Boolean values are raw: number(True) is 1 and number(False) is 0, regardless of passing rules.
             Categorical inputs are lists of keys: use `"good" in relevance`. Examples: `(2 * precision + recall) / 3`,

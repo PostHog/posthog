@@ -36,6 +36,8 @@ const source: ScoreDefinitionApi = {
     description: '',
     tags: [],
     kind: 'numeric',
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     config: { min: 0, max: 1 },
     composition: null,

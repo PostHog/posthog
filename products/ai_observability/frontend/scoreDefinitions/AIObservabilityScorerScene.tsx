@@ -30,6 +30,11 @@ export const scene: SceneExport<ScorerLogicProps> = {
     productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params, searchParams }) => ({
         scorerId: params.scorerId || 'new',
+        experimentId:
+            params.scorerId === 'new' && typeof searchParams.experiment === 'string'
+                ? searchParams.experiment
+                : undefined,
+        suiteKey: params.scorerId === 'new' && typeof searchParams.suite === 'string' ? searchParams.suite : undefined,
         duplicateFrom:
             params.scorerId === 'new' && typeof searchParams.duplicate === 'string'
                 ? searchParams.duplicate
@@ -238,6 +243,7 @@ export function AIObservabilityScorerScene(): JSX.Element {
                     <ScoreDefinitionForm
                         draft={draft}
                         isNew={isNew}
+                        experimentId={draft.previewExperimentId}
                         disabled={saving || !!editDisabledReason}
                         setDraftField={setDraftField}
                         updateOptionLabel={updateOptionLabel}

@@ -18,6 +18,8 @@ const definition: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 3,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -74,6 +76,47 @@ export const Numeric: Story = {}
 export const NewScorer: Story = {
     args: { scorerId: 'new' },
     parameters: { pageUrl: urls.aiObservabilityScorer('new') },
+}
+export const FromExperiment: Story = {
+    args: { scorerId: 'new', experimentId: 'run-id', suiteKey: 'support-answers' },
+    parameters: { pageUrl: urls.aiObservabilityScorer('new') + '?experiment=run-id&suite=support-answers' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/llm_analytics/score_definitions/': {
+                    count: 1,
+                    results: [{ ...definition, kind: 'boolean', config: {} }],
+                    next: null,
+                    previous: null,
+                },
+                '/api/projects/:team/llm_analytics/score_definitions/:id/versions/': {
+                    count: 0,
+                    results: [],
+                    next: null,
+                    next_cursor: null,
+                },
+            },
+            post: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/preview_score/': {
+                    status: 'mixed_versions',
+                    value: null,
+                    inputs: [
+                        {
+                            alias: 'score1',
+                            statistic: 'pass_rate',
+                            version_policy: 'run',
+                            status: 'mixed_versions',
+                            value: null,
+                            sources: [
+                                { version_id: 'source-v2', version: 2, value: 0.9, successful_items: 10 },
+                                { version_id: 'source-v3', version: 3, value: 0.5, successful_items: 2 },
+                            ],
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }
 export const BooleanDetector: Story = {
     decorators: [
