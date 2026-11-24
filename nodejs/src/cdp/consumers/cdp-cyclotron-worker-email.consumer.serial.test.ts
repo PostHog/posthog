@@ -693,8 +693,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const rowLock = await lockJobRow(running)
 
         let stopReturned = false
+        let rowWhenStopReturned: Promise<{ status: string; retries: number | undefined }> | undefined
         const stopStarted = Date.now()
-        void worker.stop().then(() => (stopReturned = true))
+        void worker.stop().then(() => {
+            stopReturned = true
+            rowWhenStopReturned = jobRow(running).then((row) => ({
+                status: row.status,
+                retries: row.queueMetadata?.attachmentLoadRetries,
+            }))
+        })
         await jest.advanceTimersByTimeAsync(26_000)
         expect({
             stopReturned,
@@ -707,15 +714,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
         expect(stopReturned).toBe(false)
         await rowLock.release()
-        await whileTheClockHolds(async () => {
-            const row = await jobRow(running)
-            expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
-                status: 'available',
-                retries: 1,
-            })
-        })
-        await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
+        await whileTheClockHolds(() => Promise.resolve(expect(stopReturned).toBe(true)))
 
+        expect(await rowWhenStopReturned).toEqual({ status: 'available', retries: 1 })
         expect(delivered()).toEqual([])
     })
 
