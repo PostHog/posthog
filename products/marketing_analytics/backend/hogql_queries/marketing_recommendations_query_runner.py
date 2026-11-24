@@ -103,9 +103,7 @@ PERFORMANCE_MAX_GAP = (
     "Performance Max search terms are not split by conversion action, so Performance Max campaigns and their search "
     "terms count the primary conversion actions. The account's search term CPA includes them."
 )
-UNMATCHED_CAMPAIGNS_SHOWN = 3
 UNMATCHED_MIN_SHARE = 0.05
-SHOWN_VALUE_LENGTH = 60
 POSTHOG_CONVERSIONS_FAILED_GAP = (
     "PostHog conversions could not be counted for this period, so CPAs use the conversions Google Ads reports."
 )
@@ -1008,12 +1006,6 @@ def _posthog_conversions_failed() -> PostHogConversions:
     )
 
 
-# Anyone who can send events sets utm_campaign, and data gaps reach PostHog AI, so a value is shown short and flat.
-def _shown_value(value: str) -> str:
-    flat = " ".join("".join(char if char.isprintable() else " " for char in value).split())
-    return flat if len(flat) <= SHOWN_VALUE_LENGTH else flat[: SHOWN_VALUE_LENGTH - 1] + "…"
-
-
 def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]) -> tuple[str, ...]:
     # An empty utm_campaign names nothing to map, and a few stray conversions should not stop judging every
     # campaign without conversions.
@@ -1036,17 +1028,14 @@ def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecomme
             )
         )
     if posthog.unmatched_campaigns:
-        shown = ", ".join(
-            f'"{_shown_value(campaign)}"' for campaign in posthog.unmatched_campaigns[:UNMATCHED_CAMPAIGNS_SHOWN]
-        )
-        more = len(posthog.unmatched_campaigns) - UNMATCHED_CAMPAIGNS_SHOWN
+        count = len(posthog.unmatched_campaigns)
+        # Anyone who can send events sets utm_campaign, and data gaps reach PostHog AI, so the message names no value.
         gaps.append(
             MarketingAnalyticsRecommendationsDataGap(
                 kind=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CAMPAIGNS_UNMATCHED,
-                message=f"PostHog conversions with utm_campaign {shown}"
-                + (f" and {more} more" if more > 0 else "")
-                + " match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. "
-                "Map these values to their campaigns in campaign name mappings.",
+                message=f"PostHog conversions from {count} utm_campaign value{'s' if count != 1 else ''} match no "
+                "Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. The UTM audit "
+                "lists them; map each one to its campaign in campaign name mappings.",
             )
         )
     return gaps
