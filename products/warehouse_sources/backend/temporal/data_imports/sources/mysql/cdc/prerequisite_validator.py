@@ -97,7 +97,15 @@ def _check_version(conn: pymysql.Connection) -> list[str]:
 
 def _check_binlog_settings(conn: pymysql.Connection) -> list[str]:
     values = _variables(
-        conn, ["log_bin", "binlog_format", "binlog_row_image", "binlog_row_metadata", "binlog_transaction_compression"]
+        conn,
+        [
+            "log_bin",
+            "binlog_format",
+            "binlog_row_image",
+            "binlog_row_metadata",
+            "binlog_transaction_compression",
+            "binlog_row_value_options",
+        ],
     )
     if values.get("log_bin", "").upper() not in ("ON", "1"):
         return [
@@ -117,6 +125,12 @@ def _check_binlog_settings(conn: pymysql.Connection) -> list[str]:
         errors.append(
             "binlog_transaction_compression is ON, but change data capture can't read compressed transactions. "
             "Set binlog_transaction_compression=OFF, then check again."
+        )
+    # A partial JSON update logs only the changed paths, not the document the table holds.
+    if "PARTIAL_JSON" in values.get("binlog_row_value_options", "").upper():
+        errors.append(
+            "binlog_row_value_options is PARTIAL_JSON, but change data capture needs whole JSON documents. "
+            "Set binlog_row_value_options to an empty value, then check again."
         )
     return errors
 

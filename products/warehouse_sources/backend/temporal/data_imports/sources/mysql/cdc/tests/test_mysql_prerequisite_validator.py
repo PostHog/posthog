@@ -58,6 +58,7 @@ class TestValidateCDCPrerequisites:
             ("binlog_row_metadata", "MINIMAL", "binlog_row_metadata is MINIMAL"),
             ("binlog_expire_logs_seconds", 3600, "keeps binary logs for 1 hours"),
             ("binlog_transaction_compression", "ON", "binlog_transaction_compression is ON"),
+            ("binlog_row_value_options", "PARTIAL_JSON", "binlog_row_value_options is PARTIAL_JSON"),
         ],
     )
     def test_misconfigured_binlog_setting_is_reported(self, mysql_server, root_conn, variable, value, expected):
