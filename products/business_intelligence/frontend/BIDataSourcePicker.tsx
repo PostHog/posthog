@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useRef } from 'react'
+import { Fragment, useRef } from 'react'
 
 import { IconChevronDown, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
@@ -11,6 +11,19 @@ import { biDataSourcePickerLogic } from 'products/business_intelligence/frontend
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
+
+function WrappedTableName({ name }: { name: string }): JSX.Element {
+    return (
+        <span className="block min-w-0 max-w-[80vw] break-words">
+            {name.split(/(?<=[_.])/).map((part, index) => (
+                <Fragment key={index}>
+                    {part}
+                    <wbr />
+                </Fragment>
+            ))}
+        </span>
+    )
+}
 
 export function BIDataSourcePicker(): JSX.Element {
     const biLogic = useMountedLogic(biEditorLogic)
@@ -27,7 +40,7 @@ export function BIDataSourcePicker(): JSX.Element {
             closeOnClickInside={false}
             placement="bottom-start"
             overlay={
-                <div className="flex w-72 max-w-full flex-col gap-1" data-attr="bi-editor-data-source-picker">
+                <div className="flex w-96 max-w-full flex-col gap-1" data-attr="bi-editor-data-source-picker">
                     <LemonInput
                         type="search"
                         fullWidth
@@ -70,6 +83,18 @@ export function BIDataSourcePicker(): JSX.Element {
                                 isItemActive={(item) =>
                                     !!config.source && item.id === getBIDataSourceKey(config.source)
                                 }
+                                renderItem={(item, label) =>
+                                    item.children ? (
+                                        label
+                                    ) : (
+                                        <span className="block truncate text-left" dir="rtl">
+                                            <bdi>{label}</bdi>
+                                        </span>
+                                    )
+                                }
+                                renderItemTooltip={(item) =>
+                                    item.children ? undefined : <WrappedTableName name={item.name} />
+                                }
                                 renderItemIcon={(item) => (
                                     <span className="flex shrink-0 items-center gap-1">
                                         <TreeNodeDisplayIcon
@@ -96,10 +121,9 @@ export function BIDataSourcePicker(): JSX.Element {
                 fullWidth
                 icon={<IconDatabase />}
                 sideIcon={<IconChevronDown />}
-                truncate
                 data-attr="bi-editor-data-source"
             >
-                {config.source?.table ?? 'Select a table'}
+                {config.source ? <WrappedTableName name={config.source.table} /> : 'Select a table'}
             </LemonButton>
         </LemonDropdown>
     )
