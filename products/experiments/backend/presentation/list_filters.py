@@ -12,7 +12,7 @@ def parse_tag_names(value: Any) -> list[str]:
     """
     try:
         tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError, RecursionError):
         return []
     if not isinstance(tags, list):
         return []

@@ -1149,6 +1149,15 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("tags", "[" * 5000), ("created_by_id", "[" * 5000)])
+    def test_list_ignores_deeply_nested_filter_params(self, param: str, value: str) -> None:
+        self._create_saved_metric("Pageview mean")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={param: value})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({row["name"] for row in response.json()["results"]}, {"Pageview mean"})
+
     def _seed_metrics_for_event_filter(self) -> None:
         # Created via the ORM so the stored query JSON is exactly what the filter inspects. The action fires
         # on the "signup" event, so its metric is discoverable by that event — not by the action's label.
