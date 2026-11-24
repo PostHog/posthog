@@ -378,7 +378,7 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
 
 
 def revoke_scoped_token_hashes(token_hashes: list[str]) -> bool:
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
+    base_url = sandbox_ai_gateway_worker_url().rstrip("/").removesuffix("/v1")
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key or not token_hashes:
         return False
