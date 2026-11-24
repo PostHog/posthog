@@ -12,7 +12,7 @@ use moka::{
     Expiry,
 };
 
-use sqlx::PgPool;
+use sqlx::{pool::PoolConnection, Connection, PgPool, Postgres};
 
 use crate::{
     core::config::ResolverConfig,
@@ -46,6 +46,29 @@ const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 // `SET LOCAL` ends with the transaction, so it never reaches the next client of the pooled or
 // pgbouncer connection. One simple query carries both statements in one round trip.
 const BEGIN_ASYNC_COMMIT: &str = "BEGIN; SET LOCAL synchronous_commit = off";
+
+// sqlx counts a transaction as open only after BEGIN returns, so a save dropped mid-BEGIN (the
+// item deadline cancels it) queues no rollback. The pool would then hand out a connection that
+// is still inside this transaction. Closing the connection unless the save finished prevents it.
+struct CloseUnlessFinished(Option<PoolConnection<Postgres>>);
+
+impl CloseUnlessFinished {
+    fn conn(&mut self) -> &mut PoolConnection<Postgres> {
+        self.0.as_mut().expect("connection is held until finish")
+    }
+
+    fn finish(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for CloseUnlessFinished {
+    fn drop(&mut self) {
+        if let Some(conn) = self.0.as_mut() {
+            conn.close_on_drop();
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct LocalSymbolResolver {
@@ -304,7 +327,8 @@ impl LocalSymbolResolver {
         records: &[ErrorTrackingStackFrame],
         refresh_if_older_than: Option<DateTime<Utc>>,
     ) -> Result<Vec<u64>, UnhandledError> {
-        let mut txn = self.pool.begin_with(BEGIN_ASYNC_COMMIT).await?;
+        let mut conn = CloseUnlessFinished(Some(self.pool.acquire().await?));
+        let mut txn = conn.conn().begin_with(BEGIN_ASYNC_COMMIT).await?;
         let mut rows_affected = Vec::with_capacity(records.len());
         for record in records {
             rows_affected.push(
@@ -314,6 +338,7 @@ impl LocalSymbolResolver {
             );
         }
         txn.commit().await?;
+        conn.finish();
         Ok(rows_affected)
     }
 
@@ -462,6 +487,7 @@ mod test {
     use symbolic::sourcemapcache::SourceMapCacheWriter;
     use uuid::Uuid;
 
+    use super::{CloseUnlessFinished, BEGIN_ASYNC_COMMIT};
     use crate::{
         core::config::ResolverConfig,
         core::types::Stacktrace,
@@ -846,6 +872,31 @@ mod test {
                 .await
                 .unwrap();
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn abandoned_frame_save_does_not_return_its_transaction_to_the_pool(
+        pool_options: PgPoolOptions,
+        connect_options: PgConnectOptions,
+    ) {
+        let pool = pool_options
+            .max_connections(1)
+            .connect_with(connect_options.options([("synchronous_commit", "on")]))
+            .await
+            .unwrap();
+        let mut conn = CloseUnlessFinished(Some(pool.acquire().await.unwrap()));
+        // The server state a save leaves when it is cancelled after BEGIN reached Postgres.
+        sqlx::raw_sql(BEGIN_ASYNC_COMMIT)
+            .execute(&mut **conn.conn())
+            .await
+            .unwrap();
+        drop(conn);
+
+        let next_user_setting: String = sqlx::query_scalar("SHOW synchronous_commit")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(next_user_setting, "on");
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]

@@ -75,7 +75,7 @@ pub struct ResolverConfig {
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
 
-    // Frame rows are a cache rebuilt on the next miss, so their commits skip the WAL flush wait.
+    // When true, frame saves skip the WAL flush wait. Frame rows are a cache rebuilt on the next miss.
     #[envconfig(default = "true")]
     pub frame_save_async_commit: bool,
 
