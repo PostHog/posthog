@@ -1,7 +1,10 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 
+import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo } from '~/mocks/utils'
 import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
@@ -118,6 +121,66 @@ describe('commandKSearchLogic', () => {
         logic.actions.setChipsAndText([], 'zzq_xywx', 8)
 
         expect(logic.values.localQuery).toEqual('zzq_xywx')
+    })
+
+    it('finds and opens an endpoint by name', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/search/': ({ request }: MockResolverInfo) => {
+                    const params = new URL(request.url).searchParams
+                    return {
+                        results:
+                            params.get('q') === 'orders_api' && params.getAll('entities').includes('endpoint')
+                                ? [
+                                      {
+                                          result_id: 'endpoint-id',
+                                          type: 'endpoint',
+                                          rank: 1,
+                                          extra_fields: { name: 'orders_api' },
+                                      },
+                                  ]
+                                : [],
+                        counts: {},
+                    }
+                },
+                '/api/projects/:team_id/file_system/search/': {
+                    results: [],
+                    type_counts: [],
+                    matched_all_words: false,
+                    matched_words: [],
+                    matched_with_typos: false,
+                    counts_capped: false,
+                },
+            },
+        })
+
+        logic.actions.inputChanged('orders_api', 10, false)
+
+        await waitFor(() =>
+            expect(logic.values.sections).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'endpoints',
+                        label: 'Endpoints',
+                        rows: [
+                            expect.objectContaining({
+                                kind: 'item',
+                                item: expect.objectContaining({
+                                    name: 'orders_api',
+                                    href: '/endpoints/orders_api',
+                                    itemType: 'endpoints',
+                                }),
+                            }),
+                        ],
+                    }),
+                ])
+            )
+        )
+
+        const row = logic.values.sections.find((section) => section.key === 'endpoints')!.rows[0]
+        logic.actions.activateRow(row, false, 'enter')
+
+        expect(router.values.location.pathname).toMatch(/\/endpoints\/orders_api$/)
     })
 
     it('a See all row narrows the search to its type and keeps the words', () => {

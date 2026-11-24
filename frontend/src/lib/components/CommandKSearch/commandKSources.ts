@@ -55,6 +55,7 @@ export const REMOTE_SOURCES = [
     'events',
     'properties',
     'workflows',
+    'endpoints',
     'accounts',
     'tickets',
     'persons',
@@ -202,6 +203,7 @@ const UNIFIED_TYPES: Record<string, RemoteSource> = {
     event_definition: 'events',
     property_definition: 'properties',
     hog_flow: 'workflows',
+    endpoint: 'endpoints',
 }
 
 type TypeSearch = (terms: TypeSearchTerms, signal: AbortSignal, context: RemoteContext) => Promise<SearchItem[]>
@@ -383,16 +385,21 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
     {
         id: 'unified',
         query: 'text',
-        sources: ['events', 'properties', 'workflows'],
+        sources: ['events', 'properties', 'workflows', 'endpoints'],
         fetch: async (q, signal) => {
             const response = await api.search.list(
-                { q, entities: ['event_definition', 'property_definition', 'hog_flow'], include_counts: false },
+                {
+                    q,
+                    entities: ['event_definition', 'property_definition', 'hog_flow', 'endpoint'],
+                    include_counts: false,
+                },
                 { signal }
             )
             const results: RemoteResults = {
                 events: { items: [] },
                 properties: { items: [] },
                 workflows: { items: [] },
+                endpoints: { items: [] },
             }
             for (const result of response.results) {
                 results[UNIFIED_TYPES[result.type]]?.items.push(unifiedSearchResultToSearchItem(result))
