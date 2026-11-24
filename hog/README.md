@@ -67,7 +67,8 @@ Warning: hog 1 gets no more fixes after June 1, 2027. Move to hog 2. Run `brew u
 
 - A `warning` shows on every command. An `info` notice shows at most once a day, because hog keeps the time it showed one in `~/.posthog/notices-shown.json`. A CI job starts without that file, so it sees an info notice on every run.
 - With `upgrade=True`, the line adds the update command for that install, the same one `hog upgrade` names.
-- hog turns control characters and bidirectional overrides into spaces, takes links only to `https://` pages on `posthog.com`, and skips a notice it can't read, such as one with a level a newer hog adds.
+- hog turns control, bidirectional and zero-width characters into spaces, takes links only to `https://` pages on `posthog.com` written in printable ASCII, and skips a notice it can't read, such as one with a level a newer hog adds. A notice can't hold `##[`, which GitHub Actions reads as a command.
+- hog reads the header only from PostHog API answers, never from object storage, GitHub or an answer redirected to another origin.
 - hog sends `cli notice shown` with the notice ID each time it shows one.
 
 To send a notice, add it to `CLI_NOTICES` and run `hogli build:projections`:

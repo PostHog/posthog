@@ -86,9 +86,13 @@ class TestCliNotices(SimpleTestCase):
             ("lookalike_domain", {"url": "https://posthog.com.example.com/docs"}),
             ("plain_http", {"url": "http://posthog.com/docs"}),
             ("control_character", {"message": "Move to hog 2.\u001b[31m"}),
-            ("bidirectional_override", {"message": "Move to hog‮ 2."}),
+            ("bidirectional_override", {"message": "Move to hog\u202e 2."}),
             ("too_long", {"message": "x" * 301}),
             ("not_semver", {"below": "two"}),
+            ("escape_sequence_in_link", {"url": "https://posthog.com/docs\u001b]8;;https://evil.example/\u0007"}),
+            ("space_in_link", {"url": "https://evil.example @posthog.com/docs"}),
+            ("workflow_command_in_message", {"message": "Done ##[error]failed"}),
+            ("workflow_command_in_link", {"url": "https://posthog.com/docs##[error]failed"}),
             ("naive_until", {"until": datetime(2027, 6, 1)}),
         ]
     )

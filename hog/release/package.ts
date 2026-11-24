@@ -6,19 +6,18 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import type { Artifact, Manifest } from '../src/updates/manifest'
+import type { Notice } from '../src/updates/notices'
 import { archiveName, npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 import { parseVersion } from '../src/updates/version'
 import {
     buildManifest,
     homebrewFormula,
-    releaseNotices,
     type PackageJson,
     platformPackageJson,
     sha256Sums,
     wrapperPackageJson,
 } from './artifacts'
 import minimum from './minimum-version.json' with { type: 'json' }
-import noticesFile from './notices.generated.json' with { type: 'json' }
 import { HOG_ROOT, RELEASE_FOLDER, run, targetFolder } from './shared'
 
 const { values } = parseArgs({
@@ -44,13 +43,10 @@ if (minimumVersion !== undefined && !parseVersion(minimumVersion)) {
     process.exit(1)
 }
 
-let notices
-try {
-    notices = releaseNotices(noticesFile)
-} catch (error) {
-    console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
-}
+// The publish job checks out only release/ and src/updates/ and installs no packages, so this script
+// can't load zod to check the file. release.test.ts checks it against NoticeSchema in CI instead.
+const notices = ((await Bun.file(join(HOG_ROOT, 'release/notices.generated.json')).json()) as { notices: Notice[] })
+    .notices
 
 const out = resolve(values.out)
 const input = reused ? join(out, 'unpacked') : resolve(values.in)

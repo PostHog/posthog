@@ -1,15 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 
 import { readJson } from '../src/testing'
 import type { Artifact } from '../src/updates/manifest'
+import { NoticeSchema } from '../src/updates/notices'
 import { archiveName, rustTarget, shippedBinaries, TARGETS } from '../src/updates/targets'
-import { buildManifest, releaseNotices, sha256Sums, wrapperPackageJson } from './artifacts'
+import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
 import noticesFile from './notices.generated.json' with { type: 'json' }
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
@@ -406,26 +407,55 @@ test.skipIf(!Bun.which('zip') || !Bun.which('unzip'))(
 )
 
 describe('release notices', () => {
-    test('the notices CLI_NOTICES generates are ones every hog can read', () => {
-        expect(() => releaseNotices(noticesFile)).not.toThrow()
+    test('every notice CLI_NOTICES generates reaches hogs as written', () => {
+        expect(z.array(NoticeSchema).parse(noticesFile.notices)).toEqual(noticesFile.notices)
     })
+})
 
-    test.each([
-        [
-            'an id named twice',
-            [
-                { id: 'hog-2-out', level: 'info', message: 'One.' },
-                { id: 'hog-2-out', level: 'info', message: 'Two.' },
-            ],
-            'names the notice hog-2-out twice',
-        ],
-        [
-            'a page outside posthog.com',
-            [{ id: 'away', level: 'info', message: 'Read this.', url: 'https://example.com' }],
-            'url',
-        ],
-        ['a level hogs would skip', [{ id: 'loud', level: 'critical', message: 'Read this.' }], 'level'],
-    ])('stops a release with %s', (_name, notices, message) => {
-        expect(() => releaseNotices({ notices })).toThrow(message)
+const HOG = resolve(import.meta.dir, '..')
+// Runtime imports only, because `import type` is erased. A `type` name inside braces still loads the module.
+const RUNTIME_IMPORT = /^\s*(?:import|export)\s+(?!type\b)(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm
+
+function runtimeImports(entry: string): { files: string[]; packages: string[] } {
+    const files = new Set<string>()
+    const packages = new Set<string>()
+    const visit = (file: string): void => {
+        if (files.has(file)) {
+            return
+        }
+        files.add(file)
+        if (!file.endsWith('.ts')) {
+            return
+        }
+        for (const [, specifier] of readFileSync(file, 'utf8').matchAll(RUNTIME_IMPORT)) {
+            if (specifier!.startsWith('node:')) {
+                continue
+            }
+            const base = specifier!.startsWith('@/')
+                ? join(HOG, 'src', specifier!.slice(2))
+                : specifier!.startsWith('.')
+                  ? resolve(dirname(file), specifier!)
+                  : undefined
+            if (base === undefined) {
+                packages.add(specifier!)
+                continue
+            }
+            const found = [base, `${base}.ts`, join(base, 'index.ts')].find(
+                (path) => existsSync(path) && statSync(path).isFile()
+            )
+            visit(found ?? base)
+        }
+    }
+    visit(entry)
+    return { files: [...files].map((file) => relative(HOG, file)).sort(), packages: [...packages].sort() }
+}
+
+describe('the publish job', () => {
+    // release-hog.yml's publish job checks out only these folders and installs no packages.
+    test('can load release/package.ts from what it checks out', () => {
+        const { files, packages } = runtimeImports(join(HOG, 'release/package.ts'))
+
+        expect(packages).toEqual([])
+        expect(files.filter((file) => !file.startsWith('release/') && !file.startsWith('src/updates/'))).toEqual([])
     })
 })

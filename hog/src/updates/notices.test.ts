@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
-import { readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
+import { resolveMode } from '@/core/agent'
+import { Telemetry } from '@/core/telemetry'
+import { fakeRuntime, readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
 import type { Manifest } from './manifest'
-import { API_NOTICE_HEADER, appliesTo, NoticeList, type Notice } from './notices'
+import { API_NOTICE_HEADER, appliesTo, NoticeList, Notices, type Notice } from './notices'
 
 const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
@@ -73,12 +75,19 @@ describe('reading notices', () => {
         ['an empty message', { message: ' \u001b ' }],
         ['an id with spaces', { id: 'not an id' }],
         ['a version that is not semver', { below: 'two' }],
+        ['an escape sequence in the link', { url: 'https://posthog.com/docs\u001b]8;;https://evil.example/\u0007' }],
+        ['a line break in the link', { url: 'https://posthog.com/docs\n::warning::Run this.' }],
+        ['a space in the link', { url: 'https://evil.example @posthog.com/docs' }],
+        ['a workflow command in the message', { message: 'Done ##[error]failed' }],
+        ['a workflow command in the link', { url: 'https://posthog.com/docs##[error]failed' }],
     ])('leaves out a notice with %s and keeps the others', (_name, fields) => {
         expect(NoticeList.parse([{ ...RETIRING, id: 'bad', ...fields }, RETIRING])).toEqual([RETIRING])
     })
 
-    test('turns control characters and bidirectional overrides into spaces', () => {
-        const [notice] = NoticeList.parse([{ ...RETIRING, message: 'Move\u001b[31m to\nhog‮ 2.\u0007' }])
+    test('turns control, bidirectional and zero-width characters into spaces', () => {
+        const [notice] = NoticeList.parse([
+            { ...RETIRING, message: 'Move\u001b[31m to\nhog\u202e 2.\u0007\u061c\u200b\ufeff' },
+        ])
 
         expect(notice?.message).toBe('Move [31m to hog 2.')
     })
@@ -140,6 +149,15 @@ describe('showing notices', () => {
         expect(second.stderr).toContain('Warning: hog 1 gets no more fixes')
     })
 
+    test('shows an info notice whose id is a property of every object', async () => {
+        const result = await runHog(['config', 'schema'], {
+            ...PERSON,
+            respond: release([{ id: 'constructor', level: 'info', message: 'hog 2 is out.' }]),
+        })
+
+        expect(result.stderr).toBe('Notice: hog 2 is out.\n')
+    })
+
     test('counts each notice it shows', async () => {
         const result = await runHog(['config', 'schema'], {
             ...PERSON,
@@ -197,6 +215,32 @@ describe('notices from the PostHog API', () => {
         })
 
         expect(result.stderr.match(/hog 1 gets no more fixes/g)).toHaveLength(1)
+    })
+
+    test('ignores the header on an answer that is not from the PostHog API', async () => {
+        const releases = release([])!
+        const result = await runHog(['upgrade', '--check'], {
+            ...PERSON,
+            respond: (url, body, authorization, headers) => ({
+                ...releases(url, body, authorization, headers),
+                headers: { [API_NOTICE_HEADER]: JSON.stringify([RETIRING]) },
+            }),
+        })
+
+        expect(result.stderr).not.toContain('hog 1 gets no more fixes')
+    })
+
+    test('ignores a PostHog API answer that a redirect brought from another origin', async () => {
+        const runtime = fakeRuntime(PERSON)
+        const notices = new Notices(runtime)
+        const mode = resolveMode({ CLAUDECODE: '1' }, { isTTY: false, hasColors: false, columns: undefined }, undefined)
+        const redirected = new Response('{}', { headers: { [API_NOTICE_HEADER]: JSON.stringify([RETIRING]) } })
+        Object.defineProperty(redirected, 'url', { value: 'https://storage.example.com/bucket/object' })
+
+        await notices.watch(async () => redirected)('https://us.posthog.com/api/projects/1/', { posthogApi: true })
+        await notices.show({ mode, telemetry: new Telemetry(runtime, mode, false) })
+
+        expect(runtime.stderr()).toBe('')
     })
 
     test.each([

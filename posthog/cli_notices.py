@@ -28,6 +28,10 @@ _SEMVER = re.compile(
 )
 _HOG_USER_AGENT = re.compile(r"^hog/(\S+)")
 _NOTICE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+# hog prints the link as written, so it takes only printable ASCII with no space or `@`, as hog checks.
+_NOTICE_URL = re.compile(r"^https://[!-?A-~]{1,200}$")
+# The GitHub Actions runner reads it anywhere in a line as a workflow command.
+_WORKFLOW_COMMAND = "##["
 # hog skips a longer message, so a longer one here would never show.
 MAX_MESSAGE_LENGTH = 300
 
@@ -84,9 +88,11 @@ class CliNotice:
             raise ValueError(f"CLI notice id {self.id!r} must be lowercase letters, digits and dashes")
         if not self.message.strip() or len(self.message) > MAX_MESSAGE_LENGTH or not self.message.isprintable():
             raise ValueError(f"CLI notice {self.id} needs a printable message of up to {MAX_MESSAGE_LENGTH} characters")
+        if _WORKFLOW_COMMAND in self.message or (self.url is not None and _WORKFLOW_COMMAND in self.url):
+            raise ValueError(f"CLI notice {self.id} can't hold {_WORKFLOW_COMMAND}, which GitHub Actions runs")
         if self.url is not None:
             parts = urlsplit(self.url)
-            if parts.scheme != "https" or not (
+            if not _NOTICE_URL.match(self.url) or not (
                 parts.hostname == "posthog.com" or str(parts.hostname).endswith(".posthog.com")
             ):
                 raise ValueError(f"CLI notice {self.id} can only link to an https page on posthog.com")

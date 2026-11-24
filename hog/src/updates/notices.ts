@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import type { Mode } from '@/core/agent'
 import { parseJsonOrUndefined } from '@/core/json'
+import { escapeControls } from '@/core/output'
 import { hogFile } from '@/core/paths'
 import type { Runtime, RuntimeFetch } from '@/core/runtime'
 import type { Telemetry } from '@/core/telemetry'
@@ -19,19 +20,29 @@ const SHOWN_FILE = 'notices-shown.json'
 const DAY_MS = 24 * 60 * 60 * 1000
 export const MAX_NOTICE_LENGTH = 300
 
-// Control characters can move the cursor or recolor a terminal, and bidirectional overrides can reorder
-// the text a person reads, so a notice keeps neither.
-const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g
+// Control characters can move the cursor or recolor a terminal, and bidirectional and zero-width
+// characters can reorder or hide the text a person reads, so a notice keeps none of them.
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g
+
+// The GitHub Actions runner reads `##[` anywhere in a line as a workflow command, also inside a JSON line.
+const WORKFLOW_COMMAND = '##['
 
 const NoticeText = z
     .string()
     .transform((text) => text.replace(UNPRINTABLE, ' ').replace(/\s+/g, ' ').trim())
     .pipe(z.string().min(1).max(MAX_NOTICE_LENGTH))
+    .refine((text) => !text.includes(WORKFLOW_COMMAND), { error: 'A notice cannot hold a workflow command' })
 
 const NoticeVersion = z.string().refine((text) => parseVersion(text) !== undefined, { error: 'Not a semver version' })
 
-// Only PostHog's own pages, so a notice can't send a person to another site.
-const NoticeUrl = z.url({ protocol: /^https$/, hostname: /^(?:[a-z0-9-]+\.)*posthog\.com$/ })
+// Only PostHog's own pages, so a notice can't send a person to another site. hog prints the URL as
+// written while the URL check parses a copy, so the text is limited to printable ASCII with no space
+// or `@`. Then what hog prints is the link it checked.
+const NoticeUrl = z
+    .string()
+    .regex(/^https:\/\/[!-?A-~]{1,200}$/)
+    .refine((url) => !url.includes(WORKFLOW_COMMAND), { error: 'A notice cannot hold a workflow command' })
+    .pipe(z.url({ protocol: /^https$/, hostname: /^(?:[a-z0-9-]+\.)*posthog\.com$/ }))
 
 export const NoticeSchema = z.object({
     id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
@@ -124,6 +135,21 @@ function updateHint(notice: Notice, method: InstallMethod | undefined): { text: 
     return { text: method.kind === 'project' ? ' Update the hog dependency in package.json.' : '', command: null }
 }
 
+// `shown` comes from a file, so an id like `constructor` must not find a property of Object.prototype.
+function shownWithinADay(shown: Record<string, number>, id: string, now: number): boolean {
+    return Object.hasOwn(shown, id) && now - shown[id]! < DAY_MS
+}
+
+// A fetch with no redirect information, such as a test's, has an empty `url`.
+function sameOrigin(input: string | URL | Request, finalUrl: string): boolean {
+    if (!finalUrl) {
+        return true
+    }
+    const requested = URL.parse(input instanceof Request ? input.url : String(input))
+    const answered = URL.parse(finalUrl)
+    return requested !== null && answered !== null && requested.origin === answered.origin
+}
+
 // GitHub Actions reads `::warning::` and `::notice::` lines from stderr too, and shows them on the run
 // summary and the pull request. These escapes keep a line break or `%` in the text from ending the command.
 function annotationData(text: string): string {
@@ -144,12 +170,15 @@ export class Notices {
         }
     }
 
-    // Collects the notices in every answer the wrapped fetch gets, from PostHog or not, because each one
-    // goes through the same checks as a manifest notice.
+    // Collects notices only from PostHog API answers, which `sendRequest` marks with `posthogApi`, so
+    // object storage, GitHub and the OIDC token endpoint can't send one. An answer redirected to
+    // another origin doesn't count either.
     watch(fetchFn: RuntimeFetch): RuntimeFetch {
         return async (input, init) => {
             const response = await fetchFn(input, init)
-            this.add('api', noticesFromHeaders(response.headers))
+            if (init?.posthogApi && sameOrigin(input, response.url)) {
+                this.add('api', noticesFromHeaders(response.headers))
+            }
             return response
         }
     }
@@ -167,8 +196,7 @@ export class Notices {
         const hog = { version: runtime.build.version, install: method?.kind, now }
         const due = [...this.pending.values()].filter(
             ({ notice }) =>
-                appliesTo(notice, hog) &&
-                (notice.level === 'warning' || shown[notice.id] === undefined || now - shown[notice.id]! >= DAY_MS)
+                appliesTo(notice, hog) && (notice.level === 'warning' || !shownWithinADay(shown, notice.id, now))
         )
 
         const annotate = runtime.env.GITHUB_ACTIONS === 'true' && options.mode.agent === undefined
@@ -188,7 +216,9 @@ export class Notices {
                     })}\n`
                 )
             } else if (!annotate) {
-                runtime.writeStderr(`${notice.level === 'warning' ? 'Warning' : 'Notice'}: ${text}\n`)
+                runtime.writeStderr(
+                    `${escapeControls(`${notice.level === 'warning' ? 'Warning' : 'Notice'}: ${text}`)}\n`
+                )
             }
             if (annotate) {
                 runtime.writeStderr(
