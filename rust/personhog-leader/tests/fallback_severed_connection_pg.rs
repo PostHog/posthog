@@ -85,8 +85,6 @@ async fn a_load_on_a_connection_its_pooler_closed_succeeds(
     load_person_from_pg(&pool, "person_probe", &key)
         .await
         .expect("warm-up load failed");
-    // sqlx pings a returned connection before it goes idle. A close during that ping would
-    // replace the connection, and the load under test would never see a closed one.
     while pool.num_idle() == 0 {
         tokio::task::yield_now().await;
     }

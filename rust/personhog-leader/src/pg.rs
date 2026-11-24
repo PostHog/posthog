@@ -203,8 +203,6 @@ pub async fn load_person_from_pg(
         Err(e) if is_severed(&e) => {
             counter!("personhog_leader_fallback_reconnects_total", "caller" => "load_person")
                 .increment(1);
-            // Other connections through the same pgbouncer pod are dead as well, so the retry
-            // pings whichever connection it takes.
             fetch_person_row(pool, &sql, team_id_i32, key.person_id, true).await?
         }
         result => result?,
