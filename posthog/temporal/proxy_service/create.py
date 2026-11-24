@@ -584,7 +584,8 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                     wait_for_cloudflare_certificate,
                     cloudflare_inputs,
                     schedule_to_close_timeout=dt.timedelta(minutes=60),
-                    start_to_close_timeout=dt.timedelta(seconds=10),
+                    # A resumed check can restore the hostname and redirect under the reconciliation lock.
+                    start_to_close_timeout=dt.timedelta(seconds=75),
                     retry_policy=temporalio.common.RetryPolicy(
                         backoff_coefficient=1.1,
                         initial_interval=dt.timedelta(seconds=5),
