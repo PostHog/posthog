@@ -38,7 +38,6 @@ from posthog.tasks.calculate_cohort import (
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
     STATIC_POPULATION_MAX_RETRIES,
-    _end_pending_population,
     calculate_cohort_ch,
     calculate_cohort_from_list,
     collect_cohort_query_stats,
@@ -4140,6 +4139,113 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
+            # An overlapping sweep released the null-marker run and a request claimed a new replace, which wrote its
+            # rows, before this sweep reached the cohort it had read.
+            ("new_claim_before_check", None, "new_claim", False),
+            # A queued attempt of the same run started after the read, so the run's fields haven't changed yet.
+            ("attempt_started_before_check", relativedelta(hours=7), "attempt_started", False),
+            # A new claim lands after the check passed, while the cleanup runs.
+            ("new_claim_during_cleanup", None, "new_claim", True),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    def test_reset_stuck_static_cohorts_leaves_a_cohort_that_changed_after_the_read(
+        self,
+        _name: str,
+        marker_age: relativedelta | None,
+        change: str,
+        during_cleanup: bool,
+        mock_insert_cohort_from_query: MagicMock,
+    ) -> None:
+        now = timezone.now().replace(microsecond=0)
+        first_marker = now - relativedelta(hours=7)
+        marker = None if marker_age is None else now - marker_age
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_replace_at_error_cap",
+            last_calculation=None,
+            is_calculating=True,
+            errors_calculating=MAX_ERRORS_CALCULATING,
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=marker,
+            population_first_marker=first_marker,
+            population_claimed_at=first_marker,
+            population_copy_started=False,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=8))
+        CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=first_marker, finished_at=first_marker
+        )
+        person = create_person(team=self.team, distinct_ids=[f"{uuid4().hex[:8]}-member"], uuid=uuid4())
+        flush_persons_and_events()
+        read = Cohort.objects.get(pk=cohort.pk)
+        new_marker = now - relativedelta(minutes=1)
+
+        def apply_change() -> None:
+            row_marker: datetime | None
+            if change == "new_claim":
+                Cohort.objects.filter(pk=cohort.pk).update(
+                    errors_calculating=0,
+                    population_marker=new_marker,
+                    population_first_marker=new_marker,
+                    population_claimed_at=new_marker,
+                )
+                row_marker = new_marker
+            else:
+                CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={}, started_at=now)
+                row_marker = marker
+            sync_execute(
+                f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+                [(uuid4(), person.uuid, cohort.pk, self.team.pk, row_marker, REPLACE_ROW_OFFSET)],
+            )
+
+        def candidates() -> Any:
+            # The sweep's one read of its candidates returns the cohort as it was before the change.
+            stale = MagicMock()
+            stale.order_by.return_value.__getitem__.return_value = [read]
+            return stale
+
+        def cleanup_then_claim(*_args: Any, **_kwargs: Any) -> bool:
+            apply_change()
+            return True
+
+        if not during_cleanup:
+            apply_change()
+        expected = Cohort.objects.values_list(
+            "is_calculating",
+            "errors_calculating",
+            "pending_population_mode",
+            "population_marker",
+            "population_first_marker",
+            "population_claimed_at",
+            "last_error_at",
+        )
+        before = expected.get(pk=cohort.pk)
+        cleanup_ctx = (
+            patch("posthog.tasks.calculate_cohort._delete_failed_replace_attempt", side_effect=cleanup_then_claim)
+            if during_cleanup
+            else nullcontext()
+        )
+        with (
+            patch("posthog.tasks.calculate_cohort.get_stuck_static_cohort_candidates_queryset", side_effect=candidates),
+            cleanup_ctx,
+        ):
+            reset_stuck_cohorts()
+
+        mock_insert_cohort_from_query.delay.assert_not_called()
+        if during_cleanup:
+            self.assertEqual(
+                expected.get(pk=cohort.pk),
+                (True, 0, CohortPopulationMode.REPLACE, new_marker, new_marker, new_marker, None),
+            )
+        else:
+            self.assertEqual(expected.get(pk=cohort.pk), before)
+            self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(person.uuid), REPLACE_ROW_OFFSET)])
+
+    @parameterized.expand(
+        [
             ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), True, False),
             ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True, True),
             ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True, True),
@@ -4307,44 +4413,6 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertTrue(cohort.is_calculating)
         mock_insert_cohort_from_query.delay.assert_not_called()
-
-    @parameterized.expand([("released", False, True), ("claimed_again", True, False)])
-    def test_ending_a_pending_population_leaves_a_cohort_claimed_again(
-        self, _name: str, is_calculating: bool, expect_cleared: bool
-    ) -> None:
-        # A request can claim the cohort between the sweep's reset and this clear. Its fields belong to it, so a
-        # replace it claimed must keep its mode, or it would run as an append.
-        marker = timezone.now().replace(microsecond=0)
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="static cohort",
-            is_static=True,
-            is_calculating=is_calculating,
-            pending_population_mode=CohortPopulationMode.REPLACE,
-            population_marker=marker,
-            population_claimed_at=marker,
-            population_copy_started=True,
-            population_first_marker=marker,
-        )
-
-        _end_pending_population(cohort.pk)
-
-        cohort.refresh_from_db()
-        expected = (
-            (None, None, None, False, None)
-            if expect_cleared
-            else (CohortPopulationMode.REPLACE, marker, marker, True, marker)
-        )
-        self.assertEqual(
-            (
-                cohort.pending_population_mode,
-                cohort.population_marker,
-                cohort.population_claimed_at,
-                cohort.population_copy_started,
-                cohort.population_first_marker,
-            ),
-            expected,
-        )
 
     @parameterized.expand(
         [

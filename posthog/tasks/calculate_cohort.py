@@ -6,7 +6,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, transaction
-from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
+from django.db.models import Case, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
 
 import grpc
@@ -364,11 +364,32 @@ def _record_stuck_resets(event: str, cohort_ids: list[int]) -> None:
         logger.warning(event, cohort_ids=cohort_ids, count=len(cohort_ids))
 
 
-def _end_pending_population(cohort_id: int) -> None:
-    # A reset that dispatches no population clears the mode, marker and request time. A population dispatched
-    # without a claim, such as the staff re-sync, then runs as an append instead of the abandoned replace. The
-    # is_calculating filter skips a cohort a request claimed again after the reset, whose fields now belong to it.
-    Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(**PENDING_POPULATION_CLEARED)
+def _stuck_static_cohort_as_read(cohort: Cohort) -> QuerySet:
+    """The cohort's row, only while it still holds the stuck run the sweep read into ``cohort``.
+
+    The sweep acts on one read of its candidates, so a cohort can change before its turn: an overlapping sweep
+    releases it and a request claims a new replace, or a queued attempt starts. Every write the sweep makes goes
+    through this filter, so it can't delete, release or redispatch a run it didn't read.
+    """
+    attempt_live_since = timezone.now() - timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS)
+    live_attempt = CohortCalculationHistory.objects.filter(
+        cohort=OuterRef("pk"), finished_at__isnull=True, started_at__gte=attempt_live_since
+    )
+    return Cohort.objects.filter(
+        ~Exists(live_attempt),
+        pk=cohort.pk,
+        is_static=True,
+        deleted=False,
+        is_calculating=True,
+        pending_population_mode=cohort.pending_population_mode,
+        population_marker=cohort.population_marker,
+        population_claimed_at=cohort.population_claimed_at,
+        population_copy_started=cohort.population_copy_started,
+        population_first_marker=cohort.population_first_marker,
+        population_run_failed=cohort.population_run_failed,
+        errors_calculating=cohort.errors_calculating,
+        last_error_at=cohort.last_error_at,
+    )
 
 
 def reset_stuck_sourceless_static_cohorts() -> None:
@@ -446,19 +467,23 @@ def reset_stuck_cohorts() -> None:
     for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
         0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
     ]:
+        as_read = _stuck_static_cohort_as_read(cohort)
+        if not as_read.exists():
+            logger.info("reset_stuck_static_cohort_superseded", cohort_id=cohort.pk, team_id=cohort.team_id)
+            continue
         supported_source = static_cohort_has_supported_population_source(cohort)
         errors_after_reset = cohort.errors_calculating + 1
         gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING or cohort.population_run_failed
         if gives_up:
             # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
-            # counting them. Decided and done before the save below releases is_calculating and clears the
-            # population_marker that bounds the delete.
+            # counting them. Decided and done before the release below clears the population_marker that
+            # bounds the delete.
             if not _delete_failed_replace_attempt(
                 cohort,
                 log_prefix="reset_stuck_static_cohort",
                 replacing=cohort.pending_population_mode == CohortPopulationMode.REPLACE,
             ):
-                Cohort.objects.filter(pk=cohort.pk).update(last_error_at=timezone.now())
+                as_read.update(last_error_at=timezone.now())
                 logger.warning(
                     "reset_stuck_static_cohort_cleanup_failed",
                     cohort_id=cohort.pk,
@@ -466,11 +491,17 @@ def reset_stuck_cohorts() -> None:
                 )
                 continue
 
-        cohort.is_calculating = False
-        cohort.population_marker = None
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.last_error_at = timezone.now()
-        cohort.save(update_fields=["is_calculating", "population_marker", "errors_calculating", "last_error_at"])
+        # One update releases the cohort, and on a give-up also clears the run, so nothing sees it half released.
+        # A redispatch keeps the run fields, so a stuck replace is redispatched as a replace.
+        released = as_read.update(
+            is_calculating=False,
+            errors_calculating=F("errors_calculating") + 1,
+            last_error_at=timezone.now(),
+            **(PENDING_POPULATION_CLEARED if gives_up else {"population_marker": None}),
+        )
+        if not released:
+            logger.info("reset_stuck_static_cohort_superseded", cohort_id=cohort.pk, team_id=cohort.team_id)
+            continue
         reset_static_cohort_ids.append(cohort.pk)
 
         if not supported_source:
@@ -479,12 +510,10 @@ def reset_stuck_cohorts() -> None:
                 cohort_id=cohort.pk,
                 team_id=cohort.team_id,
             )
-            _end_pending_population(cohort.pk)
             continue
 
         # Re-trigger the population task for static cohorts whose membership
-        # can be reconstructed from persisted data. The run fields stay, so a stuck replace is
-        # redispatched as a replace.
+        # can be reconstructed from persisted data.
         cohort.errors_calculating = errors_after_reset
         if gives_up:
             if cohort.population_run_failed:
@@ -493,7 +522,6 @@ def reset_stuck_cohorts() -> None:
                     cohort_id=cohort.pk,
                     team_id=cohort.team_id,
                 )
-            _end_pending_population(cohort.pk)
         else:
             logger.warning(
                 "retrigger_stuck_static_cohort",
