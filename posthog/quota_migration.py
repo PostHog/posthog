@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
 from functools import partial
+from math import inf
 from time import monotonic, sleep, time
 
 from django.conf import settings
@@ -21,6 +22,7 @@ QUOTA_SECONDARY_OPERATIONS = Counter(
 SECONDARY_RETRY_DELAY_SECONDS = 30
 # Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
 QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
+QUOTA_READ_PAGE_SIZE = 5_000
 _retry_after: dict[str, float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
@@ -76,6 +78,20 @@ def run_secondary_quota_operation[T](
     return result
 
 
+def _read_quota_set(client: QuotaRedisClient, key: str, deadline: float = inf) -> dict[bytes, float]:
+    # Concurrent web writes shift ZRANGE ranks between pages. ZSCAN returns every member that stays
+    # present for the whole scan and can return a member twice, so the dict keeps one score per member.
+    scores: dict[bytes, float] = {}
+    cursor = 0
+    while True:
+        if monotonic() >= deadline:
+            raise TimeoutError("Quota Redis run budget exceeded")
+        cursor, page = client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
+        scores.update(page)
+        if cursor == 0:
+            return scores
+
+
 @frozen
 class QuotaReconciliationSnapshots:
     shared: Mapping[str, Sequence[str]] = field(repr=False)
@@ -103,9 +119,8 @@ def snapshot_quota_stores(selected: Mapping[str, Sequence[str]]) -> QuotaReconci
     def read(client: QuotaRedisClient) -> dict[str, list[str]]:
         snapshot: dict[str, list[str]] = {}
         for key in selected:
-            if monotonic() >= deadline:
-                raise TimeoutError("Quota Redis run budget exceeded")
-            snapshot[key] = [token.decode("utf-8") for token in client.zrangebyscore(key, now, "+inf")]
+            scores = _read_quota_set(client, key, deadline)
+            snapshot[key] = [token.decode("utf-8") for token, score in scores.items() if score >= now]
         return snapshot
 
     return QuotaReconciliationSnapshots(
@@ -165,7 +180,7 @@ def compare_quota_stores(keys: Sequence[str]) -> bool:
 
         def differences(key: str) -> dict[bytes, _QuotaScoreDifference]:
             shared_scores = dict(shared.zrange(key, 0, -1, withscores=True))
-            secondary_scores = dict(secondary.zrange(key, 0, -1, withscores=True))
+            secondary_scores = _read_quota_set(secondary, key)
             return {
                 token: _QuotaScoreDifference(shared=shared_scores.get(token), secondary=secondary_scores.get(token))
                 for token in shared_scores.keys() | secondary_scores.keys()
