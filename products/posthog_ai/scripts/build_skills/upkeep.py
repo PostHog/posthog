@@ -26,6 +26,12 @@ BOT_SHARE_SKILLS_SHOWN = 15
 MIN_COMMITS_FOR_BOT_SHARE = 3
 # A skill that names one optional gated tool among many still works for a caller without the flag.
 FLAG_MISMATCH_MIN_SHARE = 0.5
+# `learn` returns a heading outline, not the text, for a file above LEARN_OUTPUT_CHAR_LIMIT in
+# services/mcp/src/skills/skill-catalog.ts.
+LEARN_OUTPUT_CHAR_LIMIT = 44_000
+# The Agent Skills specification recommends under 5,000 tokens for SKILL.md
+# (https://agentskills.io/specification). This is that figure at about 4 characters per token.
+RECOMMENDED_ENTRY_CHARS = 20_000
 _NAME_BOUNDARY = r"(?<![A-Za-z0-9_/-])({})(?![A-Za-z0-9_-])"
 _TOOL_MENTION = r"(?:`|posthog:)({})(?![A-Za-z0-9_-])"
 
@@ -62,6 +68,7 @@ class SkillSize:
     skill: ServedSkill
     size: int
     size_before: int | None
+    entry_chars: int
 
 
 @dataclass(frozen=True)
@@ -179,7 +186,7 @@ def _measure_sizes(repo_root: Path, served: list[ServedSkill], before_root: Path
     sizes: list[SkillSize] = []
     for entry in served:
         before = _tree_size(before_root / entry.root.relative_to(repo_root)) if before_root else None
-        sizes.append(SkillSize(entry, _tree_size(entry.root) or 0, before))
+        sizes.append(SkillSize(entry, _tree_size(entry.root) or 0, before, len(entry.skill.source_file.read_text())))
     return sizes
 
 
@@ -299,6 +306,29 @@ def render_markdown(report: UpkeepReport) -> str:
     else:
         lines += ["None.", ""]
 
+    long_entries = sorted(
+        (s for s in report.sizes if s.entry_chars > RECOMMENDED_ENTRY_CHARS), key=lambda s: s.entry_chars, reverse=True
+    )
+    lines += [
+        f"## Served skills with a `SKILL.md` over {RECOMMENDED_ENTRY_CHARS:,} characters ({len(long_entries)})",
+        "",
+    ]
+    if long_entries:
+        lines += _table(
+            ["Skill", "Owner", "`SKILL.md`", "`learn` returns"],
+            [
+                [
+                    f"`{s.skill.name}`",
+                    _owner_label(s.skill),
+                    f"{s.entry_chars:,} characters",
+                    "an outline only" if s.entry_chars > LEARN_OUTPUT_CHAR_LIMIT else "the full text",
+                ]
+                for s in long_entries
+            ],
+        )
+    else:
+        lines += ["None.", ""]
+
     largest = sorted(report.sizes, key=lambda s: s.size, reverse=True)[:LARGEST_SKILLS_SHOWN]
     lines += [f"## Largest served skills (top {len(largest)})", ""]
     lines += _table(
@@ -342,4 +372,5 @@ def summary(report: UpkeepReport) -> dict[str, int]:
         "served": len(report.served),
         "pointers": len(report.pointers),
         "flag_mismatches": len(report.flag_mismatches),
+        "outline_only": sum(1 for size in report.sizes if size.entry_chars > LEARN_OUTPUT_CHAR_LIMIT),
     }

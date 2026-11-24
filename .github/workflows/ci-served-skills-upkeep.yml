@@ -77,6 +77,7 @@ jobs:
                       echo "served=$(jq -r .served summary.json)"
                       echo "pointers=$(jq -r .pointers summary.json)"
                       echo "flag_mismatches=$(jq -r .flag_mismatches summary.json)"
+                      echo "outline_only=$(jq -r .outline_only summary.json)"
                   } >> "$GITHUB_OUTPUT"
 
             # A pull request run has an author who reads the run summary, so only the weekly run posts.
@@ -94,7 +95,7 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":test_tube: *Served skills upkeep (testing).* `learn` serves ${{ steps.report.outputs.served }} product skills. ${{ steps.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ steps.report.outputs.flag_mismatches }} served skills with tools behind a flag the list does not declare. The report also has sizes, growth and bot commits. This post is a trial for team-context-and-mcp only."
+                            text: ":test_tube: *Served skills upkeep (testing).* `learn` serves ${{ steps.report.outputs.served }} product skills. ${{ steps.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ steps.report.outputs.flag_mismatches }} served skills with most tools behind a flag the list does not declare. ${{ steps.report.outputs.outline_only }} served skills too long for `learn` to return in full. The report also has sizes, growth and bot commits. This post is a trial for team-context-and-mcp only."
                         - type: "actions"
                           elements:
                             - type: "button"
