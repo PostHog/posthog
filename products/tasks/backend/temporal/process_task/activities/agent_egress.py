@@ -11,8 +11,13 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.logic.services.agent_egress import AGENT_EGRESS_LEASE_DURATION
 from products.tasks.backend.logic.services.agent_egress_enrollment import AgentEgressRunConfig
-from products.tasks.backend.logic.services.agent_egress_lifecycle import AgentEgressLifecycle, AgentEgressRunEnded
+from products.tasks.backend.logic.services.agent_egress_lifecycle import (
+    AgentEgressLifecycle,
+    AgentEgressOwnershipConflict,
+    AgentEgressRunEnded,
+)
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 
 
@@ -71,6 +76,10 @@ def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> Ite
         yield session
     except AgentEgressRunEnded as error:
         raise ApplicationError(str(error), error.status, type="AgentEgressRunEnded", non_retryable=True) from error
+    except AgentEgressOwnershipConflict as error:
+        raise ApplicationError(
+            str(error), type="AgentEgressOwnershipConflict", next_retry_delay=AGENT_EGRESS_LEASE_DURATION
+        ) from error
 
 
 @asyncify
