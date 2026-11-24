@@ -346,6 +346,11 @@ def _transition_credit(instance: SignalReport) -> TransitionCredit | None:
     return getattr(instance, "_transition_credit", None)
 
 
+def _transition_credit_resolved(instance: SignalReport) -> bool:
+    """Whether the caller already resolved the credit, so that no credit means nobody stands behind the transition."""
+    return bool(getattr(instance, "_transition_credit_resolved", False))
+
+
 def _actor_properties(actor: ArtefactAttribution | None, credit: TransitionCredit | None) -> dict[str, Any]:
     """Actor properties for the status-change label. A transition with no caller-set actor is `system`.
 
@@ -1100,6 +1105,7 @@ def capture_status_change_analytics(
     actor = _transition_actor(instance)
     actor_user = _transition_actor_user(instance)
     caller_credit = _transition_credit(instance)
+    credit_resolved = _transition_credit_resolved(instance)
 
     def _capture() -> None:
         try:
@@ -1118,7 +1124,11 @@ def capture_status_change_analytics(
             collapsed_prior = getattr(instance, "_collapsed_prior_status", None)
             instance._collapsed_prior_status = None  # type: ignore[attr-defined]
             previous_status = collapsed_prior or properties["previous_status"]
-            credit = resolve_transition_credit(actor, caller_credit, team_id=instance.team_id, actor_user=actor_user)
+            credit = (
+                caller_credit
+                if credit_resolved
+                else resolve_transition_credit(actor, caller_credit, team_id=instance.team_id, actor_user=actor_user)
+            )
             posthoganalytics.capture(
                 event="signal_report_status_changed",
                 distinct_id=(credit.user.distinct_id if credit is not None else None) or str(team.uuid),

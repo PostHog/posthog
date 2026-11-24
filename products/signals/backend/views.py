@@ -446,6 +446,7 @@ from products.signals.backend.throttles import (
     report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.transition_credit import TransitionCredit, resolve_transition_credit
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
@@ -5308,6 +5309,18 @@ class SignalReportViewSet(
             self._cached_request_attribution = resolve_request_attribution(self.request, self.team.id)
         return self._cached_request_attribution
 
+    def _request_credit(self) -> TransitionCredit | None:
+        """The person this request's transitions name, resolved once and reused like `_request_attribution`."""
+        if not hasattr(self, "_cached_request_credit"):
+            user = self.request.user
+            self._cached_request_credit = resolve_transition_credit(
+                self._request_attribution(),
+                None,
+                team_id=self.team.id,
+                actor_user=user if isinstance(user, User) else None,
+            )
+        return self._cached_request_credit
+
     def _latest_selected_repository(self, report_id: str) -> str | None:
         """The repository named by the report's latest repo_selection artefact, if any."""
         artefact = (
@@ -5543,6 +5556,7 @@ class SignalReportViewSet(
                         monitoring_started_at=timezone.now(),
                         attribution=self._request_attribution(),
                         actor_user=self.request.user if isinstance(self.request.user, User) else None,
+                        credit=self._request_credit(),
                         close_pr_on_resolve=True,
                     )
                 except (InvalidStatusTransition, ValueError):
@@ -5614,7 +5628,8 @@ class SignalReportViewSet(
                 # on the linked pull request and tracker issue. An external agent keeps its user
                 # principal, so it names the person who ran it rather than nobody.
                 report._transition_actor = self._request_attribution()  # type: ignore[attr-defined]
-                report._transition_actor_user = self.request.user  # type: ignore[attr-defined]
+                report._transition_credit = self._request_credit()  # type: ignore[attr-defined]
+                report._transition_credit_resolved = True  # type: ignore[attr-defined]
                 # Read under the row lock, so two concurrent dismissals count as one new suppression.
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
