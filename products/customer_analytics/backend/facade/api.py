@@ -3784,6 +3784,24 @@ def _resolve_account_logo_domain(account: Account) -> str | None:
     )
 
 
+def list_logo_domains_across_teams() -> list[str]:
+    """Every account's logo domain across all teams, for jobs that prepare per-domain assets such as
+    favicons. Resolved the same way as the accounts table's `logo_domain`, so a cached asset is keyed
+    by the hostname the frontend asks for."""
+    domains: set[str] = set()
+    for stored in Account.objects.unscoped().values_list("_properties", flat=True).iterator(chunk_size=2000):
+        stored = stored or {}
+        website_domain = stored.get("website_domain")
+        email_domains = stored.get("email_domains")
+        domain = resolve_logo_domain(
+            website_domain=website_domain if isinstance(website_domain, str) else None,
+            email_domains=[d for d in email_domains if isinstance(d, str)] if isinstance(email_domains, list) else [],
+        )
+        if domain:
+            domains.add(domain)
+    return sorted(domains)
+
+
 def query_accounts_table(
     *,
     team_id: int,

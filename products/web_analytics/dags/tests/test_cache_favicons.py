@@ -302,3 +302,38 @@ class TestCacheAuthorizedDomainFaviconsAsset:
         assert result.metadata is not None
         assert result.metadata["domains_skipped"] == 1
         assert result.metadata["favicons_cached"] == 1
+
+
+class TestCacheAccountDomainFaviconsAsset:
+    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("products.web_analytics.dags.cache_favicons.list_logo_domains_across_teams")
+    @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
+    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
+    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    def test_caches_new_account_domains_under_the_shared_favicon_key(
+        self, mock_upload, mock_download, mock_get_cached, mock_list_domains, mock_httpx_client
+    ):
+        import dagster
+
+        from products.web_analytics.dags.cache_favicons import CacheFaviconsConfig, cache_account_domain_favicons
+
+        mock_list_domains.return_value = ["acme.example", "cached.example"]
+        mock_get_cached.return_value = {"cached.example"}
+        mock_download.return_value = ("acme.example", b"data", "image/png", "http://url")
+
+        context = dagster.build_asset_context()
+        s3 = Mock()
+        s3.get_client.return_value = Mock()
+        config = CacheFaviconsConfig(force_refresh=False)
+
+        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+            mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
+            result: dagster.MaterializeResult = cache_account_domain_favicons(context, s3, config)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+        mock_get_cached.assert_called_once_with(context, "cache_account_domain_favicons")
+        mock_download.assert_called_once()
+        assert mock_upload.call_args.args[3] == "favicons/acme.example"
+        assert result.metadata is not None
+        assert result.metadata["account_domains_queried"] == 2
+        assert result.metadata["domains_skipped"] == 1
+        assert result.metadata["favicons_cached"] == 1

@@ -14,6 +14,7 @@ from posthog.dags.common import JobOwners
 from posthog.models.team import Team
 
 from products.aeo.backend.facade.api import list_domains_across_teams
+from products.customer_analytics.backend.facade.api import list_logo_domains_across_teams
 
 # Matches the window the AI visibility pages report on.
 AEO_CITED_DOMAINS_WINDOW = dt.timedelta(days=30)
@@ -245,6 +246,37 @@ def cache_aeo_domain_favicons(
     )
 
 
+@dagster.asset
+def cache_account_domain_favicons(
+    context: dagster.AssetExecutionContext, s3: S3Resource, config: CacheFaviconsConfig
+) -> dagster.MaterializeResult:
+    context.log.info("Querying customer analytics account domains.")
+    account_domains = list_logo_domains_across_teams()
+    context.log.info(f"Found {len(account_domains)} account domains.")
+
+    previously_cached = (
+        set() if config.force_refresh else get_last_cached_domains(context, "cache_account_domain_favicons")
+    )
+    if previously_cached:
+        context.log.info(f"Found {len(previously_cached)} previously cached domains.")
+
+    favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(
+        context, s3, account_domains, previously_cached
+    )
+
+    context.log.info(f"Successfully cached {len(favicons)} new favicons, skipped {skipped_count} already cached.")
+
+    return dagster.MaterializeResult(
+        metadata={
+            "account_domains_queried": len(account_domains),
+            "favicons_cached": len(favicons),
+            "domains_skipped": skipped_count,
+            "cached_domains": list(all_cached_domains),
+            "favicons": favicons,
+        }
+    )
+
+
 cache_favicons_job = dagster.define_asset_job(
     name="cache_favicons_job",
     selection=["cache_favicons"],
@@ -260,6 +292,12 @@ cache_authorized_domain_favicons_job = dagster.define_asset_job(
 cache_aeo_domain_favicons_job = dagster.define_asset_job(
     name="cache_aeo_domain_favicons_job",
     selection=["cache_aeo_domain_favicons"],
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
+)
+
+cache_account_domain_favicons_job = dagster.define_asset_job(
+    name="cache_account_domain_favicons_job",
+    selection=["cache_account_domain_favicons"],
     tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 
@@ -291,4 +329,14 @@ def cache_authorized_domain_favicons_schedule(_context: dagster.ScheduleEvaluati
     tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def cache_aeo_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest()
+
+
+@dagster.schedule(
+    cron_schedule="47 * * * *",  # Hourly; only domains not cached yet are downloaded
+    job=cache_account_domain_favicons_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
+)
+def cache_account_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()
