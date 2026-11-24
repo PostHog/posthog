@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import OperationalError
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -32,12 +33,16 @@ from posthog.schema import (
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.shared_link_user import SharedLinkUser
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
@@ -170,6 +175,37 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert response.exposed_by_library is None
         # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
         assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+
+    def test_publishing_and_shared_links_need_access_to_the_connection(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        query = self._warehouse_native_query(str(connection.id))
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            # Publishing a link to the query asks the runner's access hook, and records only an access control error.
+            self.assertEqual(
+                denied_query_resources(self.user, self.team, [query.model_dump(mode="json")]),
+                ["external_data_source"],
+            )
+            # A shared link reads without a user, and the cached totals would otherwise answer it.
+            share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            with self.assertRaises(DjangoPermissionDenied):
+                ExperimentExposuresQueryRunner(team=self.team, query=query, user=SharedLinkUser(share))
 
     def test_a_warehouse_native_exposure_on_a_missing_connection_is_a_query_error(self):
         # The request carries its own criteria, so a connection that does not exist reaches the runner without

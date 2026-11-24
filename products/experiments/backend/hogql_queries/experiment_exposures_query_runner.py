@@ -109,7 +109,11 @@ from products.experiments.backend.hogql_queries.exposures_precompute import Expo
 from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
-from products.experiments.backend.warehouse_native_sources import validate_experiment_warehouse_native_sources
+from products.experiments.backend.warehouse_native_sources import (
+    refuse_anonymous_warehouse_native_reader,
+    validate_experiment_warehouse_native_sources,
+    validate_warehouse_native_sources_for_runner,
+)
 from products.feature_flags.backend.facade.edits import parse_variants
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +192,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.warehouse_native_exposure: ExperimentWarehouseNativeExposureConfig | None = (
             exposure_config if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig) else None
         )
+        if self.warehouse_native_exposure is not None:
+            refuse_anonymous_warehouse_native_reader(self.user)
 
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
@@ -619,11 +625,18 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             raise ValidationError("Warehouse-native sources need a connection_id.")
         return connection_id
 
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        if self.warehouse_native_exposure is not None:
+            refuse_anonymous_warehouse_native_reader(self.user)
+
     def validate_query_runner_access(self, user: User) -> bool:
         # A cached result is shared by every user of the team, so the connection access check runs before
         # the cache lookup, not only when the statement runs.
         if self.warehouse_native_exposure is not None:
-            self._validate_warehouse_native_exposure(user)
+            validate_warehouse_native_sources_for_runner(
+                exposure_criteria=self._exposure_criteria_dict(), metrics=[], team=self.team, user=user
+            )
         return True
 
     def query_status_labels(self) -> list[str] | None:
