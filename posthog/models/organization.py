@@ -754,28 +754,33 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
 
     organization_id = instance.pk
 
-    def _update_billing_quotas():
-        from ee.billing.quota_limiting import (
-            QuotaLimitingCaches,
-            QuotaResource,
-            remove_limited_team_tokens,
-            update_org_billing_quotas,
-        )
+    def _invalidate_cache():
+        from posthog.models.team import Team
 
-        organization = Organization.objects.get(pk=organization_id)
-        if organization.is_active is not False:
-            # A leftover deactivation entry would read as an earlier billing limit and end a flag grace period.
-            remove_limited_team_tokens(
-                QuotaResource.FEATURE_FLAG_REQUESTS,
-                list(organization.teams.values_list("api_token", flat=True)),
-                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            )
-        # Also invalidates the gateway quota cache and enqueues its projection. The quota run reaches
-        # the same limits later, but flag requests should stop or resume at once.
-        update_org_billing_quotas(organization)
+        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
 
+        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+        invalidate_llm_gateway_quota_cache(team_ids)
+
+    def _project_gateway_quota():
+        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
+
+        try:
+            project_org_llm_gateway_quota_task.delay(str(organization_id))
+        except Exception:
+            # The reconcile re-derives a deactivated org's blobs; never fail the org save.
+            logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
+
+    def _sync_flags_limit():
+        from ee.billing.quota_limiting import sync_deactivated_org_flags_limit
+
+        sync_deactivated_org_flags_limit(Organization.objects.get(pk=organization_id))
+
+    transaction.on_commit(_invalidate_cache)
+    if settings.AI_GATEWAY_REDIS_URL:
+        transaction.on_commit(_project_gateway_quota)
     # Robust so a Redis failure here cannot skip the callbacks queued after it.
-    transaction.on_commit(_update_billing_quotas, robust=True)
+    transaction.on_commit(_sync_flags_limit, robust=True)
 
 
 @receiver(post_save, sender=Organization)

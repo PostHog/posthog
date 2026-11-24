@@ -66,8 +66,8 @@ QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
 # Feature flags always get a 2-day grace period regardless of trust score
 FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
-# Each quota run renews the limit, so the window only has to outlast a gap between runs.
-DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 7
+# Far in the future because only reactivation lifts the limit, and not every deployment has a quota run to renew it.
+DEACTIVATED_ORG_FLAGS_LIMIT_DAYS = 3650
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
@@ -539,6 +539,29 @@ def _daily_usage(
     return {day: count for day, count in ((yesterday, yesterdays_count), (today.isoformat(), todays_count)) if count}
 
 
+def _deactivated_org_flags_limited_until() -> int:
+    return int((get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)).timestamp())
+
+
+def sync_deactivated_org_flags_limit(organization: Organization) -> None:
+    """Stops or resumes flag requests as soon as is_active changes, ahead of the next quota run.
+
+    Reactivation removes the entry instead of recalculating: a leftover deactivation entry would read
+    as an earlier billing limit and end a flag grace period. The next quota run restores a billing limit.
+    """
+    tokens = [token for token in organization.teams.values_list("api_token", flat=True) if token]
+    if organization.is_active is False:
+        add_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS,
+            dict.fromkeys(tokens, _deactivated_org_flags_limited_until()),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+    else:
+        remove_limited_team_tokens(
+            QuotaResource.FEATURE_FLAG_REQUESTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -550,8 +573,7 @@ def org_quota_limited_until(
     report_action = batch.report_action if batch is not None else report_organization_action
     # Derived from is_active on every call and never stored in usage, so reactivation lifts the limit.
     if resource == QuotaResource.FEATURE_FLAG_REQUESTS and organization.is_active is False:
-        limited_until = get_current_day().end + timedelta(days=DEACTIVATED_ORG_FLAGS_LIMIT_DAYS)
-        return {"quota_limited_until": int(limited_until.timestamp()), "quota_limiting_suspended_until": None}
+        return {"quota_limited_until": _deactivated_org_flags_limited_until(), "quota_limiting_suspended_until": None}
     if not organization.usage:
         return None
 
@@ -973,6 +995,8 @@ def update_org_billing_quotas(organization: Organization):
     when the user loads the billing page and when usage reports are run.
     """
     today_end = get_current_day().end
+    if not organization.usage:
+        return None
 
     teams_by_token: dict[str, int] = {
         api_token: team_id for team_id, api_token in organization.teams.values_list("id", "api_token") if api_token
