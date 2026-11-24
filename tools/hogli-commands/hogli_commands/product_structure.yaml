@@ -54,31 +54,7 @@ root_files:
             {{
                 "name": "@posthog/products-{product_kebab}",
                 "scripts": {{
-                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
-                    "backend:contract-check": "echo 'Contract files unchanged'"
-                }}
-            }}
-
-    turbo.json:
-        required: false
-        required_lenient: false
-        template: |
-            {{
-                "extends": ["//"],
-                "tasks": {{
-                    "backend:contract-check": {{
-                        "inputs": [
-                            "backend/facade/**",
-                            "backend/presentation/**",
-                            "backend/webhook_consumers.py",
-                            "backend/tasks/**",
-                            "backend/models.py",
-                            "backend/migrations/**",
-                            "backend/apps.py"
-                        ],
-                        "outputs": [],
-                        "cache": true
-                    }}
+                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
                 }}
             }}
 

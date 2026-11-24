@@ -59,11 +59,6 @@
             "outputs": [],
             "cache": true
         },
-        "backend:contract-check": {
-            "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],
-            "outputs": [],
-            "cache": true
-        },
         "prepare": {
             "dependsOn": ["^build"]
         },
