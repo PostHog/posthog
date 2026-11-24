@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -385,6 +386,7 @@ export type CyclotronJobInvocation = {
     sealed?: string
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution
@@ -596,6 +598,8 @@ export type HogFlowInvocationContext = {
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
         // parked ceiling with the action's current one tells the two apart.
         parkedMaxWaitDuration?: string
+        // Compared for the same reason: an edited condition can match at the deadline, before the sweep.
+        parkedConditionHash?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will

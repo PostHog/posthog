@@ -769,6 +769,7 @@ _FINISHED_TURN = FinishedStandardAutomaticTurn(
     lens_chunks_capped=True,
     delta_review=False,
     marks_ready=False,
+    user_id=2,
 )
 _SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 

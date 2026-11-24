@@ -7,8 +7,9 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.replay.backend.temporal.export_recordings.activities import export_shard, write_summary
+from products.replay.backend.temporal.export_recordings.activities import check_destination, export_shard, write_summary
 from products.replay.backend.temporal.export_recordings.types import (
+    CheckDestinationInput,
     ExportRecordingsInput,
     ExportShardInput,
     ExportTotals,
@@ -42,6 +43,13 @@ class ExportRecordingsWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: ExportRecordingsInput) -> ExportTotals:
         started_at = input.started_at or workflow.now().isoformat()
+        if input.next_shard == 0:
+            await workflow.execute_activity(
+                check_destination,
+                CheckDestinationInput(team_id=input.team_id, destination=input.destination, run_id=input.run_id),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+            )
         plan = shard_plan(input)
         batch = plan[input.next_shard : input.next_shard + MAX_SHARDS_PER_RUN]
         semaphore = asyncio.Semaphore(input.max_parallel_shards)

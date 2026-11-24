@@ -13,7 +13,7 @@ import { OfferContext, kafkaEmit } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
-const CDP_API = { url: 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
+const CDP_API = { nextUrl: () => 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
 const NO_FEEDBACK: OfferContext['sesFeedback'] = { settled: () => Promise.reject(new Error('no follow-up expected')) }
 
 const seededFor = (teamIds: number[], traffic: string): SeedState => ({
@@ -241,7 +241,7 @@ describe('drive', () => {
                     ACKNOWLEDGED,
                     {
                         signal: interrupt.signal,
-                        cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                        cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
                         sesFeedback: { settled },
                     }
                 )
@@ -300,7 +300,7 @@ describe('drive', () => {
         } satisfies LoadedCard
         try {
             const { driving } = startDrive(transactional, ACKNOWLEDGED, {
-                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
             })
 
             await jest.advanceTimersByTimeAsync(50)
@@ -357,7 +357,7 @@ describe('drive', () => {
         }
         try {
             const { driving } = startDrive(transactional, ACKNOWLEDGED, {
-                cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` },
+                cdpApi: { ...CDP_API, nextUrl: () => `http://127.0.0.1:${port}` },
                 gate,
             })
 
@@ -409,7 +409,7 @@ describe('drive', () => {
                 {
                     cdpApi: {
                         ...CDP_API,
-                        url: `http://127.0.0.1:${port}`,
+                        nextUrl: () => `http://127.0.0.1:${port}`,
                         clock: {
                             now: () => elapsedMs,
                             wait: (ms) => {

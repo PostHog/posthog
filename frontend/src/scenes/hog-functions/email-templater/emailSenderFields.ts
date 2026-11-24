@@ -41,8 +41,8 @@ export function fromRowError(error: string | null | undefined, senders: EmailSen
     return [sendingStoppedWarning(senders), error].filter(Boolean).join(' ') || null
 }
 
-export function isSendingStopped(sender: EmailSender): boolean {
-    return sender.config?.ses_sending_status === 'failed'
+export function isSendingStopped(sender: { config?: unknown }): boolean {
+    return (sender.config as { ses_sending_status?: unknown } | undefined)?.ses_sending_status === 'failed'
 }
 
 // A workflow can rotate through several senders, kept in `integrationIds`. One sender is in `integrationId` alone.

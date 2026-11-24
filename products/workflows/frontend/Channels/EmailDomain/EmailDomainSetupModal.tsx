@@ -10,6 +10,8 @@ import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { EmailDomainSetupEntry, captureEmailDomainSetupStarted, emailDomainSetupPath } from './emailDomainSetupLinks'
 import { EmailDomainSteps } from './EmailDomainSteps'
 
+const RETURNS_TO_EMAIL: EmailDomainSetupEntry[] = ['broadcast', 'email_step', 'transactional']
+
 export interface EmailDomainSetupModalProps {
     integration?: IntegrationType | null
     entry: EmailDomainSetupEntry
@@ -38,15 +40,29 @@ export function EmailDomainSetupModal({
                     <EmailDomainSteps
                         domainLogicKey="modal"
                         onDomainCreated={(created) => setIntegrationId(created.id)}
+                        existingOpensNewTab={RETURNS_TO_EMAIL.includes(entry)}
+                        readyNextStep={
+                            integrationId !== null && RETURNS_TO_EMAIL.includes(entry) ? (
+                                <LemonButton
+                                    type="primary"
+                                    size="large"
+                                    className="self-center"
+                                    onClick={() => onComplete(integrationId)}
+                                    data-attr="email-domain-use-sender"
+                                >
+                                    Use this sender
+                                </LemonButton>
+                            ) : undefined
+                        }
                     />
                     {integrationId === null ? null : (
                         <LemonButton
                             type="tertiary"
                             className="self-center"
                             to={emailDomainSetupPath(integrationId)}
-                            // A broadcast saves its new sender a moment after the modal hands it over, so leaving the
-                            // page right away would drop it. The full page opens next to the broadcast instead.
-                            targetBlank={entry === 'broadcast'}
+                            // An email saves its new sender a moment after the modal hands it over, so leaving the page
+                            // right away would drop it. The full page opens next to the email instead.
+                            targetBlank={RETURNS_TO_EMAIL.includes(entry)}
                             onClick={() => onComplete(integrationId)}
                             sideIcon={<IconExternal />}
                         >

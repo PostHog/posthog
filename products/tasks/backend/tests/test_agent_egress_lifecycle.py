@@ -4,6 +4,7 @@ import json
 import base64
 import hashlib
 from collections.abc import Callable
+from datetime import timedelta
 from inspect import unwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -55,10 +56,14 @@ class FakeIssuer:
     def __init__(self, *, certificate: bytes, private_key: bytes) -> None:
         pass
 
-    def issue(self, csr: str) -> AgentEgressProbeCertificate:
+    def issue(self, csr: str, *, relay_key_sha256: str | None = None) -> AgentEgressProbeCertificate:
+        fingerprint = base64.urlsafe_b64encode(hashlib.sha256(csr.encode()).digest()).decode().rstrip("=")
+        if relay_key_sha256 is not None and relay_key_sha256 != fingerprint:
+            raise ValueError("The relay certificate key has changed")
         return AgentEgressProbeCertificate(
-            certificate=f"signed:{csr}",
-            relay_key_sha256=base64.urlsafe_b64encode(hashlib.sha256(csr.encode()).digest()).decode().rstrip("="),
+            certificate=f"signed:{csr}:{timezone.now().timestamp()}",
+            relay_key_sha256=fingerprint,
+            expires_at=timezone.now() + timedelta(minutes=15),
         )
 
 
@@ -74,12 +79,21 @@ class FakeProbe:
         self.on_publish: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
         self.on_probe: Callable[[], None] = lambda: None
+        self.certificates: list[str] = []
+        self.on_certificate: Callable[[], None] = lambda: None
+        self.on_csr: Callable[[], None] = lambda: None
 
     def certificate_request(self) -> str:
+        self.on_csr()
         return self.object_id
 
-    def start_relay(self, *, certificate: str, server_ca: str) -> None:
+    def start_relay(self, *, certificate: str, server_ca: str, client_ca: str | None = None) -> None:
+        self.certificates.append(certificate)
         self.on_start()
+
+    def renew_certificate(self, certificate: str) -> None:
+        self.on_certificate()
+        self.certificates.append(certificate)
 
     def publish_capability(self, capability: str) -> None:
         self.published.append(capability)
@@ -251,6 +265,7 @@ class TestAgentEgressLifecycle(TestCase):
                 server_ca_file=self.config.server_ca_file,
                 client_ca_file=self.config.client_ca_file,
                 client_ca_key_file=self.config.client_ca_key_file,
+                renew_relay_certificate=self.config.renew_relay_certificate,
                 duration_seconds=self.config.duration_seconds,
             ).model_dump_json()
         )
@@ -320,6 +335,90 @@ class TestAgentEgressLifecycle(TestCase):
         self.assertTrue(self.registration().revoked)
         self.assertTrue(probe.destroyed)
         self.assertEqual(self.probes[sandbox_id].destroyed, environment != "enrollment")
+
+    @parameterized.expand([("disabled", False), ("enabled", True)])
+    def test_certificate_renewal_survives_a_worker_restart(self, _name: str, enabled: bool) -> None:
+        self.config = self.config.model_copy(update={"renew_relay_certificate": enabled, "duration_seconds": 600})
+        sandbox = self.enroll_run()
+        sandbox_id = self.controller().prepare()
+        probe = self.attached_relays[(sandbox.id, self.controller().relay_name)]
+        original = probe.certificates[0]
+        registration = self.registration()
+        for _ in range(44):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.assertEqual(probe.certificates, [original])
+        self.clock.shift(10)
+        self.controller().renew()
+        self.assertEqual(len(probe.certificates), 2 if enabled else 1)
+        if enabled:
+            self.assertNotEqual(original, probe.certificates[-1])
+            self.task_run.refresh_from_db()
+            self.assertEqual(self.task_run.state[STATE_KEY]["certificate_refresh_at"], timezone.now().timestamp() + 450)
+        self.assertEqual(self.registration().relay_key_sha256, registration.relay_key_sha256)
+        self.assertEqual(self.registration().actor_epoch, registration.actor_epoch)
+        self.assertEqual(AgentEgressRegistration.objects.for_team(self.team.id).count(), 1)
+        self.assertEqual(self.controller().probe(), {204: self.config.requests_per_round})
+        self.controller().close(reason="completed", sandbox_id=sandbox_id)
+
+    @parameterized.expand([("delivery",), ("revoked_during_csr",), ("changed_key",)])
+    def test_certificate_renewal_failure_does_not_advance_the_deadline(self, failure: str) -> None:
+        self.config = self.config.model_copy(update={"renew_relay_certificate": True, "duration_seconds": 600})
+        sandbox_id = self.controller().prepare()
+        probe = self.probes[sandbox_id]
+        for _ in range(44):
+            self.clock.shift(10)
+            self.controller().renew()
+        self.task_run.refresh_from_db()
+        refresh_at = self.task_run.state[STATE_KEY]["certificate_refresh_at"]
+
+        def refuse_delivery() -> None:
+            raise RuntimeError("Reload not acknowledged")
+
+        def revoke_during_csr() -> None:
+            self.controller().registry.revoke(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
+
+        if failure == "delivery":
+            probe.on_certificate = refuse_delivery
+        elif failure == "revoked_during_csr":
+            probe.on_csr = revoke_during_csr
+        else:
+            self.registration().delete()
+            controller = self.controller()
+            controller.registry.register(
+                team_id=self.team.id,
+                run_id=self.task_run.id,
+                execution_id=self.execution_id,
+                actor_id=self.actor.id,
+                authority=self.config.endpoint.removeprefix("https://"),
+                relay_key_sha256=base64.urlsafe_b64encode(hashlib.sha256(b"other key").digest()).decode().rstrip("="),
+                sandbox_id=sandbox_id,
+            )
+        self.clock.shift(10)
+        with self.assertRaises(RuntimeError if failure == "delivery" else ValueError):
+            self.controller().renew()
+        self.assertEqual(len(probe.certificates), 1)
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.state[STATE_KEY]["certificate_refresh_at"], refresh_at)
+        if failure == "delivery":
+            probe.on_certificate = lambda: None
+            self.controller().renew()
+            self.assertEqual(len(probe.certificates), 2)
+        self.controller().close(reason="failed", sandbox_id=sandbox_id)
+
+    def test_existing_config_hash_can_renew_without_certificate_opt_in(self) -> None:
+        self.controller().prepare()
+        self.task_run.refresh_from_db()
+        legacy_config = self.config.model_dump_json(exclude={"renew_relay_certificate"})
+        state = dict(self.task_run.state[STATE_KEY])
+        state["config_sha256"] = hashlib.sha256(legacy_config.encode()).hexdigest()
+        state.pop("certificate_refresh_at")
+        TaskRun.update_state_atomic(self.task_run.id, updates={STATE_KEY: state})
+        self.clock.shift(10)
+        self.controller().renew()
+        self.assertEqual(self.registration().lease_expires_at, timezone.now() + AGENT_EGRESS_LEASE_DURATION)
 
     @parameterized.expand([("disabled",), ("deleted",), ("changed",)])
     def test_enrollment_configuration_changes_stop_renewal_but_allow_cleanup(self, change: str) -> None:

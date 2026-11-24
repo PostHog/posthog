@@ -199,6 +199,12 @@ export type ExperimentHealthOverview = {
     details: string
 }
 
+export type ExperimentPreLaunchHealth = {
+    summary: string
+    findings: HealthFinding[]
+    details: string
+}
+
 export type ExperimentHealthSummary = {
     experiment_id: number
     summary: string
@@ -478,6 +484,17 @@ export function overviewHealth(details: ExperimentHealthDetails): ExperimentHeal
         findings: details.findings.map(({ severity, code, title }) => ({ severity, code, title })),
         details:
             'Call experiment-health-get with the same id for the evidence and the fix of each finding, and for the status and reason of every check.',
+    }
+}
+
+// Unlike the overview, this keeps each finding in full. Some checks run only on a draft, so experiment-health-get on the
+// launched experiment can't return those findings again.
+export function preLaunchHealth(details: ExperimentHealthDetails): ExperimentPreLaunchHealth {
+    return {
+        summary: summaryText(details),
+        findings: details.findings,
+        details:
+            "These are the configuration checks of the draft, read just before the launch. A finding does not stop the launch. Tell the user each finding and its fix. A fix that says what to do before the launch is now a step to take on the running experiment. If that step changes the feature flag, tell the user to also move the experiment's start date to after the change, because users exposed before it can switch variants.",
     }
 }
 
