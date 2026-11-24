@@ -294,22 +294,33 @@ class _LedgerAdvancer:
         return self._evidence_contains[key]
 
     def _evidence_applied_positions(self, approvals: list[BaselineApproval]) -> dict[UUID, int]:
-        """The merge-base position of each approval's evidence run, for the approvals in that run's overlay, in one query.
+        """The merge-base position of each approval's evidence run, for the approvals in that run's overlay.
 
         Evidence is recorded on every candidate of the run, also on one that a conflict or a stack child
-        left out of the overlay. Only an approval in the overlay was what the run compared against.
+        left out of the overlay. Only an approval in the overlay was what the run compared against. A
+        position counts only while the ledger still has the run's merge-base there: a seed starts the
+        positions again, and an old position would hide the entries written since.
         """
         run_ids = {approval.evidence_run_id for approval in approvals if approval.evidence_run_id is not None}
         if not run_ids:
             return {}
-        run_positions: dict[UUID, int] = {}
-        applied_by_run: dict[UUID, set[UUID]] = {}
+        records: dict[UUID, baseline_record.BaselineRecord] = {}
         for run in Run.objects.using(WRITER_DB).filter(id__in=run_ids).only("id", "metadata"):
             record = baseline_record.record_for_run(run)
-            if record is None:
+            if record is not None:
+                records[run.id] = record
+        ledger_commits = dict(
+            BaselineCommit.objects.using(WRITER_DB)
+            .filter(repo_id=self.repo.id, position__in={record.position for record in records.values()})
+            .values_list("position", "commit_sha")
+        )
+        run_positions: dict[UUID, int] = {}
+        applied_by_run: dict[UUID, set[UUID]] = {}
+        for run_id, record in records.items():
+            if ledger_commits.get(record.position) != record.merge_base_sha:
                 continue
-            run_positions[run.id] = record.position
-            applied_by_run[run.id] = {entry.approval_id for entry in record.overlay.values()}
+            run_positions[run_id] = record.position
+            applied_by_run[run_id] = {entry.approval_id for entry in record.overlay.values()}
         return {
             approval.id: run_positions[approval.evidence_run_id]
             for approval in approvals
@@ -381,29 +392,6 @@ class _LedgerAdvancer:
         if self._open_approvals is not None:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
 
-    def _pull_requests_applying(self, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
-        """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
-
-        A stack child applies its parent's approval through the overlay without owning it, so only its
-        record links the two.
-        """
-        if not approvals:
-            return set()
-        runs = (
-            Run.objects.using(WRITER_DB)
-            .filter(
-                repo_id=self.repo.id,
-                run_type__in={approval.run_type for approval in approvals},
-                status=RunStatus.COMPLETED,
-                superseded_by__isnull=True,
-                pr_number__isnull=False,
-                metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
-            )
-            .values_list("pr_number", "run_type")
-            .distinct()
-        )
-        return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
-
     def _publish_for_landed_identifiers(self) -> None:
         """Publish again for the pull requests with an open approval of an identifier this transaction landed,
         and for the pull requests whose current run applied one of those approvals.
@@ -419,7 +407,7 @@ class _LedgerAdvancer:
             approval for approval in open_approvals if approval.identifier in landed.get(approval.run_type, set())
         ]
         holders = {(approval.pr_number, approval.run_type) for approval in touched}
-        holders |= self._pull_requests_applying(touched)
+        holders |= commit_status.pull_requests_applying(self.repo, touched)
         commit_status.publish_for_pull_requests(self.repo, holders)
 
     def _entries_since_evidence(
@@ -466,6 +454,7 @@ class _LedgerAdvancer:
         entries_since_evidence = self._entries_since_evidence(landing, approvals, position, run_types)
         landed_by_verdict: dict[tuple[BaselineApprovalState, str], list[UUID]] = {}
         entries: list[BaselineEntry] = []
+        closed_without_entry: list[BaselineApproval] = []
         for approval in landing_order(approvals):
             current_hash = current[approval.run_type].get(approval.identifier, "")
             newest_entry = entries_since_evidence[approval.run_type].get(approval.identifier)
@@ -486,7 +475,9 @@ class _LedgerAdvancer:
             if verdict is None:
                 continue
             landed_by_verdict.setdefault((verdict.state, verdict.detail), []).append(approval.id)
-            if verdict.appends_entry:
+            if not verdict.appends_entry:
+                closed_without_entry.append(approval)
+            else:
                 entries.append(
                     BaselineEntry(
                         repo=self.repo,
@@ -529,6 +520,7 @@ class _LedgerAdvancer:
             for entry in entries:
                 self._landed_identifiers.setdefault(entry.run_type, set()).add(entry.identifier)
             transaction.on_commit(self._publish_for_landed_identifiers, using=WRITER_DB, robust=True)
+        commit_status.publish_after_approvals_close(self.repo, closed_without_entry)
         landed_ids = {approval_id for approval_ids in landed_by_verdict.values() for approval_id in approval_ids}
         self.approvals_landed += len(landed_ids)
         self._forget(landed_ids)
@@ -720,7 +712,9 @@ class _LedgerAdvancer:
                 (merged_elsewhere, DETAIL_MERGED_ELSEWHERE),
             ):
                 if pr_numbers_to_abandon:
-                    open_approvals.filter(pr_number__in=pr_numbers_to_abandon).update(
+                    abandoned = open_approvals.filter(pr_number__in=pr_numbers_to_abandon)
+                    commit_status.publish_after_approvals_close(self.repo, list(abandoned.only("id", "run_type")))
+                    abandoned.update(
                         state=BaselineApprovalState.ABANDONED, detail=detail, resolved_at=self.now, updated_at=self.now
                     )
             self._read_open_approvals()

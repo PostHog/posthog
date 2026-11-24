@@ -157,14 +157,6 @@ def _approval_descends_from(approval: BaselineApproval, other: BaselineApproval,
     )
 
 
-def _chains_on(upper: BaselineApproval, lower: BaselineApproval) -> bool:
-    return (
-        upper.identifier == lower.identifier
-        and upper.pr_number != lower.pr_number
-        and upper.effective_base_hash == lower.content_hash
-    )
-
-
 def approvals_that_count(approvals: list[BaselineApproval], ledger_hashes: dict[str, str]) -> list[BaselineApproval]:
     """The approvals whose base the ledger holds, and the stack layers approved over the picture of one of those.
 
@@ -175,16 +167,21 @@ def approvals_that_count(approvals: list[BaselineApproval], ledger_hashes: dict[
     restack leaves the approved commits out of the new tree. The order of `approvals` is kept.
     """
     counted_ids = {approval.id for approval in approvals if _approval_applies(approval, ledger_hashes)}
-    while True:
-        counted = [approval for approval in approvals if approval.id in counted_ids]
-        chained = {
-            approval.id
-            for approval in approvals
-            if approval.id not in counted_ids and any(_chains_on(approval, lower) for lower in counted)
-        }
-        if not chained:
-            return counted
-        counted_ids |= chained
+    # The uncounted approvals by the picture they were approved over, per identifier.
+    over_picture: dict[str, dict[str, list[BaselineApproval]]] = {}
+    for approval in approvals:
+        if approval.id not in counted_ids:
+            by_base = over_picture.setdefault(approval.identifier, {})
+            by_base.setdefault(approval.effective_base_hash, []).append(approval)
+    pending = [approval for approval in approvals if approval.id in counted_ids]
+    while pending:
+        lower = pending.pop()
+        for upper in over_picture.get(lower.identifier, {}).get(lower.content_hash, []):
+            if upper.id in counted_ids or upper.pr_number == lower.pr_number:
+                continue
+            counted_ids.add(upper.id)
+            pending.append(upper)
+    return [approval for approval in approvals if approval.id in counted_ids]
 
 
 def _stack_tip(approvals: list[BaselineApproval], commit_graph: CommitGraph | None) -> BaselineApproval | None:
@@ -299,6 +296,12 @@ def _ledger_base_hashes(
     return bases
 
 
+def _republish_after_close(run: Run, closed: list[BaselineApproval]) -> None:
+    from . import commit_status  # noqa: PLC0415 — commit_status imports this module
+
+    commit_status.publish_after_approvals_close(run.repo, closed)
+
+
 def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") -> int:
     """Write one approval row per approved change of a finalized run. Returns the number written.
 
@@ -354,6 +357,11 @@ def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") ->
     open_approvals = BaselineApproval.objects.using(WRITER_DB).filter(
         repo_id=run.repo_id, run_type=run.run_type, pr_number=run.pr_number, state=BaselineApprovalState.OPEN
     )
+    closed = list(
+        open_approvals.filter(
+            identifier__in=[*back_to_baseline, *(approval.identifier for approval in new_approvals)]
+        ).only("id", "run_type")
+    )
     open_approvals.filter(identifier__in=back_to_baseline).update(
         state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_BACK_TO_BASELINE, resolved_at=now, updated_at=now
     )
@@ -361,6 +369,7 @@ def record_approvals(run: Run, user_id: int, *, carried_commit_sha: str = "") ->
         state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_SUPERSEDED, resolved_at=now, updated_at=now
     )
     BaselineApproval.objects.using(WRITER_DB).bulk_create(new_approvals)
+    _republish_after_close(run, closed)
     return len(new_approvals)
 
 
@@ -460,6 +469,7 @@ def record_carried_commits(run: Run) -> None:
         ).update(
             state=BaselineApprovalState.SUPERSEDED, detail=DETAIL_BACK_TO_BASELINE, resolved_at=now, updated_at=now
         )
+        _republish_after_close(run, [approval for approval in approvals if approval.id in superseded])
         BaselineApproval.objects.using(WRITER_DB).filter(
             team_id=run.team_id, id__in=reproduced, state=BaselineApprovalState.OPEN
         ).update(carried_commit_sha=run.commit_sha, updated_at=now)
@@ -485,7 +495,7 @@ def stale_approvals(run: Run) -> list[BaselineApproval]:
     record = baseline_record.record_for_run(run)
     if record is None:
         return []
-    overlay_approval_ids = [entry.approval_id for entry in record.overlay.values()]
+    overlay_approval_ids = {entry.approval_id for entry in record.overlay.values()}
     # Only finalize writes approvals with this run as their source, and finalize marks the run approved.
     if not run.approved and not overlay_approval_ids:
         return []

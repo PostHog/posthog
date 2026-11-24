@@ -355,6 +355,7 @@ The approvals a run rests on are the ones finalized on it and the ones its basel
 The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
 A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
 Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
+When an approval closes without a ledger entry (superseded, voided, conflicted, abandoned), the pull requests whose current run applied it publish their status again, so a stack layer that counted through it turns red.
 In `shadow` mode the verdict is the baseline file's, except for the ledger check below. `ledger` mode needs the gate on.
 
 Run creation and completion, finalizing, approving or tolerating a snapshot, a new quarantine, and "Recompute" all publish the status again.
