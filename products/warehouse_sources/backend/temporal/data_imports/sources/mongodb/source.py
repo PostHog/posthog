@@ -199,7 +199,7 @@ _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 # publishes no `_mongodb._tcp` SRV record for it — the `mongodb+srv://` scheme needs one, and a
 # self-hosted or non-Atlas host (e.g. a plain TCP endpoint) never has it configured. Distinct from
 # NXDOMAIN above: the name exists, the SRV record type just isn't there. This never resolves on
-# retry; the user must switch to the `mongodb://host:port` form instead.
+# retry; the user must drop the `+srv` from the scheme instead.
 _SRV_NO_ANSWER_MARKER = "The DNS response does not contain an answer to the question"
 
 # pymongo raises ConfigurationError from server selection when every server's wire version is
