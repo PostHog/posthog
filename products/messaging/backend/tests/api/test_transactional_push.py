@@ -14,7 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog import rate_limit
-from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models import Organization, ProjectSecretAPIKey, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -204,26 +204,73 @@ class TestTransactionalPushTemplates(APIBaseTest):
         template.refresh_from_db()
         assert str(template.transactional_hog_flow_id) == linked
 
-    @parameterized.expand([("email_turned_push", False), ("deleted_push_restored", True)])
-    def test_a_template_that_changes_after_the_scope_check_is_not_made_sendable(self, _flag, _name, starts_deleted):
-        template = self._template(deleted=starts_deleted)
-        if not starts_deleted:
-            MessageTemplate.objects.filter(id=template.id).update(type="email")
-        check = MessageTemplatesViewSet.dangerously_get_required_scopes
+    @parameterized.expand(
+        [
+            (
+                "email_turned_push_after_its_scope_check",
+                "email",
+                False,
+                "_require_send_scope",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "email_turned_push_before_its_scope_check",
+                "email",
+                False,
+                "dangerously_get_required_scopes",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("deleted_push_restored", "push", True, "dangerously_get_required_scopes", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_template_that_changes_after_a_scope_check_is_not_made_sendable(
+        self, _flag, _name, template_type, deleted, check_name, expected
+    ):
+        template = self._template(deleted=deleted)
+        MessageTemplate.objects.filter(id=template.id).update(type=template_type)
+        check = getattr(MessageTemplatesViewSet, check_name)
 
-        def check_then_change(view: Any, *args: Any) -> list[str] | None:
-            scopes = check(view, *args)
+        def check_then_change(view: Any, *args: Any) -> Any:
+            result = check(view, *args)
             MessageTemplate.objects.filter(id=template.id).update(type="push", deleted=False)
-            return scopes
+            return result
 
-        with patch.object(MessageTemplatesViewSet, "dangerously_get_required_scopes", check_then_change):
+        with patch.object(MessageTemplatesViewSet, check_name, check_then_change):
             response = self._pak_client(["transactional_email:write"]).post(
                 f"{self.templates_url}{template.id}/make_transactional/", {}, format="json"
             )
 
-        assert response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND), response.json()
+        assert response.status_code == expected, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
+
+    @parameterized.expand(
+        [
+            ("email_scope", ["transactional_email:write"]),
+            ("push_scope", ["transactional_push:write"]),
+            ("both_scopes", ["transactional_email:write", "transactional_push:write"]),
+            ("workflow_read_scope", ["hog_flow:read"]),
+        ]
+    )
+    def test_another_organizations_key_cannot_tell_templates_apart(self, _flag, _name, scopes):
+        other_team = Organization.objects.bootstrap(None)[2]
+        push = MessageTemplate.objects.create(team=other_team, name="Push", type="push", content={"push": self._push()})
+        email = MessageTemplate.objects.create(
+            team=other_team, name="Email", type="email", content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}}
+        )
+        client = self._pak_client(scopes)
+
+        answers = [
+            client.post(
+                f"/api/projects/{other_team.id}/messaging_templates/{template_id}/make_transactional/",
+                {},
+                format="json",
+            )
+            for template_id in (push.id, email.id, uuid4())
+        ]
+
+        assert {answer.status_code for answer in answers} == {status.HTTP_403_FORBIDDEN}
+        assert len({json.dumps(answer.json()) for answer in answers}) == 1, [answer.json() for answer in answers]
 
     @parameterized.expand([("email_scope", "transactional_email:write"), ("push_scope", "transactional_push:write")])
     def test_either_send_scope_gets_404_for_an_unknown_template(self, _flag, _name, scope):
