@@ -448,8 +448,10 @@ class TestAvailableModelChoices:
     )
     def test_marks_whether_the_plan_pin_admits_each_model(self, plan_pin: str, model: str, allowed: bool) -> None:
         listing = tuple(
-            GatewayModel(id=listed, owned_by="posthog", context_window=1, api_shapes=("anthropic-messages",))
-            for listed in ("claude-opus-5-5", "moonshotai/kimi-k3.1-pro")
+            GatewayModel(
+                id=listed, owned_by="posthog", context_window=1, family=family, api_shapes=("anthropic-messages",)
+            )
+            for listed, family in (("claude-opus-5-5", "claude-opus"), ("moonshotai/kimi-k3.1-pro", "kimi-pro"))
         )
         with serve_gateway_listing(listing):
             choices = {choice.model: choice for choice in plan_model_choices("posthog_code", plan_pin)}

@@ -33,7 +33,7 @@ _V2 = _listed("gpt-6.2-sol", release_date="2026-11-17")
 _V3 = _listed("gpt-6.3-sol", release_date="2027-01-10")
 _V4 = _listed("gpt-6.4-sol", release_date="2027-03-01")
 _V5 = _listed("gpt-6.5-sol", release_date="2027-05-01")
-_DEEPSEEK = _listed("deepseek-ai/deepseek-v4-flash-0731", family="")
+_DEEPSEEK = _listed("deepseek-ai/deepseek-v4.1-flash-1017", family="")
 _TERRA_TRIAL = _listed("gpt-6.1-terra", family="gpt-terra", release_date="2026-09-29")
 _TERRA = _listed("gpt-5.6-terra", family="gpt-terra", release_date="2026-06-01")
 

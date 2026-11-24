@@ -4935,8 +4935,10 @@ class TestTaskAPI(BaseTaskAPITest):
             patch(
                 "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
                 return_value=(
-                    GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
-                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+                    GatewayModel(
+                        id="claude-opus-4-8", owned_by="anthropic", context_window=200_000, family="claude-opus"
+                    ),
+                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000, family="gpt"),
                 ),
             ),
             patch(f"{lookup}.prompt_model_switch_enabled", return_value=True),
