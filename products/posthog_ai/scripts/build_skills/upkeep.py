@@ -1,5 +1,5 @@
 # ruff: noqa: T201 allow print statements
-"""A report on the skills that the MCP `learn` command serves, for the team that owns the served list."""
+"""A report on the skills that the MCP `learn` command serves, for the team that reviews what it serves."""
 
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ def _load_tool_flags(repo_root: Path) -> dict[str, str]:
 def _find_flag_mismatches(
     served: list[ServedSkill], tool_names: set[str], tool_flags: dict[str, str]
 ) -> list[FlagMismatch]:
-    """Half or more of the tools a skill names sit behind a flag that its list entry does not declare.
+    """Half or more of the tools a skill names sit behind a flag that its header does not declare.
 
     A caller without that flag gets the skill and cannot call most of its tools.
     """
@@ -318,12 +318,12 @@ def render_markdown(report: UpkeepReport) -> str:
         lines += ["None.", ""]
 
     lines += [
-        f"## Served skills with most tools behind a flag the list does not declare ({len(report.flag_mismatches)})",
+        f"## Served skills with most tools behind a flag their header does not declare ({len(report.flag_mismatches)})",
         "",
     ]
     if report.flag_mismatches:
         lines += _table(
-            ["Skill", "Owner", "Listed flag", "Tools behind another flag"],
+            ["Skill", "Owner", "Declared flag", "Tools behind another flag"],
             [
                 [
                     f"`{m.skill.name}`",

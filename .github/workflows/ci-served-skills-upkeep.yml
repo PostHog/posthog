@@ -1,7 +1,7 @@
 # Weekly report on the skills that the MCP `learn` command serves to customers' agents.
 #
 # The skills lint checks a pull request. This report checks the served skills over time: a served
-# skill that names a skill `learn` does not serve, tools behind a flag the served list does not
+# skill that names a skill `learn` does not serve, tools behind a flag the skill's header does not
 # declare, size and growth, and the share of commits by bot accounts. It posts the counts to Slack
 # and writes the full report to the run summary. It is not a required check.
 
@@ -111,7 +111,7 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":test_tube: *Served skills upkeep (testing).* `learn` serves ${{ needs.report.outputs.served }} product skills. ${{ needs.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ needs.report.outputs.flag_mismatches }} served skills with most tools behind a flag the list does not declare. ${{ needs.report.outputs.over_recommended_size }} served skills over the recommended size, ${{ needs.report.outputs.outline_only }} of them too long for `learn` to return in full. The report also has sizes, growth and bot commits. This post is a trial for team-context-and-mcp only."
+                            text: ":test_tube: *Served skills upkeep (testing).* `learn` serves ${{ needs.report.outputs.served }} product skills. ${{ needs.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ needs.report.outputs.flag_mismatches }} served skills with most tools behind a flag their header does not declare. ${{ needs.report.outputs.over_recommended_size }} served skills over the recommended size, ${{ needs.report.outputs.outline_only }} of them too long for `learn` to return in full. The report also has sizes, growth and bot commits. This post is a trial for team-context-and-mcp only."
                         - type: "actions"
                           elements:
                             - type: "button"
