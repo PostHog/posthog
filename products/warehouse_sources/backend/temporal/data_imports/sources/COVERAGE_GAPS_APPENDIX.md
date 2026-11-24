@@ -1221,7 +1221,7 @@ Note: This is a webhook-ingestion source (the directory contains webhook_templat
 
 Re-audited 2026-11-19 against: <https://docs.attentive.com/reference/listsegments.md>
 
-- [ ] `Segments (GET /v2/segments)` — segment definitions with name, external ID and update time; beta, needs segments:read scope (low)
+- [x] `Segments (GET /v2/segments)` — segment definitions with name, external ID and update time; beta, needs segments:read scope (low)
 
 Note (2026-11-19): The source is webhook based and its 8 tables match the 8 webhook event types. A new List segments endpoint appeared in the V2 reference and lists segment metadata only, not members. All other GETs are single-user lookups, webhook config or upload status. The source uses a bearer key, so check that the key has the segments scope before enabling.
 
