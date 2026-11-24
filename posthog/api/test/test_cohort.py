@@ -9292,7 +9292,6 @@ class TestCohortRealtimeSwitch(APIBaseTest):
                 200,
             ),
             ("criterion_edit", "event_criterion", {}, {}, "$pageleave", 400),
-            # A daily cohort recompiles on every save, so a rename could bring it back to realtime with stale stamps.
             ("rename_of_daily_cohort", "daily_event_criterion", {"name": "Renamed"}, {}, None, 400),
             (
                 "rename_of_cohort_including_an_event_cohort",

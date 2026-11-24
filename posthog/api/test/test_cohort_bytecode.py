@@ -491,7 +491,6 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         cohort.count = 20_000_001
         cohort.save()
 
-        # Edit a criterion - should no longer be realtime
         filters["properties"]["values"][0]["values"][0]["key"] = "$os"
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertIsNone(cohort2.cohort_type)

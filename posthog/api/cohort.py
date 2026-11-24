@@ -2175,8 +2175,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Cohort, self.instance)
         if instance.is_static and cohort_will_be_static:
             return
-        # The lock protects what flags evaluate, and a save that keeps the criteria changes none of it.
-        # The page sends the criteria with every save, so a rename arrives looking like a criteria edit.
         if _save_keeps_realtime_criteria(instance, request_filters, cohort_will_be_static):
             return
 
@@ -2305,8 +2303,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Process bytecode for filters if they're being updated. Static cohorts
         # define membership by an explicit list of person IDs, so their
         # cohort_type must never be overridden by the filter-based calculation.
-        # The editor sends filters on every save, so a rename must not recompile a realtime cohort. New compiler
-        # output would change its leaf hashes and clear its stamps, and flags that target it would match nobody.
         if "filters" in validated_data and not keeps_realtime_criteria:
             filters = validated_data["filters"]
             if filters and not cohort.is_static:
