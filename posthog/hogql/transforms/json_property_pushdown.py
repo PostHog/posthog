@@ -2,7 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events_with_flag_calls import union_table_of
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 # JSON-string extraction calls that are equivalent to a HogQL string property access.
 # Other JSONExtract* variants (Int/Float/Bool/Raw) return non-string types, so the property-access
@@ -49,6 +49,21 @@ def _matched_property_access(node: ast.AST, context: HogQLContext):
     return inner.chain, key.value
 
 
+def _held_join_conjuncts(join: ast.JoinExpr) -> set[int]:
+    """The ids of the join-constraint conjuncts that the join's lazy table holds an unresolved copy of.
+
+    The lazy table resolves that copy itself, so the rewrite leaves the resolved conjunct as it is. A rewrite of the
+    conjunct would reach the copy when the rewritten tree is resolved again, and a property access does not decode
+    JSON escapes the way `JSONExtractString` does.
+    """
+    table_type = join.type
+    while isinstance(table_type, ast.TableAliasType | ast.ColumnAliasedTableType):
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.LazyTableType):
+        return set()
+    return {id(expr) for expr in table_type.table.held_join_conjuncts(join)}
+
+
 def has_rewritable_json_extract(node: ast.AST, context: HogQLContext) -> bool:
     finder = _Finder(context)
     finder.visit(node)
@@ -79,10 +94,15 @@ class _Finder(TraversingVisitor):
         super().__init__()
         self.context = context
         self.found = False
+        self.held: set[int] = set()
 
     def visit(self, node: ast.AST | None):
-        if not self.found:
+        if not self.found and id(node) not in self.held:
             super().visit(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        self.held |= _held_join_conjuncts(node)
+        super().visit_join_expr(node)
 
     def visit_call(self, node: ast.Call):
         if _matched_property_access(node, self.context) is not None:
@@ -95,6 +115,16 @@ class _Transformer(CloningVisitor):
     def __init__(self, context: HogQLContext):
         super().__init__(clear_types=True)
         self.context = context
+        self.held: set[int] = set()
+
+    def visit(self, node: ast.AST | None):
+        if node is not None and id(node) in self.held:
+            return clone_expr(node, clear_types=True)
+        return super().visit(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        self.held |= _held_join_conjuncts(node)
+        return super().visit_join_expr(node)
 
     def visit_call(self, node: ast.Call):
         matched = _matched_property_access(node, self.context)

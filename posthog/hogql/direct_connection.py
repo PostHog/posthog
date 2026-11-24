@@ -16,7 +16,11 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSource,
+    source_has_column_restricted_schemas,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod, ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
@@ -31,6 +35,11 @@ INVALID_CONNECTION_ID_ERROR = (
 RAW_QUERY_TABLE_DENIED_ERROR = (
     "You don't have access to every table on this connection, so raw SQL is not allowed here. "
     "Drop sendRawQuery to run the query as HogQL, which enforces access per table."
+)
+
+RAW_QUERY_COLUMN_RESTRICTED_ERROR = (
+    "Some tables on this connection hide columns, so raw SQL is not allowed here. "
+    "Drop sendRawQuery to run the query as HogQL, which only reads the columns you selected."
 )
 
 RAW_QUERY_BROWSER_SESSION_ERROR = (
@@ -50,6 +59,11 @@ def require_browser_session_for_organization_grant() -> None:
     # Token credentials can restrict projects while the warehouse grant spans the organization.
     if get_query_tags().access_method is not None:
         raise ExposedHogQLError(RAW_QUERY_BROWSER_SESSION_ERROR)
+
+
+def raw_query_denied_by_column_restriction(source: ExternalDataSource) -> bool:
+    # Raw SQL is never parsed, so it could read a column the column picker hides on any table.
+    return source_has_column_restricted_schemas(source.id, source.team_id)
 
 
 def raw_query_denied_by_table_access(

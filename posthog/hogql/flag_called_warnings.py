@@ -34,8 +34,8 @@ FLAG_CALLED_ON_EVENTS_NOTICE = (
 )
 
 FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING = (
-    f"PostHog no longer writes {FLAG_CALLED_EVENT} events to the events table, so this query, which reads them from "
-    "there, returns only older ones. Query posthog.flag_evaluations to include recent flag calls."
+    f"This query reads {FLAG_CALLED_EVENT} events from the events table, which can lack recent flag calls. "
+    "Query posthog.flag_evaluations to include them."
 )
 
 

@@ -6,7 +6,6 @@ export type TabKey = 'live' | 'inbox' | 'chats' | 'views' | 'errors' | 'replay' 
 
 export interface TabHeaderSlot {
     scrollToTop?: () => void
-    liveAudience?: boolean
     refreshing?: boolean
     /** A short line under the status line, such as why a pull to refresh did nothing. */
     hint: string | null
@@ -14,8 +13,8 @@ export interface TabHeaderSlot {
     /** An edit mode replaces the title and swaps the controls for a Done button. */
     editing: { title: string; onDone: () => void } | null
     editPins: { disabled: boolean; onPress: () => void } | null
-    /** The Inbox publishes this; the header then shows a filter button left of More. */
-    filter: { active: boolean; onPress: () => void } | null
+    /** Live shows its number of applied filters. Inbox shows a dot for active filters. */
+    filter: { active: boolean; count?: number; onPress: () => void } | null
 }
 
 interface TabHeaderState {
@@ -56,22 +55,22 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
         []
     )
 
-    const { hint, status, editing, editPins, filter, refreshing = false, liveAudience = false } = slot
+    const { hint, status, editing, editPins, filter, refreshing = false } = slot
     const editingTitle = editing?.title ?? null
     const hasEditPins = editPins !== null
     const editPinsDisabled = editPins?.disabled ?? false
     const hasFilter = filter !== null
     const filterActive = filter?.active ?? false
+    const filterCount = filter?.count
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setSlot(tab, {
             refreshing,
-            liveAudience,
             scrollToTop: callbacks.scrollToTop,
             hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },
             editPins: hasEditPins ? { disabled: editPinsDisabled, onPress: callbacks.editPins } : null,
-            filter: hasFilter ? { active: filterActive, onPress: callbacks.filter } : null,
+            filter: hasFilter ? { active: filterActive, count: filterCount, onPress: callbacks.filter } : null,
         })
     }, [
         tab,
@@ -84,7 +83,7 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
         hasFilter,
         filterActive,
         refreshing,
-        liveAudience,
+        filterCount,
     ])
 
     useLayoutEffect(() => () => useTabHeaderStore.getState().setSlot(tab, null), [tab])
