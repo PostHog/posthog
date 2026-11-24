@@ -22,6 +22,7 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 from products.messaging.backend.facade.contracts import PushSendStatus, PushStatusReason, TransactionalPushStatus
 from products.messaging.backend.facade.transactional_email import is_idempotency_key
 from products.messaging.backend.facade.transactional_push_log import get_push_status, keyed_push_run_id
+from products.messaging.backend.presentation.query_concurrency import query_concurrency_slots
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_PUSH_STATUS_SCOPE,
     legacy_scope_object_used,
@@ -154,7 +155,11 @@ class MessagingPushesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             run_id = UUID(str(pk))
         except ValueError:
             run_id = None
-        return self._respond(request, get_push_status(self.team_id, run_id) if run_id else None)
+        if run_id is None:
+            return self._respond(request, None)
+        with query_concurrency_slots(self.team):
+            push_status = get_push_status(self.team_id, run_id)
+        return self._respond(request, push_status)
 
     @extend_schema(
         parameters=[PushStatusLookupSerializer],
@@ -190,7 +195,9 @@ class MessagingPushesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         run_id = lookup.validated_data.get("message_id") or keyed_push_run_id(
             self.team_id, lookup.validated_data["idempotency_key"]
         )
-        return self._respond(request, get_push_status(self.team_id, run_id))
+        with query_concurrency_slots(self.team):
+            push_status = get_push_status(self.team_id, run_id)
+        return self._respond(request, push_status)
 
     def _respond(self, request: Request, push_status: TransactionalPushStatus | None) -> Response:
         self._report_status_read(request, push_status)

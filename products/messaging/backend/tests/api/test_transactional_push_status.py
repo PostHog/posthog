@@ -12,6 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
@@ -245,6 +246,18 @@ class TestTransactionalPushStatus(ClickhouseTestMixin, APIBaseTest):
         response = self._psak_client(scopes).get(f"/api/projects/{self.team.id}/messaging/pushes/{run_id}/")
 
         assert response.status_code == expected_status
+
+    @parameterized.expand([("by_id", "{run_id}/"), ("by_key", "status/?idempotency_key=order-7")])
+    def test_a_full_query_slot_answers_429(self, _flag, _name, path):
+        run_id = self._run("succeeded", sent=True, run_id=str(keyed_push_run_id(self.team.id, "order-7")))
+
+        with patch(
+            "products.messaging.backend.presentation.query_concurrency.app_org_concurrency_slot",
+            side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/messaging/pushes/{path.format(run_id=run_id)}")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
 
     def test_a_session_cannot_read_a_status(self, _flag):
         run_id = self._run("succeeded", sent=True)
