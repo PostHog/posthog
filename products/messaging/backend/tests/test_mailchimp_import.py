@@ -663,11 +663,11 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
             "Weekly newsletter (from Mailchimp)",
             "Novedades del producto ñ (from Mailchimp)",
         }
-        item = run.progress["contacts"]["items"][-1]
+        item = run.progress["contacts"]["items"][1]
         assert (item["label"], item["status"]) == ("Old (tag in Weekly newsletter, from Mailchimp)", "failed")
         assert "its cohort stays as it is" in item["notes"][0]
 
-    @parameterized.expand([("segments", 1, 250_000), ("memberships", 500, 1)])
+    @parameterized.expand([("segments", 1, 250_000), ("memberships", 300, 1)])
     def test_an_account_past_a_segment_limit_still_imports_its_contacts(
         self, _name: str, max_segments: int, max_memberships: int
     ) -> None:
@@ -681,4 +681,23 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert [name for name in self._staged(run) if " in " in name] == [
             "Older (tag in Weekly newsletter, from Mailchimp)"
         ]
-        assert run.progress["contacts"]["items"][-1]["notes"][0].startswith("1 more")
+        assert run.progress["contacts"]["items"][1]["notes"][0].startswith("1 more")
+
+    def test_reads_of_tags_stop_after_several_fail(self) -> None:
+        self._add_segments(0, *((number, f"Tag {number}", "static", ["ada@example.com"]) for number in range(1, 10)))
+        self.mailchimp.failures.append(Failure(route="segment_members", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        tried = {call["path"] for call in self.mailchimp.calls if call["route"] == "segment_members"}
+        assert len(tried) == 5
+        assert run.progress["contacts"]["items"][6]["notes"][0].startswith("4 more")
+
+    def test_contacts_import_when_an_audience_hides_its_tags(self) -> None:
+        self.mailchimp.failures.append(Failure(route="segments", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert run.progress["contacts"]["items"][1]["label"] == "Tags and segments in Old audience"

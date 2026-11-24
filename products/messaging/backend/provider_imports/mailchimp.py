@@ -112,9 +112,12 @@ TOO_MANY_AUDIENCES_MESSAGE = (
 ACCOUNT_NAME_LENGTH = 200
 # Each tag and segment becomes a cohort too, saved in the same transaction. An account past either limit still imports
 # its contacts, and the cohorts left out stay as they were.
-MAX_SEGMENTS = 500
+MAX_SEGMENTS = 300
+# A read that fails can take minutes, so the rest are left for the next import.
+MAX_FAILED_SEGMENTS = 5
 MAX_SEGMENT_MEMBERSHIPS = 250_000
 SEGMENT_NAME_LENGTH = 200
+UNREADABLE_SEGMENT_NOTE = "Mailchimp couldn't share its members, so its cohort stays as it is. Import again."
 # Mailchimp calls a tag a static segment. A fuzzy segment is one Mailchimp makes for its own use.
 _SEGMENT_KINDS = {"static": "tag", "saved": "segment"}
 OPT_OUT_STEPS = ("audiences", "groups", "cleaned", "complaints")
@@ -877,7 +880,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
 
     def save() -> SavedPage:
         saved = save_contact_lists(context, everyone, [*lists, *segments.lists], contacts.other_spellings)
-        return saved if saved.error else replace(saved, items=(*saved.items, *segments.skipped))
+        return saved if saved.error else replace(saved, items=(*saved.items[:1], *segments.skipped, *saved.items[1:]))
 
     yield ImportPage(processed=read, save=save)
 
@@ -895,52 +898,67 @@ def _read_segments(
     """A list for each tag and segment, holding only contacts the import read as subscribed to its audience."""
     lists: list[ContactList] = []
     skipped: list[ImportItem] = []
-    memberships = left_out = 0
-    for audience, rows_by_email in subscribed:
-        list_id = str(audience["id"])
-        found = client.all(
-            f"/lists/{quoted(list_id)}/segments",
-            "segments",
-            {"fields": "segments.id,segments.name,segments.type,total_items"},
+    memberships = left_out = failed = 0
+    found: list[tuple[int, dict[str, Any], int]] = []
+    for position, (audience, _rows) in enumerate(subscribed):
+        try:
+            segments = client.all(
+                f"/lists/{quoted(str(audience['id']))}/segments",
+                "segments",
+                {"fields": "segments.id,segments.name,segments.type,total_items"},
+            )
+        except (MailchimpKeyRejected, MailchimpRateLimited):
+            raise
+        except MailchimpAPIError:
+            failed += 1
+            label = f"Tags and segments in {_audience_name(audience)}"
+            skipped.append(ImportItem(label=label, status="failed", notes=(UNREADABLE_SEGMENT_NOTE,)))
+            continue
+        found += [
+            (segment["id"], segment, position)
+            for segment in segments
+            if isinstance(segment.get("id"), int) and segment.get("type") in _SEGMENT_KINDS
+        ]
+    # Oldest first, so a later import of an account past the limit fills the same cohorts.
+    for segment_id, segment, position in sorted(found, key=lambda entry: entry[0]):
+        if len(lists) >= MAX_SEGMENTS or memberships >= MAX_SEGMENT_MEMBERSHIPS or failed >= MAX_FAILED_SEGMENTS:
+            left_out += 1
+            continue
+        audience, rows_by_email = subscribed[position]
+        kind = _SEGMENT_KINDS[segment["type"]]
+        name = _clean(segment.get("name")).strip() or str(segment_id)
+        # Tags and segments of the same name can sit in one audience or in several.
+        cohort_name = (
+            f"{name[:SEGMENT_NAME_LENGTH]} ({kind} in {_audience_name(audience)[: SEGMENT_NAME_LENGTH - 50]}, "
+            "from Mailchimp)"
         )
-        # Oldest first, so a later import of an account past the limit fills the same cohorts.
-        for segment in sorted(
-            (row for row in found if isinstance(row.get("id"), int) and row.get("type") in _SEGMENT_KINDS),
-            key=lambda row: row["id"],
-        ):
-            if len(lists) >= MAX_SEGMENTS or memberships >= MAX_SEGMENT_MEMBERSHIPS:
-                left_out += 1
-                continue
-            kind = _SEGMENT_KINDS[segment["type"]]
-            name = _clean(segment.get("name")).strip() or str(segment["id"])
-            # Tags and segments of the same name can sit in one audience or in several.
-            cohort_name = (
-                f"{name[:SEGMENT_NAME_LENGTH]} ({kind} in {_audience_name(audience)[: SEGMENT_NAME_LENGTH - 50]}, "
-                "from Mailchimp)"
+        rows: dict[str, dict[str, str]] = {}
+        if problem := _read_segment(client, audience, segment_id, rows_by_email, rows):
+            failed += 1
+            skipped.append(ImportItem(label=cohort_name, status="failed", notes=(problem,)))
+            continue
+        memberships += len(rows)
+        lists.append(
+            ContactList(
+                cohort_name=cohort_name,
+                cohort_description=f"Imported from Mailchimp {kind} {segment_id} of audience {audience['id']}.",
+                source=f'the Mailchimp {kind} "{name}"',
+                rows=tuple(rows.values()),
+                empty_note="No subscribed contacts, so no one is in its cohort.",
             )
-            rows: dict[str, dict[str, str]] = {}
-            problem = _read_segment(client, audience, segment["id"], rows_by_email, rows)
-            if problem:
-                skipped.append(ImportItem(label=cohort_name, status="failed", notes=(problem,)))
-                continue
-            memberships += len(rows)
-            lists.append(
-                ContactList(
-                    cohort_name=cohort_name,
-                    cohort_description=f"Imported from Mailchimp {kind} {segment['id']} of audience {list_id}.",
-                    source=f'the Mailchimp {kind} "{name}"',
-                    rows=tuple(rows.values()),
-                    empty_note="No subscribed contacts, so no one is in its cohort.",
-                )
-            )
+        )
     if left_out:
+        note = (
+            "Mailchimp failed several reads, so PostHog stopped. Import again later."
+            if failed >= MAX_FAILED_SEGMENTS
+            else "Export the ones you need from Mailchimp and upload them as CSV files."
+        )
         skipped.append(
             ImportItem(
                 label="More tags and segments",
                 status="skipped",
                 notes=(
-                    f"{left_out:,} more tags and segments than one import takes have no cohort from this import. Export "
-                    "the ones you need from Mailchimp and upload them as CSV files.",
+                    f"{left_out:,} more tags and segments weren't imported, and their cohorts stay as they are. {note}",
                 ),
             )
         )
@@ -980,10 +998,8 @@ def _read_segment(
                 return "It changed in Mailchimp while PostHog read it, so its cohort stays as it is. Import again."
     except (MailchimpKeyRejected, MailchimpRateLimited):
         raise
-    except MailchimpAPIError as e:
-        if e.status_code is None:
-            raise
-        return "Mailchimp couldn't share its members, so its cohort stays as it is. Import again."
+    except MailchimpAPIError:
+        return UNREADABLE_SEGMENT_NOTE
     return ""
 
 
