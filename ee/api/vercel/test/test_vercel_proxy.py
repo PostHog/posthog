@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import requests as req
+import responses
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -13,7 +14,9 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.authentication import BillingServiceAuthentication
+from ee.api.vercel.test.base import VERCEL_TEST_ACCESS_TOKEN, fake_vercel_token_endpoint
 from ee.models import License
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL
 
 
 @patch("ee.api.authentication.get_cached_instance_license")
@@ -24,7 +27,8 @@ class TestVercelProxyAPI(APIBaseTest):
         self.license = License.objects.create(key=self.license_key, plan="enterprise", valid_until=datetime.now(UTC))
 
         self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"
-        self.vercel_access_token = "vercel_test_token_123"
+        self.vercel_access_token = VERCEL_TEST_ACCESS_TOKEN
+        self.vercel = fake_vercel_token_endpoint(self)
 
         self.integration = OrganizationIntegration.objects.create(
             organization=self.organization,
@@ -35,7 +39,7 @@ class TestVercelProxyAPI(APIBaseTest):
                 "scopes": ["read", "write"],
             },
             sensitive_config={
-                "credentials": {"access_token": self.vercel_access_token, "token_type": "Bearer"},
+                "credentials": {"access_token": "vercel_long_lived_token", "token_type": "Bearer"},
             },
             created_by=self.user,
         )
@@ -242,12 +246,14 @@ class TestVercelProxyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json() == {"error": "No Vercel integration found for this organization"}
 
-    def test_proxy_returns_500_when_no_access_token_in_config(self, mock_license):
+    def test_proxy_returns_500_when_vercel_refuses_a_token(self, mock_license):
         mock_license.return_value = self.license
-
-        self.integration.config = {}
-        self.integration.sensitive_config = {"credentials": {}}
-        self.integration.save()
+        self.vercel.replace(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            status=400,
+            json={"error": {"code": "invalid_grant", "message": "Installation not found"}},
+        )
 
         response = self.unauthenticated_client.post(
             "/api/vercel/proxy/",

@@ -36,6 +36,7 @@ from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.api.vercel.test.base import fake_vercel_token_endpoint
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import (
     RequiresExistingUserLogin,
@@ -1052,26 +1053,6 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            ("success", {"access_token": "test_token"}, "test_token"),
-            ("missing", {}, None),
-        ]
-    )
-    def test_get_access_token(self, _, credentials, expected):
-        self.installation.sensitive_config["credentials"] = credentials
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == expected
-
-    def test_get_access_token_fallback_from_config(self):
-        """Pre-migration installations store credentials in config — fallback should find them."""
-        self.installation.config["credentials"] = {"access_token": "legacy_token", "token_type": "Bearer"}
-        self.installation.sensitive_config = {}
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == "legacy_token"
-
-    @parameterized.expand(
-        [
             ("success", False),
             ("failure", True),
         ]
@@ -1593,6 +1574,7 @@ class TestPushSecretsToVercel(TestCase):
     """Tests for pushing secrets to Vercel when API token is rotated."""
 
     def setUp(self):
+        fake_vercel_token_endpoint(self)
         self.user = User.objects.create_user(email="secrets@example.com", password="test", first_name="Test")
         self.organization = Organization.objects.create(name="Secrets Test Org")
         self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)

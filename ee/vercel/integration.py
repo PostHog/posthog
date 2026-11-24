@@ -44,7 +44,7 @@ from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSA
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
-from ee.vercel.client import SSOTokenResponse, VercelAPIClient
+from ee.vercel.client import InstallationTokenError, SSOTokenResponse, VercelAPIClient, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -692,17 +692,22 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
-        if not access_token:
-            # Fallback for installations not yet migrated
-            access_token = installation.config.get("credentials", {}).get("access_token")
-        if not access_token:
+        if not installation.integration_id:
+            logger.error(
+                "Vercel installation has no installation ID", installation_pk=installation.pk, integration="vercel"
+            )
+            return None
+        try:
+            return get_installation_access_token(installation.integration_id)
+        except InstallationTokenError as e:
             logger.exception(
-                "Missing access token for Vercel installation",
+                "Failed to get access token for Vercel installation",
                 installation_id=installation.integration_id,
+                status_code=e.status_code,
+                error_code=e.code,
                 integration="vercel",
             )
-        return access_token
+            return None
 
     @staticmethod
     def _create_vercel_client(access_token: str) -> VercelAPIClient | None:

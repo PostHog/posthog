@@ -26,7 +26,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
-from ee.vercel.client import APIError, OAuthTokenResponse, VercelAPIClient
+from ee.vercel.client import APIError, InstallationTokenError, OAuthTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -264,21 +264,22 @@ def _validate_next_url(url: str) -> str:
 
 
 def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
-    """Return True if Vercel no longer recognises this installation (401/403/404).
+    """Return True if Vercel no longer recognises this installation.
+
+    Vercel shows this by refusing a token for it (`invalid_grant`), or with 401/403/404 on the installation.
 
     Returns False when Vercel confirms the installation is active, or when
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
     the existing integration to avoid accidental deletion.
     """
-    access_token = integration.sensitive_config.get("credentials", {}).get("access_token")
-    if not access_token:
-        return False
-
     installation_id = integration.integration_id
     if not installation_id:
         return False
 
-    client = VercelAPIClient(bearer_token=access_token)
+    try:
+        client = VercelAPIClient.for_installation(installation_id)
+    except InstallationTokenError as e:
+        return e.code == "invalid_grant"
     try:
         return not client.check_installation_active(installation_id)
     except APIError:
@@ -501,6 +502,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         production_team = teams_by_id[production_team_id]
 
+        try:
+            client = VercelAPIClient.for_installation(installation_id)
+        except InstallationTokenError as e:
+            release_used_token(jti)
+            capture_exception(e, {"installation_id": installation_id, "organization_id": str(organization.id)})
+            raise exceptions.ValidationError("Vercel did not accept the link. Start the link again from Vercel.")
+
         with transaction.atomic():
             _lock_vercel_links(organization.id)
             org_integration = OrganizationIntegration.objects.create(
@@ -544,7 +552,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_resource = resources[production_team_id]
         env_secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
-        client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
             resource_id=str(production_resource.id),

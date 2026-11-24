@@ -3,15 +3,28 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
+from django.conf import settings
+from django.core.cache import cache
+
 import requests
 import structlog
+from cryptography.fernet import InvalidToken
 from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from posthog.dataclasses import frozen
 from posthog.egress.vercel import vercel_request
 
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload
+
 logger = structlog.get_logger(__name__)
+
+VERCEL_OAUTH_TOKEN_URL = "https://api.vercel.com/v2/oauth/access_token"
+INSTALLATION_TOKEN_CACHE_PREFIX = "vercel_installation_token:"
+INSTALLATION_TOKEN_CACHE_SALT = "vercel_installation_token"
+INSTALLATION_TOKEN_MAX_AGE_SECONDS = 3600
+# A cached token must outlive the request it authorizes, including that request's retries.
+INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS = 300
 
 
 @frozen
@@ -44,6 +57,17 @@ class APIError(Exception):
 
     def __str__(self) -> str:
         return f"{self.message} (status: {self.status_code})"
+
+
+@dataclass(frozen=False)
+class InstallationTokenError(APIError):
+    code: str | None = None
+
+
+@frozen
+class InstallationToken:
+    access_token: str = field(repr=False)
+    expires_in: int
 
 
 @dataclass
@@ -79,6 +103,10 @@ class VercelAPIClient:
                 "Content-Type": "application/json",
             }
             self.session.headers.update(headers)
+
+    @classmethod
+    def for_installation(cls, installation_id: str, timeout: int = 30) -> "VercelAPIClient":
+        return cls(bearer_token=get_installation_access_token(installation_id), timeout=timeout)
 
     @staticmethod
     def _should_retry_request(exc: BaseException) -> bool:
@@ -130,6 +158,7 @@ class VercelAPIClient:
         json_body: dict[str, Any] | None = None,
         data: str | None = None,
         headers: dict[str, str] | None = None,
+        auth: tuple[str, str] | None = None,
     ) -> requests.Response:
         if json_body is not None:
             data = json.dumps(json_body)
@@ -142,6 +171,7 @@ class VercelAPIClient:
                 installation_id=installation_id,
                 headers=headers,
                 data=data,
+                auth=auth,
                 session=self.session,
                 timeout=self.timeout,
             )
@@ -355,6 +385,28 @@ class VercelAPIClient:
                 error_description=str(e),
             )
 
+    def request_installation_token(self, installation_id: str, client_id: str, client_secret: str) -> InstallationToken:
+        try:
+            response = self._request(
+                "POST",
+                VERCEL_OAUTH_TOKEN_URL,
+                installation_id=installation_id,
+                data=urlencode({"grant_type": "client_credentials", "installation_id": installation_id}),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                auth=(client_id, client_secret),
+            )
+            json_data = self._parse_json_response(response)
+        except APIError as e:
+            raise InstallationTokenError(
+                e.message, status_code=e.status_code, detail=e.detail, code=_token_error_code(e.detail)
+            ) from e
+
+        access_token = json_data.get("access_token")
+        expires_in = json_data.get("expires_in")
+        if not access_token or not isinstance(expires_in, int):
+            raise InstallationTokenError("Invalid token response", code="invalid_response")
+        return InstallationToken(access_token=access_token, expires_in=expires_in)
+
     def get_installation_account(self, installation_id: str) -> dict[str, Any]:
         response = self._request(
             "GET", f"{self.base_url}/installations/{installation_id}/account", installation_id=installation_id
@@ -406,3 +458,42 @@ class VercelAPIClient:
             logger.exception("SSO token exchange failed", error=str(e), integration="vercel")
 
             return None
+
+
+def _token_error_code(detail: str | None) -> str | None:
+    try:
+        error = json.loads(detail or "").get("error")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    if isinstance(error, dict):
+        return error.get("code")
+    return error if isinstance(error, str) else None
+
+
+def get_installation_access_token(installation_id: str) -> str:
+    """Return a short-lived token for one Vercel installation, from the cache when it has time left."""
+    cache_key = f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        try:
+            return decrypt_payload(cached, salt=INSTALLATION_TOKEN_CACHE_SALT, ttl=INSTALLATION_TOKEN_MAX_AGE_SECONDS)[
+                "access_token"
+            ]
+        except (InvalidToken, KeyError):
+            cache.delete(cache_key)
+
+    client_id = settings.VERCEL_CLIENT_INTEGRATION_ID
+    client_secret = settings.VERCEL_CLIENT_INTEGRATION_SECRET
+    if not client_id or not client_secret:
+        raise InstallationTokenError("Vercel integration not configured", code="not_configured")
+
+    token = VercelAPIClient(bearer_token=None).request_installation_token(installation_id, client_id, client_secret)
+
+    cache_timeout = min(token.expires_in, INSTALLATION_TOKEN_MAX_AGE_SECONDS) - INSTALLATION_TOKEN_EXPIRY_MARGIN_SECONDS
+    if cache_timeout > 0:
+        cache.set(
+            cache_key,
+            encrypt_payload({"access_token": token.access_token}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False),
+            timeout=cache_timeout,
+        )
+    return token.access_token

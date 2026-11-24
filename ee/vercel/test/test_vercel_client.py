@@ -1,14 +1,18 @@
 import json
+import base64
+from urllib.parse import parse_qs
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+import responses
 from prometheus_client import REGISTRY
 
 from posthog.egress.vercel.observability import normalize_vercel_endpoint
 
-from ee.vercel.client import OperationResult, VercelAPIClient
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OperationResult, VercelAPIClient, get_installation_access_token
 
 
 class TestVercelAPIClient:
@@ -396,3 +400,22 @@ class TestVercelAPIClient:
     def test_update_experimentation_item_validates_parameters(self, client):
         with pytest.raises(ValueError):
             client.update_experimentation_item("config_id", "resource_id", "item_id", {})
+
+    @responses.activate
+    def test_installation_token_uses_client_credentials_and_is_reused_from_cache(self, settings):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        installation_id = f"icfg_{uuid4().hex}"
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+
+        tokens = [get_installation_access_token(installation_id) for _ in range(2)]
+
+        assert tokens == ["short_lived", "short_lived"]
+        assert len(responses.calls) == 1
+        request = responses.calls[0].request
+        assert parse_qs(request.body) == {"grant_type": ["client_credentials"], "installation_id": [installation_id]}
+        assert request.headers["Authorization"] == f"Basic {base64.b64encode(b'client_id:client_secret').decode()}"

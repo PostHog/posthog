@@ -2,6 +2,7 @@ import re
 import json
 from http.cookies import Morsel
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
 from ee.api.vercel.crypto import encrypt_payload
+from ee.api.vercel.test.base import fake_vercel_token_endpoint
 from ee.api.vercel.vercel_connect import (
     CONNECT_NONCE_COOKIE_PREFIX,
     CONNECT_SALT,
@@ -32,11 +34,12 @@ from ee.api.vercel.vercel_connect import (
     _browser_nonce_cookie_name,
     _delete_orphaned_integration,
     _install_state_cookie_name,
+    _is_installation_orphaned,
     _load_connect_session,
     _sign_connect_session,
     _validate_next_url,
 )
-from ee.vercel.client import OAuthTokenResponse, OperationResult
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL, OAuthTokenResponse, OperationResult
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
@@ -84,6 +87,7 @@ def _mock_vercel_client(mock_client_class: MagicMock) -> MagicMock:
         team_id="team_e2e",
     )
     mock_client.import_resource.return_value = OperationResult(success=True)
+    mock_client_class.for_installation.return_value = mock_client
     return mock_client
 
 
@@ -109,13 +113,19 @@ def _fake_vercel(vercel: responses.RequestsMock) -> list[str]:
     # Each OAuth code belongs to the installation of the flow that issued it. Vercel accepts the import only into
     # the Marketplace installation that opened the link popup, and answers 404 for any other installation.
     grants = {
-        "code_from_marketplace": (MARKETPLACE_INSTALLATION, "tok_marketplace"),
-        "code_from_install": (INSTALL_PAGE_INSTALLATION, "tok_install_page"),
+        "code_from_marketplace": (MARKETPLACE_INSTALLATION, "tok_code_marketplace"),
+        "code_from_install": (INSTALL_PAGE_INSTALLATION, "tok_code_install_page"),
     }
+    installation_tokens = {MARKETPLACE_INSTALLATION: "tok_marketplace", INSTALL_PAGE_INSTALLATION: "tok_install_page"}
     imported_into: list[str] = []
 
     def exchange_code(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
-        [code] = parse_qs(str(request.body))["code"]
+        body = parse_qs(str(request.body))
+        if body.get("grant_type") == ["client_credentials"]:
+            [installation_id] = body["installation_id"]
+            token = {"access_token": installation_tokens[installation_id], "token_type": "Bearer", "expires_in": 3600}
+            return 200, {}, json.dumps(token)
+        [code] = body["code"]
         if code not in grants:
             return 400, {}, json.dumps({"error": "invalid_grant"})
         installation_id, access_token = grants.pop(code)
@@ -694,10 +704,10 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("none", "198.51.100.7"), ("target", "198.51.100.7"), ("selection", "198.51.100.7")])
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_successful_link_creates_integration_and_resource(
-        self, policy: str, ip: str, mock_client_class: MagicMock, mock_vercel_integration: MagicMock
+        self, policy: str, ip: str, mock_client_class: MagicMock, mock_sync_flags: MagicMock
     ) -> None:
         other = Organization.objects.create(name="Other example organization")
         other_team = Team.objects.create(organization=other)
@@ -709,7 +719,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
                 organization=self.organization if policy == "target" else other, ip_restrictions=["203.0.113.0/24"]
             )
         mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.for_installation.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
         session_token = self._seed_session()
 
@@ -767,7 +777,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert call_kwargs["resource_id"] == str(resource.pk)
         assert call_kwargs["product_id"] == "posthog"
         assert call_kwargs["name"] == self.team.name
-        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_called_once_with(self.team)
+        mock_sync_flags.assert_called_once_with(self.team)
 
         secrets = call_kwargs["secrets"]
         secrets_by_name = {secret["name"]: secret for secret in secrets}
@@ -791,13 +801,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             assert host_secret["value"].startswith(("https://", "http://"))
             assert "environmentOverrides" not in host_secret
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_link_with_different_environments_sets_overrides_on_every_prefix(
-        self, mock_client_class, mock_vercel_integration
-    ):
+    def test_link_with_different_environments_sets_overrides_on_every_prefix(self, mock_client_class, mock_sync_flags):
         mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.for_installation.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
 
         preview_team = Team.objects.create(
@@ -875,11 +883,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_replay_returns_400(self, mock_client_class, _mock_vercel_integration):
+    def test_replay_returns_400(self, mock_client_class, _mock_sync_flags):
         mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.for_installation.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
         session_token = self._seed_session()
 
@@ -908,16 +916,16 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already used" in response.json()["detail"]
 
     @parameterized.expand(REJECTED_BROWSER_COOKIES)
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_rejected_browser_leaves_session_usable_by_its_own_browser(
         self,
         _name: str,
         browser_nonce: str | None,
         mock_client_class: MagicMock,
-        _mock_vercel_integration: MagicMock,
+        _mock_sync_flags: MagicMock,
     ) -> None:
-        mock_client_class.return_value.import_resource.return_value = OperationResult(success=True)
+        mock_client_class.for_installation.return_value.import_resource.return_value = OperationResult(success=True)
         session_token = self._seed_session()
         body = {
             "session": session_token,
@@ -959,14 +967,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already has a Vercel integration" in response.json()["detail"]
         assert OrganizationIntegration.objects.filter(integration_id="icfg_existing").exists()
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
-    def test_stale_integration_deleted_and_new_one_created(
-        self, _mock_orphaned, mock_client_class, _mock_vercel_integration
-    ):
+    def test_stale_integration_deleted_and_new_one_created(self, _mock_orphaned, mock_client_class, _mock_sync_flags):
         mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.for_installation.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
         OrganizationIntegration.objects.create(
             organization=self.organization,
@@ -1066,6 +1072,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already has a Vercel integration" in response.json()["detail"]
 
     def test_rollback_on_integration_create_failure(self):
+        fake_vercel_token_endpoint(self)
         session_token = self._seed_session()
 
         with patch.object(IntegrationManager.vercel.oauth, "create", side_effect=Exception("db error")):
@@ -1096,7 +1103,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         ]
     )
     @patch("ee.api.vercel.vercel_connect.capture_exception")
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_failed_import_rolls_back_and_returns_400(
         self,
@@ -1104,11 +1111,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         import_result: OperationResult,
         expected_detail: str,
         mock_client_class: MagicMock,
-        mock_vercel_integration: MagicMock,
+        mock_sync_flags: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
         mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
+        mock_client_class.for_installation.return_value = mock_client
         mock_client.import_resource.return_value = import_result
         session_token = self._seed_session()
 
@@ -1132,7 +1139,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             team=self.team,
             kind=Integration.IntegrationKind.VERCEL,
         ).exists()
-        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+        mock_sync_flags.assert_not_called()
         mock_capture.assert_called_once()
         exception, properties = mock_capture.call_args[0]
         assert isinstance(exception, VercelImportError)
@@ -1161,7 +1168,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             ("us_callback_eu_link_after_login", "us.posthog.com", "eu.posthog.com", False, "posthog.com"),
         ]
     )
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     def test_end_to_end_callback_to_complete(
         self,
         _name: str,
@@ -1169,7 +1176,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         link_host: str,
         signed_in_at_callback: bool,
         expected_cookie_domain: str,
-        _mock_vercel_integration: MagicMock,
+        _mock_sync_flags: MagicMock,
     ) -> None:
         if not signed_in_at_callback:
             self.client.logout()
@@ -1210,10 +1217,10 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         assert cleared_cookie["domain"] == expected_cookie_domain
         assert cleared_cookie["path"] == "/api/vercel/connect"
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_session_from_another_browser_is_rejected(
-        self, mock_client_class: MagicMock, _mock_vercel_integration: MagicMock
+        self, mock_client_class: MagicMock, _mock_sync_flags: MagicMock
     ) -> None:
         mock_client = _mock_vercel_client(mock_client_class)
         attacker_browser = Client()
@@ -1248,9 +1255,9 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
 
         assert [response.status_code for response in responses] == [status.HTTP_200_OK, status.HTTP_200_OK]
 
-    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.vercel.integration.VercelIntegration.bulk_sync_feature_flags_to_vercel")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_token_survives_session_flush(self, mock_client_class, _mock_vercel_integration):
+    def test_token_survives_session_flush(self, mock_client_class, _mock_sync_flags):
         _mock_vercel_client(mock_client_class)
 
         response = self._callback_through_vercel_install({"code": "good_code"})
@@ -1323,6 +1330,7 @@ class TestSafeVercelSyncSelfHealing(VercelConnectTestBase):
     @patch("ee.vercel.integration.VercelAPIClient")
     @patch("ee.vercel.integration.VercelIntegration._build_secrets", return_value=[{"name": "TOKEN", "value": "tok"}])
     def test_self_healing_creates_missing_integration_resource(self, _mock_secrets, mock_client_class):
+        fake_vercel_token_endpoint(self)
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
@@ -1478,6 +1486,24 @@ class TestDeleteOrphanedIntegration(VercelConnectTestBase):
             ).values_list("team_id", flat=True)
         )
         assert surviving_team_ids == {teams[key].pk for key in surviving_teams}
+
+
+@override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+class TestIsInstallationOrphaned(SimpleTestCase):
+    @parameterized.expand(
+        [("installation_removed", "invalid_grant", True), ("client_rejected", "invalid_client", False)]
+    )
+    def test_token_refusal(self, _name: str, error_code: str, orphaned: bool) -> None:
+        installation = OrganizationIntegration(integration_id=f"icfg_{uuid4().hex}")
+
+        with responses.RequestsMock() as vercel:
+            vercel.add(
+                responses.POST,
+                VERCEL_OAUTH_TOKEN_URL,
+                status=400,
+                json={"error": {"code": error_code, "message": "Token request refused"}},
+            )
+            assert _is_installation_orphaned(installation) is orphaned
 
 
 class TestValidateNextUrl(SimpleTestCase):
