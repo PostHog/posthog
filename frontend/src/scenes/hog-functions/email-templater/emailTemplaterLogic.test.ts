@@ -1120,6 +1120,29 @@ describe('emailTemplaterLogic', () => {
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
+        it('blocks the save of an email left while its edit could not be read', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            const saved = saveWithLatestEmailEdit(save)
+            emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+
+            expect(save).not.toHaveBeenCalled()
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
+
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+            expect(save).toHaveBeenCalledTimes(1)
+            toast.mockRestore()
+        })
+
         it('lets a save through once the editor that held a failed edit is gone', async () => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.setEmailEditorRef({

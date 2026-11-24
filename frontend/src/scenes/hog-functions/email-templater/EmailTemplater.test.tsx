@@ -46,6 +46,8 @@ function renderChoice(senders: Record<string, unknown>[]): void {
 const blankEmail = { design: null, html: '', text: '', subject: '', from: '', to: '' }
 
 describe('email templater', () => {
+    let unmountLogic: (() => void) | undefined
+
     beforeEach(() => {
         useMocks({
             get: {
@@ -57,7 +59,11 @@ describe('email templater', () => {
         })
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        unmountLogic?.()
+        unmountLogic = undefined
+    })
 
     it.each([
         [false, 'single-email-sender-select'],
@@ -96,7 +102,7 @@ describe('email templater', () => {
     ])('a converted document is kept ($kept) when $name', ({ first, second, kept }) => {
         initKeaTests()
         const logic = emailTemplaterLogic({ value: blankEmail, onChange: jest.fn(), type: 'native_email' })
-        const unmount = logic.mount()
+        unmountLogic = logic.mount()
         const editor = ({ key, ...props }: { key?: string; emailKey?: string }): JSX.Element => (
             <EmailTemplater key={key} value={blankEmail} onChange={jest.fn()} type="native_email" {...props} />
         )
@@ -107,7 +113,5 @@ describe('email templater', () => {
         rerender(editor(second))
 
         expect(logic.values.convertedEmailDocument).toEqual(kept ? document : null)
-        cleanup()
-        unmount()
     })
 })

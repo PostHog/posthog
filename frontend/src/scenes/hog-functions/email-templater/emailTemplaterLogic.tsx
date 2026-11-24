@@ -989,11 +989,21 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
+                const openEmail = { ...props }
+                const designBeforeExport = cache.lastEditorDesign
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
                         exportEditorHtml(editor),
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
+                if (props.emailKey !== openEmail.emailKey) {
+                    openEmail.onChange(
+                        objectsEqual(htmlData.design, designBeforeExport)
+                            ? { ...formValues }
+                            : emailWithEdit(openEmail, formValues, htmlData, textData)
+                    )
+                    return
+                }
 
                 // A save with no canvas edits keeps the stored html/text/design byte-identical
                 // instead of replacing them with the editor's re-render - the export wraps raw
@@ -1005,15 +1015,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                const finalValues: EmailTemplate = {
-                    ...formValues,
-                    html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                    text: plainTextForEdit(textData, htmlData.design, formValues),
-                    design: htmlData.design,
-                }
-
                 cache.lastEditorDesign = htmlData.design
-                props.onChange(finalValues)
+                props.onChange(emailWithEdit(props, formValues, htmlData, textData))
                 actions.setIsModalOpen(false)
             },
         },
@@ -1299,7 +1302,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             cache.flushFailed = false
+            const { emailKey } = props
             await asyncActions.flushPendingDesignEdit()
+            if (props.emailKey !== emailKey) {
+                return
+            }
             // The edits stay in the open editor, so a failed save never closes it without a word.
             if (cache.flushFailed) {
                 showEmailSaveFailed()
@@ -1329,12 +1336,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The old editor reports a typed edit up to a second late, so its canvas is read even when nothing is
             // pending, but only once this editor has confirmed its design: before that, a difference isn't an edit.
             let readCanvas = !values.usesDocumentEditor && cache.baselineConfirmedBy === editor
+            cache.unreadEditOf = undefined
             while (readCanvas || cache.pendingDesignEdit) {
                 readCanvas = false
                 const editsBeforeExport = cache.designEdits
                 const templateBeforeExport = values.emailTemplate
                 const designBeforeExport = cache.lastEditorDesign
                 const openEmail = { ...props }
+                const editWaiting = cache.pendingDesignEdit || values.latestEditUnsaved
                 const isClosed = (): boolean => !!cache.unmounted || props.emailKey !== openEmail.emailKey
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
@@ -1346,6 +1355,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     )
                 } catch (error) {
                     if (isClosed()) {
+                        // Its save is still waiting for this read, and would store the email without the edit.
+                        cache.unreadEditOf = editWaiting ? openEmail.emailKey : undefined
                         return
                     }
                     posthog.captureException(error)
@@ -1365,6 +1376,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         return
                     }
                     if (isClosed()) {
+                        cache.unreadEditOf = openEmail.emailKey
                         return
                     }
                     cache.flushFailed = true
@@ -1649,11 +1661,13 @@ export async function latestEmailEditSaved(): Promise<boolean> {
     if (!templater) {
         return true
     }
+    const { emailKey } = templater.props
     await templater.asyncActions.flushPendingDesignEdit()
     if (!templater.isMounted()) {
         return true
     }
-    if (templater.values.latestEditUnsaved) {
+    const lostWhileSwitching = templater.props.emailKey !== emailKey && templater.cache.unreadEditOf === emailKey
+    if (templater.values.latestEditUnsaved || lostWhileSwitching) {
         showEmailSaveFailed()
         return false
     }
