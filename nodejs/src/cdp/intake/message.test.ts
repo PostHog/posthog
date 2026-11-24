@@ -249,10 +249,34 @@ describe('intake message', () => {
         ).toBeNull()
     })
 
+    const FILE_SIZE_FIELD_BYTES = Buffer.byteLength('"fileBytes":10000000,')
+
     it.each([
-        ['at the size limit', 0, 'encoded'],
-        ['one byte over the size limit', 1, 'too_large'],
-    ])('holds a send with files to the size limit of the same send without them: %s', (_case, overBytes, status) => {
+        [
+            'a send without files at the size limit',
+            null,
+            0,
+            { status: 'encoded', bytes: INTAKE_MESSAGE_MAX_BYTES, inserted: null },
+        ],
+        [
+            'a send with files at the size limit',
+            10_000_000,
+            0,
+            { status: 'encoded', bytes: INTAKE_MESSAGE_MAX_BYTES + FILE_SIZE_FIELD_BYTES, inserted: 10_000_000 },
+        ],
+        [
+            'a send without files one byte over the size limit',
+            null,
+            1,
+            { status: 'too_large', bytes: INTAKE_MESSAGE_MAX_BYTES + 1 },
+        ],
+        [
+            'a send with files one byte over the size limit',
+            10_000_000,
+            1,
+            { status: 'too_large', bytes: INTAKE_MESSAGE_MAX_BYTES + 1 + FILE_SIZE_FIELD_BYTES },
+        ],
+    ])('holds %s to the size limit of the same send without a file size', (_case, fileBytes, overBytes, outcome) => {
         const padded = (padding: number): CyclotronV2JobInit & { id: string } =>
             job({
                 state: Buffer.from(JSON.stringify({ ...jobState, queueMetadata: { padding: 'x'.repeat(padding) } })),
@@ -263,21 +287,16 @@ describe('intake message', () => {
         }
         const sized = padded(INTAKE_MESSAGE_MAX_BYTES - unpadded.message.value.length + overBytes)
 
-        expect(encodeIntakeMessage({ kind: 'transactional-email', job: sized }).status).toBe(status)
-        // The producer passes an explicit null, not undefined, for a send without files.
-        const withoutFiles = encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes: null } })
-        expect(withoutFiles.status).toBe(status)
-        if (withoutFiles.status === 'encoded') {
-            expect(parseJSON(withoutFiles.message.value.toString()).job).not.toHaveProperty('fileBytes')
-            expect(insertedFileBytes(withoutFiles.message.value)).toBeNull()
-        }
-        const withFiles = encodeIntakeMessage({
-            kind: 'transactional-email',
-            job: { ...sized, fileBytes: 10_000_000 },
-        })
-        expect(withFiles.status).toBe(status)
-        if (withFiles.status === 'encoded') {
-            expect(insertedFileBytes(withFiles.message.value)).toBe(10_000_000)
-        }
+        const encoded = encodeIntakeMessage({ kind: 'transactional-email', job: { ...sized, fileBytes } })
+
+        expect(
+            encoded.status === 'encoded'
+                ? {
+                      status: encoded.status,
+                      bytes: encoded.message.value.length,
+                      inserted: insertedFileBytes(encoded.message.value),
+                  }
+                : encoded
+        ).toEqual(outcome)
     })
 })
