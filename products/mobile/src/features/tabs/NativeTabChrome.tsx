@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo, useRef } from 'react'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { liveNativeFilterButton } from '@/features/live/LiveFilterButton'
 import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
@@ -16,7 +17,6 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     latest.current = { slot, onMore, dismiss }
     const close = useCallback(() => latest.current.dismiss?.(), [])
     const filter = useCallback(() => latest.current.slot?.filter?.onPress(), [])
-    const pause = useCallback(() => latest.current.slot?.pause?.onPress(), [])
     const more = useCallback(() => latest.current.onMore(), [])
     const done = useCallback(() => latest.current.slot?.editing?.onDone(), [])
     const compose = useCallback(
@@ -40,8 +40,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     const editing = !!slot?.editing
     const hasFilter = !!slot?.filter
     const activeFilter = slot?.filter?.active ?? false
-    const hasPause = !!slot?.pause
-    const paused = slot?.pause?.paused ?? false
+    const filterCount = slot?.filter?.count
     const leading = useMemo(
         () =>
             dismiss ? (
@@ -69,29 +68,20 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                         />,
                     ]
                   : [
-                        ...(hasFilter
-                            ? [
-                                  <Stack.Toolbar.Button
-                                      iconRenderingMode="template"
-                                      key="filter"
-                                      icon={nativeIcons.filter}
-                                      accessibilityLabel="Filter and sort"
-                                      selected={activeFilter}
-                                      onPress={filter}
-                                  />,
-                              ]
-                            : []),
-                        ...(hasPause
-                            ? [
-                                  <Stack.Toolbar.Button
-                                      iconRenderingMode="template"
-                                      key="pause"
-                                      icon={paused ? nativeIcons.play : nativeIcons.pause}
-                                      accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-                                      onPress={pause}
-                                  />,
-                              ]
-                            : []),
+                        ...(filterCount !== undefined
+                            ? [liveNativeFilterButton({ count: filterCount, onPress: filter })]
+                            : hasFilter
+                              ? [
+                                    <Stack.Toolbar.Button
+                                        iconRenderingMode="template"
+                                        key="filter"
+                                        icon={nativeIcons.filter}
+                                        accessibilityLabel="Filter and sort"
+                                        selected={activeFilter}
+                                        onPress={filter}
+                                    />,
+                                ]
+                              : []),
                         <Stack.Toolbar.Button
                             iconRenderingMode="template"
                             key="compose"
@@ -109,7 +99,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                             onPress={more}
                         />,
                     ],
-        [dismiss, editing, hasFilter, activeFilter, hasPause, paused, done, filter, pause, compose, more]
+        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more, filterCount]
     )
     return (
         <>

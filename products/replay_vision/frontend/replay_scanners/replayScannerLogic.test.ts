@@ -16,6 +16,8 @@ import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
 import { replayFiltersScannerLogic } from './replayFiltersScannerLogic'
@@ -98,7 +100,6 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
                 sampling_rate: 0.2,
-                sampling_mode: 'balanced',
             })
         })
 
@@ -256,7 +257,7 @@ describe('replayScannerLogic', () => {
                     query: null,
                     free_only: freeOnly,
                     credit_limit: freeOnly ? null : 4000,
-                    ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    ...(solved ? { sampling_rate: 0.5 } : {}),
                 },
             ])
             router.actions.push(urls.replayVisionScannerGoal('new'))
@@ -295,8 +296,15 @@ describe('replayScannerLogic', () => {
                 left: 800,
                 expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
             },
+            {
+                case: 'every credit free',
+                mode: 'free' as const,
+                left: null,
+                expected: { mode: 'budget', spend: { monthlyCreditBudget: 3000 } },
+            },
         ])('picks the spend for a goal draft: $case', ({ mode, left, expected }) => {
-            expect(goalSpendChoice(mode, 3000, left)).toMatchObject(expected)
+            const quota = makeQuota({ credit_limit: null, free_monthly_credits: left, credits_used: 0 })
+            expect(goalSpendChoice(mode, 3000, quota)).toMatchObject(expected)
         })
 
         it('keeps the default query (every session) when the draft has no session filter', async () => {
@@ -595,6 +603,24 @@ describe('replayScannerLogic', () => {
                 'replay_vision_scanner_creation_started',
                 expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
             )
+        })
+
+        it('prefills both goal budget inputs at the org free credits until the person edits them', () => {
+            const popover = replayFiltersScannerLogic()
+            popover.mount()
+            visionQuotaLogic.actions.loadQuotaSuccess(makeQuota({ free_monthly_credits: 1000 }))
+
+            const prefilled = [logic.values.goalBudgetInput, popover.values.budget]
+            logic.actions.setGoalBudgetInput(4000)
+            popover.actions.setBudget(null)
+
+            expect([...prefilled, logic.values.goalBudgetInput, popover.values.budget]).toEqual([
+                1000,
+                1000,
+                4000,
+                null,
+            ])
+            popover.unmount()
         })
 
         // A click in the consent dialog closes both popovers before the confirm button's own click.

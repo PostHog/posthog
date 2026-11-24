@@ -3513,6 +3513,17 @@
                                 "enum": ["source_id", "schema_id", "destination_id"]
                             },
                             "description": "One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination."
+                        },
+                        "max_instances": {
+                            "description": "Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "on_overflow": {
+                            "description": "What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.",
+                            "type": "string",
+                            "const": "degrade_visible"
                         }
                     },
                     "required": ["mode", "keys"],
@@ -3608,6 +3619,17 @@
                                 "enum": ["source_id", "schema_id", "destination_id"]
                             },
                             "description": "One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination."
+                        },
+                        "max_instances": {
+                            "description": "Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "on_overflow": {
+                            "description": "What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.",
+                            "type": "string",
+                            "const": "degrade_visible"
                         }
                     },
                     "required": ["mode", "keys"],
@@ -3846,7 +3868,7 @@
                     }
                 },
                 "email_patch": {
-                    "description": "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it.",
+                    "description": "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. A PostHog test sender step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string"
@@ -3858,12 +3880,12 @@
                     "type": "string"
                 },
                 "sender": {
-                    "description": "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.\n\n* `sandbox` - sandbox\n* `own` - own",
+                    "description": "Switch the step's sender. 'sandbox' moves it to the PostHog test sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a PostHog test sender step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.\n\n* `sandbox` - sandbox\n* `own` - own",
                     "type": "string",
                     "enum": ["sandbox", "own"]
                 },
                 "drop_own_sender_settings": {
-                    "description": "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it.",
+                    "description": "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it.",
                     "type": "boolean"
                 }
             },

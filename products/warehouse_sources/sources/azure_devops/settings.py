@@ -14,14 +14,15 @@ AZURE_DEVOPS_RELEASE_BASE_URL = "https://vsrm.dev.azure.com"
 #   continuationToken via the x-ms-continuationtoken header
 # - pull_requests/commits/teams/team_members/test_runs: $top/$skip offset paging
 # - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
-# - repositories/pull request threads/reviewers/work items/build timelines/pipeline runs/
-#   work item types/type states/classification nodes/team iterations: single response per parent
+# - repositories/pull request threads/reviewers/work items/iterations/iteration statuses/
+#   build timelines/pipeline runs/work item types/type states/classification nodes/team
+#   iterations: single response per parent
 @dataclass(frozen=True)
 class AzureDevOpsEndpointConfig:
     name: str
     # Path template under {base_url}/{organization}. `{project}`, `{repositoryId}`,
-    # `{pullRequestId}`, `{buildId}`, `{teamId}`, `{pipelineId}` and `{workItemType}`
-    # are substituted during the fan-out that reaches the endpoint.
+    # `{pullRequestId}`, `{iterationId}`, `{buildId}`, `{teamId}`, `{pipelineId}` and
+    # `{workItemType}` are substituted during the fan-out that reaches the endpoint.
     path: str
     base_url: str = AZURE_DEVOPS_BASE_URL
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
@@ -175,6 +176,14 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         # The row is a link, not the work item itself: the same work item can be linked
         # from pull requests in several repositories.
         primary_keys=["repository_id", "pull_request_id", "id"],
+    ),
+    "pull_request_iteration_statuses": AzureDevOpsEndpointConfig(
+        name="pull_request_iteration_statuses",
+        path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/iterations/{iterationId}/statuses",
+        # Status IDs are only documented as unique within the pull request they are posted to.
+        primary_keys=["repository_id", "pull_request_id", "iteration_id", "id"],
+        partition_key="creationDate",
+        # The status listing takes no time filter, so there is no cursor to sync incrementally on.
     ),
     "teams": AzureDevOpsEndpointConfig(
         name="teams",

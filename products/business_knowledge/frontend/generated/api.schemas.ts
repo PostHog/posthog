@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface KnowledgeAccessApi {
+    /** ID of the project whose business knowledge the caller reads. */
+    project_id: number
+    /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited caller reads. Null when the caller is not limited.
+     * @nullable
+     */
+    library_id: string | null
+}
+
 /**
  * One chunk in a drill-down window over a single knowledge document.
  *
@@ -145,6 +157,50 @@ export interface GapTopicActionResultApi {
     readonly normalized_topic: string
     /** Number of gap rows whose status changed. */
     readonly updated: number
+}
+
+export interface KnowledgeKeyApi {
+    /** Project secret API key id. */
+    id: string
+    /** Name of the key. Unique in this project. */
+    label: string
+    /**
+     * First and last characters of the key.
+     * @nullable
+     */
+    mask_value: string | null
+    /**
+     * The key itself. Returned once, in the response that creates the key. Null everywhere else.
+     * @nullable
+     */
+    value: string | null
+    /** When the key was created. */
+    created_at: string
+    /**
+     * When the key last made a request, to the hour. Null when it never has.
+     * @nullable
+     */
+    last_used_at: string | null
+    /** True when the key reads one library. False when it reads all business knowledge in the project. */
+    is_limited: boolean
+    /**
+     * The library a limited key reads. Null on a limited key means its library was deleted, so the key reads nothing.
+     * @nullable
+     */
+    library_id: string | null
+}
+
+export interface KnowledgeKeyCreateApi {
+    /**
+     * Name for the key. Must be unique in this project.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+     * @nullable
+     */
+    library_id: string | null
 }
 
 /**
@@ -607,6 +663,13 @@ export interface KnowledgeSourceApi {
     readonly always_include: boolean
     /** Libraries this source belongs to. Empty when the source is in none. */
     readonly library_ids: readonly string[]
+    /** Number of support agent runs that cited this source. */
+    readonly cited_run_count: number
+    /**
+     * When a support agent run last cited this source. Null when none has.
+     * @nullable
+     */
+    readonly last_cited_at: string | null
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -690,6 +753,65 @@ export interface KnowledgeAvailabilityApi {
     readonly has_sources: boolean
     /** True when this environment has at least one GitHub repository selected. */
     readonly has_repositories: boolean
+}
+
+export interface SurfaceUsageApi {
+    /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+    readonly surface: string
+    /** Usage from this surface in the period. */
+    readonly total: number
+}
+
+export interface DailyUsageApi {
+    /** Day, in UTC. */
+    readonly date: string
+    /** Support agent runs that cited knowledge on this day. */
+    readonly cited_run_count: number
+    /** Chunks written on this day. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made on this day. */
+    readonly query_count: number
+}
+
+export interface SourceUsageApi {
+    /** ID of the knowledge source. */
+    readonly source_id: string
+    /** Name of the knowledge source. */
+    readonly name: string
+    /** True when the source was learned from a past support ticket. */
+    readonly is_generated: boolean
+    /** Support agent runs that cited this source in the period. */
+    readonly cited_run_count: number
+    /** When a run last cited this source in the period. */
+    readonly last_cited_at: string
+}
+
+/**
+ * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
+ */
+export interface KnowledgeUsageApi {
+    /** Number of days the report covers, today included. */
+    readonly days: number
+    /** Support agent runs that cited at least one knowledge source. */
+    readonly cited_run_count: number
+    /** Runs that cited at least one source learned from a past support ticket. */
+    readonly learned_cited_run_count: number
+    /** Knowledge sources in the project. */
+    readonly source_count: number
+    /** Knowledge sources that at least one run cited in the period. */
+    readonly cited_source_count: number
+    /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+    readonly chunks_ingested: number
+    /** Knowledge searches made in the period, from every surface. */
+    readonly query_count: number
+    /** Chunks written in the period by source type, largest first. */
+    readonly chunks_by_surface: readonly SurfaceUsageApi[]
+    /** Searches in the period by where they came from, largest first. */
+    readonly queries_by_surface: readonly SurfaceUsageApi[]
+    /** One entry per day, oldest first. */
+    readonly daily: readonly DailyUsageApi[]
+    /** The most cited sources in the period, most cited first. */
+    readonly top_sources: readonly SourceUsageApi[]
 }
 
 export type BusinessKnowledgeDocumentsWindowListParams = {
@@ -843,4 +965,13 @@ export type BusinessKnowledgeSourcesDocumentsListParams = {
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string
+}
+
+export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
 }

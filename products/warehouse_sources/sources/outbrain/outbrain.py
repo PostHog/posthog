@@ -145,9 +145,10 @@ def get_rows(
         return [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
 
     def fetch_paginated(path: str) -> Iterator[list[dict[str, Any]]]:
+        page_size = config.page_size or PAGE_SIZE
         offset = 0
         while True:
-            params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset} if config.paginated else {}
+            params: dict[str, Any] = {"limit": page_size, "offset": offset} if config.paginated else {}
             params.update(config.params)
             url = f"{OUTBRAIN_BASE_URL}{path}"
             if params:
@@ -160,7 +161,7 @@ def get_rows(
                 ]
             if rows:
                 yield rows
-            if not config.paginated or len(rows) < PAGE_SIZE:
+            if not config.paginated or len(rows) < page_size:
                 return
             offset += len(rows)
 
@@ -244,6 +245,7 @@ def get_rows(
             if config.include_inactive_campaigns:
                 params["includeArchivedCampaigns"] = "true"
                 params["enabledCampaignsOnly"] = "false"
+            params.update(config.params)
             data = fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}")
 
             # The campaign periodic report nests each campaign's daily rows under it.

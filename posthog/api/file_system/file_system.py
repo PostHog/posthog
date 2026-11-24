@@ -25,7 +25,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Concat, Lower
+from django.db.models.functions import Cast, Concat, Lower
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -48,6 +48,7 @@ from posthog.api.file_system.access_levels import (
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
+    DeletionResult,
     FileChangeContext,
     FileObjectRef,
     check_file_system_object_changes,
@@ -57,6 +58,7 @@ from posthog.api.file_system.deletion import (
     is_file_system_type_registered,
     lock_file_system_objects,
     prepare_file_system_objects,
+    run_post_delete_batch_hooks,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -100,6 +102,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
+from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -111,13 +114,14 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 
 UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
 
-# One message for every reason a restore is refused (missing, already live, or off-limits), so the
-# endpoint can't be used to learn which refs exist.
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
 TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
     ("dashboard", "dashboards", "Dashboard", "id"),
     ("insight", "product_analytics", "Insight", "short_id"),
 )
+
+# One message for every reason a restore is refused (missing, already live, or off-limits), so the
+# endpoint can't be used to learn which refs exist.
 UNDO_DELETE_REFUSED = "Couldn't restore this. It may already be restored, or you may not have access to it."
 
 # Paths the product itself builds are at most three segments deep ("Unfiled/Insights/<name>"), so
@@ -169,6 +173,18 @@ def validate_file_system_placement(folder: str | None, name: str | None) -> None
         raise serializers.ValidationError({"_create_in_folder": error.detail})
 
 
+def parse_tags_param(raw: str | None) -> builtins.list[str]:
+    if not raw:
+        return []
+    try:
+        tags = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
+    if not isinstance(tags, builtins.list) or not all(isinstance(tag, str) for tag in tags):
+        raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
+    return tags
+
+
 class FileSystemListQuerySerializer(serializers.Serializer):
     include_content_type = serializers.BooleanField(
         default=False,
@@ -177,6 +193,13 @@ class FileSystemListQuerySerializer(serializers.Serializer):
     include_tags = serializers.BooleanField(
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
+    )
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            'A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights '
+            "that carry at least one of them."
+        ),
     )
     type = serializers.CharField(
         required=False,
@@ -197,6 +220,9 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Only entries under this folder path, at any depth, such as 'Experiments/Q4'.",
     )
+
+    def validate_tags(self, value: str) -> builtins.list[str]:
+        return parse_tags_param(value)
 
 
 class FileSystemMoveRequestSerializer(serializers.Serializer):
@@ -992,6 +1018,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(created_at__lt=created_at__lt)
         if search_param:
             queryset = self._apply_search_to_queryset(queryset, search_param, basename_only=search_name_only)
+        if self.action == "list":
+            tags = parse_tags_param(self.request.query_params.get("tags"))
+            if tags:
+                queryset = queryset.filter(self._tagged_with_any_q(tags))
 
         queryset = self._filter_by_access_control(queryset)
 
@@ -1028,6 +1058,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.order_by(Lower("path"))
 
         return queryset
+
+    def _tagged_with_any_q(self, tags: builtins.list[str]) -> Q:
+        """Rows whose dashboard or insight carries at least one of these tags and is visible to the caller.
+
+        The object's own access level decides the match, not the row's. A row the caller filed against
+        an object they cannot see survives `_filter_by_access_control`, and `_add_object_types` then
+        withholds that object's tags from the response. Matching here on the row alone would hand back
+        the same association through which tag names return the row.
+        """
+        condition = Q(pk__in=[])
+        for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
+            model = apps.get_model(app_label, model_name)
+            objects = model.objects.filter(
+                team_id=OuterRef("team_id"),
+                deleted=False,
+                pk__in=TaggedItem.objects.for_model(model).filter(tag__name__in=tags).values(object_column_for(model)),
+            )
+            if self.user_access_control:
+                objects = self.user_access_control.filter_queryset_by_access_level(
+                    objects, resource=cast(APIScopeObject, entry_type)
+                )
+            tagged_objects = objects.annotate(file_system_ref=Cast(ref_field, output_field=CharField())).filter(
+                file_system_ref=OuterRef("ref")
+            )
+            condition |= (Q(type=entry_type) | Q(type__startswith=f"{entry_type}/")) & Q(Exists(tagged_objects))
+        return condition
 
     def _add_object_types(
         self, results: builtins.list[dict[str, object]], *, include_content_type: bool, include_tags: bool = False
@@ -1284,8 +1340,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         it, so search-within-Recents shares the exact same query path.
 
         Only the params the Recents callers actually send are honoured here: `limit`, `not_type`,
-        `search` (+ `search_name_only`). The other list filters (`parent`, `type`, `depth`, `ref`,
-        `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
+        `search` (+ `search_name_only`) and `tags`. The other list filters (`parent`, `type`, `depth`,
+        `ref`, `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
         pairs them with `last_viewed_at` ordering. Add handling here if a caller ever needs to.
         """
         try:
@@ -1309,6 +1365,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
             )
+
+        tags = parse_tags_param(request.query_params.get("tags"))
+        if tags:
+            base_queryset = base_queryset.filter(self._tagged_with_any_q(tags))
 
         items = get_recent_file_system_items(
             team_id=self.team.id,
@@ -1451,6 +1511,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         carrier_ids = {row.pk for row in carriers}
         deleted_objects: list[dict[str, Any]] = []
+        results: list[DeletionResult] = []
         for row in removed:
             if row.pk not in carrier_ids:
                 row.delete()
@@ -1464,6 +1525,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization=getattr(self, "organization", None),
                 locked_objects=locked_objects,
             )
+            results.append(result)
             deleted_objects.append(
                 {
                     "type": result.type,
@@ -1474,6 +1536,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "can_undo": result.can_undo and bool(result.ref),
                 }
             )
+        run_post_delete_batch_hooks(results)
         return target, deleted_objects
 
     @extend_schema(parameters=[FileSystemDeleteQuerySerializer])

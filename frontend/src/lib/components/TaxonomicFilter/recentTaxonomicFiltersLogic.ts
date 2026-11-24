@@ -198,9 +198,9 @@ export interface recentTaxonomicFiltersLogicActions {
         groupName: string
         groupType: TaxonomicFilterGroupType
         item: any
-        propertyFilter?: AnyPropertyFilter | undefined
-        selectingKeyOnly?: boolean | undefined
-        teamId?: number | undefined
+        propertyFilter?: AnyPropertyFilter
+        selectingKeyOnly?: boolean
+        teamId?: number
         value: TaxonomicFilterValue
     }
 }

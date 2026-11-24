@@ -10,7 +10,7 @@ import type { WorkloadConditions } from '@/ci/providers/registry'
 import { detectRepositoryProvider, providerByKey, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { cloudRegion, type Host } from '@/posthog/host'
@@ -341,6 +341,8 @@ export default defineCommand({
         await clearPending(ctx.runtime, CI_SETUP_COMMAND)
         return { status: 'approved', policyId: result.value.policyId, ...setup }
     },
+
+    exitCode: waitingExitCode,
 
     human({ result, out }) {
         if (result.status === 'input_required') {

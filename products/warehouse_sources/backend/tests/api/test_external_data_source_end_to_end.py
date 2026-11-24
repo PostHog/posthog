@@ -125,7 +125,7 @@ def run_data_import_workflow(mock_stripe_client):
                     env.client,
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
-                    activities=ACTIVITIES,  # type: ignore
+                    activities=ACTIVITIES,
                     workflow_runner=UnsandboxedWorkflowRunner(),
                     activity_executor=ThreadPoolExecutor(max_workers=50),
                     max_concurrent_activities=50,

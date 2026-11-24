@@ -363,8 +363,9 @@ lag thresholds. `external-data-sources-disable-cdc-create` turns CDC off and res
 
 ## Sending a source to the user's own warehouse (optional, when requested)
 
-Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3 or
-Azure Blob storage. These tools exist only when the feature is on for the project.
+Only do this when the user asks for their data in their own Snowflake, BigQuery, Postgres, Redshift, Databricks, S3,
+Azure Blob storage or MotherDuck. These tools exist only when the feature is on for the project. MotherDuck also needs its
+own feature flag, so creating one can fail with a 400 on `type` while that flag is off.
 
 1. Call `external-data-destinations-list` first. If a destination for that target already exists, reuse it, but only
    when its `status` is `healthy`. A `failing` or `paused` one needs fixing first (see the end of this section).

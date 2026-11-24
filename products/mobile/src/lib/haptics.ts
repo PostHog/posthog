@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics'
 import { Platform } from 'react-native'
 
-export type HapticKind = 'selection' | 'light' | 'success'
+export type HapticKind = 'selection' | 'light' | 'medium' | 'heavy' | 'success'
 
 /** Fire-and-forget haptic feedback. A no-op on web, where expo-haptics has no backend. */
 export function haptic(kind: HapticKind): void {
@@ -13,6 +13,10 @@ export function haptic(kind: HapticKind): void {
         Haptics.selectionAsync().catch(done)
     } else if (kind === 'light') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(done)
+    } else if (kind === 'medium') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(done)
+    } else if (kind === 'heavy') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(done)
     } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(done)
     }

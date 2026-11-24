@@ -1,9 +1,13 @@
-import { cn } from '@posthog/quill'
+import { useValues } from 'kea'
+
+import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { SPAN_LOOK, Scale, TONE_COLOR, x } from './releaseTracks'
+import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { LANE_CARD_CLASS, ReleaseLaneCard } from './ReleaseLaneCard'
+import { Lane, SPAN_LOOK, Scale, spanWidth, x } from './releaseTracks'
 import { ReleaseSpan } from './releaseUtils'
 
 const NARROW = 72
@@ -14,41 +18,71 @@ export function ReleaseTrackSpan({
     top,
     height,
     thin,
+    stickyOffset = 0,
+    lane,
 }: {
     span: ReleaseSpan
     scale: Scale
     top: number
     height: number
     thin?: boolean
+    stickyOffset?: number
+    lane?: Lane
 }): JSX.Element | null {
+    const { flagActivity, failedFlagIds } = useValues(releaseCalendarLogic)
     const left = x(span.from, scale)
-    const width = Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
+    const width = spanWidth(span, scale)
+    const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
+    const cutRight = left + width >= scale.days * scale.day
     if (dayjs(span.to).isBefore(scale.start, 'day')) {
         return null
     }
-    const color = span.tone ? TONE_COLOR[span.tone] : SPAN_LOOK[span.kind].color
+    if (lane?.kind === 'flag' && flagActivity[lane.flag.id] === undefined && !failedFlagIds.includes(lane.flag.id)) {
+        return (
+            <Skeleton
+                className={cn('absolute rounded-full', cutLeft && 'rounded-l-none', cutRight && 'rounded-r-none')}
+                style={{ left, width, top, height }}
+            />
+        )
+    }
+    const color = SPAN_LOOK[span.kind].color
     const compact = thin || width < NARROW
     return (
-        <div className="absolute flex" style={{ left, width, top, height }}>
-            <div
-                className={cn('flex w-full overflow-hidden rounded-full', compact ? 'my-auto h-1.5' : 'h-full')}
-                style={{
-                    backgroundColor: `color-mix(in oklab, ${color} ${compact ? 70 : 18}%, transparent)`,
-                }}
-            >
-                <LinkPrimitive
-                    to={span.href}
-                    title={span.label}
-                    className="flex w-full items-center px-2 text-[10px] font-medium text-foreground"
+        <Tooltip trackCursorAxis="x">
+            <TooltipTrigger render={<div className="absolute flex" style={{ left, width, top, height }} />}>
+                <div
+                    className={cn(
+                        'flex w-full rounded-full',
+                        compact ? 'my-auto h-1.5' : 'h-full',
+                        cutLeft && 'rounded-l-none',
+                        cutRight && 'rounded-r-none'
+                    )}
+                    style={{
+                        clipPath: `inset(0 round ${cutLeft ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutRight ? 0 : 9999}px ${cutLeft ? 0 : 9999}px)`,
+                        backgroundColor: `color-mix(in oklab, ${color} ${compact ? 70 : 18}%, transparent)`,
+                    }}
                 >
-                    {!compact && <span className="truncate">{span.label}</span>}
-                </LinkPrimitive>
-            </div>
-            {compact && !thin && span.label && (
-                <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
-                    {span.label}
-                </span>
-            )}
-        </div>
+                    <LinkPrimitive
+                        to={span.href}
+                        aria-label={span.label}
+                        className="flex w-full items-center px-2 text-[10px] font-medium text-foreground"
+                    >
+                        {!compact && (
+                            <span className="sticky truncate" style={{ left: stickyOffset + 8, maxWidth: width - 16 }}>
+                                {span.label}
+                            </span>
+                        )}
+                    </LinkPrimitive>
+                </div>
+                {compact && !thin && span.label && (
+                    <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+                        {span.label}
+                    </span>
+                )}
+            </TooltipTrigger>
+            <TooltipContent sideOffset={8} className={LANE_CARD_CLASS}>
+                <ReleaseLaneCard lane={lane} span={span} />
+            </TooltipContent>
+        </Tooltip>
     )
 }

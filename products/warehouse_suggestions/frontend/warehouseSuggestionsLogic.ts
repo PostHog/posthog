@@ -30,6 +30,7 @@ import {
 } from 'products/data_warehouse/frontend/generated/api'
 import type { IncrementalEligibilityApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
+import { DEFAULT_DISMISS_REASON, trimmedNote } from './dismissReasons'
 import {
     warehouseSuggestionsAcceptCreate,
     warehouseSuggestionsAssignCreate,
@@ -229,6 +230,10 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
     deleteView: boolean
+    dismissDialogSuggestion: WarehouseSuggestionApi | null
+    dismissDialogSuggestionId: string | null
+    dismissNote: string
+    dismissReason: WarehouseSuggestionDismissalReasonEnumApi
     featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
@@ -280,6 +285,9 @@ export interface warehouseSuggestionsLogicActions {
     closeAcceptConfirm: () => {
         value: true
     }
+    closeDismissDialog: () => {
+        value: true
+    }
     closeMaterializeModal: () => {
         value: true
     }
@@ -305,6 +313,9 @@ export interface warehouseSuggestionsLogicActions {
         value: true
     }
     confirmAccept: () => {
+        value: true
+    }
+    confirmDismiss: () => {
         value: true
     }
     confirmMaterialize: () => {
@@ -373,6 +384,9 @@ export interface warehouseSuggestionsLogicActions {
     openAcceptConfirm: (id: string) => {
         id: string
     }
+    openDismissDialog: (id: string) => {
+        id: string
+    }
     openMaterializeModal: (id: string) => {
         id: string
     }
@@ -398,6 +412,12 @@ export interface warehouseSuggestionsLogicActions {
     setDeleteView: (deleteView: boolean) => {
         deleteView: boolean
     }
+    setDismissNote: (note: string) => {
+        note: string
+    }
+    setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => {
+        reason: WarehouseSuggestionDismissalReasonEnumApi
+    }
     setKeepMaterialized: (keepMaterialized: boolean) => {
         keepMaterialized: boolean
     }
@@ -418,6 +438,9 @@ export interface warehouseSuggestionsLogicActions {
     }
     suggestionAccepted: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
+    }
+    suggestionDismissed: (id: string) => {
+        id: string
     }
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
@@ -452,6 +475,10 @@ export interface warehouseSuggestionsLogicMeta {
         acceptConfirmSuggestion: (
             suggestions: WarehouseSuggestionApi[] | null,
             acceptConfirmSuggestionId: string | null
+        ) => WarehouseSuggestionApi | null
+        dismissDialogSuggestion: (
+            suggestions: WarehouseSuggestionApi[] | null,
+            dismissDialogSuggestionId: string | null
         ) => WarehouseSuggestionApi | null
         materializeDisabledReason: (
             materializeInterval: DataModelingSyncInterval | null,
@@ -517,12 +544,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             openAcceptConfirm: (id: string) => ({ id }),
             closeAcceptConfirm: true,
             confirmAccept: true,
+            openDismissDialog: (id: string) => ({ id }),
+            closeDismissDialog: true,
+            setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => ({ reason }),
+            setDismissNote: (note: string) => ({ note }),
+            confirmDismiss: true,
             acceptSuggestionFailed: (id: string) => ({ id }),
             setDeleteView: (deleteView: boolean) => ({ deleteView }),
             setKeepMaterialized: (keepMaterialized: boolean) => ({ keepMaterialized }),
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            suggestionDismissed: (id: string) => ({ id }),
             reload: true,
             showMore: (placement: ShowMorePlacement) => ({ placement }),
             setShowingMore: (showingMore: boolean) => ({ showingMore }),
@@ -613,6 +646,28 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     closeAcceptConfirm: () => null,
                     hideSuggestion: (state, { id }) => (state === id ? null : state),
                     acceptSuggestionFailed: (state, { id }) => (state === id ? null : state),
+                },
+            ],
+            dismissDialogSuggestionId: [
+                null as string | null,
+                {
+                    openDismissDialog: (_, { id }) => id,
+                    closeDismissDialog: () => null,
+                    suggestionDismissed: (state, { id }) => (state === id ? null : state),
+                },
+            ],
+            dismissReason: [
+                DEFAULT_DISMISS_REASON,
+                {
+                    setDismissReason: (_, { reason }) => reason,
+                    openDismissDialog: () => DEFAULT_DISMISS_REASON,
+                },
+            ],
+            dismissNote: [
+                '',
+                {
+                    setDismissNote: (_, { note }) => note,
+                    openDismissDialog: () => '',
                 },
             ],
             keepMaterialized: [
@@ -727,6 +782,11 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             ],
             acceptConfirmSuggestion: [
                 (s) => [s.suggestions, s.acceptConfirmSuggestionId],
+                (suggestions: WarehouseSuggestionApi[] | null, id: string | null): WarehouseSuggestionApi | null =>
+                    (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
+            ],
+            dismissDialogSuggestion: [
+                (s) => [s.suggestions, s.dismissDialogSuggestionId],
                 (suggestions: WarehouseSuggestionApi[] | null, id: string | null): WarehouseSuggestionApi | null =>
                     (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
             ],
@@ -893,6 +953,26 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         surface: props.surface,
                     })
                 },
+                openDismissDialog: ({ id }) => {
+                    capture('warehouse suggestion dismiss opened', {
+                        suggestion_id: id,
+                        kind: values.dismissDialogSuggestion?.kind,
+                        surface: props.surface,
+                    })
+                },
+                closeDismissDialog: (_, __, ___, previousState) => {
+                    capture('warehouse suggestion dismiss cancelled', {
+                        suggestion_id: selectors.dismissDialogSuggestionId(previousState),
+                        surface: props.surface,
+                    })
+                },
+                confirmDismiss: () => {
+                    const id = values.dismissDialogSuggestionId
+                    if (!id) {
+                        return
+                    }
+                    actions.dismissSuggestion(id, values.dismissReason, trimmedNote(values.dismissNote))
+                },
                 confirmAccept: () => {
                     const suggestion = values.acceptConfirmSuggestion
                     if (!suggestion) {
@@ -1039,6 +1119,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             { reason, note },
                             { surface: props.surface }
                         )
+                        actions.suggestionDismissed(id)
                         lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
                             button: {

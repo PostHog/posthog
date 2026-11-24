@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='raise_person_version_floors' */\n                UPDATE posthog_person p\n                SET version = f.min_version\n                FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)\n                WHERE p.team_id = $1 AND p.id = f.id AND p.is_deleted = false\n                  AND COALESCE(p.version, 0) < f.min_version\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7e38a6ae2541df819ea13cd0df48d16b4c30a63a8f588a8bca47308c05457256"
+}

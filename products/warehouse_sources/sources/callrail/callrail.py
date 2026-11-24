@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -83,6 +84,13 @@ def _sort_params(config: CallRailEndpointConfig) -> dict[str, Any]:
     if not config.sort_field:
         return {}
     return {"sort": config.sort_field, "order": "asc"}
+
+
+def _drop_fields_map(config: CallRailEndpointConfig) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in row.items() if key not in config.drop_fields}
+
+    return drop
 
 
 def _paginator() -> PageNumberPaginator:
@@ -213,30 +221,30 @@ def _fanout_rows(
                 CallRailResumeConfig(account_id=resolved_account_id, fanout_state=state)
             )
 
-    return cast(
-        Iterable[list[dict[str, Any]]],
-        build_dependent_resource(
-            endpoint_configs=CALLRAIL_ENDPOINTS,
-            child_endpoint=endpoint,
-            # The parent's sort comes from its own endpoint config rather than being repeated here,
-            # so the two cannot drift.
-            fanout=dataclasses.replace(config.fanout, parent_params=_sort_params(parent_config)),
-            client_config=_client_config(api_key),
-            path_format_values={"account_id": resolved_account_id},
-            team_id=team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            should_use_incremental_field=should_use_incremental_field,
-            # No server-side date filter on either child, so there is no request window to build.
-            incremental_config_factory=lambda _cursor_path: None,
-            page_size_param="per_page",
-            child_params_extra=_sort_params(config),
-            parent_endpoint_extra={"paginator": _paginator(), "data_selector": parent_config.response_key},
-            child_endpoint_extra={"paginator": _paginator(), "data_selector": config.response_key},
-            resume_hook=save_fanout_checkpoint,
-            initial_paginator_state=initial_fanout_state,
-        ),
+    resource = build_dependent_resource(
+        endpoint_configs=CALLRAIL_ENDPOINTS,
+        child_endpoint=endpoint,
+        # The parent's sort comes from its own endpoint config rather than being repeated here,
+        # so the two cannot drift.
+        fanout=dataclasses.replace(config.fanout, parent_params=_sort_params(parent_config)),
+        client_config=_client_config(api_key),
+        path_format_values={"account_id": resolved_account_id},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        should_use_incremental_field=should_use_incremental_field,
+        # No server-side date filter on either child, so there is no request window to build.
+        incremental_config_factory=lambda _cursor_path: None,
+        page_size_param="per_page",
+        child_params_extra=_sort_params(config),
+        parent_endpoint_extra={"paginator": _paginator(), "data_selector": parent_config.response_key},
+        child_endpoint_extra={"paginator": _paginator(), "data_selector": config.response_key},
+        resume_hook=save_fanout_checkpoint,
+        initial_paginator_state=initial_fanout_state,
     )
+    if config.drop_fields:
+        resource = cast(Resource, resource).add_map(_drop_fields_map(config))
+    return cast(Iterable[list[dict[str, Any]]], resource)
 
 
 def _report_rows(

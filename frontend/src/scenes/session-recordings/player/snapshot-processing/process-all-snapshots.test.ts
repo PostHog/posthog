@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { IncrementalSource } from 'posthog-js/rrweb-types'
+import { IncrementalSource, MouseInteractions } from 'posthog-js/rrweb-types'
 
 import { hasAnyWireframes, keyForSource, processAllSnapshots } from '@posthog/replay-shared'
 
@@ -283,7 +283,8 @@ describe('process all snapshots', () => {
             expect(result[0].timestamp).toBe(1234567890)
         })
 
-        it('handles multiple snapshots in decompressed data', async () => {
+        // A block's last line can lack a newline, and it must still not run into the next block's first line.
+        it.each(['\n', ''])('handles multiple snapshots across blocks ending in %j', async (blockEnd) => {
             const sessionId = 'test-session'
 
             const snapshot1 = JSON.stringify({
@@ -294,8 +295,8 @@ describe('process all snapshots', () => {
                 window_id: '1',
                 data: [{ type: 3, timestamp: 2000, data: {} }],
             })
-            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + '\n')
-            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + '\n')
+            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + blockEnd)
+            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + blockEnd)
 
             const fakeCompressedBlock1 = new Uint8Array([1, 2, 3])
             const fakeCompressedBlock2 = new Uint8Array([4, 5, 6])
@@ -735,7 +736,7 @@ describe('process all snapshots', () => {
             expect(fullSnapshot?.timestamp).toBe(1999)
         })
 
-        it('handles multiple mobile screenshot events (each gets synthetic full)', async () => {
+        it('keeps a synthetic full for each screenshot update when the wireframe id changes', async () => {
             const sessionId = 'test-mobile-session'
 
             const snapshotJson = JSON.stringify({
@@ -800,6 +801,77 @@ describe('process all snapshots', () => {
             expect(incrementalSnapshots).toHaveLength(2)
             expect(incrementalSnapshots[0].timestamp).toBe(1000)
             expect(incrementalSnapshots[1].timestamp).toBe(2000)
+        })
+
+        it('keeps the touch target node in the synthetic full snapshot before a screenshot update', async () => {
+            const sessionId = 'test-mobile-touch-target'
+            const screenshot = {
+                id: 12345,
+                type: 'screenshot',
+                base64: 'data:image/webp;base64,first',
+                width: 400,
+                height: 800,
+                x: 0,
+                y: 0,
+            }
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    { type: 4, timestamp: 1000, data: { href: '', width: 400, height: 800 } },
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: { wireframes: [screenshot], initialOffset: { top: 0, left: 0 } },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            // a new wireframe id keeps the synthetic full instead of a src swap
+                            updates: [
+                                { wireframe: { ...screenshot, id: 54321, base64: 'data:image/webp;base64,second' } },
+                            ],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2200,
+                        data: {
+                            source: IncrementalSource.MouseInteraction,
+                            type: MouseInteractions.TouchStart,
+                            id: 0,
+                            x: 100,
+                            y: 200,
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const touch = results.find(
+                (r) => r.type === 3 && (r.data as any).source === IncrementalSource.MouseInteraction
+            )
+            const fullSnapshotBeforeTouch = results
+                .filter((r) => r.type === 2 && touch && r.timestamp < touch.timestamp)
+                .pop()
+            const nodeIds = (node: any): number[] => [node.id, ...(node.childNodes ?? []).flatMap(nodeIds)]
+            const touchTargetId = (touch?.data as any)?.id
+            const fullSnapshotNode = (fullSnapshotBeforeTouch?.data as any)?.node
+
+            expect(fullSnapshotBeforeTouch?.timestamp).toBe(1999)
+            expect(nodeIds(fullSnapshotNode)).toContain(touchTargetId)
         })
 
         it('does not synthesize a full snapshot when a mutation adds an image wireframe', async () => {
@@ -1127,6 +1199,349 @@ describe('process all snapshots', () => {
         })
     })
 
+    describe('screenshot frames as attribute mutations', () => {
+        // Flutter and iOS send every screenshot as a full snapshot; rebuilding the document for each one
+        // flashes white in WebKit, so same-size frames after the first become a src update of the same img.
+        const sessionId = 'test-screenshot-session'
+        const viewport = (): { width: string; height: string; href: string } => ({
+            width: '400',
+            height: '800',
+            href: 'https://example.com',
+        })
+
+        const screenshotWireframe = (
+            base64: string,
+            overrides: Record<string, unknown> = {}
+        ): Record<string, unknown> => ({
+            id: 12345,
+            type: 'screenshot',
+            base64,
+            width: 400,
+            height: 800,
+            x: 0,
+            y: 0,
+            style: {},
+            ...overrides,
+        })
+
+        const screenshotFull = (
+            timestamp: number,
+            base64: string,
+            overrides: Record<string, unknown> = {}
+        ): Record<string, unknown> => ({
+            type: 2,
+            timestamp,
+            data: { wireframes: [screenshotWireframe(base64, overrides)], initialOffset: { top: 0, left: 0 } },
+        })
+
+        const screenshotUpdate = (
+            timestamp: number,
+            base64: string,
+            overrides: Record<string, unknown> = {}
+        ): Record<string, unknown> => ({
+            type: 3,
+            timestamp,
+            data: { source: 0, updates: [{ wireframe: screenshotWireframe(base64, overrides) }] },
+        })
+
+        const textFull = (timestamp: number): Record<string, unknown> => ({
+            type: 2,
+            timestamp,
+            data: {
+                wireframes: [{ id: 12345, type: 'text', text: 'hello', width: 400, height: 800, x: 0, y: 0 }],
+                initialOffset: { top: 0, left: 0 },
+            },
+        })
+
+        const processWindows = async (
+            windows: Record<string, Record<string, unknown>[]>,
+            blobKey = '0'
+        ): Promise<RecordingSnapshot[]> => {
+            const lines = Object.entries(windows).map(([windowId, data]) =>
+                JSON.stringify({ window_id: windowId, data })
+            )
+            const parsed = await parseEncodedSnapshots(lines, sessionId)
+            const source = { source: 'blob_v2', blob_key: blobKey } as SessionRecordingSnapshotSource
+            return processAllSnapshots(
+                [source],
+                { [keyForSource(source)]: { snapshots: parsed } },
+                { snapshots: {} },
+                viewport,
+                sessionId
+            )
+        }
+
+        const process = (data: Record<string, unknown>[]): Promise<RecordingSnapshot[]> => processWindows({ '1': data })
+
+        const eventTypes = (results: RecordingSnapshot[]): number[] => results.map((r) => r.type)
+
+        it('turns consecutive same-size screenshots into one full snapshot and attribute mutations', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                screenshotFull(2000, 'data:image/webp;base64,two'),
+                screenshotFull(3000, 'data:image/webp;base64,two'),
+                screenshotFull(4000, 'data:image/webp;base64,three'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 3, 3, 3])
+            expect(results[0].timestamp).toBe(1000)
+            expect(results[1].timestamp).toBe(1000)
+            expect(results[2]).toEqual({
+                type: 3,
+                timestamp: 2000,
+                windowId: 1,
+                data: {
+                    source: IncrementalSource.Mutation,
+                    texts: [],
+                    attributes: [
+                        {
+                            id: 12345,
+                            attributes: {
+                                src: 'data:image/webp;base64,two',
+                                width: '400',
+                                height: '800',
+                                style: expect.any(String),
+                                'data-posthog-screenshot': 'true',
+                            },
+                        },
+                    ],
+                    removes: [],
+                    adds: [],
+                },
+            })
+            expect((results[3].data as any).attributes[0].attributes.src).toBe('data:image/webp;base64,two')
+            expect((results[4].data as any).attributes[0].attributes.src).toBe('data:image/webp;base64,three')
+        })
+
+        it('keeps the first screenshot of every source as a full snapshot with a meta', async () => {
+            const sourceOne = await processWindows(
+                {
+                    '1': [
+                        screenshotFull(1000, 'data:image/webp;base64,one'),
+                        screenshotFull(2000, 'data:image/webp;base64,two'),
+                    ],
+                },
+                '0'
+            )
+            const sourceTwo = await processWindows(
+                {
+                    '1': [
+                        screenshotFull(3000, 'data:image/webp;base64,three'),
+                        screenshotFull(4000, 'data:image/webp;base64,four'),
+                    ],
+                },
+                '1'
+            )
+
+            expect(eventTypes(sourceOne)).toEqual([4, 2, 3])
+            expect(eventTypes(sourceTwo)).toEqual([4, 2, 3])
+        })
+
+        it('goes back to a full snapshot when the screenshot size changes', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                screenshotFull(2000, 'data:image/webp;base64,two'),
+                screenshotFull(3000, 'data:image/webp;base64,three', { width: 800, height: 400 }),
+                screenshotFull(4000, 'data:image/webp;base64,four', { width: 800, height: 400 }),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 3, 4, 2, 3])
+            expect(results[3].data).toEqual({ width: 800, height: 400, href: 'unknown' })
+        })
+
+        it('goes back to a full snapshot when the screenshot wireframe id changes', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                screenshotFull(2000, 'data:image/webp;base64,two', { id: 54321 }),
+                screenshotFull(3000, 'data:image/webp;base64,three', { id: 54321 }),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2, 3])
+            expect((results[4].data as any).attributes[0].id).toBe(54321)
+        })
+
+        it('tracks screenshots per window', async () => {
+            const results = await processWindows({
+                '1': [
+                    screenshotFull(1000, 'data:image/webp;base64,one'),
+                    screenshotFull(3000, 'data:image/webp;base64,three'),
+                ],
+                '2': [
+                    screenshotFull(2000, 'data:image/webp;base64,two'),
+                    screenshotFull(4000, 'data:image/webp;base64,four'),
+                ],
+            })
+
+            expect(results.map((r) => [r.windowId, r.type])).toEqual([
+                [1, 4],
+                [1, 2],
+                [2, 4],
+                [2, 2],
+                [1, 3],
+                [2, 3],
+            ])
+        })
+
+        it('goes back to a full snapshot after a meta event', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                { type: 4, timestamp: 2000, data: { width: 400, height: 800, href: 'screen-two' } },
+                screenshotFull(3000, 'data:image/webp;base64,two'),
+                screenshotFull(4000, 'data:image/webp;base64,three'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2, 3])
+            expect(results[2].data).toEqual({ width: 400, height: 800, href: 'screen-two' })
+        })
+
+        it('goes back to a full snapshot after a full snapshot that is not just a screenshot', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                textFull(2000),
+                screenshotFull(3000, 'data:image/webp;base64,two'),
+                screenshotFull(4000, 'data:image/webp;base64,three'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2, 4, 2, 3])
+        })
+
+        it('turns android screenshot updates after the first into attribute mutations', async () => {
+            const results = await process([
+                screenshotUpdate(1000, 'data:image/webp;base64,one'),
+                screenshotUpdate(2000, 'data:image/webp;base64,two'),
+                screenshotUpdate(3000, 'data:image/webp;base64,three'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 3, 3, 3])
+            expect(results[1].timestamp).toBe(999)
+            // the first update still replaces the img the synthetic full snapshot drew
+            expect((results[2].data as any).adds).toHaveLength(1)
+            expect((results[3].data as any).adds).toEqual([])
+            expect((results[3].data as any).attributes).toEqual([
+                {
+                    id: 12345,
+                    attributes: {
+                        src: 'data:image/webp;base64,two',
+                        width: '400',
+                        height: '800',
+                        style: expect.any(String),
+                        'data-posthog-screenshot': 'true',
+                    },
+                },
+            ])
+            expect((results[4].data as any).attributes[0].attributes.src).toBe('data:image/webp;base64,three')
+        })
+
+        it('keeps the synthetic full for an android update that carries more than the screenshot', async () => {
+            const withText = screenshotUpdate(2000, 'data:image/webp;base64,two')
+            ;(withText.data as any).updates.push({
+                parentId: 5,
+                wireframe: { id: 777, type: 'text', text: 'hello', width: 100, height: 20, x: 0, y: 0 },
+            })
+            const results = await process([screenshotUpdate(1000, 'data:image/webp;base64,one'), withText])
+
+            expect(eventTypes(results)).toEqual([4, 2, 3, 2, 3])
+        })
+
+        it('leaves web recordings untouched', async () => {
+            const source = { source: 'blob_v2', blob_key: '0' } as SessionRecordingSnapshotSource
+            const snapshots = await parseEncodedSnapshots(keyZero.split('\n'), sessionId)
+            const results = await processAllSnapshots(
+                [source],
+                { [keyForSource(source)]: { snapshots: [...snapshots] } },
+                { snapshots: {} },
+                viewport,
+                sessionId
+            )
+
+            expect(results).toEqual(snapshots)
+        })
+
+        it.each([
+            [
+                'a null child node',
+                {
+                    type: 2,
+                    tagName: 'html',
+                    id: 2,
+                    attributes: {},
+                    childNodes: [{ type: 2, tagName: 'body', id: 3, attributes: {}, childNodes: [null] }],
+                },
+            ],
+            [
+                'a non-array childNodes',
+                { type: 2, tagName: 'html', id: 2, attributes: {}, childNodes: 'H4sI_truncated' },
+            ],
+        ])('keeps a full snapshot with %s instead of throwing', async (_label, html) => {
+            const results = await process([
+                { type: 4, timestamp: 1000, data: { width: 400, height: 800, href: 'https://example.com' } },
+                {
+                    type: 2,
+                    timestamp: 1000,
+                    data: { node: { type: 0, id: 1, childNodes: [html] }, initialOffset: { top: 0, left: 0 } },
+                },
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2])
+        })
+
+        it('leaves wireframe mode mobile recordings untouched', async () => {
+            const results = await process([textFull(1000), textFull(2000)])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2])
+        })
+
+        it('goes back to a full snapshot when the keyboard opens between screenshots', async () => {
+            const results = await process([
+                screenshotFull(1000, 'data:image/webp;base64,one'),
+                { type: 5, timestamp: 1500, data: { tag: 'keyboard', payload: { open: true, height: 300 } } },
+                screenshotFull(2000, 'data:image/webp;base64,two'),
+                screenshotFull(3000, 'data:image/webp;base64,three'),
+            ])
+
+            // the keyboard mutation is followed by a real full snapshot, which rebuilds the document without it
+            expect(eventTypes(results)).toEqual([4, 2, 3, 4, 2, 3])
+            expect((results[2].data as any).source).toBe(IncrementalSource.Mutation)
+            expect(results[4].timestamp).toBe(2000)
+        })
+
+        it('does not treat an empty element other than the screen chrome containers as part of a screenshot', async () => {
+            const withOverlay = (timestamp: number, base64: string): Record<string, unknown> => {
+                const full = screenshotFull(timestamp, base64)
+                ;(full.data as any).wireframes.push({
+                    id: 888,
+                    type: 'rectangle',
+                    width: 400,
+                    height: 100,
+                    x: 0,
+                    y: 0,
+                    style: { backgroundColor: '#000000' },
+                })
+                return full
+            }
+            const results = await process([
+                withOverlay(1000, 'data:image/webp;base64,one'),
+                withOverlay(2000, 'data:image/webp;base64,two'),
+            ])
+
+            expect(eventTypes(results)).toEqual([4, 2, 4, 2])
+        })
+
+        it('keeps a real full snapshot every 30 screenshot frames so seeking stays cheap', async () => {
+            const swapsPerFull = 30
+            const frames = Array.from({ length: swapsPerFull + 3 }, (_, i) =>
+                screenshotFull(1000 * (i + 1), `data:image/webp;base64,frame${i}`)
+            )
+            const results = await process(frames)
+
+            const fullIndexes = results.flatMap((r, i) => (r.type === 2 ? [i] : []))
+            expect(fullIndexes).toHaveLength(2)
+            // the first frame is a full snapshot, then 30 swaps, then the next frame is a full snapshot again
+            expect(results[fullIndexes[1]].timestamp).toBe(1000 * (swapsPerFull + 2))
+            expect(results.filter((r) => r.type === 3)).toHaveLength(swapsPerFull + 1)
+        })
+    })
+
     describe('undecodable full snapshot', () => {
         // A full snapshot that failed to decompress reaches processing with `data` still a raw string; it
         // must be dropped rather than dereferenced (see the guard in process-all-snapshots.ts for context).
@@ -1184,6 +1599,27 @@ describe('process all snapshots', () => {
                 { source: IncrementalSource.Mutation, texts: [], attributes: [], removes: [], adds: 'H4sI_truncated' },
             ],
             ['stylesheet rule with string adds', { source: IncrementalSource.StyleSheetRule, adds: 'H4sI_truncated' }],
+            [
+                'mobile screenshot mutation with string removes',
+                {
+                    source: IncrementalSource.Mutation,
+                    texts: [],
+                    attributes: [],
+                    removes: 'H4sI_truncated',
+                    adds: [
+                        {
+                            parentId: 5,
+                            node: {
+                                type: 2,
+                                tagName: 'img',
+                                id: 12345,
+                                attributes: { src: 'data:image/webp;base64,one', 'data-posthog-screenshot': 'true' },
+                                childNodes: [],
+                            },
+                        },
+                    ],
+                },
+            ],
         ])('drops a %s without throwing', async (_label, badData) => {
             const snapshots = [
                 { windowId: 1, timestamp: 1000, type: 4, data: { width: 100, height: 100, href: 'x' } },

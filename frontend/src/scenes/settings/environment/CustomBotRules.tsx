@@ -7,6 +7,7 @@ import { IconPlus } from '@posthog/icons'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -15,7 +16,6 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
@@ -28,8 +28,9 @@ import {
     MAX_CONDITIONS_PER_RULE,
     MAX_CUSTOM_BOT_RULES,
     MAX_TOTAL_CONDITIONS,
+    categoryLabel,
+    combinerOptions,
     conditionRanges,
-    defaultMatcherFor,
     fieldLabel,
     matcherLabel,
     matcherOptionsFor,
@@ -40,19 +41,12 @@ import {
     validateCustomBotCondition,
     validateCustomBotRule,
     validateCustomBotRuleSet,
+    newCustomBotCondition as newCondition,
+    newCustomBotRule as newRule,
+    withConditionKey,
     withMatcher,
 } from './customBotRulesUtils'
-
-// Lowercase: the labels render mid-sentence ("when all conditions are met").
-const combinerOptions = [
-    { label: 'all', value: FilterLogicalOperator.And },
-    { label: 'any', value: FilterLogicalOperator.Or },
-]
-
-function categoryLabel(category: string | undefined): string {
-    const value = category || CUSTOM_BOT_CATEGORY
-    return CUSTOM_BOT_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? value
-}
+import { QuillCustomBotRules } from './QuillCustomBotRules'
 
 /** The list without edit affordances: the shared editor always renders drag handles and delete
 buttons, which would look actionable to someone whose changes can never be saved. */
@@ -104,25 +98,6 @@ function ReadOnlyIpRanges({ ranges }: { ranges: string[] }): JSX.Element {
     )
 }
 
-function newCondition(): CustomBotCondition {
-    return {
-        id: uuid(),
-        key: CustomBotField.RawUserAgent,
-        matcher: CustomBotMatcher.Contains,
-        pattern: '',
-    }
-}
-
-function newRule(): CustomBotRule {
-    return {
-        id: uuid(),
-        name: '',
-        category: CUSTOM_BOT_CATEGORY,
-        combiner: FilterLogicalOperator.And,
-        items: [newCondition()],
-    }
-}
-
 export function CustomBotRules(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -142,6 +117,7 @@ export function CustomBotRules(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const canEdit = !restrictedReason
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const anyRuleError = rules.map(validateCustomBotRule).find(Boolean)
     const setError = validateCustomBotRuleSet(rules)
@@ -167,6 +143,49 @@ export function CustomBotRules(): JSX.Element {
         updateCurrentTeam({
             modifiers: { ...currentTeam?.modifiers, customBotDefinitions: sanitizeCustomBotRules(rules) },
         })
+    }
+
+    const addConditionDisabledReason = (rule: CustomBotRule): string | undefined =>
+        rule.items.length >= MAX_CONDITIONS_PER_RULE
+            ? `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions`
+            : totalConditions >= MAX_TOTAL_CONDITIONS
+              ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
+              : undefined
+
+    const addBotDisabledReason =
+        rules.length >= MAX_CUSTOM_BOT_RULES
+            ? `You can define at most ${MAX_CUSTOM_BOT_RULES} bots`
+            : totalConditions >= MAX_TOTAL_CONDITIONS
+              ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
+              : undefined
+
+    const saveDisabledReason = currentTeamLoading
+        ? 'Saving'
+        : anyRuleError
+          ? 'Fix the errors above first'
+          : (setError ?? (isUnchanged ? 'No changes to save' : undefined))
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomBotRules
+                rules={rules}
+                onRulesChange={setRules}
+                testValues={testValues}
+                onTestValuesChange={setTestValues}
+                restrictedReason={restrictedReason}
+                droppedCount={droppedCount}
+                usedFields={usedFields}
+                matched={matched}
+                hasTestInput={hasTestInput}
+                ipRulesAreDead={!!ipRulesAreDead}
+                hasSavedRules={savedRules.length > 0}
+                saving={currentTeamLoading}
+                onSave={save}
+                addConditionDisabledReason={addConditionDisabledReason}
+                addBotDisabledReason={addBotDisabledReason}
+                saveDisabledReason={saveDisabledReason}
+            />
+        )
     }
 
     return (
@@ -248,14 +267,7 @@ export function CustomBotRules(): JSX.Element {
                     renderChildItem={(condition, { updateChildItem }) => {
                         const error = validateCustomBotCondition(condition)
                         const changeKey = (key: CustomBotField): void => {
-                            // Regex works on every property, so treat it as a deliberate choice and keep
-                            // it. Anything else follows the new property, which moves an IP condition
-                            // onto ranges and a screen dimension onto equality.
-                            const matcher =
-                                condition.matcher === CustomBotMatcher.Regex
-                                    ? CustomBotMatcher.Regex
-                                    : defaultMatcherFor(key)
-                            updateChildItem(withMatcher(condition, key, matcher))
+                            updateChildItem(withConditionKey(condition, key))
                         }
                         const rangeCount =
                             condition.matcher === CustomBotMatcher.Cidr ? conditionRanges(condition).length : 0
@@ -318,13 +330,7 @@ export function CustomBotRules(): JSX.Element {
                                 icon={<IconPlus />}
                                 onClick={() => onAddChild(rule.id)}
                                 data-attr="custom-bot-rules-add-condition"
-                                disabledReason={
-                                    rule.items.length >= MAX_CONDITIONS_PER_RULE
-                                        ? `A rule can have at most ${MAX_CONDITIONS_PER_RULE} conditions`
-                                        : totalConditions >= MAX_TOTAL_CONDITIONS
-                                          ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
-                                          : undefined
-                                }
+                                disabledReason={addConditionDisabledReason(rule)}
                             >
                                 Add condition
                             </LemonButton>
@@ -337,13 +343,7 @@ export function CustomBotRules(): JSX.Element {
                                 icon={<IconPlus />}
                                 onClick={onAddContainer}
                                 data-attr="custom-bot-rules-add-rule"
-                                disabledReason={
-                                    rules.length >= MAX_CUSTOM_BOT_RULES
-                                        ? `You can define at most ${MAX_CUSTOM_BOT_RULES} bots`
-                                        : totalConditions >= MAX_TOTAL_CONDITIONS
-                                          ? `You can have at most ${MAX_TOTAL_CONDITIONS} conditions across all rules`
-                                          : undefined
-                                }
+                                disabledReason={addBotDisabledReason}
                             >
                                 Add bot
                             </LemonButton>
@@ -356,13 +356,7 @@ export function CustomBotRules(): JSX.Element {
                                 onClick={save}
                                 loading={currentTeamLoading}
                                 data-attr="custom-bot-rules-save"
-                                disabledReason={
-                                    currentTeamLoading
-                                        ? 'Saving'
-                                        : anyRuleError
-                                          ? 'Fix the errors above first'
-                                          : (setError ?? (isUnchanged ? 'No changes to save' : undefined))
-                                }
+                                disabledReason={saveDisabledReason}
                             >
                                 Save
                             </LemonButton>

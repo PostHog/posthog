@@ -51,6 +51,62 @@ class TestResendSource:
         assert error_message is None
         assert network.requests_log[0].headers["authorization"] == "Bearer re_test_key"
 
+    @parameterized.expand(
+        [
+            (
+                "restricted_key",
+                ScriptedResponse(
+                    status=401,
+                    json={
+                        "statusCode": 401,
+                        "name": "restricted_api_key",
+                        "message": "This API key is restricted to only send emails",
+                    },
+                ),
+                "can only send emails",
+            ),
+            (
+                "other_401",
+                ScriptedResponse(status=401, json={"name": "missing_api_key", "message": "Missing API key"}),
+                "rejected the API key",
+            ),
+            (
+                "invalid_key_400",
+                ScriptedResponse(status=400, json={"name": "validation_error", "message": "API key is invalid"}),
+                "rejected the API key",
+            ),
+            ("non_json_401", ScriptedResponse(status=401, body=b"<html>nope</html>"), "rejected the API key"),
+            ("json_list_401", ScriptedResponse(status=401, json=["restricted_api_key"]), "rejected the API key"),
+            ("server_error", ScriptedResponse(status=500, json={"name": "application_error"}), "Couldn't reach Resend"),
+            (
+                "rate_limited",
+                ScriptedResponse(status=429, json={"name": "rate_limit_exceeded"}),
+                "Couldn't reach Resend",
+            ),
+            ("transport_error", ConnectionError("connection reset"), "Couldn't reach Resend"),
+        ]
+    )
+    def test_validate_credentials_api_key_failure_messages(
+        self, _name: str, scripted: ScriptedResponse | BaseException, expected_fragment: str
+    ):
+        with scripted_network([scripted]):
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None and expected_fragment in error_message
+
+    @mock.patch("products.warehouse_sources.sources.resend.source.resolve_resend_oauth_token")
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_validate_credentials_oauth_restricted_key_body_keeps_reconnect_message(
+        self, _mock_get_integration, mock_resolve
+    ):
+        mock_resolve.return_value = "oauth_access_token"
+
+        with scripted_network([ScriptedResponse(status=401, json={"name": "restricted_api_key"})]):
+            _, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
+
+        assert error_message is not None and "reconnect" in error_message.lower()
+
     def test_validate_credentials_api_key_missing(self):
         config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="api_key", api_key=None))
 

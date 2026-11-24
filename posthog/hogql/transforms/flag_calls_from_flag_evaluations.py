@@ -47,7 +47,7 @@ from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
 from posthog.hogql.resolver_utils import table_folds_identifier_case
 from posthog.hogql.utils import is_json_verbatim
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
@@ -246,6 +246,7 @@ def swap_flag_calls(
     database = swap_database(context)
     if database is None:
         return FlagCallSwap(source=node, resolved=resolve(node))
+    node = _flag_called_lists_as_arrays(node)
     if names_flag_called_event(node):
         swap = _resolve_with_swaps(node, context, resolve, database, scope)
     else:
@@ -403,7 +404,7 @@ def _event_property_metadata(context: HogQLContext, names: set[str]) -> Property
 def flag_calls_only_in_flag_evaluations_error(reason: str, scope: FlagCallScope | None = None) -> QueryError:
     subject, part = (scope.subject, scope.part) if scope is not None else ("this query", "query")
     return QueryError(
-        f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and {subject} "
+        f"Your organization reads {FLAG_CALLED_EVENT} events only from posthog.flag_evaluations, and {subject} "
         f"can't read them there because {reason}. Change that part of the {part}, or query "
         "posthog.flag_evaluations directly."
     )
@@ -788,9 +789,7 @@ def filter_conjuncts(node: ast.SelectQuery) -> list[ast.Expr]:
 
 def names_flag_called_event(node: ast.AST) -> bool:
     """Whether `$feature_flag_called` appears as a constant anywhere in `node`."""
-    finder = _FlagCalledConstantFinder()
-    finder.visit(node)
-    return finder.found
+    return _has_constant(node, _names_flag_called_to_swap)
 
 
 def boolean_operands(expr: ast.Expr, operator: type[ast.And] | type[ast.Or]) -> list[ast.Expr] | None:
@@ -1005,14 +1004,68 @@ class _AliasCollector(SyntaxVisitor):
         super().visit_alias(node)
 
 
-class _FlagCalledConstantFinder(SyntaxVisitor):
-    def __init__(self) -> None:
+class _ConstantFinder(SyntaxVisitor):
+    def __init__(self, matches: Callable[[object], bool]) -> None:
         super().__init__()
+        self.matches = matches
         self.found = False
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if node.value == FLAG_CALLED_EVENT:
+        if self.matches(node.value):
             self.found = True
+
+
+def _has_constant(node: ast.AST, matches: Callable[[object], bool]) -> bool:
+    finder = _ConstantFinder(matches)
+    finder.visit(node)
+    return finder.found
+
+
+def names_flag_called(value: object) -> bool:
+    """Whether a constant's value is `$feature_flag_called`, or a list or tuple that holds it as an item. It does not
+    look inside nested lists, because a user can supply a placeholder value nested deeper than the stack allows."""
+    if isinstance(value, (list, tuple)):
+        return FLAG_CALLED_EVENT in value
+    return value == FLAG_CALLED_EVENT
+
+
+class EventsOnlyNames(list[str]):
+    """Event names that a query reads from `events` on every mode. A scan that matches `event` against these names
+    keeps reading `events`, so the flag-call swap and the flag-call union skip it. On mode 2, `events` holds the
+    `$experiment_exposure` copies of flag calls, and a scan of these names reads only those copies."""
+
+
+def _names_flag_called_to_swap(value: object) -> bool:
+    return not isinstance(value, EventsOnlyNames) and names_flag_called(value)
+
+
+def _is_flag_called_list(value: object) -> bool:
+    return isinstance(value, (list, tuple)) and _names_flag_called_to_swap(value)
+
+
+def _flag_called_lists_as_arrays(node: _T_AST) -> _T_AST:
+    """`node` with each list or tuple constant that names `$feature_flag_called` written as an array or a tuple of
+    constants. A query builder can write `event IN ['$pageview', '$feature_flag_called']` as one list constant, and
+    the rules that find flag calls read only the items of an array or a tuple. Both forms match the same rows."""
+    if not _has_constant(node, _is_flag_called_list):
+        return node
+    return _FlagCalledListExpander().visit(node)
+
+
+class _FlagCalledListExpander(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+
+    def visit_constant(self, node: ast.Constant) -> ast.Expr:
+        if _is_flag_called_list(node.value):
+            return _as_expr(node.value, node)
+        return super().visit_constant(node)
+
+
+def _as_expr(value: list | tuple, source: ast.Constant) -> ast.Expr:
+    items: list[ast.Expr] = [ast.Constant(value=item, is_sensitive=source.is_sensitive) for item in value]
+    container = ast.Array if isinstance(value, list) else ast.Tuple
+    return container(start=source.start, end=source.end, exprs=items)
 
 
 class ScanVisitor(SyntaxVisitor):
@@ -1209,8 +1262,8 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
 
     The swap may change only the table each swapped scan reads. A name that binds elsewhere changes the result
     with no resolution error: a `WITH` name that a `flag_evaluations` column now shadows, a `COLUMNS(...)` that
-    expands to other columns, or a `person_id` that read the stored events column and now reads the person overrides
-    join. The persons-on-events mode decides how `events` reads person fields. The comparison ignores order,
+    expands to other columns, or a person field that the two tables define differently. The persons-on-events mode
+    decides how `events` reads person fields, and Database.create_for makes `flag_evaluations` follow it. The comparison ignores order,
     because the swap moves `PREWHERE` into `WHERE`. The swapped query also reads flag_key once for each of the
     `flag_key_predicates` that the swap adds.
     """
@@ -1382,10 +1435,12 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
 def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: HogQLContext) -> bool:
     """Whether each property that the swapped query reads comes from the same kind of column as in the original.
 
-    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads the
-    same property from the JSON blob, which returns those strings. A property-group map has the same definition on
-    both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or "null", so a
-    read of it agrees whatever column backs it.
+    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads a
+    property that has no typed column from the JSON blob, which returns those strings. A property with a typed column
+    on `flag_evaluations` compares by column name, so it agrees only with an `events` column of the same name, and
+    a read that `events` backs with another column or none keeps reading `events`. A property-group map has the same
+    definition on both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or
+    "null", so a read of it agrees whatever column backs it.
     """
     original_reads = _property_reads(original, context)
     swapped_reads = _property_reads(swapped, context)

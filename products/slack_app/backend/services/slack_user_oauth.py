@@ -41,7 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration, slack_link_scopes
+from posthog.models.user_integration import SLACK_OPTIONAL_USER_SCOPES, UserIntegration, slack_link_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -64,21 +64,32 @@ def granted_user_scopes(user_scopes: str) -> frozenset[str]:
 class LinkedUserToken:
     access_token: str = field(repr=False)
     scopes: frozenset[str]
+    user_distinct_id: str | None
 
 
 def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
     """The user token of the most recent link, with the scopes Slack granted it."""
-    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).first()
+    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).select_related("user").first()
     token = (link.sensitive_config or {}).get("user_access_token") if link else None
     if link is None or not token:
         return None
-    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link))
+    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link), user_distinct_id=link.user.distinct_id)
 
 
 def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
     """The link's token when it can search public channels, which the work focus needs. Otherwise None."""
     token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
     return token if token is not None and "search:read.public" in token.scopes else None
+
+
+def linked_posthog_distinct_id(*, slack_user_id: str, slack_team_id: str) -> str | None:
+    """The distinct id of the PostHog user behind the most recent active link to this Slack identity, in any
+    organization. A flag gate deciding for a Slack user takes this, and falls back to the workspace before the link."""
+    return (
+        _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+        .values_list("user__distinct_id", flat=True)
+        .first()
+    )
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
@@ -289,8 +300,7 @@ SLACK_OAUTH_V2_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 # The search scopes let the work focus read the person's recent messages with `assistant.search.context`.
 # `users:read.email` keeps the email that the OIDC link stores for support.
 SEARCH_USER_SCOPES = ("search:read.public", "search:read.users", "users:read", "users:read.email")
-# The manifest lists these under `user_optional`, so each person chooses them on the consent screen.
-OPTIONAL_SEARCH_USER_SCOPES = ("search:read.private", "search:read.im", "search:read.mpim")
+OPTIONAL_SEARCH_USER_SCOPES = tuple(sorted(SLACK_OPTIONAL_USER_SCOPES))
 
 
 class SlackUserOAuthError(Exception):

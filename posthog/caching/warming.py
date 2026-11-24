@@ -17,13 +17,22 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_cache import clean_up_stale_insights, days_read_at_this_time, get_stale_insights
+from posthog.query_cache import (
+    clean_up_stale_insights,
+    days_read_at_this_time,
+    get_stale_insights,
+    last_read_hours,
+    last_refreshes,
+    read_since,
+    stale_among,
+)
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -57,13 +66,17 @@ STALE_INSIGHTS_LIMIT = 500
 TIME_OF_DAY_CANDIDATES_LIMIT = 5000
 READ_DAYS_REQUIRED = 2
 TIME_OF_DAY_FLAG = "cache-warming-time-of-day"
+DASHBOARD_V2_FLAG = "dashboard-v2"
+# No interval stays fresh longer than a day, so a tile nobody read in that time is not being followed.
+RECENT_READ_WINDOW = timedelta(hours=24)
 
 # Each team's chain starts at its own offset inside this window, so the largest teams do not all
 # send their insight queries to ClickHouse in the same minute.
 WARMING_START_WINDOW = timedelta(minutes=10)
-# How long a team's chain may run after it starts. The start offset plus this stays under an hour,
-# so a chain has expired before the next hourly dispatch starts the same team again.
+# How long a team's chain may run after it starts. A team starts at the same offset every hour, so its
+# chain has expired before the next hourly dispatch starts that team again.
 WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
+DASHBOARD_V2_WARMING_START_WINDOW = timedelta(minutes=50)
 
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
@@ -105,16 +118,49 @@ def teams_enabled_for_cache_warming() -> list[int]:
     ]
 
 
-def _stale_combos(team_id: int, *, read_at_this_time_only: bool) -> list[str]:
-    if not read_at_this_time_only:
+def _stale_combos(team_id: int, *, read_at_this_time_only: bool, read_recently_only: bool) -> list[str]:
+    if not read_at_this_time_only and not read_recently_only:
         return get_stale_insights(team_id=team_id, limit=STALE_INSIGHTS_LIMIT)
-    combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
-    days_read = days_read_at_this_time(team_id=team_id, identifiers=combos, now=datetime.now(UTC))
-    return [combo for combo in combos if days_read[combo] >= READ_DAYS_REQUIRED][:STALE_INSIGHTS_LIMIT]
+    now = datetime.now(UTC)
+    if read_recently_only:
+        # Start from the reads, not a capped page of stale entries, so unread entries cannot crowd out read tiles.
+        recently_read = read_since(team_id=team_id, since=now - RECENT_READ_WINDOW, now=now)
+        combos = stale_among(team_id=team_id, identifiers=recently_read)
+    else:
+        combos = get_stale_insights(team_id=team_id, limit=TIME_OF_DAY_CANDIDATES_LIMIT)
+    # Batched so one Redis round trip never checks more than TIME_OF_DAY_CANDIDATES_LIMIT identifiers.
+    kept: list[str] = []
+    for start in range(0, len(combos), TIME_OF_DAY_CANDIDATES_LIMIT):
+        batch = combos[start : start + TIME_OF_DAY_CANDIDATES_LIMIT]
+        if read_recently_only:
+            batch = _read_since_last_refresh(team_id, batch, since=now - RECENT_READ_WINDOW, now=now)
+        if read_at_this_time_only:
+            days_read = days_read_at_this_time(team_id=team_id, identifiers=batch, now=now)
+            batch = [combo for combo in batch if days_read[combo] >= READ_DAYS_REQUIRED]
+        kept.extend(batch)
+        if len(kept) >= STALE_INSIGHTS_LIMIT:
+            break
+    return kept[:STALE_INSIGHTS_LIMIT]
+
+
+def _read_since_last_refresh(team_id: int, combos: list[str], *, since: datetime, now: datetime) -> list[str]:
+    """The combos read after their cached result was last computed, so a warm nobody has looked at is not repeated.
+
+    Reads are recorded per hour, so a read in the same hour as the computation counts as later: one extra warm
+    costs less than serving a result older than its interval allows. A combo with no recorded computation is kept.
+    """
+    last_refreshed = last_refreshes(team_id=team_id, identifiers=combos)
+    last_read = last_read_hours(team_id=team_id, identifiers=combos, since=since, now=now)
+    kept = []
+    for combo in combos:
+        refreshed_at, read_hour = last_refreshed[combo], last_read[combo]
+        if refreshed_at is None or (read_hour is not None and read_hour + timedelta(hours=1) > refreshed_at):
+            kept.append(combo)
+    return kept
 
 
 def insights_to_keep_fresh(
-    team: Team, shared_only: bool = False, read_at_this_time_only: bool = False
+    team: Team, shared_only: bool = False, read_at_this_time_only: bool = False, read_recently_only: bool = False
 ) -> Generator[tuple[int, Optional[int]]]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
@@ -130,7 +176,9 @@ def insights_to_keep_fresh(
     clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = _stale_combos(team.pk, read_at_this_time_only=read_at_this_time_only)
+    combos = _stale_combos(
+        team.pk, read_at_this_time_only=read_at_this_time_only, read_recently_only=read_recently_only
+    )
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
@@ -171,7 +219,8 @@ def schedule_warming_for_teams_task():
     """
     Runs every hour and schedule warming for all insights (picked from insights_to_cache)
     for each team enabled for cache warming. Each team's warming starts at a stable
-    offset within WARMING_START_WINDOW.
+    offset within WARMING_START_WINDOW, or DASHBOARD_V2_WARMING_START_WINDOW for teams
+    on dashboard-v2, which also warm only tiles read within RECENT_READ_WINDOW and since their last computation.
 
     We trigger recalculation using ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     so even though we might pick all insights for a team to recalculate,
@@ -212,8 +261,20 @@ def schedule_warming_for_teams_task():
             read_at_this_time_only = _flag_enabled_for_team(
                 TIME_OF_DAY_FLAG, team_id=team.pk, organization_id=team.organization_id, uuid=team.uuid
             )
+            dashboard_v2 = posthog_feature_flag_enabled(
+                DASHBOARD_V2_FLAG,
+                str(team.uuid),
+                organization_id=team.organization_id,
+                team_id=team.pk,
+                only_evaluate_locally=True,
+            )
             insight_tuples = list(
-                insights_to_keep_fresh(team, shared_only=shared_only, read_at_this_time_only=read_at_this_time_only)
+                insights_to_keep_fresh(
+                    team,
+                    shared_only=shared_only,
+                    read_at_this_time_only=read_at_this_time_only,
+                    read_recently_only=dashboard_v2,
+                )
             )
 
             capture_ph_event(
@@ -227,12 +288,14 @@ def schedule_warming_for_teams_task():
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
                     "read_at_this_time_only": read_at_this_time_only,
+                    "read_recently_only": dashboard_v2,
                 },
             )
 
             # Anchored to the dispatch time, so the time this loop spends on earlier teams does not delay
             # this team. A start time that has already passed runs at once.
-            start_at = dispatched_at + deterministic_offset(str(team.pk), WARMING_START_WINDOW)
+            start_window = DASHBOARD_V2_WARMING_START_WINDOW if dashboard_v2 else WARMING_START_WINDOW
+            start_at = dispatched_at + deterministic_offset(str(team.pk), start_window)
             # Use a fixed expiration time since tasks in the chain are executed sequentially
             expire_after = start_at + WARMING_CHAIN_LIFETIME
 
@@ -344,7 +407,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
-            elif isinstance(e, ExposedHogQLError):
+            elif isinstance(e, (ExposedHogQLError, ExposedCHQueryError)):
                 # The query itself is wrong, and only its author can correct it. Report it as an
                 # event so it stays with the team instead of becoming an issue in our error tracking.
                 with ph_scoped_capture() as capture_ph_event:

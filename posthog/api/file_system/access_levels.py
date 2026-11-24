@@ -23,7 +23,7 @@ from posthog.models import Team
 from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
 from posthog.models.file_system.refs import uuid_ref_key, uuid_ref_key_expression
 from posthog.permissions import get_authenticator_scoped_team_ids
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
 from products.access_control.backend.facade.user_access_control import (

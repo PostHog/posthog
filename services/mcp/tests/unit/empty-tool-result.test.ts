@@ -35,6 +35,15 @@ describe('isEmptyToolResult', () => {
     })
 })
 
+describe('isEmptyToolResult with a trace summary', () => {
+    it.each([
+        ['a found trace', { results: [], summary: { span_count: 3 } }, false],
+        ['a missing trace', { results: [], summary: { span_count: 0 } }, true],
+    ])('handles %s', (_label, result, expected) => {
+        expect(isEmptyToolResult(result, 'apm-trace-get')).toBe(expected)
+    })
+})
+
 describe('toolResultAnalyticsProperties', () => {
     it.each([
         ['an empty result', { results: [] }, {}, { mcp_result_empty: true }],

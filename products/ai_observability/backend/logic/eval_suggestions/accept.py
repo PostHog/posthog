@@ -228,6 +228,8 @@ def accept(suggestion_id: str, *, team: Team, request: Request, serializer_conte
         suggestion = EvalSuggestion.objects.for_team(team.pk).select_for_update().get(id=suggestion_id)
         if suggestion.kind == EvalSuggestionKind.FIX_EVAL:
             raise ValidationError("Use apply_fix for a suggestion that fixes an existing evaluation.")
+        if suggestion.kind == EvalSuggestionKind.FIX_PROMPT:
+            raise ValidationError("A suggestion to fix a prompt has no evaluation to add.")
         created = suggestion.created_evaluation
         if suggestion.status == EvalSuggestionStatus.ACCEPTED and created is not None and not created.deleted:
             backfill = (

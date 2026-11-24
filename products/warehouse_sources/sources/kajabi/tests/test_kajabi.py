@@ -1,10 +1,9 @@
-from typing import Any
 from urllib.parse import parse_qs
 
 import pytest
 
 from products.warehouse_sources.sources.kajabi._config import KajabiSourceConfig
-from products.warehouse_sources.sources.kajabi.kajabi import KajabiResumeConfig, flatten_resource
+from products.warehouse_sources.sources.kajabi.kajabi import KajabiResumeConfig
 from products.warehouse_sources.sources.kajabi.source import KajabiSource
 from products.warehouse_sources.sources.sdk.testing import RunStopped, ScriptedResponse, SourceDriver
 
@@ -119,17 +118,3 @@ def test_contact_relationships_keep_shared_ids_and_resume_completed_contacts(
     assert resumed.requests[2].query == {}
     assert resumed.response is not None
     assert resumed.response.primary_keys == ["contact_id", "id"]
-
-
-@pytest.mark.parametrize(
-    ("row", "expected"),
-    [
-        ({"id": "1", "attributes": None}, {"id": "1"}),
-        (
-            {"id": "1", "attributes": {"id": "wrong", "custom": {"choice": None}}},
-            {"id": "1", "custom": {"choice": None}},
-        ),
-    ],
-)
-def test_flattening_preserves_resource_identity(row: dict[str, Any], expected: dict[str, Any]) -> None:
-    assert flatten_resource(row) == expected

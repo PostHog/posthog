@@ -6,6 +6,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 import { checkObservationsByCheck } from './reportCheckObservations'
@@ -35,6 +36,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
     const { openReportCheckMetricSuggestion } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isCreatingPr, isDiscussing } =
         useValues(inboxTaskKickoffLogic)
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -49,7 +51,12 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
+    const rows = buildReportCheckRows(
+        reportChecks,
+        latestCheckExplanations(reportArtefacts ?? []),
+        report.status,
+        scoutNamesBySkill
+    )
     const { visible, hidden } = splitReportCheckRows(rows)
     const observations = checkObservationsByCheck(reportArtefacts ?? [])
 

@@ -37,15 +37,11 @@ The app can force a refresh when a view comes back into focus, not only when the
 A check on the server makes that safe: a forced read inside the window returns the cache, whatever the client sends.
 
 **Why it matters to users:**
-People open a view on the phone to see the latest number.
-Today, on focus, the phone shows the cached number until the server's staleness window passes.
-For daily data that window is 6 hours.
-People often refresh right after they open a view, so today they must pull to refresh each time.
-With a server-side check, the app can do that refresh for them.
+Dashboards already refresh on open. A server-side check would honor the refresh window across devices.
 
 **What the app does today:**
 
-- Open, focus and foreground never force. They send `refresh=blocking`, which computes only past `cache_target_age`.
+- [Dashboards refresh on open, return, and app resume](VIEWS.md#refresh). Other automatic reads use `blocking`.
 - Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
 - Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
 - One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.
@@ -83,7 +79,7 @@ Skills and tests:
 
 **App change when it lands:**
 
-- `useViewRefresh` can send `force_blocking` on focus for each visible item that `isEligible` accepts ("force when the server allows").
+- Extend automatic refresh on focus to other Views screens.
 - Keep `isEligible`, the queue and the token buckets. They keep the app inside the limits on older deploys and on self-hosted instances.
 
 **Size:** M.
@@ -326,7 +322,7 @@ The badge helps them find what the agent made.
   Run `hogli build:openapi`.
 - Migration: two nullable `AddField` operations, with no default and no backfill.
   Old dashboards stay null and get no badge.
-  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hogli product:lint` for the `products/dashboards` isolation rules.
+  Invoke `/django-migrations` and `/improving-drf-endpoints`, and run `hoglint check` for the `products/dashboards` isolation rules.
 - Tests: one parameterized create test over event sources, in the dashboards API tests.
   Invoke `/writing-tests`.
 
@@ -481,7 +477,7 @@ None. The empty Pinned copy can then mention the web.
 
 - The Views tab needs `dashboard:read`, `insight:read` and `file_system_shortcut:write`, which covers `:read`.
   The app already has `query:read`.
-  All three are unprivileged scopes that an OAuth app can request (`posthog/scopes.py:288-313`).
+  All three are unprivileged scopes that an OAuth app can request (`UNPRIVILEGED_SCOPES` in `posthog/scopes/exposure.py`).
 - Each OAuth application has a scope ceiling: `OAuthApplication.scopes` plus `optional_scopes`, two Postgres array columns (`posthog/models/oauth.py:144-172`).
   These are data rows, not code.
 - `/authorize` drops a scope outside the ceiling without an error (`posthog/api/oauth/views.py:765-806`).
@@ -502,7 +498,7 @@ Agree the change with the desktop team before anyone edits a row.
 1. Open Django admin at `/admin/posthog/oauthapplication/`. Find the row by client id.
 2. Read `is_first_party` (`posthog/models/oauth.py:129`), `scopes` and `optional_scopes`. Write the values down.
 3. If `scopes` and `optional_scopes` are both empty, or contain `@default`, change nothing.
-   Every unprivileged scope is then grantable (`posthog/scopes.py:401-428, 561-562`).
+   Every unprivileged scope is then grantable (`effective_ceiling` in `posthog/scopes/ceilings.py`).
 
 **To edit**, when the ceiling is an explicit list:
 
@@ -513,7 +509,7 @@ Agree the change with the desktop team before anyone edits a row.
     If the row has optional scopes, use Django admin.
 - Other rows: every entry in `scopes` is required, and the consent screen grants all of them to every client of the row (`views.py:1678-1684, 1796-1829`).
   Add the scopes to `optional_scopes` in Django admin instead.
-- `file_system_shortcut:write` alone is enough. An explicit ceiling also allows the read half of each listed `:write` scope (`posthog/scopes.py:559`).
+- `file_system_shortcut:write` alone is enough. An explicit ceiling also allows the read half of each listed `:write` scope (`grantable_ceiling` in `posthog/scopes/ceilings.py`).
 - Write down the values after the change, per region.
 
 **Order:**

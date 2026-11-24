@@ -234,7 +234,8 @@ class TestSlackTransport(APIBaseTest):
         [
             ("not_in_channel", True),
             ("account_inactive", True),
-            ("channel_not_found", False),
+            ("is_archived", True),
+            ("channel_not_found", True),
             ("missing_scope", False),
             ("ratelimited", False),
             ("internal_error", False),

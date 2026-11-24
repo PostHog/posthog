@@ -43,11 +43,13 @@ from posthog.models.github_integration_base import (
     GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    PullRequestCiStatus,
     PullRequestRef,
     github_app_jwt_credentials,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
+    GitHubInstallationUnavailableError,
     GitHubIntegration,
     GitHubIntegrationError,
     Integration,
@@ -781,7 +783,9 @@ class TestGitHubIntegrationModel(BaseTest):
             return response
 
         with (
-            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(
+                github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f", "mergeable": False}
+            ),
             patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
         ):
             result = github.get_pull_request_checks("PostHog/posthog", 1)
@@ -791,6 +795,7 @@ class TestGitHubIntegrationModel(BaseTest):
             {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
             {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
         ]
+        assert result["has_conflict"] is True
 
     def test_get_pull_request_checks_follows_pagination(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -1050,6 +1055,34 @@ class TestGitHubIntegrationModel(BaseTest):
                 GitHubIntegration.first_for_team_repository(
                     self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
                 )
+
+    @parameterized.expand(
+        [
+            ("only_a_suspended_installation", [], GitHubInstallationUnavailableError),
+            (
+                "suspended_then_transient",
+                [GitHubIntegrationError("unavailable", status_code=503)],
+                GitHubIntegrationError,
+            ),
+        ]
+    )
+    def test_first_for_team_repository_raises_installation_unavailable_for_a_suspended_installation(
+        self, _name, later_errors, expected_error
+    ):
+        # A failed token mint stamps this marker before it raises, so the installation reads as suspended.
+        self.create_integration(config={"installation_unavailable_since": 1700000000})
+        for _ in later_errors:
+            self.create_integration(sensitive_config={"access_token": "LATER"})
+        with patch.object(
+            GitHubIntegration,
+            "installation_can_access_repository",
+            side_effect=[GitHubIntegrationError("token refresh after 401 failed"), *later_errors],
+        ):
+            with pytest.raises(GitHubIntegrationError) as raised:
+                GitHubIntegration.first_for_team_repository(
+                    self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+                )
+        assert type(raised.value) is expected_error
 
     @parameterized.expand(
         [
@@ -3334,24 +3367,38 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
         return GitHubIntegration(_create_github_integration(self.team), source="test", priority=Priority.CRITICAL)
 
     @staticmethod
-    def _rollup(state: str | None) -> dict:
-        return {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]}}}
+    def _rollup(state: str | None, mergeable: str = "MERGEABLE") -> dict:
+        return {
+            "pullRequest": {
+                "mergeable": mergeable,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]},
+            }
+        }
 
     def test_one_call_resolves_every_pull_request_against_its_own_reference(self):
         # The whole point of the batch: a list of PRs costs one GraphQL call, and each rollup lands on
         # the reference it was asked about. A mismatch here paints CI onto the wrong report.
+        # Only CONFLICTING is a conflict. UNKNOWN means GitHub has not computed it yet.
         references = [
             PullRequestRef(owner="acme", repo="widgets", number=7),
             PullRequestRef(owner="acme", repo="widgets", number=8),
             PullRequestRef(owner="other", repo="thing", number=3),
         ]
-        payload = {"pr0": self._rollup("SUCCESS"), "pr1": self._rollup("FAILURE"), "pr2": self._rollup(None)}
+        payload = {
+            "pr0": self._rollup("SUCCESS", mergeable="CONFLICTING"),
+            "pr1": self._rollup("FAILURE"),
+            "pr2": self._rollup(None, mergeable="UNKNOWN"),
+        }
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload) as mock_graphql:
             statuses = self._github().get_pull_request_ci_statuses(references)
 
         mock_graphql.assert_called_once()
-        assert statuses == {references[0]: "passing", references[1]: "failing", references[2]: "none"}
+        assert statuses == {
+            references[0]: PullRequestCiStatus(ci_status="passing", has_conflict=True),
+            references[1]: PullRequestCiStatus(ci_status="failing", has_conflict=False),
+            references[2]: PullRequestCiStatus(ci_status="none", has_conflict=False),
+        }
         variables = mock_graphql.call_args.args[1]
         assert variables["owner2"] == "other" and variables["repo2"] == "thing" and variables["number2"] == 3
 
@@ -3364,7 +3411,7 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
         with patch.object(GitHubIntegration, "_gh_graphql", return_value={"pr0": self._rollup("PENDING"), "pr1": None}):
             statuses = self._github().get_pull_request_ci_statuses([readable, unreadable])
 
-        assert statuses == {readable: "pending"}
+        assert statuses == {readable: PullRequestCiStatus(ci_status="pending", has_conflict=False)}
 
     def test_more_pull_requests_than_one_batch_holds_are_split_across_calls(self):
         # Without chunking a big inbox would build one query past GitHub's node limit and get nothing.

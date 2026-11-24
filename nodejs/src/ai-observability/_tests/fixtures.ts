@@ -6,7 +6,7 @@ import { getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { LLMProviderKeyState, ProviderKey } from '../services/provider-key-manager.service'
-import { Evaluation, EvaluationConditionSet, EvaluationStatus, Tagger } from '../types'
+import { Evaluation, EvaluationConditionSet, EvaluationStatus } from '../types'
 
 export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation => {
     const enabled = evaluation.enabled !== undefined ? evaluation.enabled : true
@@ -60,57 +60,6 @@ export const insertEvaluation = async (
     delete row.provider_key_id
 
     const res = await insertRow(postgres, 'llm_analytics_evaluation', {
-        ...row,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        created_by_id: createdById,
-        deleted: false,
-        description: created.description || '',
-    })
-    return res
-}
-
-export const createTagger = (tagger: Partial<Tagger> = {}): Tagger => {
-    return {
-        id: randomUUID(),
-        team_id: 1,
-        name: 'Test Tagger',
-        enabled: tagger.enabled !== undefined ? tagger.enabled : true,
-        tagger_type: 'llm',
-        tagger_config: {
-            prompt: 'Tag this',
-            tags: [{ name: 'billing' }, { name: 'analytics' }],
-            min_tags: 0,
-            max_tags: 2,
-        },
-        conditions: [
-            {
-                id: 'condition-1',
-                rollout_percentage: 100,
-                properties: [],
-            },
-        ],
-        created_at: DateTime.now().toISO(),
-        updated_at: DateTime.now().toISO(),
-        ...tagger,
-    }
-}
-
-export const insertTagger = async (
-    postgres: PostgresRouter,
-    team_id: Team['id'],
-    tagger: Partial<Tagger> = {}
-): Promise<Tagger> => {
-    const createdById = await getTeamMemberUserId(postgres, team_id)
-    const created = createTagger({
-        ...tagger,
-        team_id,
-    })
-
-    const row = { ...created }
-    delete row.provider_key_id
-
-    const res = await insertRow(postgres, 'llm_analytics_tagger', {
         ...row,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

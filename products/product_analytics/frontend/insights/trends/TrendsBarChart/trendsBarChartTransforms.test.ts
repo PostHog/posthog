@@ -34,13 +34,14 @@ describe('buildTrendsBarTimeSeries', () => {
     })
 
     it.each([
-        { compare_label: undefined, expectedColor: RED },
-        { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5) },
+        { compare_label: undefined, expectedColor: RED, expectedTag: undefined },
+        { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5), expectedTag: 'Previous' },
     ])(
-        'applies getColor and dims compare-previous to 0.5 alpha (compare_label=$compare_label)',
-        ({ compare_label, expectedColor }) => {
+        'applies getColor, and dims and tags compare-previous (compare_label=$compare_label)',
+        ({ compare_label, expectedColor, expectedTag }) => {
             const series = buildTrendsBarTimeSeries([makeResult({ compare_label })], { getColor: () => RED })
             expect(series[0].color).toBe(expectedColor)
+            expect(series[0].legendTag).toBe(expectedTag)
         }
     )
 
@@ -382,8 +383,9 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             isPercentStackView: true,
             isGrouped: false,
             trendsFilter: { aggregationAxisFormat: 'currency' },
+            yAxisPositions: ['right'],
         })
-        expect(cfg.yAxis?.format).toBe('percentage_scaled')
+        expect(cfg.yAxis).toMatchObject({ format: 'percentage_scaled' })
     })
 
     it('maps schema goal lines through the shared adapter', () => {
@@ -404,7 +406,7 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             yAxisLabel: 'Total events',
         })
         expect(cfg.xAxis?.label).toBe('Signup date')
-        expect(cfg.yAxis?.label).toBe('Total events')
+        expect(cfg.yAxis).toMatchObject({ label: 'Total events' })
     })
 
     it('passes valueLabels and tooltip through unchanged', () => {

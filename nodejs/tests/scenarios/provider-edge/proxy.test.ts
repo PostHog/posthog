@@ -119,6 +119,7 @@ describe('provider edge proxy', () => {
 
     const startValve = async (entry = ANSWER_503) => {
         const context: ValveContext = {
+            commits: () => [],
             environment: {
                 actuate: (action) =>
                     action.kind === 'edge.fault'

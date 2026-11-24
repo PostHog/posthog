@@ -105,6 +105,16 @@ You can find your user key in your Airbrake profile settings under **User settin
                     "Individual error occurrences, fetched per error group across every project — the most "
                     "API-expensive table, capped at the most recent pages per group"
                 )
+            if endpoint == "project_stats":
+                return (
+                    "Daily counts of accepted, rate-limited and over-quota errors per project. "
+                    "Each sync reads at most the last 90 days"
+                )
+            if endpoint == "group_stats":
+                return (
+                    "Hourly error counts per error group, fetched per group across every project. "
+                    "Each sync reads at most the last 7 days"
+                )
             return None
 
         schemas = [

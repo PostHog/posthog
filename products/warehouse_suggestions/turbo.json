@@ -10,6 +10,7 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/temporal/**",
+                "backend/activity_log_config.py",
                 "backend/activity_logging.py",
                 "backend/apps.py"
             ],

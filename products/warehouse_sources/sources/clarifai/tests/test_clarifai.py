@@ -19,7 +19,8 @@ from products.warehouse_sources.sources.sdk.testing import (
     scripted_network,
 )
 
-BASE_URL = "https://api.clarifai.com/v2/users/example-user/apps/example-app/"
+USER_URL = "https://api.clarifai.com/v2/users/example-user/"
+BASE_URL = USER_URL + "apps/example-app/"
 
 
 @pytest.fixture
@@ -40,18 +41,20 @@ class TestClarifaiTransport:
         return SourceDriver(ClarifaiSource(), config)
 
     @pytest.mark.parametrize(
-        ("endpoint", "path", "data_key", "extra_params"),
+        ("endpoint", "url", "data_key", "extra_params"),
         [
-            ("models", "models", "models", {}),
-            ("workflows", "workflows", "workflows", {}),
-            ("datasets", "datasets", "datasets", {}),
-            ("concepts", "concepts", "concepts", {}),
-            ("inputs", "inputs", "inputs", {}),
-            ("concept_relations", "concepts/relations", "concept_relations", {}),
-            ("annotations", "annotations", "annotations", {"list_all_annotations": ["true"]}),
-            ("evaluations", "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
-            ("tasks", "tasks", "tasks", {"including_label_order_tasks": ["true"]}),
-            ("collaborators", "collaborators", "collaborators", {"list_all_collaborators": ["true"]}),
+            ("models", BASE_URL + "models", "models", {}),
+            ("workflows", BASE_URL + "workflows", "workflows", {}),
+            ("datasets", BASE_URL + "datasets", "datasets", {}),
+            ("concepts", BASE_URL + "concepts", "concepts", {}),
+            ("inputs", BASE_URL + "inputs", "inputs", {}),
+            ("concept_relations", BASE_URL + "concepts/relations", "concept_relations", {}),
+            ("annotations", BASE_URL + "annotations", "annotations", {"list_all_annotations": ["true"]}),
+            ("evaluations", BASE_URL + "evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
+            ("tasks", BASE_URL + "tasks", "tasks", {"including_label_order_tasks": ["true"]}),
+            ("collaborators", BASE_URL + "collaborators", "collaborators", {"list_all_collaborators": ["true"]}),
+            ("pipelines", BASE_URL + "pipelines", "pipelines", {}),
+            ("apps", USER_URL + "apps", "apps", {}),
         ],
     )
     @pytest.mark.parametrize("resume_page", [None, 4])
@@ -60,7 +63,7 @@ class TestClarifaiTransport:
         config: ClarifaiSourceConfig,
         manager: MagicMock,
         endpoint: str,
-        path: str,
+        url: str,
         data_key: str,
         extra_params: dict[str, list[str]],
         resume_page: int | None,
@@ -71,7 +74,7 @@ class TestClarifaiTransport:
         first_page = resume_page or 1
         with requests_mock.Mocker() as http:
             http.get(
-                BASE_URL + path,
+                url,
                 [
                     {"json": {"status": {"code": 10000}, data_key: [{"id": "row-1"}]}},
                     {"json": {"status": {"code": 10000}, data_key: [{"id": "row-2"}]}},
@@ -95,16 +98,35 @@ class TestClarifaiTransport:
             manager.clear_state.assert_called_once_with()
 
     @pytest.mark.parametrize(
-        ("endpoint", "parent", "data_key", "child_row", "expected_row"),
+        ("endpoint", "parent", "parent_key", "child_suffix", "data_key", "child_row", "expected_row"),
         [
             (
                 "dataset_inputs",
                 "datasets",
+                "dataset_id",
+                "inputs",
                 "dataset_inputs",
                 {"input": {"id": "input-1"}},
                 {"input": {"id": "input-1"}, "input_id": "input-1"},
             ),
-            ("model_versions", "models", "model_versions", {"id": "version-1"}, {"id": "version-1"}),
+            (
+                "model_versions",
+                "models",
+                "model_id",
+                "versions",
+                "model_versions",
+                {"id": "version-1"},
+                {"id": "version-1"},
+            ),
+            (
+                "pipeline_versions",
+                "pipelines",
+                "pipeline_id",
+                "versions",
+                "pipeline_versions",
+                {"id": "version-1"},
+                {"id": "version-1"},
+            ),
         ],
     )
     @pytest.mark.parametrize("resumed", [False, True])
@@ -113,13 +135,13 @@ class TestClarifaiTransport:
         config: ClarifaiSourceConfig,
         endpoint: str,
         parent: str,
+        parent_key: str,
+        child_suffix: str,
         data_key: str,
         child_row: dict[str, Any],
         expected_row: dict[str, Any],
         resumed: bool,
     ) -> None:
-        parent_key = "dataset_id" if parent == "datasets" else "model_id"
-        child_suffix = "inputs" if parent == "datasets" else "versions"
         prefix = "/v2/users/example-user/apps/example-app/"
 
         def ok(key: str, rows: list[dict[str, Any]]) -> ScriptedResponse:
@@ -164,6 +186,44 @@ class TestClarifaiTransport:
         ) + [("parent-2", "1"), ("parent-2", "2"), ("parent-2", "3")]
         assert all(request.param("per_page") == "128" for request in result.requests)
         assert result.final_state is None or result.final_state.page is None
+
+    def test_pipeline_version_runs_walk_pipelines_and_versions(self, config: ClarifaiSourceConfig) -> None:
+        prefix = "/v2/users/example-user/apps/example-app/pipelines"
+
+        def ok(key: str, rows: list[dict[str, Any]]) -> ScriptedResponse:
+            return ScriptedResponse(json={"status": {"code": 10000}, key: rows})
+
+        script = route(
+            {
+                prefix: [
+                    ok(
+                        "pipelines",
+                        [{"id": "pipe-1"}, {"id": "main-pipe", "user_id": "clarifai", "app_id": "main"}],
+                    ),
+                    ok("pipelines", []),
+                ],
+                # A version row without pipeline_id still binds the run path through its parent.
+                f"{prefix}/pipe-1/versions": [
+                    ok("pipeline_versions", [{"id": "v1"}, {"id": "v2", "pipeline_id": "pipe-1"}]),
+                    ok("pipeline_versions", []),
+                ],
+                f"{prefix}/pipe-1/versions/v1/runs": [
+                    ok("pipeline_version_runs", [{"id": "run-1"}]),
+                    ok("pipeline_version_runs", [{"id": "run-2"}]),
+                    ok("pipeline_version_runs", []),
+                ],
+                f"{prefix}/pipe-1/versions/v2/runs": [ok("pipeline_version_runs", [])],
+            }
+        )
+        result = self._driver(config).run("pipeline_version_runs", script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "run-1", "pipeline_id": "pipe-1", "pipeline_version_id": "v1"},
+            {"id": "run-2", "pipeline_id": "pipe-1", "pipeline_version_id": "v1"},
+        ]
+        assert not any("main-pipe" in request.path for request in result.requests)
+        assert all(request.param("per_page") == "128" for request in result.requests)
 
     @pytest.mark.parametrize(
         ("http_status", "api_status", "message"),
@@ -242,6 +302,8 @@ class TestClarifaiCredentials:
             (404, 11101, None, False, "Clarifai could not find the resource"),
             (200, 10000, "model_versions", True, None),
             (200, 11007, "dataset_inputs", False, "The Clarifai token lacks permission"),
+            (200, 10000, "pipeline_version_runs", True, None),
+            (200, 10000, "apps", True, None),
         ],
     )
     def test_probe_status_mapping(
@@ -254,8 +316,13 @@ class TestClarifaiCredentials:
         message: str | None,
     ) -> None:
         # Fan-out tables have no parent ID at probe time, so the probe lists their parent.
-        endpoint = {"model_versions": "models", "dataset_inputs": "datasets"}.get(
+        endpoint = {"model_versions": "models", "dataset_inputs": "datasets", "pipeline_version_runs": "pipelines"}.get(
             schema_name or "", schema_name or "models"
+        )
+        path = (
+            "/v2/users/example-user/apps"
+            if endpoint == "apps"
+            else f"/v2/users/example-user/apps/example-app/{endpoint}"
         )
         with scripted_network(
             [ScriptedResponse(status=http_status, json={"status": {"code": api_status}, endpoint: []})]
@@ -264,7 +331,7 @@ class TestClarifaiCredentials:
             assert result is valid
             assert error is None if message is None else message in (error or "")
             assert len(network.requests_log) == 1
-            assert network.requests_log[0].path == f"/v2/users/example-user/apps/example-app/{endpoint}"
+            assert network.requests_log[0].path == path
             assert network.requests_log[0].param("page") == "1"
             assert network.requests_log[0].param("per_page") == "1"
             assert network.requests_log[0].headers["authorization"] == "Key fake-clarifai-pat"

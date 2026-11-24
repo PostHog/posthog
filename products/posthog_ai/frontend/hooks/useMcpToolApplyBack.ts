@@ -22,6 +22,8 @@ export interface UseMcpToolApplyBackOptions {
     tools: string[] | '*'
     /** Stable identity for the editor resource while this apply-back target remains active. */
     targetKey: string
+    /** Filters completions before choosing the last match for a turn. */
+    matches?: (event: ToolStreamEvent, context: McpToolApplyContext) => boolean
     /** Called with the matching event and the parsed inner args (via `resolveToolCall`). */
     onApply: (event: ToolStreamEvent, context: McpToolApplyContext) => void
     /** When false, no apply-back listener is registered. Defaults to true. */
@@ -44,6 +46,7 @@ export function useMcpToolApplyBack({
     tools,
     targetKey,
     onApply,
+    matches,
     active = true,
     applyOn = 'tool_call_completed',
 }: UseMcpToolApplyBackOptions): void {
@@ -52,10 +55,12 @@ export function useMcpToolApplyBack({
     // Latest callback + mode held in refs so re-renders never churn the (closure-holding) registration.
     const onApplyRef = useRef(onApply)
     onApplyRef.current = onApply
+    const matchesRef = useRef(matches)
+    matchesRef.current = matches
     const applyOnRef = useRef(applyOn)
     applyOnRef.current = applyOn
     // Turn-end mode: the last matching completed event, flushed when the turn or run ends.
-    const bufferedEventRef = useRef<ToolStreamEvent | null>(null)
+    const bufferedEventRef = useRef<{ event: ToolStreamEvent; context: McpToolApplyContext } | null>(null)
 
     const toolsKey = tools === '*' ? '*' : [...tools].sort().join(',')
 
@@ -69,12 +74,6 @@ export function useMcpToolApplyBack({
         const targetId = `${targetKey}:${uuid()}`
         const listenerId = `mcp-apply-back-${targetId}`
 
-        const apply = (event: ToolStreamEvent): void => {
-            // The bus event carries no inner args — re-parse the exec `command` off the invocation.
-            const innerInput = resolveToolCall(event.invocation).innerInput ?? null
-            onApplyRef.current(event, { innerInput })
-        }
-
         const applyBufferedEvent = (): void => {
             if (applyOnRef.current !== 'turn_end') {
                 return
@@ -86,7 +85,7 @@ export function useMcpToolApplyBack({
             // Clear before applying so duplicate lifecycle signals can't double-apply and the next
             // turn on this stream starts from an empty buffer.
             bufferedEventRef.current = null
-            apply(buffered)
+            onApplyRef.current(buffered.event, buffered.context)
         }
 
         registerToolListener(listenerId, {
@@ -98,12 +97,16 @@ export function useMcpToolApplyBack({
                 if (event.phase !== 'completed') {
                     return
                 }
+                const context = { innerInput: resolveToolCall(event.invocation).innerInput ?? null }
+                if (matchesRef.current && !matchesRef.current(event, context)) {
+                    return
+                }
                 if (applyOnRef.current === 'tool_call_completed') {
-                    apply(event)
+                    onApplyRef.current(event, context)
                     return
                 }
                 // Turn-end mode: remember the latest match; a later completion supersedes it.
-                bufferedEventRef.current = event
+                bufferedEventRef.current = { event, context }
             },
             onTurnComplete: applyBufferedEvent,
             onRunTerminal: (_event: RunLifecycleEvent) => applyBufferedEvent(),

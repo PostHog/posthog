@@ -27,6 +27,7 @@ from products.aeo.backend.facade.api import (
     start_keyword_suggestions,
 )
 from products.aeo.backend.facade.contracts import (
+    KEYWORD_DEFAULT_DATE_FROM,
     KEYWORD_MAX_LENGTH,
     KEYWORD_SUGGESTION_SEARCH_CHECKS,
     KEYWORD_SUGGESTION_SEARCH_DAYS,
@@ -34,6 +35,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_KEYWORDS_PER_TEAM,
     MAX_MODIFIER_EXAMPLES,
     MAX_SUGGESTED_KEYWORDS,
+    BrandedSegment,
     Keyword,
     KeywordCreateResult,
     KeywordLimitError,
@@ -48,17 +50,23 @@ from products.aeo.backend.facade.contracts import (
     KeywordSuggestionRequest,
     ModifierEngineCount,
 )
-from products.aeo.backend.presentation.views import ENGINE_HELP, _AEOFlagGateMixin
+from products.aeo.backend.presentation.views import (
+    BRANDED_PROMPT_HELP,
+    ENGINE_HELP,
+    AEOCheckScopeQuerySerializer,
+    _AEOFlagGateMixin,
+    date_from_field,
+    date_range_errors,
+    date_to_field,
+)
 
-KEYWORD_REPORT_DAYS = 7
-MAX_KEYWORD_REPORT_DAYS = 30
 # Bounds the request body. An entry longer than a keyword can be after whitespace is collapsed is skipped.
 MAX_KEYWORD_INPUT_CHARS = 2 * KEYWORD_MAX_LENGTH
 ANSWERED_HELP = "Answered checks are checks in the window where the engine answered; failed checks are left out."
 WINDOW_HELP = {
-    "days": {"help_text": "Length of the window in days."},
+    "days": {"help_text": "Length of the window in days, from 'window_from' to 'window_to'."},
     "window_from": {"help_text": "First day of the window, in the project's timezone."},
-    "window_to": {"help_text": "Last day of the window (today), in the project's timezone."},
+    "window_to": {"help_text": "Last day of the window, in the project's timezone."},
 }
 
 
@@ -105,13 +113,17 @@ class AEOKeywordCreateResultSerializer(DataclassSerializer):
         }
 
 
-class AEOKeywordWindowQuerySerializer(serializers.Serializer):
-    days = serializers.IntegerField(
+class AEOKeywordWindowQuerySerializer(AEOCheckScopeQuerySerializer):
+    date_from = date_from_field(KEYWORD_DEFAULT_DATE_FROM)
+    date_to = date_to_field()
+    branded = serializers.ChoiceField(
+        choices=BrandedSegment.choices,
         required=False,
-        default=KEYWORD_REPORT_DAYS,
-        min_value=1,
-        max_value=MAX_KEYWORD_REPORT_DAYS,
-        help_text=f"Length of the window in days, ending today in the project's timezone. Default {KEYWORD_REPORT_DAYS}, at most {MAX_KEYWORD_REPORT_DAYS}.",
+        default=BrandedSegment.ALL.value,
+        help_text=(
+            "Which answers to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) "
+            "or 'non_branded'. " + BRANDED_PROMPT_HELP
+        ),
     )
 
 
@@ -364,11 +376,12 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         operation_id="aeo_keywords_report",
         summary="Get the AEO keyword report",
         description=(
-            f"Gets one row per keyword for the last 'days' days (default {KEYWORD_REPORT_DAYS}) in the project's "
+            "Gets one row per keyword from 'date_from' to 'date_to' (default the last 7 days) in the project's "
             "timezone: how many prompts contain it and how those answers mention and cite the project, how often the "
             "engines searched for it and the citation rate in those answers, and how often answers use it, with the "
             "brand-mention rate, citation position and how early the brand is named in those answers. All rates are "
-            "over answered checks. A keyword matches as a phrase, case ignored."
+            "over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to "
+            "count only the answers to branded or non-branded prompts, of one answer engine, or of one topic."
         ),
         responses={200: OpenApiResponse(response=AEOKeywordReportSerializer)},
         tags=["web_analytics"],
@@ -379,9 +392,16 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         throttle_classes=[AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle],
     )
     def report(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        report = get_keyword_report(
-            self.team_id, timezone_name=self.team.timezone, days=request.validated_query_data["days"]
-        )
+        with date_range_errors():
+            report = get_keyword_report(
+                self.team_id,
+                timezone_name=self.team.timezone,
+                date_from=request.validated_query_data["date_from"],
+                date_to=request.validated_query_data["date_to"],
+                branded=BrandedSegment(request.validated_query_data["branded"]),
+                engine=request.validated_query_data["engine"],
+                topic=request.validated_query_data["topic"],
+            )
         return Response(AEOKeywordReportSerializer(report).data)
 
     @validated_request(
@@ -389,11 +409,12 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         operation_id="aeo_keywords_modifiers",
         summary="Get AEO search modifiers",
         description=(
-            f"Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the "
-            f"last 'days' days (default {KEYWORD_REPORT_DAYS}), such as years, 'pricing', 'vs' or 'site:'. They show "
+            "Gets the words and two-word phrases the engines added to their web searches beyond the prompt from "
+            "'date_from' to 'date_to' (default the last 7 days), such as years, 'pricing', 'vs' or 'site:'. They show "
             "the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate "
             "in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to "
-            "only count answers whose searches contain it."
+            "only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the "
+            "answers to branded or non-branded prompts, of one answer engine, or of one topic."
         ),
         responses={200: OpenApiResponse(response=AEOKeywordModifierReportSerializer)},
         tags=["web_analytics"],
@@ -404,12 +425,17 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         throttle_classes=[AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle],
     )
     def modifiers(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        report = get_keyword_modifiers(
-            self.team_id,
-            timezone_name=self.team.timezone,
-            days=request.validated_query_data["days"],
-            keyword=request.validated_query_data.get("keyword"),
-        )
+        with date_range_errors():
+            report = get_keyword_modifiers(
+                self.team_id,
+                timezone_name=self.team.timezone,
+                date_from=request.validated_query_data["date_from"],
+                date_to=request.validated_query_data["date_to"],
+                keyword=request.validated_query_data.get("keyword"),
+                branded=BrandedSegment(request.validated_query_data["branded"]),
+                engine=request.validated_query_data["engine"],
+                topic=request.validated_query_data["topic"],
+            )
         return Response(AEOKeywordModifierReportSerializer(report).data)
 
     @validated_request(

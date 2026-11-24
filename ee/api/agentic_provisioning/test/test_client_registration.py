@@ -16,7 +16,9 @@ from posthog.api.oauth.client_assertion import (
     PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
@@ -39,10 +41,10 @@ def _jwks() -> dict:
 
 
 class _CacheHeaderlessResponse:
-    """Stands in for the requests.Response the CIMD fetch returns, which is read only for
-    cache headers."""
+    """Stands in for the requests.Response the CIMD fetch returns, which is read only for its
+    headers."""
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"Content-Type": "application/json"}
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -338,6 +340,35 @@ class TestClientRegistration(ProvisioningTestBase):
         assert res.json()["error"]["code"] == "registration_failed"
         app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.provisioning.active is False
+
+    @parameterized.expand(
+        [
+            ("pending", False, False, "PostHog is reviewing this client", 1),
+            ("needs_human", False, False, "PostHog staff are reviewing this client", 0),
+            ("rejected", True, False, "Provisioning is blocked for this client", 0),
+            # Accepted, but staff now require an organization behind every self-registered partner.
+            ("accepted", False, True, "Link this client to a PostHog organization", 0),
+        ]
+    )
+    def test_partner_under_review_is_told_to_wait(
+        self, review_status, disabled, organization_required, expected_detail, expected_restarts
+    ):
+        active = review_status == "accepted"
+        app = self._make_partner(_provisioning_config=provisioning_config(active=active, disabled=disabled))
+        CIMDProvisioningReview.objects.create(application=app, domain="example.com", status=review_status)
+
+        with (
+            patch("posthog.api.oauth.provisioning_review.start_review") as mock_start,
+            override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_required),
+        ):
+            res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 400, res.json()
+        check = next(c for c in res.json()["checks"] if c["name"] == "provisioning_enabled")
+        assert check["ok"] is False
+        assert check["detail"].startswith(expected_detail)
+        # A pending review restarts its workflow, so a run that died never leaves the partner stuck.
+        assert mock_start.call_count == expected_restarts
 
     def test_unreachable_jwks_is_reported_as_a_failed_check(self):
         self._make_partner()

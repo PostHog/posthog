@@ -33,15 +33,16 @@ STAT_FIELDS: tuple[str, ...] = (
     "purchaseRor",
 )
 
-EntityKind = Literal["campaign", "adgroup", "ad", "keyword"]
+EntityKind = Literal["campaign", "adgroup", "ad", "keyword", "channel", "ad_extension"]
 
 
 @frozen
 class NaverAdsEntity:
     path: str
     id_field: str
-    # The entity whose id filters this list. Naver lists ad groups per campaign and ads and keywords per ad group.
-    parent: EntityKind | None = None
+    # The entities whose ids filter this list. Naver lists ad groups per campaign, ads and keywords per ad group,
+    # and ad extensions per owner, which is a campaign or an ad group.
+    parents: tuple[EntityKind, ...] = ()
     parent_param: str | None = None
     # Whether the list takes `recordSize` and `baseSearchId`. The ads list returns everything in one response.
     keyset_paginated: bool = True
@@ -50,17 +51,25 @@ class NaverAdsEntity:
 ENTITIES: dict[EntityKind, NaverAdsEntity] = {
     "campaign": NaverAdsEntity(path="/ncc/campaigns", id_field="nccCampaignId"),
     "adgroup": NaverAdsEntity(
-        path="/ncc/adgroups", id_field="nccAdgroupId", parent="campaign", parent_param="nccCampaignId"
+        path="/ncc/adgroups", id_field="nccAdgroupId", parents=("campaign",), parent_param="nccCampaignId"
     ),
     "ad": NaverAdsEntity(
         path="/ncc/ads",
         id_field="nccAdId",
-        parent="adgroup",
+        parents=("adgroup",),
         parent_param="nccAdgroupId",
         keyset_paginated=False,
     ),
     "keyword": NaverAdsEntity(
-        path="/ncc/keywords", id_field="nccKeywordId", parent="adgroup", parent_param="nccAdgroupId"
+        path="/ncc/keywords", id_field="nccKeywordId", parents=("adgroup",), parent_param="nccAdgroupId"
+    ),
+    "channel": NaverAdsEntity(path="/ncc/channels", id_field="nccBusinessChannelId", keyset_paginated=False),
+    "ad_extension": NaverAdsEntity(
+        path="/ncc/ad-extensions",
+        id_field="nccAdExtensionId",
+        parents=("campaign", "adgroup"),
+        parent_param="ownerId",
+        keyset_paginated=False,
     ),
 }
 
@@ -92,6 +101,8 @@ ENDPOINTS: dict[str, NaverAdsEndpoint] = {
     "adgroups": NaverAdsEndpoint(name="adgroups", entity="adgroup", primary_keys=("nccAdgroupId",)),
     "ads": NaverAdsEndpoint(name="ads", entity="ad", primary_keys=("nccAdId",)),
     "keywords": NaverAdsEndpoint(name="keywords", entity="keyword", primary_keys=("nccKeywordId",)),
+    "channels": NaverAdsEndpoint(name="channels", entity="channel", primary_keys=("nccBusinessChannelId",)),
+    "ad_extensions": NaverAdsEndpoint(name="ad_extensions", entity="ad_extension", primary_keys=("nccAdExtensionId",)),
     "campaign_stats": _stats_endpoint("campaign_stats", "campaign", history_days=365),
     "adgroup_stats": _stats_endpoint("adgroup_stats", "adgroup", history_days=365),
     "keyword_stats": _stats_endpoint("keyword_stats", "keyword", history_days=90),

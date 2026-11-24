@@ -14,21 +14,14 @@ from django.test import SimpleTestCase
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from products.data_catalog.backend.facade.contracts import (
-    TopicCluster,
-    TopicCoverage,
-    TopicDefinition,
-    TopicSessionCounts,
-)
-from products.data_catalog.backend.facade.enums import UsageSnapshotStatus
+from products.data_catalog.backend.facade.contracts import TopicCluster, TopicCoverage, TopicSessionCounts
 from products.data_catalog.backend.logic.agent_sessions import session_notes
 from products.data_catalog.backend.logic.usage_judge import AIConsentMissing
-from products.data_catalog.backend.logic.usage_snapshots import previous_topic_list
 from products.data_catalog.backend.logic.usage_topics import (
+    _MAX_OUTPUT_CHARS,
     OTHER_TOPIC,
     CoverageVerdict,
     LookupRow,
-    NewTopicCandidate,
     ReadSession,
     SessionCoverage,
     SessionKind,
@@ -36,26 +29,26 @@ from products.data_catalog.backend.logic.usage_topics import (
     SessionReading,
     SessionText,
     TopicAssignmentUnavailable,
+    TopicDefinition,
     _load_topic_inputs,
     _TopicInputs,
+    _trace_session_tables,
     asked_for_metric,
     assign_question,
     build_session_lookups,
     build_topics,
     collect_topics_into_snapshot,
     count_session_kinds,
+    describe_topics,
     fetch_session_lookups,
-    find_new_topics,
     group_into_topics,
     judge_coverage,
     merge_lookups,
     name_topic_list,
-    new_topics_to_add,
     ran_a_metric,
     read_session,
     session_coverage,
 )
-from products.data_catalog.backend.models import UsageSnapshot
 
 _MODULE = "products.data_catalog.backend.logic.usage_topics"
 
@@ -109,6 +102,10 @@ _LIST_PROMPT_START = "Below are numbered questions"
 
 def _no_heartbeat() -> None:
     return None
+
+
+def _unavailable(_prompt: str) -> str:
+    raise RuntimeError("gateway unavailable")
 
 
 class TestTopicCoverage(SimpleTestCase):
@@ -289,7 +286,9 @@ class TestTopicCoverage(SimpleTestCase):
             "Flags": [],
         }
 
-        topics = build_topics(definitions, members, {"a": SessionCoverage.NOTHING, "b": SessionCoverage.METRIC})
+        tables = {"a": frozenset({"billing"}), "b": frozenset({"plans"}), "c": frozenset(), "d": frozenset(), "e": None}
+
+        topics = build_topics(definitions, members, {"a": SessionCoverage.NOTHING, "b": SessionCoverage.METRIC}, tables)
 
         assert [(topic.title, topic.people, topic.session_count) for topic in topics] == [
             ("Revenue", 2, 2),
@@ -299,6 +298,7 @@ class TestTopicCoverage(SimpleTestCase):
         assert topics[0].description == "Money."
         assert topics[0].coverage == TopicCoverage(metric=1, table=0, nothing=1)
         assert topics[1].coverage == TopicCoverage(metric=0, table=0, nothing=0)
+        assert [topic.tables for topic in topics] == [["billing", "plans"], None, None]
 
     def test_session_kinds_count_every_read_including_failed_ones(self) -> None:
         readings = [
@@ -327,48 +327,6 @@ class TestTopicCoverage(SimpleTestCase):
         assert notes[:2] == ("load a skill", "data 0")
         assert len(notes) == 12
         assert len(set(notes)) == 12
-
-
-class TestNewTopicThreshold(SimpleTestCase):
-    def _candidate(self, title: str, sessions: int, people: int) -> NewTopicCandidate:
-        return NewTopicCandidate(
-            definition=TopicDefinition(title=title, description=""),
-            members=tuple(_read(f"{title}{n}", "q", person=f"p{n % people}") for n in range(sessions)),
-        )
-
-    @parameterized.expand(
-        [
-            ("enough_sessions_and_people", 3, 2, 100, set(), True),
-            ("too_few_sessions", 2, 2, 100, set(), False),
-            ("one_person_cannot_add_a_topic", 9, 1, 100, set(), False),
-            ("the_bar_rises_with_the_team_volume", 5, 3, 1000, set(), False),
-            ("the_title_already_exists", 9, 3, 100, {"New"}, False),
-            ("the_list_is_full", 9, 3, 100, {str(n) for n in range(30)}, False),
-        ]
-    )
-    def test_new_topic_needs_evidence(
-        self, _name: str, sessions: int, people: int, total: int, existing: set[str], expected: bool
-    ) -> None:
-        added = new_topics_to_add(
-            [self._candidate("New", sessions, people)], topic_sessions=total, existing_titles=existing
-        )
-
-        assert bool(added) is expected
-
-    @parameterized.expand(
-        [
-            ("room_for_both", set(), [("Replay", 5), ("Flags", 4)]),
-            ("one_slot_left_goes_to_the_larger", {str(n) for n in range(29)}, [("Replay", 5)]),
-        ]
-    )
-    def test_two_candidates_with_one_title_keep_only_the_larger(
-        self, _name: str, existing: set[str], expected: list[tuple[str, int]]
-    ) -> None:
-        candidates = [self._candidate("Replay", 3, 3), self._candidate("Flags", 4, 3), self._candidate("Replay", 5, 3)]
-
-        added = new_topics_to_add(candidates, topic_sessions=40, existing_titles=existing)
-
-        assert [(candidate.definition.title, len(candidate.members)) for candidate in added] == expected
 
 
 class TestReadSession(SimpleTestCase):
@@ -449,35 +407,41 @@ class TestReadSession(SimpleTestCase):
 
 
 class TestGroupIntoTopics(SimpleTestCase):
-    def _respond(self, numbers: dict[str, int], new_topics: list[dict[str, Any]] | None = None) -> Any:
+    def _respond(self, numbers: dict[str, int]) -> Any:
         def respond(prompt: str) -> str:
             if prompt.startswith("Below are numbered questions"):
                 return json.dumps({"topics": [{"name": "Revenue", "description": "Money."}]})
-            if prompt.startswith("These questions fit none"):
-                return json.dumps({"topics": new_topics or []})
             question = prompt.split("<question>")[1].split("</question>")[0]
             return str(numbers[question])
 
         return respond
 
-    def test_failed_assignments_stay_in_other_without_seeding_a_topic_and_a_total_outage_fails(self) -> None:
-        previous = [TopicDefinition(title="Revenue", description="Money.")]
+    def test_failed_assignments_stay_in_other_and_a_total_outage_fails(self) -> None:
         sessions = [_read("a", "mrr", person="p1"), *(_read(f"r{n}", f"replay {n}", person=f"p{n}") for n in range(3))]
         answer = self._respond({"mrr": 1})
 
         def respond(prompt: str) -> str:
-            if "replay" in prompt:
+            if prompt.startswith("Choose the one topic") and "replay" in prompt:
                 raise RuntimeError("gateway unavailable")
             return answer(prompt)
 
         client = _FakeClient(respond)
-        definitions, members = async_to_sync(group_into_topics)(client, sessions, previous, _no_heartbeat)  # type: ignore[arg-type]
+        definitions, members = async_to_sync(group_into_topics)(client, sessions, _no_heartbeat)  # type: ignore[arg-type]
 
-        assert definitions == previous
+        assert definitions == [TopicDefinition(title="Revenue", description="Money.")]
         assert [member.session.session_id for member in members[OTHER_TOPIC]] == ["r0", "r1", "r2"]
-        assert not any(prompt.startswith("These questions fit none") for prompt in client.prompts)
         with self.assertRaises(TopicAssignmentUnavailable):
-            async_to_sync(group_into_topics)(client, sessions[1:], previous, _no_heartbeat)  # type: ignore[arg-type]
+            async_to_sync(group_into_topics)(client, sessions[1:], _no_heartbeat)  # type: ignore[arg-type]
+
+    @parameterized.expand([("title_case", "Other"), ("any_case", " other ")])
+    def test_the_topic_list_drops_a_topic_that_takes_the_other_topics_name(self, _name: str, title: str) -> None:
+        reply = json.dumps(
+            {"topics": [{"name": title, "description": "Payroll costs."}, {"name": "Revenue", "description": "Money."}]}
+        )
+
+        definitions = async_to_sync(name_topic_list)(_FakeClient(lambda _prompt: reply), ["q"])  # type: ignore[arg-type]
+
+        assert [definition.title for definition in definitions] == ["Revenue"]
 
     @parameterized.expand(
         [
@@ -495,69 +459,31 @@ class TestGroupIntoTopics(SimpleTestCase):
 
         assert title == expected
 
-    def test_first_scan_names_a_list_and_a_later_scan_keeps_it(self) -> None:
-        sessions = [_read("a", "mrr", person="p1"), _read("b", "arr", person="p2")]
-        first = _FakeClient(self._respond({"mrr": 1, "arr": 1}))
-
-        definitions, members = async_to_sync(group_into_topics)(first, sessions, [], _no_heartbeat)  # type: ignore[arg-type]
-
-        assert [definition.title for definition in definitions] == ["Revenue"]
-        assert [member.session.session_id for member in members["Revenue"]] == ["a", "b"]
-        assert any(prompt.startswith(_LIST_PROMPT_START) for prompt in first.prompts)
-
-        later = _FakeClient(self._respond({"mrr": 1, "arr": 1}))
-        carried, _ = async_to_sync(group_into_topics)(later, sessions, definitions, _no_heartbeat)  # type: ignore[arg-type]
-
-        assert carried == definitions
-        assert not any(prompt.startswith(_LIST_PROMPT_START) for prompt in later.prompts)
-
-    def test_new_subject_joins_a_carried_list_only_with_enough_evidence(self) -> None:
-        previous = [TopicDefinition(title="Revenue", description="Money.")]
-        sessions = [
-            _read("a", "mrr", person="p1"),
-            _read("b", "replay 1", person="p1"),
-            _read("c", "replay 2", person="p2"),
-            _read("d", "replay 3", person="p3"),
-            _read("e", "one person 1", person="p4"),
-            _read("f", "one person 2", person="p4"),
-            _read("g", "one person 3", person="p4"),
+    @parameterized.expand(
+        [
+            (
+                "written_from_this_scans_questions",
+                lambda _prompt: '{"description": "Revenue per month."}',
+                "Revenue per month.",
+            ),
+            ("a_failed_call_leaves_it_empty", _unavailable, ""),
         ]
-        numbers = dict.fromkeys(("replay 1", "replay 2", "replay 3", "one person 1", "one person 2", "one person 3"), 0)
-        client = _FakeClient(
-            self._respond(
-                {"mrr": 1, **numbers},
-                [
-                    {"name": "Session replay", "description": "Replay.", "numbers": [1, 2, 3]},
-                    {"name": "A solo project", "description": "Solo.", "numbers": [4, 5, 6]},
-                ],
-            )
-        )
+    )
+    def test_describe_topics_writes_each_topic_from_its_own_sessions(
+        self, _name: str, respond: Any, expected: str
+    ) -> None:
+        previous = [
+            TopicDefinition(title="Revenue", description="Money."),
+            TopicDefinition(title="Churn", description="Lost customers."),
+        ]
+        client = _FakeClient(respond)
+        members = {"Revenue": [_read("a", "mrr")], "Churn": []}
 
-        definitions, members = async_to_sync(group_into_topics)(client, sessions, previous, _no_heartbeat)  # type: ignore[arg-type]
+        described = async_to_sync(describe_topics)(client, previous, members, _no_heartbeat)  # type: ignore[arg-type]
 
-        assert [definition.title for definition in definitions] == ["Revenue", "Session replay"]
-        assert [member.session.session_id for member in members["Session replay"]] == ["b", "c", "d"]
-        assert [member.session.session_id for member in members[OTHER_TOPIC]] == ["e", "f", "g"]
-
-    def test_malformed_new_topic_entries_are_skipped_and_the_rest_still_count(self) -> None:
-        unassigned = [_read("a", "q1"), _read("b", "q2"), _read("c", "q3")]
-        reply = {
-            "topics": [
-                "not a topic",
-                {"description": "No name.", "numbers": [1]},
-                {"name": "Null numbers", "numbers": None},
-                {"name": "Odd numbers", "numbers": ["1", 2.0, True, 9, 2]},
-                {"name": "Claimed again", "numbers": [2, 3]},
-            ]
-        }
-        client = _FakeClient(lambda _prompt: json.dumps(reply))
-
-        candidates = async_to_sync(find_new_topics)(client, unassigned, [])  # type: ignore[arg-type]
-
-        assert [
-            (candidate.definition.title, [member.session.session_id for member in candidate.members])
-            for candidate in candidates
-        ] == [("Null numbers", []), ("Odd numbers", ["b"]), ("Claimed again", ["c"])]
+        assert described == [TopicDefinition(title="Revenue", description=expected), previous[1]]
+        assert len(client.prompts) == 1
+        assert "mrr" in client.prompts[0]
 
 
 def _reading(kind: str, question: str = "") -> tuple[str, ...]:
@@ -565,15 +491,18 @@ def _reading(kind: str, question: str = "") -> tuple[str, ...]:
 
 
 class TestCollectTopicsIntoSnapshot(SimpleTestCase):
-    _PREVIOUS = [TopicDefinition(title="Revenue", description="Money.")]
     _LOOKUP = SessionText(session_id="c", person="p1", notes=_reading("lookup"), tools=frozenset({"execute-sql"}))
 
     def _respond(self, prompt: str) -> str:
         if prompt.startswith("Below are notes"):
             # Each session's only note is the reading that the model returns for it.
             return prompt.split("<notes>\n1. ")[1].split("\n</notes>")[0]
+        if prompt.startswith(_LIST_PROMPT_START):
+            return json.dumps({"topics": [{"name": "Revenue", "description": "Money."}]})
         if prompt.startswith("Choose the one topic"):
             return "1"
+        if prompt.startswith("Describe one topic"):
+            return '{"description": "Revenue over time."}'
         if "judge fails" in prompt:
             raise RuntimeError("gateway unavailable")
         return '{"metric": true, "description": false}'
@@ -606,16 +535,17 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
                 [
                     TopicCluster(
                         title="Revenue",
-                        description="Money.",
+                        description="Revenue over time.",
                         session_count=3,
                         people=3,
                         coverage=TopicCoverage(metric=2, table=0, nothing=1),
+                        tables=["billing"],
                     )
                 ],
                 TopicSessionCounts(analysis=3, lookup=1, automation=0, unclear=0, unread=0, coverage_unchecked=1),
             ),
             (
-                "no_analysis_sessions_keep_the_previous_list",
+                "no_analysis_sessions_write_no_topics",
                 [_LOOKUP],
                 [],
                 TopicSessionCounts(analysis=0, lookup=1, automation=0, unclear=0, unread=0),
@@ -632,7 +562,6 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
         inputs = _TopicInputs(
             sessions=sessions,
             members={},
-            previous=self._PREVIOUS,
             adapted_sessions=frozenset({"adapted"}),
             window_start=datetime(2026, 10, 1, tzinfo=UTC),
             window_end=datetime(2026, 10, 29, tzinfo=UTC),
@@ -645,6 +574,10 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
         with (
             patch(f"{_MODULE}._load_topic_inputs", return_value=inputs),
             patch(f"{_MODULE}._load_session_lookups", return_value=lookups),
+            patch(
+                f"{_MODULE}._trace_session_tables",
+                return_value={"ran": frozenset({"billing"}), "adapted": frozenset(), "unjudged": frozenset()},
+            ),
             patch(f"{_MODULE}.build_async_anthropic_client", return_value=client),
             patch(f"{_MODULE}.write_payload_sections") as write,
         ):
@@ -654,13 +587,29 @@ class TestCollectTopicsIntoSnapshot(SimpleTestCase):
 
         written = write.call_args.kwargs
         assert written["topics"] == topics
-        assert written["topic_definitions"] == self._PREVIOUS
         assert written["topic_sessions"] == counts
         judge_prompts = [prompt for prompt in client.prompts if prompt.startswith("You review one session")]
         assert not any("Annual revenue?" in prompt for prompt in judge_prompts)
 
 
 class TestTopicInputs(BaseTest):
+    def test_a_failed_trace_leaves_every_session_untraced_instead_of_failing_the_step(self) -> None:
+        inputs = _TopicInputs(
+            sessions=[],
+            members={},
+            adapted_sessions=frozenset(),
+            window_start=datetime(2026, 10, 1, tzinfo=UTC),
+            window_end=datetime(2026, 10, 29, tzinfo=UTC),
+        )
+        sessions = [_session("a"), _session("b")]
+
+        with patch(f"{_MODULE}.trace_session_tables", side_effect=RuntimeError("ClickHouse timeout")):
+            tables = _trace_session_tables(
+                team_id=self.team.id, telemetry_team_id=self.team.id, inputs=inputs, sessions=sessions
+            )
+
+        assert tables == {"a": None, "b": None}
+
     def test_refuses_to_scan_without_ai_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -668,47 +617,6 @@ class TestTopicInputs(BaseTest):
         with patch(f"{_MODULE}.fetch_candidate_chains") as chains, pytest.raises(AIConsentMissing):
             _load_topic_inputs(team_id=self.team.id, snapshot_id=uuid4(), telemetry_team_id=self.team.id)
         chains.assert_not_called()
-
-
-class TestPreviousTopicList(BaseTest):
-    def _snapshot(
-        self,
-        status: UsageSnapshotStatus,
-        computed_day: int,
-        titles: list[str] | None,
-        definitions: list[str] | None = None,
-    ) -> UsageSnapshot:
-        start = datetime(2026, 9, 1, tzinfo=UTC)
-
-        def listed(names: list[str] | None) -> list[dict[str, str]] | None:
-            return None if names is None else [{"title": name, "description": f"{name} desc"} for name in names]
-
-        return UsageSnapshot.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            status=status.value,
-            window_start=start,
-            window_end=start + timedelta(days=28),
-            computed_at=datetime(2026, 10, computed_day, tzinfo=UTC),
-            payload={"topics": listed(titles), "topic_definitions": listed(definitions)},
-        )
-
-    def test_reads_the_newest_finished_scan_with_topics_other_than_this_one(self) -> None:
-        self._snapshot(UsageSnapshotStatus.DONE, 1, ["Oldest"])
-        self._snapshot(UsageSnapshotStatus.DONE, 2, ["Revenue"])
-        self._snapshot(UsageSnapshotStatus.DONE, 3, None)
-        self._snapshot(UsageSnapshotStatus.ERROR, 4, ["Failed scan"])
-        current = self._snapshot(UsageSnapshotStatus.DONE, 5, ["This scan"])
-
-        assert previous_topic_list(self.team.id, current.id) == [
-            TopicDefinition(title="Revenue", description="Revenue desc")
-        ]
-
-    def test_the_stored_list_keeps_a_topic_that_had_no_sessions(self) -> None:
-        self._snapshot(UsageSnapshotStatus.DONE, 1, ["Revenue"])
-        self._snapshot(UsageSnapshotStatus.DONE, 2, [], definitions=["Revenue", "Quiet topic"])
-        current = self._snapshot(UsageSnapshotStatus.DONE, 3, None)
-
-        assert [topic.title for topic in previous_topic_list(self.team.id, current.id)] == ["Revenue", "Quiet topic"]
 
 
 class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
@@ -731,6 +639,9 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
         end = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
         at = end - timedelta(hours=3)
         shared = {"$session_id": "s1", "$mcp_project_uuid": str(self.team.uuid), "$ai_trace_id": "t1"}
+        result = "table_name|description\nrevenue|Monthly revenue\n"
+        # The final "é" takes two bytes and ends one byte past the cut, so a cut by bytes leaves invalid UTF-8.
+        result += "x" * (_MAX_OUTPUT_CHARS - len(result) - 1) + "é"
         _create_event(
             team=self.team,
             event="$ai_span",
@@ -740,7 +651,7 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
                 **shared,
                 "$ai_span_name": "execute-sql",
                 "$ai_input_state": json.dumps({"query": "SELECT description FROM system.information_schema.tables"}),
-                "$ai_output_state": "table_name|description\nrevenue|Monthly revenue",
+                "$ai_output_state": result,
             },
         )
         _create_event(

@@ -9,6 +9,7 @@ import { Button, Separator } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -32,6 +33,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
         discardDisabledReason,
         showDraftActions,
         statusToggleDisabledReason,
+        checkingSandboxSender,
     } = useValues(workflowLogic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, publishDraft, discardDraft } =
         useActions(workflowLogic)
@@ -86,6 +88,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                         status: workflow?.status === 'draft' ? 'active' : 'draft',
                                     })
                                 }
+                                loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
                                 data-attr="workflow-launch"
@@ -110,6 +113,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                     })
                                 }
                                 size="small"
+                                loading={checkingSandboxSender}
                                 disabledReason={statusToggleDisabledReason}
                                 className="transition-colors duration-300 ease-in-out"
                                 data-attr="workflow-launch"
@@ -153,7 +157,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                     workflowUserAccessLevel={workflowUserAccessLevel ?? undefined}
                     onDiscardChanges={() => discardChanges()}
                     onUpdateTemplate={showSaveAsTemplateModal}
-                    onSave={submitWorkflow}
+                    onSave={() => void saveWithLatestEmailEdit(submitWorkflow)}
                     onPublish={() => publishDraft()}
                     onDiscardDraft={() => discardDraft()}
                 />
@@ -197,7 +201,7 @@ export function WorkflowActions(props: WorkflowSceneLogicProps): JSX.Element {
                                     size="small"
                                     htmlType="submit"
                                     form="workflow"
-                                    onClick={submitWorkflow}
+                                    onClick={() => void saveWithLatestEmailEdit(submitWorkflow)}
                                     loading={isWorkflowSubmitting}
                                     disabledReason={
                                         workflowHasErrors

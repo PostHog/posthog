@@ -8,9 +8,10 @@ class ArgocdEndpointConfig:
     primary_keys: list[str]
     # Stable, immutable field to partition by (creation/deployment timestamps only).
     partition_key: str | None = None
-    # Per-application endpoint: `path` carries a `{name}` (and possibly `{revision}`)
-    # placeholder and is fetched once per application from the applications list.
+    # Per-parent endpoint: `path` carries a placeholder for the parent (`{name}`, `{repo}`, and
+    # possibly `{revision}`) and is fetched once per item of the `fan_out_parent` list.
     fan_out: bool = False
+    fan_out_parent: str = "applications"
 
 
 # Argo CD's list APIs return the whole collection in one Kubernetes-style List response
@@ -79,6 +80,36 @@ ARGOCD_ENDPOINTS: dict[str, ArgocdEndpointConfig] = {
         name="resource_tree",
         path="/api/v1/applications/{name}/resource-tree",
         primary_keys=["application_namespace", "application_name", "group", "kind", "namespace", "name"],
+        fan_out=True,
+    ),
+    "applicationsets": ArgocdEndpointConfig(
+        name="applicationsets",
+        path="/api/v1/applicationsets",
+        # ApplicationSets can live in any enabled namespace, like applications.
+        primary_keys=["namespace", "name"],
+        partition_key="created_at",
+    ),
+    "project_events": ArgocdEndpointConfig(
+        name="project_events",
+        path="/api/v1/projects/{name}/events",
+        primary_keys=["project_name", "uid"],
+        partition_key="created_at",
+        fan_out=True,
+        fan_out_parent="projects",
+    ),
+    "repository_refs": ArgocdEndpointConfig(
+        name="repository_refs",
+        path="/api/v1/repositories/{repo}/refs",
+        # The refs list has no commit SHAs, only branch and tag names.
+        primary_keys=["repo", "ref_type", "name"],
+        fan_out=True,
+        fan_out_parent="repositories",
+    ),
+    "chart_details": ArgocdEndpointConfig(
+        name="chart_details",
+        path="/api/v1/applications/{name}/revisions/{revision}/chartdetails",
+        # For a Helm source the revision is the chart version, so the chart identifies the row too.
+        primary_keys=["application_namespace", "application_name", "repo_url", "chart", "revision"],
         fan_out=True,
     ),
 }

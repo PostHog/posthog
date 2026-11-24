@@ -31,6 +31,7 @@ from products.warehouse_sources.sources.app_store_connect.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     str_to_optional_list,
@@ -378,11 +379,9 @@ def _flatten_resource(resource: dict[str, Any]) -> dict[str, Any]:
     ``relationships`` is dropped: it holds link envelopes rather than data, and the related rows are
     already available as their own tables.
     """
-    attributes = resource.get("attributes")
-    row: dict[str, Any] = dict(attributes) if isinstance(attributes, dict) else {}
-    row["id"] = resource.get("id")
-    row["type"] = resource.get("type")
-    return row
+    return flatten_jsonapi(
+        {"id": resource.get("id"), "type": resource.get("type"), "attributes": resource.get("attributes")}
+    )
 
 
 class _ParseFailureCounter:

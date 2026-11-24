@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { pushPlanLines } from './push'
@@ -130,7 +131,7 @@ describe('hog endpoints', () => {
                       },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests.map((request) => request.url.replace(/\?.*/, ''))).toEqual(expectedUrls)
     })
 
@@ -166,7 +167,7 @@ describe('hog endpoints', () => {
             },
             respond: server([TRENDS, HOGQL]),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.files['/work/endpoints/by-type.yaml']).toBe(PULLED_BY_TYPE)
         expect(result.files['/work/endpoints/signups.yaml']).toBe(`# signups.yaml\n${PULLED_WEEKLY}`)
         expect(result.files['/work/endpoints/weekly.yaml']).toBeUndefined()
@@ -180,7 +181,7 @@ describe('hog endpoints', () => {
             ),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', 'type: string'))
     })
 
@@ -207,7 +208,7 @@ describe('hog endpoints', () => {
             }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', `type: ${type}`))
         expect(result.requests.some((request) => request.url.endsWith('/insight_variables/var-1/'))).toBe(fetchesById)
     })
@@ -229,40 +230,40 @@ describe('hog endpoints', () => {
             files,
             respond: server([TRENDS, HOGQL]),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.files).toMatchObject(expected)
         expect(result.json()).toMatchObject({ problems: [expect.objectContaining({ path: 'weekly.yaml' })] })
     })
 
     test.each([
-        ['files that match PostHog', { 'by-type.yaml': PULLED_BY_TYPE }, 0, []],
+        ['files that match PostHog', { 'by-type.yaml': PULLED_BY_TYPE }, EXIT_SUCCESS, []],
         [
             'a changed query',
             { 'by-type.yaml': PULLED_BY_TYPE.replace('count()', 'count(*)') },
-            1,
+            EXIT_FAILURE,
             [{ name: 'by-type', action: 'update', fields: ['query'] }],
         ],
         [
             // The file posthog-cli writes, with the lowercase type it infers from the default.
             'a posthog-cli file',
             { 'by-type.yaml': PULLED_BY_TYPE.replace('type: String', 'type: string') },
-            0,
+            EXIT_SUCCESS,
             [],
         ],
         [
             // PostHog keeps the refresh interval of an endpoint that is no longer materialized.
             'materialization turned off on both sides',
             { 'weekly.yaml': `${PULLED_WEEKLY}materialization:\n  enabled: false\n  schedule: 1hour\n` },
-            0,
+            EXIT_SUCCESS,
             [],
         ],
         [
             'a changed default',
             { 'by-type.yaml': PULLED_BY_TYPE.replace('default: $pageview', 'default: $autocapture') },
-            1,
+            EXIT_FAILURE,
             [{ name: 'by-type', action: 'update', fields: ['defaults'] }],
         ],
-        ['a file with a typo', { 'by-type.yaml': `${PULLED_BY_TYPE}descripton: oops\n` }, 1, []],
+        ['a file with a typo', { 'by-type.yaml': `${PULLED_BY_TYPE}descripton: oops\n` }, EXIT_FAILURE, []],
     ])('diff with %s', async (_name, files, exitCode, changed) => {
         const result = await runHog(['endpoints', 'diff'], {
             env: AGENT,
@@ -394,7 +395,7 @@ describe('hog endpoints', () => {
             ),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.json()).toMatchObject({
             outcomes: [{ status: 'failed', error: expect.stringContaining('is_active') }],
         })
@@ -444,7 +445,7 @@ describe('hog endpoints', () => {
                       : undefined
             ),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.requests.filter((request) => request.method === 'POST').map((request) => request.body)).toEqual([
             { name: 'country', code_name: 'country', type: 'String', default_value: 'US' },
             // An array default makes a multiple-selection list, or PostHog keeps only its first value.
@@ -476,7 +477,7 @@ describe('hog endpoints', () => {
         ['a variable without a value', ['endpoints', 'run', 'x', '--var', 'country'], 'invalid_variable'],
     ])('run refuses %s', async (_name, argv, code) => {
         const result = await runHog(argv, { env: AGENT })
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().code).toBe(code)
     })
 
@@ -514,7 +515,7 @@ describe('hog endpoints', () => {
                       : undefined
             ),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests.at(-1)!.body).toMatchObject({
             query: {
                 kind: 'HogQLQuery',

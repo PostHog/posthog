@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import signal
 import threading
+from contextlib import ExitStack
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 
@@ -17,6 +19,8 @@ from billiard.common import _shutdown_cleanup
 from parameterized import parameterized
 
 from posthog.cohort_resave import UNWIND_SIGNALS, termination_unwinds
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.management.commands.resave_cohorts import StaleFlagsCacheError
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
@@ -737,15 +741,26 @@ class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
             dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
             assert dispatched.count(team_a.id) > 1
 
-    def test_the_teams_left_with_a_stale_cache_fail_the_run(self, mock_service, mock_definitions) -> None:
+    @parameterized.expand([("celery_publish_failed",), ("kafka_delivery_not_acknowledged",)])
+    def test_the_teams_left_with_a_stale_cache_fail_the_run(self, mock_service, mock_definitions, failure) -> None:
         team_a, team_b = self._seed_two_teams()
         mock_service.reset_mock()
         mock_definitions.reset_mock()
-        mock_service.delay.side_effect = RuntimeError("broker unreachable")
 
         out = StringIO()
-        with pytest.raises(StaleFlagsCacheError) as error:
-            call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
+        with ExitStack() as stack:
+            if failure == "celery_publish_failed":
+                mock_service.delay.side_effect = RuntimeError("broker unreachable")
+            else:
+                stack.enter_context(
+                    patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+                )
+                stack.enter_context(patch("products.feature_flags.backend.flags_cache.get_producer"))
+                producer_scope = stack.enter_context(patch("products.feature_flags.backend.flags_cache.producer_scope"))
+                producer = producer_scope.return_value.__enter__.return_value
+                producer.produce.side_effect = lambda **kwargs: ProduceResult(topic=KAFKA_FLAGS_CACHE_INVALIDATION)
+            with pytest.raises(StaleFlagsCacheError) as error:
+                call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
 
         assert "2 teams with a stale flags cache" in out.getvalue()
         assert str(team_a.id) in str(error.value)
@@ -855,7 +870,9 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
                 "values": [{"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"}],
             }
         }
-        cohort = Cohort.objects.create(team=self.team, name="rt", filters=person_filters)
+        cohort = Cohort.objects.create(
+            team=self.team, name="rt", filters=person_filters, realtime_enabled_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
         # A stale person hash makes the resave an edit of the person shape, which enqueues a run.
         Cohort.objects.filter(id=cohort.id).update(condition_type=None, person_filters_shape_hash="stale")
         access.save_triggers_backfill = True

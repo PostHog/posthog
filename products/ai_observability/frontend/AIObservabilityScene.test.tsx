@@ -4,17 +4,21 @@ import { combineUrl, router } from 'kea-router'
 import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { AIObservabilityGenerations, AIObservabilityScene } from './AIObservabilityScene'
+import { aiObservabilityTracesList } from './generated/api'
 import { traceDrawerLogic } from './redesign/trace/traceDrawerLogic'
+import { makeTraceListPage } from './redesign/traces/testFixtures'
 
 jest.mock('./AIObservabilityTracesScene', () => ({ AIObservabilityTraces: () => <div data-attr="traces-body" /> }))
 jest.mock('./AIObservabilitySessionsPlaylist', () => ({
@@ -24,10 +28,15 @@ jest.mock('./traceReviews/AIObservabilityHumanReviews', () => ({
     AIObservabilityHumanReviews: () => <div data-attr="reviews-body" />,
 }))
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
+jest.mock('./generated/api', () => {
+    const actual = jest.requireActual('./generated/api')
+    return { ...actual, aiObservabilityTracesList: jest.fn(actual.aiObservabilityTracesList) }
+})
 
 const GENERATIONS_PATH = urls.aiObservabilityGenerations()
 const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
 const FRAME_TABS = '[data-attr="ai-observability-tabs"]'
+const TRACES_LIST = '[data-attr="ai-observability-traces-list"]'
 const TABBED_BAR = '[data-attr="llm-analytics-tabs"]'
 const DRAWER_TIMESTAMP = '2026-01-01T11:55:00Z'
 const PERSON = { uuid: 'person-1', distinct_id: 'user-1', properties: {} }
@@ -66,6 +75,7 @@ function renderScene({
     localStorage.clear()
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockImplementation(async () => ({ results: [] }))
+    jest.mocked(aiObservabilityTracesList).mockClear()
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
     router.actions.push(url)
@@ -108,6 +118,10 @@ function row(view: RenderResult): Element {
 }
 
 describe('AIObservabilityScene', () => {
+    beforeEach(() => {
+        useMocks({ get: { '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])] } })
+    })
+
     afterEach(cleanup)
 
     it('leaves the trace drawer params out of the tab links and keeps the filters', () => {
@@ -123,7 +137,7 @@ describe('AIObservabilityScene', () => {
 
     describe('with the navigation flag on', () => {
         it.each([
-            ['aiObservabilityTraces', 'ai-observability-scope-traces', 'traces-body'],
+            ['aiObservabilityTraces', 'ai-observability-scope-traces', 'ai-observability-traces-list'],
             ['aiObservabilitySessions', 'ai-observability-scope-sessions', 'sessions-body'],
         ])('wraps the body of %s in the frame', (sceneKey, scope, body) => {
             const container = renderScene({ sceneKey })
@@ -151,6 +165,19 @@ describe('AIObservabilityScene', () => {
             const href = frameHref(container, 'ai-observability-tab-diagnostics')
             expect(href).toContain(`${urls.aiObservabilityErrors()}?date_from=-7d`)
             expect(href).not.toMatch(/trace=|ts=|step=/)
+        })
+
+        it.each([
+            ['no date range', urls.aiObservabilityTraces(), urls.aiObservabilityDashboard()],
+            [
+                'a date range',
+                `${urls.aiObservabilityTraces()}?date_from=-24h`,
+                `${urls.aiObservabilityDashboard()}?date_from=-24h`,
+            ],
+        ])('carries on the frame links the url with %s', (_name, url, homeHref) => {
+            const container = renderScene({ sceneKey: 'aiObservabilityTraces', url })
+
+            expect(removeProjectIdIfPresent(frameHref(container, 'ai-observability-tab-home'))).toEqual(homeHref)
         })
 
         it('moves to the other scope with the filters and without the trace drawer params', () => {
@@ -208,6 +235,17 @@ describe('AIObservabilityScene', () => {
         })
     })
 
+    it.each([
+        ['the traces list', [NAV], true],
+        ['the older traces table', [], false],
+    ])('renders %s on the traces path by the navigation flag', (_name, flags, showsList) => {
+        const container = renderScene({ sceneKey: 'aiObservabilityTraces', flags })
+
+        expect(!!container.querySelector(TRACES_LIST)).toBe(showsList)
+        expect(!!container.querySelector('[data-attr="traces-body"]')).toBe(!showsList)
+        expect(jest.mocked(aiObservabilityTracesList).mock.calls.length > 0).toBe(showsList)
+    })
+
     it('swaps to the frame when the navigation flag arrives after mount', () => {
         const container = renderScene({ sceneKey: 'aiObservabilityTraces', flags: [] })
         expect(container.querySelector(TABBED_BAR)).not.toBeNull()
@@ -217,7 +255,7 @@ describe('AIObservabilityScene', () => {
 
         expect(container.querySelector(TABBED_BAR)).toBeNull()
         expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
-        expect(container.querySelector('[data-attr="traces-body"]')).not.toBeNull()
+        expect(container.querySelector(TRACES_LIST)).not.toBeNull()
     })
 
     describe('opening the trace drawer from generations', () => {

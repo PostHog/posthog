@@ -31,12 +31,15 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
+from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     KeywordSuggestionRequest,
     PromptSuggestionRequest,
     SetupRequest,
 )
+from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
+from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -66,6 +69,10 @@ RECOMPUTE_SOFT_TIME_LIMIT_SECONDS = 20 * 60
 RECOMPUTE_TIME_LIMIT_SECONDS = RECOMPUTE_SOFT_TIME_LIMIT_SECONDS + 60
 RECOMPUTE_LOCK_SECONDS = RECOMPUTE_TIME_LIMIT_SECONDS + 60
 RECOMPUTE_RETRY_SECONDS = 60
+# The brand rows pass reads every stored answer of a team once on a backfill, so it gets the same budget.
+ENRICH_SOFT_TIME_LIMIT_SECONDS = RECOMPUTE_SOFT_TIME_LIMIT_SECONDS
+ENRICH_TIME_LIMIT_SECONDS = ENRICH_SOFT_TIME_LIMIT_SECONDS + 60
+ENRICH_LOCK_SECONDS = ENRICH_TIME_LIMIT_SECONDS + 60
 
 
 def citation_tracking_enabled(team: Team) -> bool:
@@ -120,6 +127,45 @@ def score_aeo_sentiment_backlog_task() -> None:
             logger.exception("aeo_sentiment_backlog_start_failed", team_id=team.id)
 
 
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
+def refresh_aeo_stored_results_task() -> None:
+    """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
+    bounds how long a write that forgot to bump the version can leave an old result in use."""
+    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
+        try:
+            team = Team.objects.get(id=int(raw_team_id))
+        except (Team.DoesNotExist, ValueError):
+            continue
+        if citation_tracking_enabled(team):
+            refresh_aeo_stored_results_for_team_task.delay(team.id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@skip_team_scope_audit  # Team is the tenant; the reads go through AEOCitationCheck.objects.for_team
+def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
+    # The facade imports this module for its tasks, so the import cannot sit at the top.
+    from products.aeo.backend.facade.api import refresh_stored_results  # noqa: PLC0415 -- breaks an import cycle
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return
+    # Checks recorded before the stored flag or the fact rows existed would read as empty. The
+    # reconcile fills both and then starts this task again, so a deploy needs no manual backfill.
+    # The oldest check tells for the flag: the reconcile fills every check without one together.
+    oldest = AEOCitationCheck.objects.for_team(team.id).order_by("created_at", "id")
+    if list(oldest.values_list("prompt_branded", flat=True)[:1]) == [None] or has_checks_without_facts(team.id):
+        recompute_aeo_own_citations_task.delay(team.id)
+        return
+    # Checks without brand rows, or brands whose rows predate an edit, would read as not named. The pass
+    # fills them and then starts this task again.
+    if has_unresolved_checks(team.id) or has_stale_brands(team.id):
+        enrich_aeo_check_brands_task.delay(team.id)
+        return
+    refresh_stored_results(team.id, timezone_name=team.timezone)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
@@ -152,6 +198,12 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         if summary.run_id:
             result = sync_brands_from_run(team.id, summary.run_id)
             logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)
+            # The sync added brands the run's answers may name, and a brand edit during the run may have
+            # changed what the runner matched, so the run's checks and the new brands are resolved again.
+            try:
+                enrich_aeo_check_brands_task.delay(team_id, summary.run_id)
+            except Exception:
+                logger.exception("aeo_check_brands_enqueue_failed", team_id=team_id)
             # Repairs checks recorded against own domains that changed during the run, and any
             # recompute that a failed task or broker left undone. Queued rather than run inline, so it
             # keeps the recompute's time limit and lock.
@@ -296,8 +348,58 @@ def recompute_aeo_own_citations_task(self: Task, team_id: int) -> None:
     try:
         changed = recompute_own_citations(team_id)
         logger.info("aeo_own_citations_recomputed", team_id=team_id, changed=changed)
+        # Checks recorded before the fact rows existed get them here, once, with no command to run.
+        if has_checks_without_facts(team_id):
+            logger.info("aeo_check_facts_backfilled", team_id=team_id, checks=backfill_facts(team_id))
+        try:
+            refresh_aeo_stored_results_for_team_task.delay(team_id)
+        except Exception:
+            logger.exception("aeo_stored_results_refresh_enqueue_failed", team_id=team_id)
     finally:
         try:
             lock.release()
         except LockError:
             logger.warning("aeo_own_citations_recompute_lock_expired", team_id=team_id)
+
+
+class EnrichAlreadyRunning(Exception):
+    pass
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    autoretry_for=(OperationalError, InterfaceError, EnrichAlreadyRunning),
+    retry_backoff=RECOMPUTE_RETRY_SECONDS,
+    max_retries=5,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=ENRICH_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=ENRICH_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; checks, brands and brand rows are read and written via for_team
+def enrich_aeo_check_brands_task(self: Task, team_id: int, run_id: str | None = None) -> None:
+    """Resolve the brands of the team's answers: after a run, after a brand edit, and from the refresh
+    when checks or brands wait for it. One pass per team at a time, so two never rewrite the same rows."""
+    lock = enrich_lock(team_id, timeout=ENRICH_LOCK_SECONDS)
+    if not lock.acquire(blocking=False):
+        raise EnrichAlreadyRunning()
+    try:
+        result = enrich_check_brands(team_id, run_id=run_id)
+        logger.info(
+            "aeo_check_brands_enriched",
+            team_id=team_id,
+            brands_added=result.brands_added,
+            stale_brands=result.stale.brands,
+            stale_rows=result.stale.rows,
+            backfilled_checks=result.unresolved.checks,
+            run_checks=result.run.checks if result.run else 0,
+        )
+        try:
+            refresh_aeo_stored_results_for_team_task.delay(team_id)
+        except Exception:
+            logger.exception("aeo_stored_results_refresh_enqueue_failed", team_id=team_id)
+    finally:
+        try:
+            lock.release()
+        except LockError:
+            logger.warning("aeo_check_brands_enrich_lock_expired", team_id=team_id)

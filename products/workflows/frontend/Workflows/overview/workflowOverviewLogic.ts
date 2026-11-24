@@ -51,7 +51,11 @@ export type HealthRate = { value: string; tag: { label: string; type: LemonTagTy
 
 export type EmailHealth = { bounce: HealthRate; complaint: HealthRate }
 
-const SANDBOX_ONLY_RATE: HealthRate = { value: '-', tag: null, detail: 'All emails were sent from the sandbox sender' }
+const SANDBOX_ONLY_RATE: HealthRate = {
+    value: '-',
+    tag: null,
+    detail: 'All emails were sent from the PostHog test sender',
+}
 
 function healthRate(kind: 'bounce' | 'complaint', count: number, sent: number, detail: string): HealthRate {
     if (sent === 0) {

@@ -154,8 +154,40 @@ class AccountDetailTabsConfig:
 
 
 @dataclass(frozen=True)
+class PinnedAccountPropertiesRole:
+    id: UUID
+    name: str
+
+
+PinnedAccountPropertiesSourceKindValue = Literal["personal", "role", "project"]
+
+
+@dataclass(frozen=True)
+class PinnedAccountPropertiesSource:
+    kind: PinnedAccountPropertiesSourceKindValue = "personal"
+    roles: list[PinnedAccountPropertiesRole] = field(default_factory=list)
+
+
+DefaultPinnedAccountPropertiesSourceKindValue = Literal["project", "role"]
+
+
+@dataclass(frozen=True)
+class DefaultPinnedAccountPropertiesSource:
+    kind: DefaultPinnedAccountPropertiesSourceKindValue
+    role: PinnedAccountPropertiesRole | None = None
+
+
+@dataclass(frozen=True)
+class AvailableDefaultPinnedAccountProperties:
+    source: DefaultPinnedAccountPropertiesSource
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    pinned_properties_source: PinnedAccountPropertiesSource = field(default_factory=PinnedAccountPropertiesSource)
+    available_default_pinned_properties: list[AvailableDefaultPinnedAccountProperties] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
     account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
@@ -1382,6 +1414,17 @@ class CustomPropertyValue:
     created_by_id: int | None
 
 
+@dataclass(frozen=True)
+class CustomPropertyValueHistoryEntry:
+    """One value an account held for a custom property, and when it held it."""
+
+    value: float | bool | str | datetime | None
+    set_at: datetime
+    set_by_id: int | None
+    replaced_at: datetime | None
+    is_current: bool
+
+
 class ExternalAccountCustomPropertiesError(Enum):
     """Failure modes of the external custom-property write, each mapping to a distinct
     HTTP response in the view."""
@@ -1504,6 +1547,10 @@ class CustomerTaskArchived(Exception):
     pass
 
 
+class CustomerTaskTagLimitExceeded(Exception):
+    pass
+
+
 class CustomerTaskAccessDenied(Exception):
     pass
 
@@ -1543,6 +1590,7 @@ class CustomerTaskView:
     updated_at: datetime
     can_edit: bool
     can_restore: bool
+    tags: list[str]
 
 
 @stdlib_dataclass(frozen=True)
@@ -1573,6 +1621,7 @@ class CustomerTaskListFilters:
     due_before: datetime | None = None
     has_due_at: bool | None = None
     ordering: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1583,6 +1632,7 @@ class CreateCustomerTaskInput:
     assigned_to_id: int | None = None
     due_at: datetime | None = None
     status: str = "open"
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1599,6 +1649,9 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+    tags: tuple[str, ...] = ()
+    tags_provided: bool = False
+    tags_mode: str = "set"
 
 
 @dataclass(frozen=True)

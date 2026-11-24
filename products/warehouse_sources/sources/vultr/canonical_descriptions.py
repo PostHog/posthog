@@ -146,4 +146,79 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "balance": "Account balance after the invoice.",
         },
     },
+    "invoice_items": {
+        "description": (
+            "Line items of each account invoice: the per-product cost breakdown behind the invoices table. "
+            "Vultr gives line items no id, so line_number is their position on the invoice."
+        ),
+        "docs_url": "https://www.vultr.com/api/#tag/billing/operation/get-invoice-items",
+        "columns": {
+            "invoice_id": "ID of the invoice this line item belongs to.",
+            "line_number": "Position of the line item on its invoice, starting at 1.",
+            "description": "Description of the line item, usually naming the resource billed.",
+            "product": "Name of the Vultr product billed.",
+            "start_date": "Start of the billing period of the line item.",
+            "end_date": "End of the billing period of the line item.",
+            "units": "Number of units the item consumed in the billing period.",
+            "unit_type": "Unit type of the item, for example hours, overage or discount.",
+            "unit_price": "Price per unit, in US dollars.",
+            "total": "Total amount of the line item, in US dollars.",
+        },
+    },
+    "instance_bandwidth": {
+        "description": (
+            "Daily incoming and outgoing bandwidth per instance, one row per instance per UTC day. "
+            "Vultr returns only a rolling window of recent days, so older days drop out of the table."
+        ),
+        "docs_url": "https://www.vultr.com/api/#tag/instances/operation/get-instance-bandwidth",
+        "columns": {
+            "instance_id": "ID of the instance.",
+            "date": "UTC date of the usage (YYYY-MM-DD).",
+            "incoming_bytes": "Total bytes the instance received on the date.",
+            "outgoing_bytes": "Total bytes the instance sent on the date.",
+        },
+    },
+    "regions": {
+        "description": "Vultr regions (data center locations). Resolves the region ID on instances and other resources.",
+        "docs_url": "https://www.vultr.com/api/#tag/region",
+        "columns": {
+            "id": "Unique ID of the region, as used in the region column of other tables.",
+            "city": "City of the region.",
+            "country": "Two-letter ISO 3166-1 country code of the region.",
+            "continent": "Continent of the region.",
+            "options": "Product features available in the region.",
+        },
+    },
+    "plans": {
+        "description": "Cloud compute plans. Resolves the plan ID on instances to its size and price.",
+        "docs_url": "https://www.vultr.com/api/#tag/plans",
+        "columns": {
+            "id": "Unique ID of the plan, as used in the plan column of instances.",
+            "vcpu_count": "Number of vCPUs in the plan.",
+            "ram": "Amount of RAM, in MB.",
+            "disk": "Disk size, in GB.",
+            "disk_count": "Number of disks in the plan.",
+            "bandwidth": "Monthly bandwidth quota, in GB.",
+            "monthly_cost": "Monthly cost, in US dollars.",
+            "type": "Plan type, for example vc2 (Cloud Compute) or vhf (High Frequency Compute).",
+            "locations": "Region IDs where the plan is available.",
+        },
+    },
+    "bare_metal_plans": {
+        "description": "Bare metal plans. Resolves the plan ID on bare metal servers to its size and price.",
+        "docs_url": "https://www.vultr.com/api/#tag/plans/operation/list-metal-plans",
+        "columns": {
+            "id": "Unique ID of the plan, as used in the plan column of bare metal servers.",
+            "cpu_count": "Number of CPU cores.",
+            "cpu_threads": "Number of CPU threads.",
+            "cpu_model": "CPU model.",
+            "ram": "Amount of RAM, in MB.",
+            "disk": "Disk size, in GB.",
+            "disk_count": "Number of disks in the plan.",
+            "bandwidth": "Monthly bandwidth quota, in GB.",
+            "monthly_cost": "Monthly cost, in US dollars.",
+            "type": "Disk type of the plan, for example SSD.",
+            "locations": "Region IDs where the plan is available.",
+        },
+    },
 }

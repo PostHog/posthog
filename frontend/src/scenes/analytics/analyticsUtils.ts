@@ -222,18 +222,18 @@ export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boo
 
 export function fromPostHogProducts(): FromPostHogItem[] {
     const products = getNavProductPages()
-    // Product analytics has no page of its own in the manifest; its ready-made analysis is the home dashboard.
+    // The manifest lists product analytics as a plain insight entry, so it gets a product icon here.
     const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
     const home: FromPostHogItem[] = productAnalytics
         ? [
               {
                   key: 'product_analytics',
                   label: 'Product analytics',
-                  href: urls.analyticsProductHome(),
+                  href: urls.insights(),
                   item: {
                       ...productAnalytics,
                       iconType: 'product_analytics',
-                      href: urls.analyticsProductHome(),
+                      href: urls.insights(),
                       flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
                   },
               },
@@ -254,3 +254,6 @@ export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem
 
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */
 export const ANALYTICS_DRAG_SCOPE = 'analytics-list'
+
+export const ROW_HOVER_REVEAL =
+    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100'

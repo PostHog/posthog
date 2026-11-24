@@ -87,11 +87,12 @@ COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp"
 # lookback drops out of this query.
 # Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
 # rows now, so the time a row is written does not show how far the consumer is behind.
-# Rows that a property removal reingested also pass the inserted_at filter, but their _timestamp is one
-# second after the request's marker, not the Kafka message time (see _cleaned_select_list in
-# data_deletion_requests.py). A partition that stalls after a removal can therefore look current until the
-# marker is max_consumer_lag_seconds old. Within that window the job can copy a call whose fork row is
-# still in Kafka. The two rows collapse to one when their parts merge.
+# A row that a property removal reingested keeps its inserted_at, so a reingested Kafka row still passes
+# both inserted_at filters. Its _timestamp is one second after the request's marker, not the Kafka message
+# time (see _cleaned_select_list in data_deletion_requests.py). A partition that stalls after a removal
+# that rewrote rows from the lookback can therefore look current until the marker is
+# max_consumer_lag_seconds old. Within that window the job can copy a call whose fork row is still in
+# Kafka. The two rows collapse to one when their parts merge.
 # The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
@@ -601,18 +602,6 @@ def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Clie
             return fn(client)
 
     return run
-
-
-def on_shard_host(
-    cluster: ClickhouseCluster,
-    shard_num: int,
-    fn: Callable[[Client], T],
-    query_tags: DagsterTags,
-    workload: Workload,
-    node_role: NodeRole,
-) -> T:
-    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
-    return cluster.on_host(host, tagged(query_tags, fn)).result()
 
 
 def inserted_rows(result: Any) -> int:

@@ -20,6 +20,15 @@ _DECENNIAL_COLUMNS = {
     "state": "Two-digit state FIPS code.",
 }
 
+_CBP_COLUMNS = {
+    "NAICS2017": "2017 NAICS industry code (00 = total for all sectors).",
+    "NAICS2017_LABEL": "Human-readable label for the NAICS industry code.",
+    "ESTAB": "Number of establishments.",
+    "EMP": "Number of paid employees for the pay period including March 12.",
+    "PAYANN": "Annual payroll in thousands of dollars.",
+    "state": "Two-digit state FIPS code.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "AcsDemographicsByState": {
         "description": "American Community Survey 5-year demographic, income, housing, employment, and education estimates for every US state.",
@@ -51,13 +60,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "County Business Patterns all-sector establishment, employment, and payroll totals for every US state.",
         "docs_url": "https://www.census.gov/data/developers/data-sets/cbp-zbp/cbp-api.html",
         "columns": {
+            **_CBP_COLUMNS,
             "NAME": "Human-readable name of the geography (state name).",
-            "NAICS2017": "2017 NAICS industry code (00 = total for all sectors).",
-            "NAICS2017_LABEL": "Human-readable label for the NAICS industry code.",
-            "ESTAB": "Number of establishments.",
-            "EMP": "Number of paid employees for the pay period including March 12.",
-            "PAYANN": "Annual payroll in thousands of dollars.",
+        },
+    },
+    "AcsDemographicsByZcta": {
+        "description": "American Community Survey 5-year demographic, income, housing, employment, and education estimates for every ZIP Code Tabulation Area (ZCTA).",
+        "docs_url": "https://www.census.gov/data/developers/data-sets/acs-5year.html",
+        "columns": {
+            **{column: description for column, description in _ACS_COLUMNS.items() if column != "state"},
+            "NAME": "Human-readable name of the ZCTA (e.g. ZCTA5 94103).",
+            "zip code tabulation area": "Five-digit ZIP Code Tabulation Area code. ZCTAs approximate USPS ZIP code delivery areas.",
+        },
+    },
+    "CountyBusinessPatternsByCounty": {
+        "description": "County Business Patterns all-sector establishment, employment, and payroll totals for every US county.",
+        "docs_url": "https://www.census.gov/data/developers/data-sets/cbp-zbp/cbp-api.html",
+        "columns": {
+            **_CBP_COLUMNS,
+            "NAME": "Human-readable name of the geography (county and state name).",
+            "county": "Three-digit county FIPS code, unique within its state.",
+        },
+    },
+    "GeographyInfoByCounty": {
+        "description": "Geography reference data for every US county: name, land and water area, and internal point coordinates. Join on state and county FIPS codes.",
+        "docs_url": "https://www.census.gov/data/developers/data-sets/geo-info.html",
+        "columns": {
+            "NAME": "Human-readable name of the geography (county and state name).",
+            "GEO_ID": "Census geographic identifier of the county.",
+            "AREALAND": "Land area in square meters.",
+            "AREAWATR": "Water area in square meters.",
+            "AREALAND_SQMI": "Land area in square miles.",
+            "AREAWATR_SQMI": "Water area in square miles.",
+            "INTPTLAT": "Latitude of the internal point (approximate center) of the county.",
+            "INTPTLON": "Longitude of the internal point (approximate center) of the county.",
             "state": "Two-digit state FIPS code.",
+            "county": "Three-digit county FIPS code, unique within its state.",
         },
     },
     "PopulationEstimatesByState": {

@@ -160,6 +160,10 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
+    _EQUALITY_OPS: set[str] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+    }
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -190,6 +194,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
 
@@ -587,7 +592,12 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        saved_operand_ids = self._string_compared_operand_ids
+        self._string_compared_operand_ids = saved_operand_ids | self._string_compared_operand_ids_for(node)
+        try:
+            result = super().visit_compare_operation(node)
+        finally:
+            self._string_compared_operand_ids = saved_operand_ids
 
         if (
             not self.setTimeZones
@@ -598,6 +608,25 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    @classmethod
+    def _string_compared_operand_ids_for(cls, node: ast.CompareOperation) -> frozenset[int]:
+        """Find the operand of an equality check against '' that is itself a field.
+
+        ClickHouse cannot parse '' as a DateTime, so the property must stay a string
+        for this comparison. Only the operand itself qualifies, never a field nested in a
+        function call, and other constants keep the DateTime conversion.
+        """
+        if node.op not in cls._EQUALITY_OPS:
+            return frozenset()
+        operand_ids: set[int] = set()
+        for operand, other in ((node.left, node.right), (node.right, node.left)):
+            if isinstance(other, ast.Constant) and other.value == "":
+                while isinstance(operand, ast.Alias):
+                    operand = operand.expr
+                if isinstance(operand, ast.Field):
+                    operand_ids.add(id(operand))
+        return frozenset(operand_ids)
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
@@ -853,6 +882,8 @@ class PropertySwapper(CloningVisitor):
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
+            if id(node) in self._string_compared_operand_ids:
+                return ast.Call(name="toString", args=[node])
             # Carry the return type so an enclosing toDateTime() resolves its
             # already-a-datetime overload instead of re-parsing this value
             # (parseDateTime64BestEffortOrNull only accepts strings). Only

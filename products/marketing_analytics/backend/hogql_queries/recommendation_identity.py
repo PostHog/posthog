@@ -78,6 +78,9 @@ def recommendation_identity(
     elif rule == Rule.BUDGET_CONSTRAINED and subject:
         # Campaigns that share a budget get one recommendation, and the campaign that carries it can change.
         campaign_id = None
+    elif rule == Rule.BRAND_LEAK and subject:
+        # Brand leaks in several campaigns share one negative keyword list, named by the brand.
+        campaign_id = None
     elif rule in CAMPAIGN_RULES or rule == Rule.BUDGET_CONSTRAINED:
         subject = None
     else:
@@ -105,7 +108,7 @@ def validate_identity(identity: MarketingAnalyticsRecommendationIdentity) -> Non
         raise InvalidRecommendationIdentity(f"A {rule.value} recommendation never has this combination of ids.")
     if rule in SEARCH_TERM_RULES and not identity.subject:
         raise InvalidRecommendationIdentity(f"A {rule.value} recommendation needs the search term as its subject.")
-    if rule in CAMPAIGN_RULES and not identity.campaign_id:
+    if rule in CAMPAIGN_RULES and not identity.campaign_id and not (rule == Rule.BRAND_LEAK and identity.subject):
         raise InvalidRecommendationIdentity(f"A {rule.value} recommendation needs a campaign_id.")
     if rule == Rule.BUDGET_CONSTRAINED and not (identity.campaign_id or identity.subject):
         raise InvalidRecommendationIdentity(

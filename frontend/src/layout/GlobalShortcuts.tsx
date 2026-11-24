@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
+import { HESOYAM_CAMPAIGN_SLUG } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
+import { claimCheatCode } from 'lib/components/CheatCodes/claimCheatCode'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
@@ -139,6 +141,18 @@ export function GlobalShortcuts(): null {
         intent: 'Jump to timestamp',
         interaction: 'function',
         callback: openJumpToTimestampModal,
+    })
+
+    useShortcut({
+        name: 'Hesoyam',
+        keybind: [keyBinds.hesoyam],
+        intent: 'Easter egg',
+        hidden: true,
+        matchInEditable: true,
+        interaction: 'function',
+        callback: () => {
+            void claimCheatCode(HESOYAM_CAMPAIGN_SLUG)
+        },
     })
 
     return null

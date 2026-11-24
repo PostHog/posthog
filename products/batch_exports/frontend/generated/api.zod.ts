@@ -601,6 +601,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -644,6 +650,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -676,7 +688,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -1584,6 +1596,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1627,6 +1645,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1659,7 +1683,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -2326,6 +2350,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -2369,6 +2399,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2401,7 +2437,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -3053,6 +3089,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -3096,6 +3138,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3128,7 +3176,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -3799,6 +3847,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -3842,6 +3896,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3874,7 +3934,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -4274,6 +4334,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .describe(
                             'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -4317,6 +4383,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4349,7 +4421,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -4557,6 +4629,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                     ),
+                optimizeCrossJoins: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                    ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                 parserMode: zod
@@ -4598,6 +4676,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                 propertyGroupsMode: zod.union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()]).optional(),
                 pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                 s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                sessionFilterGlobalJoin: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                    ),
                 sessionIdPushdown: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
@@ -4630,7 +4714,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored."
                     ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod

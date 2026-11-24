@@ -16,7 +16,7 @@ import {
     parseSizeHeader,
 } from '../logs-ingestion-consumer'
 import type { LogsIngestionMessage } from '../types'
-import { LogsPipelineContext, quarantineLogMessage } from './logs-pipeline-context'
+import { LogsPipelineContext, quarantineLogMessage, retryOnDependencyUnavailable } from './logs-pipeline-context'
 
 export type LogsPipelineInput = { message: Message }
 
@@ -44,11 +44,13 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
 
             let team: Team | null
             try {
-                if (isDevEnv() && token === 'phc_local') {
-                    team = await deps.teamManager.getTeam(1)
-                } else {
-                    team = await deps.teamManager.getTeamByToken(token)
-                }
+                // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data
+                // for every team whose token is not cached yet. Only an outage past the backoff drops.
+                team = await retryOnDependencyUnavailable(context, () =>
+                    isDevEnv() && token === 'phc_local'
+                        ? deps.teamManager.getTeam(1)
+                        : deps.teamManager.getTeamByToken(token)
+                )
             } catch (e) {
                 logger.error('team_lookup_error', { error: e })
                 countDropped('team_lookup_error')

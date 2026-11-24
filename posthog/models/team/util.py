@@ -7,9 +7,12 @@ from django.apps import apps
 from django.db import connections
 
 import structlog
+from prometheus_client import Gauge, Histogram
 
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
+from posthog.models.instance_setting import get_instance_setting
+from posthog.models.person.team_delete_batch_slots import TeamDeletePersonsBatchSlots
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.facade.api import delete_widget_tiles_for_teams
@@ -19,9 +22,13 @@ from products.ui_customization.backend.facade.api import delete_fragments_for_te
 logger = structlog.get_logger(__name__)
 
 # Batch size for the personhog batch-delete RPCs on the largest team-scoped tables
-# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 to bound
+# (personless distinct IDs, hash-key-overrides). Kept well below 10000 to bound
 # how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
+
+# The personhog router sends a request again after BACKEND_TIMEOUT_MS, so a persons batch must finish
+# within one attempt even when the replica runs few chunks at once on a slow persons writer.
+TEAM_DELETE_PERSONS_BATCH_SIZE = 600
 
 # Per-call gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s
 # client deadline meant for point lookups, but a single batch DELETE against a
@@ -40,6 +47,20 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
+TEAM_DELETE_PERSONS_JOBS_ACTIVE = Gauge(
+    "posthog_team_delete_persons_jobs_active",
+    "Team deletions in the persons phase on this worker, including the ones that wait for a batch slot.",
+)
+TEAM_DELETE_PERSONS_JOBS_WAITING = Gauge(
+    "posthog_team_delete_persons_jobs_waiting",
+    "Team deletions on this worker that wait for a persons batch slot now.",
+)
+TEAM_DELETE_PERSONS_SLOT_WAIT_SECONDS = Histogram(
+    "posthog_team_delete_persons_slot_wait_seconds",
+    "Time that a team deletion persons batch waited for a batch slot.",
+    buckets=(0.1, 1, 10, 60, 300, 900, 3600, float("inf")),
+)
+
 # Out of Django state since replay/0002, so the Team cascade cannot reach it. Delete with the table.
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 # Child-first order for legacy loop tables retained outside Django state until their safe drop.
@@ -54,9 +75,7 @@ class TeamPurgeStopped(Exception):
 
 
 actions_that_require_current_team = [
-    "rotate_secret_token",
     "rotate_heatmaps_screenshot_secret",
-    "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",
     "default_release_conditions",
@@ -228,7 +247,9 @@ def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
 def _delete_persons_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Delete Person + PersonDistinctId rows for teams via personhog RPC.
 
-    The RPC handles PersonDistinctId deletion automatically. ``should_stop`` is checked before each batch.
+    The RPC handles PersonDistinctId deletion automatically. ``should_stop`` is checked before each batch
+    and while a batch waits for a ``TeamDeletePersonsBatchSlots`` slot. A wait that passes the slot wait
+    limit raises ``BatchSlotWaitTimeout``, and the activity retry resumes the purge later.
     """
     from functools import partial
 
@@ -249,16 +270,25 @@ def _delete_persons_for_team_via_personhog(team_id: int, should_stop: Callable[[
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
     client = require_personhog_client()
+    slots = TeamDeletePersonsBatchSlots(lambda: get_instance_setting("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES"))
 
-    while True:
-        if should_stop is not None and should_stop():
-            return False
-        resp = client.delete_persons_batch_for_team(
-            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
-            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
-        )
-        if resp.deleted_count == 0:
-            return True
+    with TEAM_DELETE_PERSONS_JOBS_ACTIVE.track_inprogress():
+        while True:
+            if should_stop is not None and should_stop():
+                return False
+            wait_started = time.monotonic()
+            with TEAM_DELETE_PERSONS_JOBS_WAITING.track_inprogress():
+                slot_id = slots.acquire(should_stop)
+            if slot_id is None:
+                return False
+            TEAM_DELETE_PERSONS_SLOT_WAIT_SECONDS.observe(time.monotonic() - wait_started)
+            with slots.hold(slot_id):
+                resp = client.delete_persons_batch_for_team(
+                    DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_PERSONS_BATCH_SIZE),
+                    timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
+                )
+            if resp.deleted_count == 0:
+                return True
 
 
 def _delete_groups_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:

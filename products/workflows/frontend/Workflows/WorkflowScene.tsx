@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { EmailPreviewScopeContext } from 'scenes/hog-functions/email-templater/preview/EmailPreviewScopeContext'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
@@ -24,6 +25,7 @@ import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { MESSAGE_TEMPLATE_PREFILL_PARAM } from './emailTemplateWorkflowPrefill'
 import { WorkflowImportNotesBanner } from './import/WorkflowImportNotesBanner'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -51,6 +53,7 @@ import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
+import { WorkflowSandboxSenderBanner } from './WorkflowSandboxSenderBanner'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
@@ -85,6 +88,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
     const emailPrefill =
         rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const messageTemplateId = searchParams[MESSAGE_TEMPLATE_PREFILL_PARAM]
     const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
     const draftSource =
         rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
@@ -94,6 +98,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         editTemplateId,
         triggerPrefill,
         emailPrefill,
+        messageTemplateId: typeof messageTemplateId === 'string' ? messageTemplateId : undefined,
         draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
@@ -252,29 +257,32 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
-                {showsBuilder && <WorkflowEditorVisitTracker {...workflowProps} />}
-                <WorkflowSceneHeader {...props} />
-                <WorkflowEmailPauseBanner />
-                {isSavedWorkflow && <WorkflowViewOnlyBanner id={props.id!} />}
-                {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
-                {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
-                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
-                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
-                {/* Only show Logs and Metrics tabs if the workflow has already been created */}
-                {!props.id || props.id === 'new' ? (
-                    <Workflow {...workflowProps} />
-                ) : (
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
-                        tabs={tabs}
-                        sceneInset
-                        className={clsx({
-                            'flex min-h-0 flex-1 flex-col [&>div]:flex [&>div]:min-h-0 [&>div]:flex-1 [&>div]:flex-col':
-                                activeTab === 'workflow',
-                        })}
-                    />
-                )}
+                <EmailPreviewScopeContext.Provider value={`workflow-${props.id ?? 'new'}`}>
+                    {showsBuilder && <WorkflowEditorVisitTracker {...workflowProps} />}
+                    <WorkflowSceneHeader {...props} />
+                    <WorkflowEmailPauseBanner />
+                    {isSavedWorkflow && <WorkflowSandboxSenderBanner id={props.id!} />}
+                    {isSavedWorkflow && <WorkflowViewOnlyBanner id={props.id!} />}
+                    {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
+                    {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
+                    {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                    {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                    {/* Only show Logs and Metrics tabs if the workflow has already been created */}
+                    {!props.id || props.id === 'new' ? (
+                        <Workflow {...workflowProps} />
+                    ) : (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
+                            tabs={tabs}
+                            sceneInset
+                            className={clsx({
+                                'flex min-h-0 flex-1 flex-col [&>div]:flex [&>div]:min-h-0 [&>div]:flex-1 [&>div]:flex-col':
+                                    activeTab === 'workflow',
+                            })}
+                        />
+                    )}
+                </EmailPreviewScopeContext.Provider>
             </BindLogic>
         </SceneContent>
     )
