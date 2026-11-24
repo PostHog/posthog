@@ -4,6 +4,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import './hogflows/registry/triggers'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -43,6 +44,12 @@ const template: HogFlow = {
         { from: TRIGGER_NODE_ID, to: 'welcome_delay', type: 'continue' },
         { from: 'welcome_delay', to: EXIT_NODE_ID, type: 'continue' },
     ],
+}
+
+const LINK_OPENED = 'workflow email template link opened'
+
+function linkOpenedCalls(captureSpy: jest.SpyInstance): unknown[][] {
+    return captureSpy.mock.calls.filter(([event]) => event === LINK_OPENED)
 }
 
 const linkedEventTrigger: WorkflowTriggerConfig = {
@@ -257,9 +264,14 @@ describe('workflowLogic pages opened from a link or a template', () => {
             triggerPrefill: JSON.stringify(EVENT_TRIGGER_WITH_NO_EVENT),
             messageTemplateId: transactionalTemplate.id,
         })
+        const captureSpy = jest.spyOn(posthog, 'capture')
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
+        expect(linkOpenedCalls(captureSpy)).toEqual([
+            [LINK_OPENED, { template_id: transactionalTemplate.id, outcome: 'copied' }],
+        ])
+        captureSpy.mockRestore()
         const { workflow } = logic.values
         const [trigger, email, exit] = workflow.actions
         expect(workflow.name).toBe('Order receipt')
@@ -301,29 +313,38 @@ describe('workflowLogic pages opened from a link or a template', () => {
         })
     })
 
-    it.each<[string, WorkflowTriggerConfig, () => [number, Record<string, unknown>]]>([
-        ['the template no longer exists', EVENT_TRIGGER_WITH_NO_EVENT, () => [404, { detail: 'Not found.' }]],
+    it.each<[string, WorkflowTriggerConfig, () => [number, Record<string, unknown>], string | null]>([
+        [
+            'the template no longer exists',
+            EVENT_TRIGGER_WITH_NO_EVENT,
+            () => [404, { detail: 'Not found.' }],
+            'load_failed',
+        ],
         [
             'the template is sensitive, as its values would come from a stored event',
             EVENT_TRIGGER_WITH_NO_EVENT,
             () => [200, { ...transactionalTemplate, sensitive: true }],
+            'sensitive',
         ],
         [
             'the template is not transactional, as the step would send past marketing opt-outs',
             EVENT_TRIGGER_WITH_NO_EVENT,
             () => [200, { ...transactionalTemplate, transactional_hog_flow_id: null }],
+            'not_transactional',
         ],
         [
             'the template is in a marketing category, which the send API refuses as well',
             EVENT_TRIGGER_WITH_NO_EVENT,
             () => [200, { ...transactionalTemplate, message_category: MARKETING_CATEGORY_ID }],
+            'marketing_category',
         ],
         [
             'the link names an internal event trigger, which has no person to send to',
             linkedInternalEventTrigger,
             () => [200, transactionalTemplate],
+            null,
         ],
-    ])('opens the linked workflow without an email step when %s', async (_, trigger, respond) => {
+    ])('opens the linked workflow without an email step when %s', async (_, trigger, respond, outcome) => {
         useMocks({
             get: { '/api/projects/:team_id/messaging_templates/:id/': respond, ...categoriesIn(MOCK_DEFAULT_TEAM.id) },
         })
@@ -332,9 +353,14 @@ describe('workflowLogic pages opened from a link or a template', () => {
             triggerPrefill: JSON.stringify(trigger),
             messageTemplateId: transactionalTemplate.id,
         })
+        const captureSpy = jest.spyOn(posthog, 'capture')
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
+        expect(linkOpenedCalls(captureSpy)).toEqual(
+            outcome ? [[LINK_OPENED, { template_id: transactionalTemplate.id, outcome }]] : []
+        )
+        captureSpy.mockRestore()
         expect(logic.values.workflow.actions.map((action) => action.type)).toEqual(['trigger', 'exit'])
         expect(logic.values.workflow.actions[0].config).toEqual(trigger)
     })

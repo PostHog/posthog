@@ -239,21 +239,33 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
+type EmailTemplateCopy = {
+    template: MessageTemplateApi | null
+    outcome: 'copied' | 'sensitive' | 'not_transactional' | 'marketing_category' | 'load_failed'
+}
+
 async function loadEmailTemplate(templateId: string | undefined): Promise<MessageTemplateApi | null> {
     if (!templateId) {
         return null
     }
+    const { template, outcome } = await readEmailTemplateCopy(templateId)
+    // pinned: analytics event name
+    posthog.capture('workflow email template link opened', { template_id: templateId, outcome })
+    return template
+}
+
+async function readEmailTemplateCopy(templateId: string): Promise<EmailTemplateCopy> {
     try {
         const projectId = String(ApiConfig.getCurrentTeamId())
         const template = await messagingTemplatesRetrieve(projectId, templateId)
         if (template.sensitive) {
             lemonToast.warning(`The workflow opens without the email. ${SENSITIVE_REASON}`)
-            return null
+            return { template: null, outcome: 'sensitive' }
         }
         // Only a transactional template may become a step that sends past marketing opt-outs. A template moved to a
         // marketing category keeps its workflow, so its category is checked too, as the send API does.
         if (!template.transactional_hog_flow_id || !template.content?.email) {
-            return null
+            return { template: null, outcome: 'not_transactional' }
         }
         const category = template.message_category
             ? await messagingCategoriesRetrieve(projectId, template.message_category)
@@ -262,12 +274,12 @@ async function loadEmailTemplate(templateId: string | undefined): Promise<Messag
             lemonToast.warning(
                 'The workflow opens without the email. Move the template to a transactional category to copy it.'
             )
-            return null
+            return { template: null, outcome: 'marketing_category' }
         }
-        return template
+        return { template, outcome: 'copied' }
     } catch {
         lemonToast.warning("Couldn't load the email template. Add an email step to the workflow yourself.")
-        return null
+        return { template: null, outcome: 'load_failed' }
     }
 }
 
