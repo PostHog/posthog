@@ -42,7 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # Application definition
 
 # TODO: Automatically generate these like we do for the frontend
-# NOTE: Add these definitions here and on `tach.toml`
+# NOTE: `hogli product:bootstrap` adds a new product here; hoglint needs no per-product entry
 PRODUCTS_APPS = [
     "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
