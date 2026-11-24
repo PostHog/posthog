@@ -375,6 +375,14 @@ describe('sceneLogic', () => {
         ['/data-pipelines/transformations', urls.transformations()],
         ['/data-pipelines/batch-exports', urls.destinations('batch')],
         ['/data-pipelines/new/destination', urls.dataPipelinesNew('destination')],
+        ['/messaging', urls.workflows()],
+        ['/messaging/campaigns', urls.workflows()],
+        ['/messaging/opt-outs', urls.workflows('opt-outs')],
+        ['/messaging/broadcasts', urls.broadcasts()],
+        [
+            '/messaging/broadcasts/01a1f39d-0000-7000-8000-000000000001',
+            urls.broadcast('01a1f39d-0000-7000-8000-000000000001'),
+        ],
     ])('redirects the unrouted %s to %s instead of a 404', async (path, expected) => {
         router.actions.push(path)
         await expectLogic(logic).delay(1)

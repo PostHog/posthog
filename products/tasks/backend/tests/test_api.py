@@ -114,6 +114,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     reset_task_run_stream,
 )
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
@@ -8754,6 +8755,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("written", {}, {"state": {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"}}, None),
+            (
+                "removed",
+                {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"},
+                {"state": {}, "state_remove_keys": [ENDED_BY_STALE_SWEEP_STATE_KEY]},
+                "heartbeat",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_change_the_stale_sweep_mark(self, _name, state, body, kept, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", body, format="json")
+
+        run.refresh_from_db()
+        assert response.status_code == status.HTTP_200_OK
+        assert run.state.get(ENDED_BY_STALE_SWEEP_STATE_KEY) == kept
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
