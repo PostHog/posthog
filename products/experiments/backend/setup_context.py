@@ -73,6 +73,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.variant_distribution import is_evenly_distributed
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
@@ -1084,6 +1085,9 @@ def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) 
     that a funnel or a mean wins over a retention or a ratio: only their sample counts are the
     analyzed population, which is the fact the outcome exists to carry.
     """
+    # A warehouse-native result goes only to a reader who can read its connection, and this section has no reader.
+    if warehouse_native_exposure_config(experiment.exposure_criteria) is not None:
+        return None
     candidates = [
         OutcomeMetric(
             calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])

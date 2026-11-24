@@ -23,6 +23,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -31,6 +32,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.facade import (
     api,
@@ -65,6 +67,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 PAGEVIEW_EXPOSURE = {
     "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "$pageview", "properties": []}
@@ -565,7 +568,9 @@ _CHECKOUT = {"kind": "EventsNode", "event": "checkout"}
 
 
 class TestGetStoredPrimaryResult(BaseTest):
-    def _stored(self, metric: dict, stats_config: dict, baseline_sum: int) -> StoredPrimaryResult | None:
+    def _stored(
+        self, metric: dict, stats_config: dict, baseline_sum: int, exposure_criteria: dict | None = None
+    ) -> StoredPrimaryResult | None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
         experiment = Experiment.objects.create(
             team=self.team,
@@ -573,6 +578,7 @@ class TestGetStoredPrimaryResult(BaseTest):
             name="stored result",
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
             stats_config=stats_config,
+            exposure_criteria=exposure_criteria,
             metrics=[{"uuid": "m1", "kind": "ExperimentMetric", "name": "Checkout", "goal": "decrease", **metric}],
         )
         ExperimentMetricResult.objects.create(
@@ -598,7 +604,7 @@ class TestGetStoredPrimaryResult(BaseTest):
                 ],
             },
         )
-        return api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk)
+        return api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk, user_id=self.user.pk)
 
     @parameterized.expand(
         [
@@ -617,6 +623,54 @@ class TestGetStoredPrimaryResult(BaseTest):
         assert result.baseline.mean == pytest.approx(baseline_sum / 100)
         assert (result.variants[0].mean, result.variants[0].significant) == (0.3, True)
         assert result.variants[0].change == (None if change is None else pytest.approx(change))
+
+    def test_a_warehouse_native_result_goes_only_to_a_reader_of_its_connection(self) -> None:
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        unit = {"unit_type": "customer", "id_namespace": "crm"}
+        source = {
+            "kind": "ExperimentWarehouseNativeNode",
+            "connection_id": str(connection.id),
+            "query": "SELECT customer_id AS entity_id, paid_at AS timestamp FROM payments",
+            "unit": unit,
+            "math": "total",
+        }
+        exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentWarehouseNativeExposureConfig",
+                "connection_id": str(connection.id),
+                "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                "unit": unit,
+            },
+            "filterTestAccounts": False,
+        }
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            assert self._stored({"metric_type": "mean", "source": source}, {}, 20, exposure_criteria) is not None
+            experiment_id = Experiment.objects.get(name="stored result").pk
+            # No reader, as in a background job, means no result.
+            assert (
+                api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment_id, user_id=None) is None
+            )
+
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+            assert (
+                api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment_id, user_id=self.user.pk)
+                is None
+            )
 
     def test_returns_nothing_for_absolute_differences(self) -> None:
         stats_config = {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}}

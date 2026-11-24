@@ -115,7 +115,9 @@ def find_experiment_number(context: HighlightContext) -> HighlightFindings:
     for experiment in running:
         if f"{NUMBER_PREFIX}{experiment.id}" in context.hidden:
             continue
-        result = get_stored_primary_result(team_id=context.team.id, experiment_id=experiment.id)
+        result = get_stored_primary_result(
+            team_id=context.team.id, experiment_id=experiment.id, user_id=context.user.id
+        )
         number = _number(experiment, result) if result is not None else None
         if number is not None:
             return HighlightFindings(pulse=(number,))
