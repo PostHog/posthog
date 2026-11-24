@@ -203,6 +203,7 @@ def _fork_description(**overrides):
         "source_thread_ts": "1.000",
         "source_message_ts": "2.000",
         "permalink": "https://slack.test/archives/C1/p1",
+        "message_permalink": "https://slack.test/archives/C1/p2",
         "source_task_id": None,
         "source_task_url": None,
         "replying_in_dm": True,
@@ -210,12 +211,12 @@ def _fork_description(**overrides):
     return _build_fork_task_description(**{**kwargs, **overrides})
 
 
-def test_fork_description_links_the_thread_instead_of_copying_it():
+def test_fork_description_links_the_thread_and_the_fork_point_instead_of_copying_them():
     out = _fork_description()
     # The Slack MCP reads a thread by channel and ts, so both must be there even next to the permalink.
-    assert "https://slack.test/archives/C1/p1 (channel `C1`, thread ts `1.000`)" in out
-    assert "with the Slack MCP" in out
-    assert "`2.000`" in out
+    assert "Thread: https://slack.test/archives/C1/p1 (channel `C1`, thread ts `1.000`)." in out
+    assert "Fork point: https://slack.test/archives/C1/p2 (message ts `2.000`). Continue from that message." in out
+    assert "Read the thread up to and including the fork point with the Slack MCP" in out
     assert "a private DM with the requester" in out
     assert "Never ping the people from the forked thread" in out
     assert out.rstrip().endswith("ask the requester what to do next.")
@@ -234,9 +235,10 @@ def test_fork_description_points_at_the_forked_threads_task_only_when_there_is_o
     assert ("PostHog task" in out) is names_task
 
 
-def test_fork_description_without_a_permalink_still_locates_the_thread():
-    out = _fork_description(permalink=None, replying_in_dm=False)
-    assert "continue it: channel `C1`, thread ts `1.000`." in out
+def test_fork_description_without_permalinks_still_locates_the_thread_and_the_fork_point():
+    out = _fork_description(permalink=None, message_permalink=None, replying_in_dm=False)
+    assert "Thread: channel `C1`, thread ts `1.000`." in out
+    assert "Fork point: message ts `2.000`." in out
     assert "a new thread in another channel" in out
 
 

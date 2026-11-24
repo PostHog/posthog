@@ -60,9 +60,9 @@ class TestForkThreadPayload(TestCase):
             "channel": "D_ALICE" if kwargs["channel"] == "U_ALICE" else kwargs["channel"],
             "ts": "999.1",
         }
-        slack.client.chat_getPermalink.return_value = {
+        slack.client.chat_getPermalink.side_effect = lambda **kwargs: {
             "ok": True,
-            "permalink": "https://slack.test/archives/C_SOURCE/p111",
+            "permalink": f"https://slack.test/archives/{kwargs['channel']}/p{kwargs['message_ts'].replace('.', '')}",
         }
         return slack
 
@@ -93,7 +93,6 @@ class TestForkThreadPayload(TestCase):
         event = start.call_args.args[0]
         assert (event["channel"], event["thread_ts"], event["channel_type"]) == ("D_ALICE", "999.1", "im")
         assert event["user"] == "U_ALICE"
-        assert event["text"] == "Fork: The retry loop double-counts on 429s"
         kwargs = start.call_args.kwargs
         assert kwargs["posthog_user"] == self.user
         assert (kwargs["fork_source_channel"], kwargs["fork_source_thread_ts"]) == ("C_SOURCE", "111.1")
@@ -111,31 +110,52 @@ class TestForkThreadPayload(TestCase):
         event = start.call_args.args[0]
         assert (event["channel"], event["thread_ts"], event["channel_type"]) == ("C_TARGET", "999.1", "channel")
         assert start.call_args.kwargs["fork_source_channel"] == "C_SOURCE"
+        # The channel did not see the click, so the seed says who forked.
+        footer = slack.client.chat_postMessage.call_args.kwargs["blocks"][1]["elements"][0]["text"]
+        assert footer.startswith("Forked by <@U_ALICE> · ")
 
-    def test_the_seed_is_titled_after_the_thread_and_links_back_to_it(self):
+    def test_the_seed_links_the_forked_message_and_the_thread(self):
         slack = self._slack_mock()
 
         self._run(self._payload(), slack)
 
         blocks = slack.client.chat_postMessage.call_args.kwargs["blocks"]
-        assert ":thread: *The retry loop double-counts on 429s*" in blocks[0]["text"]["text"]
-        assert "more detail here" not in blocks[0]["text"]["text"]
+        # The reply the menu hung off (111.2), not the thread root (111.1): that is where the reader forked.
+        assert (
+            "Continuing from <https://slack.test/archives/C_SOURCE/p1112|this message> in <#C_SOURCE>"
+            in blocks[0]["text"]["text"]
+        )
         assert blocks[1]["type"] == "context"
-        origin = blocks[1]["elements"][0]["text"]
-        assert "Forked from <https://slack.test/archives/C_SOURCE/p111|this thread>" in origin
-        assert "<#C_SOURCE>" in origin
+        footer = blocks[1]["elements"][0]["text"]
+        assert "<https://slack.test/archives/C_SOURCE/p1111|Open thread>" in footer
+        assert "Forked by" not in footer
 
-    @parameterized.expand([("no_text", {"messages": [{"ts": "111.1"}]}), ("unreadable", None)])
-    def test_a_thread_with_no_readable_opening_still_gets_a_title(self, _name, replies):
-        slack = self._slack_mock(readable=replies is not None)
-        if replies is not None:
-            slack.client.conversations_replies.return_value = replies
+    @parameterized.expand(
+        [
+            (
+                "first_line",
+                {"ts": "111.1", "text": "The retry loop double-counts on 429s\nmore detail here"},
+                "The retry loop double-counts on 429s",
+            ),
+            (
+                "leading_mention_dropped",
+                {"ts": "111.1", "text": "<@UBOT123> give me a joke please"},
+                "give me a joke please",
+            ),
+            ("no_text", {"ts": "111.1"}, "Slack thread"),
+            ("unreadable", None, "Slack thread"),
+        ]
+    )
+    def test_the_seed_and_the_task_are_titled_after_the_opening_message(self, _name, root, title):
+        slack = self._slack_mock(readable=root is not None)
+        if root is not None:
+            slack.client.conversations_replies.return_value = {"messages": [root]}
 
         _, start = self._run(self._payload(), slack)
 
-        blocks = slack.client.chat_postMessage.call_args.kwargs["blocks"]
-        assert ":thread: *Slack thread*" in blocks[0]["text"]["text"]
-        start.assert_called_once()
+        section = slack.client.chat_postMessage.call_args.kwargs["blocks"][0]["text"]["text"]
+        assert section.startswith(f":thread: *{title}*\n")
+        assert start.call_args.args[0]["text"] == f"Fork: {title}"
 
     def test_nothing_is_posted_into_the_source_channel(self):
         slack = self._slack_mock()

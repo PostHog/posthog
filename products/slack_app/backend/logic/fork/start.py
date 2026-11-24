@@ -3,6 +3,7 @@
 See ``products.slack_app.backend.temporal.slack_app_fork`` for what a fork is.
 """
 
+import re
 from typing import Any
 
 import structlog
@@ -13,6 +14,7 @@ logger = structlog.get_logger(__name__)
 
 # Long enough to recognise the thread, short enough to stay one line in the seed message.
 _TITLE_LIMIT = 120
+_LEADING_MENTIONS = re.compile(r"^(?:\s*<@[A-Z0-9]+(?:\|[^>]*)?>)+")
 
 _SEED_UNAVAILABLE = (
     "I couldn't set that up. You don't seem to have a PostHog account matching your Slack email, "
@@ -79,8 +81,6 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
     # Forking a reply forks the discussion it belongs to, not the single message:
     # "sidebar off this" always means the thread.
     source_thread_ts = message.get("thread_ts") or message.get("ts")
-    # The reply the menu hangs off, so the agent knows how far the reader had read.
-    source_message_ts = message.get("ts") or source_thread_ts
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
     response_url = payload.get("response_url")
@@ -94,6 +94,9 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
             has_team=bool(slack_team_id),
         )
         return
+
+    # The reply the menu hangs off, so the agent knows how far the reader had read.
+    source_message_ts = message.get("ts") or source_thread_ts
 
     logger.info(
         "slack_app_fork_requested",
@@ -216,19 +219,29 @@ def start_fork(payload: dict[str, Any], *, target_channel: str | None = None) ->
     )
     source_task_id = str(source_task) if source_task else None
 
-    permalink = thread_permalink(slack, source_channel, source_thread_ts)
+    thread_link = thread_permalink(slack, source_channel, source_thread_ts)
+    # The reply the menu hung off, not the thread root: the reader forked at that point
+    # and expects the link to open there.
+    message_link = (
+        thread_link
+        if source_message_ts == source_thread_ts
+        else thread_permalink(slack, source_channel, source_message_ts)
+    )
     title = _fork_title(_read_thread_root(slack, source_channel, source_thread_ts) or {})
-    thread_link = f"<{permalink}|this thread>" if permalink else "a thread"
-    origin = f"Forked from {thread_link} in <#{source_channel}>"
+    fork_point = f"<{message_link}|this message>" if message_link else "the thread"
+    body = f"Continuing from {fork_point} in <#{source_channel}>. I'm reading the thread up to there first."
+    footer: list[str] = []
     if target_channel:
-        origin = f"{origin} by <@{slack_user_id}>"
+        footer.append(f"Forked by <@{slack_user_id}>")
+    if thread_link:
+        footer.append(f"<{thread_link}|Open thread>")
     if source_task_id:
-        origin = f"{origin} · <{project_web_url(integration.team_id)}/tasks/{source_task_id}|Original task>"
-    body = "I'm reading the thread and continuing from where it stopped."
-    seed_blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f":thread: *{title}*\n{body}"}},
-        context_block(origin),
+        footer.append(f"<{project_web_url(integration.team_id)}/tasks/{source_task_id}|Original task>")
+    seed_blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f":thread: *{title}*\n{body}"}}
     ]
+    if footer:
+        seed_blocks.append(context_block(" · ".join(footer)))
     destination = target_channel or slack_user_id
 
     try:
@@ -355,9 +368,10 @@ def _fork_title(root: dict[str, Any]) -> str:
         text = extract_message_text(root)
     except Exception:
         text = (root.get("text") or "").strip()
-    first_line = next(
-        (line.strip() for line in labeled_mentions_to_display_names(text).splitlines() if line.strip()), ""
-    )
+    # A thread that opens with "@PostHog do X" is named after the ask, not the tag. The
+    # seed message would otherwise repeat the mention as a chip in front of the title.
+    lines = (_LEADING_MENTIONS.sub("", line).strip() for line in text.splitlines())
+    first_line = next((labeled_mentions_to_display_names(line) for line in lines if line), "")
     if not first_line:
         return "Slack thread"
     return first_line if len(first_line) <= _TITLE_LIMIT else first_line[: _TITLE_LIMIT - 1].rstrip() + "…"
