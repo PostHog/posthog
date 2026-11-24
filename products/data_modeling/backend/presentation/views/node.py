@@ -3,7 +3,6 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db import models, transaction
-from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
@@ -38,7 +37,12 @@ from products.data_modeling.backend.facade.api import (
     endpoint_link,
     failing_model_count,
     get_declared_target,
+    get_node,
+    get_posthog_table_node,
     is_declared_pin,
+    list_edges,
+    list_lineage_nodes,
+    list_nodes,
     load_node_descriptions,
     node_lineage,
     node_lineage_counts,
@@ -50,14 +54,13 @@ from products.data_modeling.backend.facade.api import (
     set_watching,
     suspension_state,
     unsuspend_nodes,
+    visible_node_ids_for_saved_query,
     watched_node_ids,
     write_node_description,
 )
 from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
 from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
-    DataModelingJob,
-    DataModelingJobEngine,
     DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
@@ -620,29 +623,6 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
     return nodes
 
 
-def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
-    """Annotate the run state a reader is asking about: the newest ClickHouse job.
-
-    Managed warehouse jobs can shadow a serving run and finish after it, so a shadow failure would
-    otherwise label a model that served fine as failed.
-    """
-    serving_jobs = DataModelingJob.objects.filter(
-        saved_query_id=OuterRef("saved_query_id"), engine=DataModelingJobEngine.CLICKHOUSE
-    ).order_by("-last_run_at")
-    return queryset.annotate(
-        _has_serving_job=Exists(serving_jobs),
-        _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
-        _latest_job_error=Subquery(serving_jobs.values("error")[:1]),
-        _latest_job_run_at=Subquery(
-            serving_jobs.filter(status=DataModelingJob.Status.COMPLETED).values("last_run_at")[:1]
-        ),
-    )
-
-
-def _node_queryset_with_latest_job() -> models.QuerySet:
-    return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
-
-
 class NodeAttentionCountSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
@@ -720,9 +700,12 @@ class NodeViewSet(
             resolved = saved_query_target_bounds(self.team_id, node.saved_query_id)
         if resolved is None:
             return {}
-        dag_ids = Node.objects.filter(team_id=self.team_id, saved_query_id=node.saved_query_id).values("dag_id")
-        listed = self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, dag_id__in=dag_ids))
-        listed_ids = {str(node_id) for node_id in listed.values_list("id", flat=True)}
+        listed_ids = {
+            str(node_id)
+            for node_id in visible_node_ids_for_saved_query(
+                self.team, self.user_access_control, saved_query_id=node.saved_query_id
+            )
+        }
         return {node_id: name for node_id, name in self._readable_node_names(resolved).items() if node_id in listed_ids}
 
     @extend_schema(responses=NodeFrequencyBoundsSerializer)
@@ -775,33 +758,26 @@ class NodeViewSet(
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
         delete_node(instance.team_id, instance.pk)
 
-    def safely_get_object(self, queryset: models.QuerySet) -> Node:
+    def read_object(self) -> Node | None:
         lookup = self.request.query_params.get("lookup")
-        if not lookup:
-            node = queryset.filter(pk=self.kwargs["pk"]).first()
-        elif lookup == NodeLookup.SAVED_QUERY:
-            node = queryset.filter(saved_query_id=self.kwargs["pk"]).order_by("created_at").first()
-        elif lookup == NodeLookup.WAREHOUSE_TABLE:
-            node = queryset.filter(properties__warehouse_table_id=self.kwargs["pk"]).order_by("created_at").first()
-        elif lookup == NodeLookup.POSTHOG_TABLE:
-            node = (
-                queryset.filter(
-                    name=self.kwargs["pk"],
-                    type=NodeType.TABLE,
-                    saved_query__isnull=True,
-                    properties__origin="posthog",
-                )
-                .order_by("created_at")
-                .first()
-            )
-        elif lookup == NodeLookup.METRIC:
-            node = queryset.filter(metric_id=self.kwargs["pk"]).order_by("created_at").first()
-        else:
+        if lookup and lookup not in NodeLookup.values:
             raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
-
-        if node is None:
-            raise NotFound()
-        return node
+        # An unwatch must reach a hidden node so a user who lost access can still opt out. The write rejects deleted views.
+        include_hidden = self.action == "unwatch"
+        if lookup == NodeLookup.POSTHOG_TABLE:
+            return get_posthog_table_node(
+                self.team,
+                self.user_access_control,
+                name=self.kwargs["pk"],
+                include_hidden=include_hidden,
+            )
+        return get_node(
+            self.team,
+            self.user_access_control,
+            node_id=self.kwargs["pk"],
+            lookup=lookup,
+            include_hidden=include_hidden,
+        )
 
     @extend_schema(
         parameters=[
@@ -822,9 +798,10 @@ class NodeViewSet(
     def list(self, request, *args, **kwargs):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        nodes = page if page is not None else queryset
+        search_terms = filters.SearchFilter().get_search_terms(request)
+        listed = list_nodes(self.team, self.user_access_control, search_terms=search_terms)
+        page = self.paginate_queryset(listed)
+        nodes = page if page is not None else listed
 
         node_ids = [str(n.id) for n in nodes]
         counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
@@ -835,15 +812,6 @@ class NodeViewSet(
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return response.Response(serializer.data)
-
-    def safely_get_queryset(self, queryset):
-        if self.action == "unwatch":
-            # Hidden nodes stay unwatchable, so someone who lost access to a metric or view can still opt out.
-            # `set_watching` rejects a deleted view.
-            return queryset.filter(team_id=self.team_id)
-        return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
-            self.ordering
-        )
 
     @extend_schema(
         request=NodeRunSerializer,
@@ -947,23 +915,27 @@ class NodeViewSet(
 
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
-        node = (
-            self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, **lookup))
-            .order_by("created_at")
-            .first()
+        lookup_field, lookup_value = next(iter(lookup.items()))
+        node = get_node(
+            self.team,
+            self.user_access_control,
+            node_id=lookup_value,
+            lookup={"saved_query_id": "saved_query", "metric_id": "metric"}.get(lookup_field),
         )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
         lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
 
-        nodes = self._exclude_hidden_nodes(
-            _node_queryset_with_latest_job().filter(id__in=lineage.node_ids, team_id=self.team_id)
+        nodes = list_lineage_nodes(
+            self.team,
+            self.user_access_control,
+            node_ids=lineage.node_ids,
         )
-        edges = self._exclude_hidden_edges(
-            Edge.objects.select_related("source", "target", "dag").filter(
-                team_id=self.team_id, source_id__in=lineage.node_ids, target_id__in=lineage.node_ids
-            )
+        edges = list_edges(
+            self.team,
+            self.user_access_control,
+            node_ids=lineage.node_ids,
         )
 
         return response.Response(

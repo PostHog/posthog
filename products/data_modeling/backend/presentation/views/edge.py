@@ -1,11 +1,11 @@
 from typing import Any, cast
 
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, response, serializers, viewsets
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, get_edge, list_edges
 from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import (
     DELETE_DENIED,
@@ -102,7 +102,14 @@ class EdgeViewSet(
         instance.delete()
         delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
-    def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            queryset = queryset.select_related(None)
-        return self._exclude_hidden_edges(queryset.filter(team_id=self.team_id)).order_by(self.ordering)
+    def list(self, request, *args, **kwargs):
+        listed = list_edges(self.team, self.user_access_control)
+        page = self.paginate_queryset(listed)
+        edges = page if page is not None else listed
+        serializer = self.get_serializer(edges, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
+
+    def read_object(self) -> Edge | None:
+        return get_edge(self.team, self.user_access_control, edge_id=self.kwargs["pk"])

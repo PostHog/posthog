@@ -2,13 +2,11 @@ from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
-
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.api import managed_views_hidden, metric_nodes_hidden
+from products.data_modeling.backend.facade.api import metric_nodes_hidden
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, NodeType
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
@@ -106,25 +104,3 @@ class MetricNodeVisibilityMixin:
 
     def _hidden_node_types(self) -> frozenset[str]:
         return frozenset({NodeType.METRIC}) if self._metric_nodes_hidden() else frozenset()
-
-    def _managed_views_hidden(self) -> bool:
-        return managed_views_hidden(self.team)
-
-    def _exclude_hidden_nodes(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.exclude(saved_query__deleted=True)
-        if self._managed_views_hidden():
-            queryset = queryset.exclude(saved_query__managed_viewset__isnull=False)
-        if self._metric_nodes_hidden():
-            return queryset.exclude(type=NodeType.METRIC)
-        return queryset
-
-    def _exclude_hidden_edges(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.exclude(Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True))
-        if self._managed_views_hidden():
-            queryset = queryset.exclude(
-                Q(source__saved_query__managed_viewset__isnull=False)
-                | Q(target__saved_query__managed_viewset__isnull=False)
-            )
-        if self._metric_nodes_hidden():
-            return queryset.exclude(Q(source__type=NodeType.METRIC) | Q(target__type=NodeType.METRIC))
-        return queryset

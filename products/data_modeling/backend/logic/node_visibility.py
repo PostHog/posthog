@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from products.data_modeling.backend.facade.enums import NodeType
 from products.data_modeling.backend.logic.flags import is_managed_viewset_enabled
@@ -25,4 +25,16 @@ def exclude_hidden_nodes(queryset: QuerySet, team: "Team", user_access_control: 
         queryset = queryset.exclude(saved_query__managed_viewset__isnull=False)
     if metric_nodes_hidden(user_access_control):
         return queryset.exclude(type=NodeType.METRIC)
+    return queryset
+
+
+def exclude_hidden_edges(queryset: QuerySet, team: "Team", user_access_control: "UserAccessControl") -> QuerySet:
+    queryset = queryset.exclude(Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True))
+    if managed_views_hidden(team):
+        queryset = queryset.exclude(
+            Q(source__saved_query__managed_viewset__isnull=False)
+            | Q(target__saved_query__managed_viewset__isnull=False)
+        )
+    if metric_nodes_hidden(user_access_control):
+        return queryset.exclude(Q(source__type=NodeType.METRIC) | Q(target__type=NodeType.METRIC))
     return queryset

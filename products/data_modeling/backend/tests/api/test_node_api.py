@@ -1242,6 +1242,52 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
         self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
         self.assertEqual(len(payload["edges"]) == 1, expected_visible)
 
+    def test_attention_count_matches_the_visible_failing_nodes(self):
+        self._catalog_access("none")
+
+        def fail(saved_query: DataWarehouseSavedQuery) -> None:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.FAILED,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=timezone.now(),
+            )
+
+        fail(self.view_node.saved_query)
+        self.metric_node.properties = {"system": {"last_run_status": DataModelingJob.Status.FAILED}}
+        self.metric_node.save(update_fields=["properties"])
+
+        deleted_query = DataWarehouseSavedQuery.objects.create(
+            name="deleted_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            deleted=True,
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=deleted_query, type=NodeType.VIEW)
+        fail(deleted_query)
+
+        managed_query = DataWarehouseSavedQuery.objects.create(
+            name="managed_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            managed_viewset=_managed_viewset(self.team),
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=managed_query, type=NodeType.VIEW)
+        fail(managed_query)
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            listed = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/")
+            attention = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/attention_count/")
+
+        failing_nodes = [
+            node
+            for node in listed.json()["results"]
+            if node["last_run_status"] == DataModelingJob.Status.FAILED or node["suspended"]
+        ]
+        self.assertEqual({node["id"] for node in failing_nodes}, {str(self.view_node.id)})
+        self.assertEqual(attention.json()["count"], len(failing_nodes))
+
 
 @pytest.mark.ee
 class TestNodeDescription(APIBaseTest):
