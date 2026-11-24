@@ -1675,104 +1675,34 @@ filters:
         - 'posthog/hogql/**'
         - 'posthog/clickhouse/**'
         - 'common/hogvm/**'
-    selfDrivingWorker:
+    videoExportWorker:
         - *sharedWorkerBase
-        - products/signals/backend/temporal/__init__.py
-        - 'products/signals/backend/ranking/**'
-        - 'products/signals/backend/personal_ranking/**'
-        - 'products/signals/backend/activity_summary/**'
-        - 'products/signals/backend/anomaly_scores/**'
-        - products/signals/backend/models.py
-        - products/signals/backend/contracts.py
-        - products/signals/backend/enums.py
-        - products/signals/backend/artefact_schemas.py
-        - products/signals/backend/artefact_attribution.py
-        - products/signals/backend/signal_metadata.py
-        - products/signals/backend/report_embedding_reader.py
-        - products/signals/backend/report_embeddings.py
-        - products/signals/backend/report_sources_reader.py
-        - products/signals/backend/report_priority.py
-        - products/signals/backend/report_lifecycle.py
-        - products/signals/backend/report_content_gates.py
-        - products/signals/backend/report_claims.py
-        - products/signals/backend/briefing_reports.py
-        - products/signals/backend/suggested_reviewer_index.py
-        - products/signals/backend/implementation_pr.py
-        - products/signals/backend/task_run_artefacts.py
-        - products/signals/backend/org_rollout.py
-        - products/signals/backend/personal_ranking_tasks.py
-        - products/signals/backend/facade/api.py
-        - products/signals/backend/scout_harness/team_limits.py
-        - products/signals/backend/scout_harness/precheck.py
-        - products/signals/backend/scout_harness/limits.py
-        - 'products/autoresearch/backend/temporal/**'
-        - 'products/autoresearch/backend/inference/**'
-        - 'products/autoresearch/backend/evaluation/**'
-        - 'products/autoresearch/backend/training/**'
-        - '!products/autoresearch/backend/*/test_*.py'
-        - products/autoresearch/backend/dataset/labeling.py
-        - products/autoresearch/backend/access.py
-        - products/autoresearch/backend/limits.py
-        - products/autoresearch/backend/query.py
-        - products/autoresearch/backend/models.py
-        - products/autoresearch/backend/signals.py
-        - products/autoresearch/backend/task_profiles.py
-        - 'products/tasks/backend/**'
-        - 'products/posthog_ai/backend/task_ownership.py'
-        - products/actions/backend/facade/api.py
-        - products/actions/backend/facade/contracts.py
-        - products/actions/backend/logic/actions.py
-        - 'products/actions/backend/models/**'
-        - products/replay_vision/backend/facade/api.py
-        - products/replay_vision/backend/models/replay_scanner.py
-        - products/dashboards/backend/facade/api.py
-        - products/dashboards/backend/facade/contracts.py
-        - products/dashboards/backend/models/dashboard.py
-        - products/dashboards/backend/models/dashboard_tile.py
-        - 'products/product_analytics/backend/facade/**'
-        - products/product_analytics/backend/logic.py
-        - 'products/product_analytics/backend/models/**'
-        - 'products/product_analytics/backend/hogql_queries/**'
-        - products/alerts/backend/facade/api.py
-        - products/alerts/backend/models/alert.py
-        - products/alerts_platform/backend/facade/api.py
-        - products/alerts_platform/backend/facade/enums.py
-        - products/alerts_platform/backend/facade/scheduling.py
-        - products/alerts_platform/backend/logic/platform_reads.py
-        - products/subscriptions/backend/facade/api.py
-        - products/subscriptions/backend/logic/queries.py
-        - products/access_control/backend/property_access_control.py
-        - products/access_control/backend/facade/user_access_control.py
-        - products/access_control/backend/facade/property_access.py
-        - products/access_control/backend/facade/contracts.py
-        - 'products/access_control/backend/models/**'
-        - 'products/warehouse_sources/backend/models/**'
-        - products/warehouse_sources/backend/facade/models.py
-        - products/error_tracking/backend/indexed_embedding.py
-        - ee/billing/quota_limiting.py
-        - posthog/api/capture.py
-        - posthog/api/embedding_worker.py
-        - posthog/api/services/query.py
-        - 'posthog/tasks/alerts/detectors/**'
-        - '!posthog/tasks/alerts/detectors/test/**'
-        - posthog/tasks/alerts/utils.py
-        - 'posthog/schema_migrations/**'
-        - '!posthog/schema_migrations/test/**'
-        - posthog/sync.py
-        - posthog/schema.py
-        - posthog/errors.py
-        - posthog/permissions.py
-        - posthog/event_usage.py
-        - posthog/interval_specs.py
-        - posthog/token_bucket.py
-        - posthog/helpers/encrypted_fields.py
-        - posthog/scheduling/jitter.py
-        - posthog/security/outbound_proxy.py
-        - posthog/llm/gateway_client.py
-        - posthog/llm/openai_flex.py
-        - 'posthog/hogql/**'
-        - 'posthog/hogql_queries/**'
-        - 'posthog/clickhouse/**'
+        - 'products/{signals,customer_analytics,conversations,business_knowledge,review_hog,knowledge_writer}/backend/**'
+        - 'products/*/skills/**'
+        - 'products/knowledge_writer/merge_check/**'
+        - 'products/{tasks,skills,notifications,slack_app,mcp_store}/backend/**'
+        - 'products/{access_control,product_analytics,error_tracking,warehouse_sources}/backend/**'
+        - 'products/{engineering_analytics,revenue_analytics,marketing_analytics,web_analytics}/backend/{facade,logic,views,hogql_queries,services}/**'
+        - 'products/{data_quality,data_catalog,data_warehouse,data_modeling,managed_warehouse,warehouse_suggestions}/backend/**'
+        - 'products/{workflows,analytics_platform,alerts,alerts_platform,actions,event_definitions,ml_inference}/backend/**'
+        - 'posthog/{caching,query_scan,security,entitlements,ownership,slo,comment,github,taxonomy}/**'
+        - 'posthog/{hogql,hogql_queries,clickhouse,query_cache,schema_migrations}/**'
+        - 'posthog/{llm,integrations,credentials_service,egress,slack}/**'
+        - 'products/{canvas,cdp,cohorts,data_tools,endpoints,feature_flags}/backend/{*.py,{facade,models,logic}/**}'
+        - 'products/{mcp_analytics,posthog_ai,replay_vision,stamphog,subscriptions}/backend/{*.py,{facade,models,logic,tasks}/**}'
+        - 'posthog/*.py'
+        - 'posthog/{api/{element,id_jag,person,utils},tasks/{alerts/utils,usage_report}}.py'
+        - 'posthog/{helpers,session_recordings,temporal/entitlement_reactions}/**'
+        - 'posthog/api/{capture,embedding_worker}.py'
+        - 'posthog/api/services/query.py'
+        - 'posthog/temporal/oauth.py'
+        - 'common/hogvm/**'
+        - 'ee/billing/**'
+        - 'services/mcp/schema/*tool-definitions.json'
+        - '!products/*/backend/**/{test,tests}/**'
+        - '!products/*/backend/**/test_*.py'
+        - '!products/*/backend/**/conftest.py'
+        - '!posthog/{hogql,hogql_queries,schema_migrations}/**/{test,tests}/**'
     maxAiWorker:
         - *sharedWorkerBase
         - 'posthog/temporal/ai/**'
@@ -1999,6 +1929,8 @@ filters:
         - '!posthog/schema_migrations/test/**'
         - 'posthog/taxonomy/**'
         - 'posthog/integrations/**'
+        - 'posthog/slack/**'
+        - '!posthog/slack/test/**'
         - 'posthog/credentials_service/**'
         - 'posthog/hogql/**'
         - 'posthog/hogql_queries/**'
@@ -2080,11 +2012,11 @@ images:
                 repository: posthog-temporal-workers/error-tracking-lifecycle
                 filter: errorTrackingLifecycleWorker
                 bootstrapPolicyDigest: 157e72a64fd1c56ba6ccb71ff206cbd0fa1971e55158ded6d7711411d8266d27
-            self-driving:
-                repository: posthog-temporal-workers/self-driving
-                filter: selfDrivingWorker
-                bootstrapPolicyDigest: 8594ffaa0694d5e5d766de8c76386e6ef9645b9e3a58e983160982345464b551
+            video-export:
+                repository: posthog-temporal-workers/video-export
+                filter: videoExportWorker
+                bootstrapPolicyDigest: 4033c9c6d4366c08cd9c3d7e6893129d884d5082f2a5eb481649a217ced3967e
             max-ai:
                 repository: posthog-temporal-workers/max-ai
                 filter: maxAiWorker
-                bootstrapPolicyDigest: e9fa6b1d5bb6cf0c91ef440fea23f7e174ffd77d6750d548e193cb724f1fd978
+                bootstrapPolicyDigest: 7d64e1d70fb5f37de792767842663df0e6e307a129fdad8c5884438261e93aab
