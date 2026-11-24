@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import httpx
 
-from posthog.dags.common.favicons import download_favicon, get_last_cached_domains, upload_if_missing
+from posthog.dags.common.favicons import DownloadedFavicon, download_favicon, get_last_cached_domains, upload_if_missing
 
 from products.web_analytics.dags.cache_favicons import get_authorized_domains
 
@@ -126,17 +126,16 @@ class TestDownloadFavicon:
             )
 
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-            domain, data, content_type, source_url = download_favicon(Mock(), "example.com", client)
+            favicon = download_favicon(Mock(), "example.com", client)
 
-        assert domain == "example.com"
-        assert data == expected_data
         assert requested_hosts == expected_hosts
         if expected_data is None:
-            assert (content_type, source_url) == (None, None)
+            assert favicon is None
         else:
-            assert content_type == "image/png"
-            assert source_url is not None
-            assert httpx.URL(source_url).host == expected_data.decode()
+            assert favicon is not None
+            assert favicon.data == expected_data
+            assert favicon.content_type == "image/png"
+            assert httpx.URL(favicon.source_url).host == expected_data.decode()
 
 
 class TestUploadIfMissing:
@@ -186,7 +185,7 @@ class TestCacheFaviconsAsset:
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
         mock_get_cached.return_value = {"cached.com"}
-        mock_download.return_value = ("new.com", b"data", "image/png", "http://url")
+        mock_download.return_value = DownloadedFavicon(data=b"data", content_type="image/png", source_url="http://url")
 
         context = dagster.build_asset_context()
         s3 = Mock()
@@ -216,8 +215,8 @@ class TestCacheFaviconsAsset:
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
         mock_download.side_effect = [
-            ("cached.com", b"data1", "image/png", "http://url1"),
-            ("new.com", b"data2", "image/png", "http://url2"),
+            DownloadedFavicon(data=b"data1", content_type="image/png", source_url="http://url1"),
+            DownloadedFavicon(data=b"data2", content_type="image/png", source_url="http://url2"),
         ]
 
         context = dagster.build_asset_context()
@@ -252,8 +251,8 @@ class TestCacheAuthorizedDomainFaviconsAsset:
         mock_get_authorized.return_value = {"mysite.com", "other.com"}
         mock_get_cached.return_value = set()
         mock_download.side_effect = [
-            ("mysite.com", b"data1", "image/png", "http://url1"),
-            ("other.com", b"data2", "image/png", "http://url2"),
+            DownloadedFavicon(data=b"data1", content_type="image/png", source_url="http://url1"),
+            DownloadedFavicon(data=b"data2", content_type="image/png", source_url="http://url2"),
         ]
 
         context = dagster.build_asset_context()
@@ -284,7 +283,7 @@ class TestCacheAuthorizedDomainFaviconsAsset:
 
         mock_get_authorized.return_value = {"cached.com", "new.com"}
         mock_get_cached.return_value = {"cached.com"}
-        mock_download.return_value = ("new.com", b"data", "image/png", "http://url")
+        mock_download.return_value = DownloadedFavicon(data=b"data", content_type="image/png", source_url="http://url")
 
         context = dagster.build_asset_context()
         s3 = Mock()

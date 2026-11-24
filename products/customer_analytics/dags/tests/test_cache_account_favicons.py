@@ -1,5 +1,7 @@
 from unittest.mock import Mock, patch
 
+from posthog.dags.common.favicons import DownloadedFavicon
+
 
 def _run_account_asset(account_domains, cached=frozenset(), failed=None, time_budget=None):
     import dagster
@@ -27,7 +29,9 @@ def _run_account_asset(account_domains, cached=frozenset(), failed=None, time_bu
             patch(f"{module}.ACCOUNT_FAVICONS_RUN_TIME_BUDGET", time_budget).start()
         mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
         mock_download.side_effect = lambda _context, domain, _client: (
-            (domain, None, None, None) if domain.startswith("missing") else (domain, b"data", "image/png", "http://url")
+            None
+            if domain.startswith("missing")
+            else DownloadedFavicon(data=b"data", content_type="image/png", source_url="http://url")
         )
         try:
             result: dagster.MaterializeResult = cache_account_domain_favicons(context, s3, CacheFaviconsConfig())  # type: ignore[assignment]  # ty: ignore[invalid-assignment]

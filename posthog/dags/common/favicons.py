@@ -11,6 +11,8 @@ import httpx
 import dagster
 from dagster_aws.s3 import S3Resource
 
+from posthog.dataclasses import frozen
+
 
 def get_last_cached_domains(context: dagster.AssetExecutionContext, asset_key: str) -> set[str]:
     last_mat = context.instance.get_latest_materialization_event(dagster.AssetKey([asset_key]))
@@ -28,9 +30,16 @@ class CacheFaviconsConfig(dagster.Config):
     force_refresh: bool = False
 
 
+@frozen
+class DownloadedFavicon:
+    data: bytes
+    content_type: str | None
+    source_url: str
+
+
 def download_favicon(
     context: dagster.AssetExecutionContext, domain: str, client: httpx.Client
-) -> tuple[str, bytes | None, str | None, str | None]:
+) -> DownloadedFavicon | None:
     context.log.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
         f"https://icons.duckduckgo.com/ip3/{domain}.ico",
@@ -42,12 +51,14 @@ def download_favicon(
             resp = client.get(url, timeout=10)
             if resp.status_code == 200 and resp.content:
                 context.log.info(f"Found favicon for {domain} at {url}")
-                return domain, resp.content, resp.headers.get("content-type"), url
+                return DownloadedFavicon(
+                    data=resp.content, content_type=resp.headers.get("content-type"), source_url=url
+                )
         except Exception:
             context.log.exception(f"Failed to download favicon from: {url}")
             continue
 
-    return domain, None, None, None
+    return None
 
 
 def upload_if_missing(context: dagster.AssetExecutionContext, s3_client, bucket, key, data, content_type):
@@ -107,18 +118,18 @@ def download_and_cache_favicons(
                 context.log.info("Time budget spent, leaving the remaining domains for the next run.")
                 return FaviconCacheRun(favicons, all_cached_domains, skipped_count, failed_domains, True)
 
-            domain, data, content_type, source_url = download_favicon(context, domain, client)
-            if data is None:
+            favicon = download_favicon(context, domain, client)
+            if favicon is None:
                 failed_domains.add(domain)
                 continue
 
             key = f"favicons/{domain}"
-            upload_if_missing(context, s3_client, bucket, key, data, content_type)
+            upload_if_missing(context, s3_client, bucket, key, favicon.data, favicon.content_type)
             all_cached_domains.add(domain)
             favicons.append(
                 {
                     "domain": domain,
-                    "source_url": source_url,
+                    "source_url": favicon.source_url,
                     "cached_url": f"s3://{bucket}{key}",
                     "favicon_url": f"/static/favicons/{domain}",
                 }
