@@ -26,11 +26,13 @@ from products.workflows.backend.facade.enums import WorkflowImportNoteLevel
 logger = structlog.get_logger(__name__)
 
 # ASCII only, so a lookalike Unicode host can't match. `_download` checks the host again after unescaping.
-# A parenthesis is part of the URL only as a pair, because a lone one closes a CSS `url(...)`. A quote written as an
-# entity, like `url(&quot;...&quot;)`, ends it too.
+# An unquoted CSS `url(...)` ends at its closing parenthesis, and more CSS can follow. Anywhere else a parenthesis is
+# part of the URL. A quote written as an entity, like `url(&quot;...&quot;)`, ends both.
+_ASSET_HOST = r"https://[a-z0-9-]+\.customeriomail\.com/"
+_AMPERSAND = r"&(?!(?:quot|apos|#0*3[49]|#x0*2[27]);)"
 _ASSET_URL = re.compile(
-    r"https://[a-z0-9-]+\.customeriomail\.com/"
-    r"(?:[^\s\"'<>()&]|&(?!(?:quot|apos|#0*3[49]|#x0*2[27]);)|\([^\s\"'<>()]*\))*",
+    rf"(?:(?<=url\()|(?<=url\( )){_ASSET_HOST}(?:[^\s\"'<>()&]|{_AMPERSAND}|\([^\s\"'<>()]*\))*"
+    rf"|{_ASSET_HOST}(?:[^\s\"'<>&]|{_AMPERSAND})*",
     re.IGNORECASE | re.ASCII,
 )
 _ASSET_HOST_SUFFIX = ".customeriomail.com"
@@ -216,7 +218,13 @@ def _is_link(match: re.Match[str]) -> bool:
 
 def _trimmed(found: str) -> str | None:
     """The image URL in a match, or None for a URL built with Liquid, whose real address only exists at send time."""
-    return None if "{" in found else found
+    # A parenthesis is part of the URL unless it closes one around it.
+    end, extra_closing = len(found), found.count(")") - found.count("(")
+    while extra_closing > 0 and end > 0 and found[end - 1] == ")":
+        end -= 1
+        extra_closing -= 1
+    url = found[:end]
+    return None if "{" in url else url
 
 
 def _replace(match: re.Match[str], copied: dict[str, str]) -> str:

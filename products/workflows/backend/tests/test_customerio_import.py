@@ -1294,7 +1294,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
         gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
-        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
+        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1(2&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
