@@ -40,6 +40,9 @@ const DATA_KEY_NOTES = new Map([
     ['image_url', ' [the image on iOS when Image is empty]'],
 ])
 
+// Looser than a URL, because URL parsers also accept one slash, a backslash or none.
+const LINK_LIKE = /^\s*(?:https?:|[a-z][a-z0-9+.-]*:[/\\])/i
+
 function describeData(data: Record<string, unknown>): string[] {
     const keys = Object.keys(data).sort((a, b) => Number(DATA_KEY_NOTES.has(b)) - Number(DATA_KEY_NOTES.has(a)))
     if (keys.length === 0) {
@@ -48,8 +51,9 @@ function describeData(data: Record<string, unknown>): string[] {
     const lines = keys.slice(0, MAX_DATA_KEYS).map((key) => {
         const value = typeof data[key] === 'string' ? data[key] : JSON.stringify(data[key])
         const note = DATA_KEY_NOTES.get(key) ?? ''
-        const target = note || /^\s*[a-z][a-z0-9+.-]*:\/\//i.test(value) ? describeLinkTarget(value) : ''
-        return `Data ${quoteUntrusted(key, MAX_NAME_CHARACTERS)}: ${showFilled(value, MAX_DATA_CHARACTERS)}${value ? target : ''}${note}`
+        const target = describeLinkTarget(value)
+        const isLink = !!note || target.startsWith(' [host') || LINK_LIKE.test(value.replace(/[\t\n\r]/g, ''))
+        return `Data ${quoteUntrusted(key, MAX_NAME_CHARACTERS)}: ${showFilled(value, MAX_DATA_CHARACTERS)}${value && isLink ? target : ''}${note}`
     })
     const hidden = keys.length - lines.length
     return hidden > 0 ? [...lines, `Data: [cut: ${hidden} more keys]`] : lines

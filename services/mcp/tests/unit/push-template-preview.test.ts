@@ -132,6 +132,22 @@ describe('push template preview', () => {
         expect(message).not.toMatch(/<\/?(message|system)>/)
     })
 
+    it.each([
+        [`https:/${'x'.repeat(300)}@example.net/a`, '[host "example.net"]'],
+        [`https:/${'x'.repeat(300)}@example.net/{{ variables.id }}`, '[where it leads is decided when it is sent]'],
+        ['https:example.net{{ variables.id }}', '[where it leads is decided when it is sent]'],
+    ])('says where the data value %s leads', async (url, expected) => {
+        template!.content.push.data = { url }
+
+        expect((await prepare()).message).toContain(expected)
+    })
+
+    it('adds no link note to plain data', async () => {
+        template!.content.push.data = { note: 'note: hello {{ variables.id }}', time: '12:30' }
+
+        expect((await prepare()).message).not.toMatch(/Data.*\[(host|where)/)
+    })
+
     it('shows the data keys that act as the link or the image first, and says how many keys it leaves out', async () => {
         const data: Record<string, string> = Object.fromEntries(
             Array.from({ length: 60 }, (_, index) => [`key_${index}`, 'x'])
@@ -150,6 +166,9 @@ describe('push template preview', () => {
     it.each([
         ['the body', (): void => void (template!.content.push.body = 'Other')],
         ['a data value', (): void => void (template!.content.push.data = { a: 'b' })],
+        ['the link', (): void => void (template!.content.push.link = 'https://example.net')],
+        ['the image', (): void => void (template!.content.push.image = 'https://example.net/i.png')],
+        ['whether it is sendable', (): void => void (template!.transactional_hog_flow_id = TEMPLATE_ID)],
         ['a channel', (): void => void (integrations[13] = [404, {}])],
     ])('refuses the execute when %s changed after the prepare', async (_, change) => {
         const prepared = await prepare()
@@ -209,7 +228,7 @@ describe('push template preview', () => {
             'https://example.net\\@example.com/a',
             ' [host "example.net"] [the host is written in another form, an app may read it differently]',
         ],
-        ['myapp://orders/1', ' [host "orders"] [scheme "myapp", opens in an app]'],
+        ['myapp://orders/1', ' [host "orders"] [scheme "myapp"]'],
         ['javascript:alert(1)', ' [no host, scheme "javascript"]'],
         ['orders/1', ' [not a full URL, the app decides what it means]'],
     ])('says where %s leads', (link, expected) => {
