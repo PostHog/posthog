@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -37,6 +37,15 @@ export function FeatureFlagCalledMetricsBanner(): JSX.Element | null {
             <div>
                 Switch metrics that use this event to the <code>$experiment_exposure</code> event to keep them working.
                 Metrics to update: <strong>{featureFlagCalledMetricNames.join(', ')}</strong>
+            </div>
+            <div>
+                <Link
+                    to="https://posthog.com/blog/changing-event-storage"
+                    target="_blank"
+                    data-attr="experiment-feature-flag-called-metrics-blog-link"
+                >
+                    Read more about the change
+                </Link>
             </div>
         </LemonBanner>
     )
