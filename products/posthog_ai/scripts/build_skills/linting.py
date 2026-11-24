@@ -14,7 +14,7 @@ from . import (
     reference_links,
     rendering,
     reserved_names,
-    served_skills,
+    skill_audience,
     skill_manifest,
     source_files,
     tool_references,
@@ -44,9 +44,9 @@ class SkillLinter:
     def run(self) -> bool:
         """Run every check and report. Returns True if all checks pass."""
         self._check_names()
-        if not (self.repo_root / served_skills.SERVED_SKILLS_FILE).is_file():
+        if not (self.repo_root / skill_audience.SERVED_SKILLS_FILE).is_file():
             print("WARNING: MCP served-skills list not found; skipping the audience check.", file=sys.stderr)
-        self.errors.extend(served_skills._check_served_skills(self.repo_root, self.skills))
+        self.errors.extend(skill_audience._check_skill_audience(self.repo_root, self.skills))
         tool_names = tool_references._load_mcp_tool_names(self.repo_root)
         if tool_names is None:
             print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)
