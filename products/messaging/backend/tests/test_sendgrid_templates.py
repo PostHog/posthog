@@ -300,7 +300,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             (
                 "part_of_a_url",
                 '<img src="/i/-hero-.png">',
-                '<img src="/i/{% if variables.hero == nil %}-hero-{% else %}{{ variables.hero | join: "," }}{% endif %}'
+                '<img src="/i/{% if variables.hero == nil %}-hero-{% else %}{{ variables.hero | join: &quot;,&quot; }}{% endif %}'
                 '.png">',
             ),
             ("hyphenated_words", "a well-known-fact --x-- -a-b-", "a well-known-fact --x-- -a-b-"),
@@ -319,7 +319,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "a_value_after_the_body_html",
                 '<%body%><img alt="-x-">',
                 '{{ variables.body | raw }}<img alt="{% if variables.x == nil %}-x-{% else %}{{ variables.x | '
-                'join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}{% endif %}">',
+                'join: &quot;,&quot; | escape | replace: &quot;=&quot;, &quot;&amp;#x3D;&quot; | replace: &quot;`&quot;, &quot;&amp;#x60;&quot; | raw }}{% endif %}">',
             ),
         ]
     )
