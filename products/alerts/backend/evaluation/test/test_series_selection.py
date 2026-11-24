@@ -52,3 +52,28 @@ class TestPickSeriesResult(TestCase):
 
     def test_an_index_within_the_results_picks_that_row(self):
         assert _pick_series_result(1, _rows(2), _query(2, formulas=["A", "B"]))["label"] == "row 1"
+
+    @parameterized.expand(
+        [
+            # The runner groups compare-mode rows by formula, but lists every series' current row first.
+            (
+                "formulas",
+                _query(2, formulas=["A", "B"]),
+                [(0, "current"), (0, "previous"), (1, "current"), (1, "previous")],
+            ),
+            ("series", _query(2), [(0, "current"), (1, "current"), (0, "previous"), (1, "previous")]),
+        ]
+    )
+    def test_compare_mode_picks_the_current_row_of_the_chosen_result(self, _name, query, layout):
+        rows = InsightResult(
+            result=[
+                {"label": f"{order} {period}", "order": order, "compare_label": period} for order, period in layout
+            ],
+            last_refresh=None,
+            cache_key="",
+            is_cached=False,
+            timezone="UTC",
+        )
+        compare_query = query.model_copy(update={"compareFilter": CompareFilter(compare=True)})
+
+        assert _pick_series_result(1, rows, compare_query)["label"] == "1 current"
