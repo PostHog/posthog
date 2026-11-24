@@ -623,6 +623,7 @@ async def _get_new_events_query(
             fields,
             filters_str,
             includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            reads_typed_columns=bool(filters_str) or custom_schema is not None,
             s3_function=s3_function,
         )
     else:

@@ -103,7 +103,7 @@ _STORED_RECENT_EVENTS = {
 
 
 def _export_recent_events(
-    team_id: int, fields: list, filters: list[dict], *, includes_feature_flag_called: bool
+    team_id: int, fields: list, *, includes_feature_flag_called: bool, reads_typed_columns: bool
 ) -> list[tuple]:
     now = dt.datetime.now(tz=dt.UTC)
     sync_execute(
@@ -117,18 +117,14 @@ def _export_recent_events(
             for event, (properties, temporary) in _STORED_RECENT_EVENTS.items()
         ],
     )
-    filters_str, filter_values = (
-        compose_filters_clause(filters, team_id=team_id, use_new_events_schema=True) if filters else ("", {})
-    )
     query = native_recent_events_export_query(
         fields,
-        filters_str,
         includes_feature_flag_called=includes_feature_flag_called,
+        reads_typed_columns=reads_typed_columns,
     ).replace("FORMAT ArrowStream", "")
     return sync_execute(
         query,
         {
-            **filter_values,
             "team_id": team_id,
             "interval_start": now - dt.timedelta(hours=1),
             "interval_end": now + dt.timedelta(hours=1),
@@ -138,6 +134,7 @@ def _export_recent_events(
     )
 
 
+@pytest.mark.parametrize("reads_typed_columns", [False, True], ids=["plain-read", "typed-read"])
 @pytest.mark.parametrize(
     "includes_feature_flag_called,expected_events",
     [
@@ -148,7 +145,7 @@ def _export_recent_events(
 )
 @pytest.mark.django_db
 def test_native_recent_events_export_sends_stored_documents(
-    team, includes_feature_flag_called: bool, expected_events: set[str]
+    team, includes_feature_flag_called: bool, expected_events: set[str], reads_typed_columns: bool
 ) -> None:
     rows = _export_recent_events(
         team.pk,
@@ -159,8 +156,8 @@ def test_native_recent_events_export_sends_stored_documents(
             {"expression": "set", "alias": "set"},
             {"expression": "set_once", "alias": "set_once"},
         ],
-        [],
         includes_feature_flag_called=includes_feature_flag_called,
+        reads_typed_columns=reads_typed_columns,
     )
 
     assert {row[0] for row in rows} == expected_events
@@ -174,7 +171,7 @@ def test_native_recent_events_export_sends_stored_documents(
 @pytest.mark.django_db
 def test_native_recent_events_export_rebuilds_whole_documents_without_repeating_temporary_properties(team) -> None:
     fields = http_default_fields(reads_native_events=True)
-    rows = _export_recent_events(team.pk, fields, [], includes_feature_flag_called=False)
+    rows = _export_recent_events(team.pk, fields, includes_feature_flag_called=False, reads_typed_columns=True)
 
     aliases = [field["alias"] for field in fields]
     properties_by_event = {row[aliases.index("event")]: row[aliases.index("properties")] for row in rows}
@@ -242,7 +239,9 @@ async def test_native_recent_events_export_filters_like_the_native_events_export
         ("events_json", native_events_export_query(fields, filters_str)),
         (
             "events_json_recent",
-            native_recent_events_export_query(fields, filters_str, includes_feature_flag_called=False),
+            native_recent_events_export_query(
+                fields, filters_str, includes_feature_flag_called=False, reads_typed_columns=True
+            ),
         ),
     ):
         rows = await clickhouse_client.read_query_as_jsonl(

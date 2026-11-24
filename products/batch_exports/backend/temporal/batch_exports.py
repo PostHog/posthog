@@ -276,6 +276,7 @@ def _build_new_events_records_query(
     filters_str: str,
     is_backfill: bool,
     backfill_details: BackfillDetails | None,
+    reads_typed_columns: bool,
 ) -> str:
     """The `iter_records` query on the new events tables, which `events_json_recent` serves for the ranges it holds."""
     start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
@@ -290,6 +291,7 @@ def _build_new_events_records_query(
             fields,
             filters_str,
             includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            reads_typed_columns=reads_typed_columns,
             order=order,
         )
     return native_events_export_query(fields, filters_str, order=order)
@@ -309,6 +311,7 @@ def iter_records(
     backfill_details: BackfillDetails | None = None,
     *,
     use_new_events_schema: bool,
+    reads_typed_columns: bool = False,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -324,6 +327,8 @@ def iter_records(
         fields: The fields that will be queried from ClickHouse. Will call default_fields if not set.
         extra_query_parameters: A dictionary of additional query parameters to pass to the query execution.
             Useful if fields contains any fields with placeholders.
+        reads_typed_columns: Whether the fields or filters read the typed JSON columns of the new events schema.
+            On `events_json_recent`, such a query reads through `typed_events_json_recent`.
 
     Returns:
         A generator that yields tuples of batch records as Python dictionaries and their schema.
@@ -363,6 +368,7 @@ def iter_records(
             filters_str=filters_str or "",
             is_backfill=is_backfill,
             backfill_details=backfill_details,
+            reads_typed_columns=reads_typed_columns,
         )
     else:
         query = select_events_query_template(

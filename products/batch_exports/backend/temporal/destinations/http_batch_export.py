@@ -254,6 +254,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         record_iterator = iter_records(
             use_new_events_schema=use_native_schema,
+            reads_typed_columns=use_native_schema,
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,

@@ -472,6 +472,7 @@ class BatchExportsDebugger:
                         fields,
                         filters_str,
                         includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+                        reads_typed_columns=bool(filters_str),
                     )
                 else:
                     query = native_events_export_query(fields, filters_str)

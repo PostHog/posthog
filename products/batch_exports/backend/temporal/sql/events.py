@@ -16,7 +16,6 @@ from products.batch_exports.backend.temporal.sql.typed_events_json_recent import
     STORED_DOCUMENT_FIELD_EXPRESSIONS,
     STORED_TEMPORARY_PROPERTIES_COLUMN,
     build_typed_events_json_recent_source,
-    needs_typed_columns,
 )
 
 if typing.TYPE_CHECKING:
@@ -630,16 +629,19 @@ def native_recent_events_export_query(
     filters: str = "",
     *,
     includes_feature_flag_called: bool,
+    reads_typed_columns: bool,
     order: str = "",
     s3_function: str | None = None,
 ) -> str:
     """The export query for `events_json_recent`, which runs on the new events schema read for the ranges it holds.
 
     The query sends the stored `properties` and `person_properties` text as it is. `filters` and any custom field
-    expressions must be printed for the new events schema, as for `native_events_export_query`. They read typed JSON
-    columns, so an export that has any reads them through `typed_events_json_recent` instead.
+    expressions must be printed for the new events schema, as for `native_events_export_query`, and they read typed
+    JSON columns. The caller sets `reads_typed_columns` when they do, and the query then reads the table through
+    `typed_events_json_recent`, which re-parses every row. The stored text has no typed subcolumns, so typed syntax
+    on the plain read fails.
     """
-    if needs_typed_columns(fields, filters, plain_expressions=_NATIVE_EVENTS_FIELD_EXPRESSIONS.keys()):
+    if reads_typed_columns:
         source = build_typed_events_json_recent_source()
         replacements = STORED_DOCUMENT_FIELD_EXPRESSIONS | _build_temporary_property_fields(
             f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}"

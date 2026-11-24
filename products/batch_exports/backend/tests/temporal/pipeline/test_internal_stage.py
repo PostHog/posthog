@@ -293,6 +293,8 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
         assert "events.properties.`$browser`" in browser_field.group(1)
         assert "events.properties.`$feature_flags`" in query
         assert "JSONExtractRaw(events.properties" not in query
+        # The typed fields and filters fail on the stored text of events_json_recent unless the query casts it first.
+        assert ("_stored_properties" in query) == (expected_table == "events_json_recent")
     else:
         assert browser_field.group(1).strip() == schema["fields"][0]["expression"]
         assert "JSONExtractRaw(events.properties" in query

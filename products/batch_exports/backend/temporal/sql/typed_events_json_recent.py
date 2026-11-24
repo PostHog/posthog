@@ -1,9 +1,10 @@
-"""Typed columns for the `events_json_recent` exports that have filters or custom schema fields.
+"""Typed columns for the `events_json_recent` exports whose filters or fields read the new events schema.
 
 Most exports read `events_json_recent` as stored and need nothing here. Filters and custom schema fields are compiled
-for the new events schema, so they read typed JSON subcolumns such as ``events.properties.`$browser` ``. That syntax
-fails on `events_json_recent`, which stores the documents as text. For those exports only,
-`build_typed_events_json_recent_source` wraps the table in a subquery that looks like `events_json`, at the cost of
+for the new events schema, and the HTTP export rebuilds whole documents from the typed columns, so they read typed
+JSON subcolumns such as ``events.properties.`$browser` ``. That syntax fails on `events_json_recent`, which stores the
+documents as text. For the exports whose callers pass `reads_typed_columns`, `build_typed_events_json_recent_source`
+wraps the table in a subquery that looks like `events_json`, at the cost of
 parsing every row again. The subquery:
 
 - casts `properties`, `person_properties` and `temporary_properties` to the JSON types of `events_json`, from
@@ -22,8 +23,6 @@ here. The module is no longer needed if `events_json_recent` stores typed column
 """
 
 import re
-import typing
-from collections.abc import Collection, Sequence
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
@@ -42,28 +41,12 @@ from posthog.models.event.sql import (
     PERSON_PROPERTIES_JSON_TYPE,
 )
 
-if typing.TYPE_CHECKING:
-    from products.batch_exports.backend.service import BatchExportField
-
 # The stored text of each document, kept beside the typed columns so the export still sends it as stored.
 STORED_DOCUMENT_FIELD_EXPRESSIONS = {
     "properties": "_stored_properties",
     "person_properties": "_stored_person_properties",
 }
 STORED_TEMPORARY_PROPERTIES_COLUMN = "_stored_temporary_properties"
-# Columns that are typed JSON in `events_json` but are text (or absent) in `events_json_recent`. Filters and custom
-# fields printed for the new events schema read them with JSON subcolumn syntax, which fails on text.
-_TYPED_COLUMN_REFERENCE = re.compile(r"\b(?:properties|person_properties|temporary_properties|elements_chain_\w+)\b")
-
-
-def needs_typed_columns(
-    fields: Sequence["BatchExportField"], filters: str, *, plain_expressions: Collection[str]
-) -> bool:
-    """Whether the filters or any field read typed columns. `plain_expressions` are the fields the query fills itself."""
-    return bool(filters) or any(
-        field["expression"] not in plain_expressions and _TYPED_COLUMN_REFERENCE.search(field["expression"]) is not None
-        for field in fields
-    )
 
 
 def _parse_materialized_columns(columns_sql: str) -> list[str]:
