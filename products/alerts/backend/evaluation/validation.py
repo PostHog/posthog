@@ -134,7 +134,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
         )
 
     result_count = _defined_result_count(trends_query)
-    if parsed_config.series_index >= result_count:
+    if not 0 <= parsed_config.series_index < result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)

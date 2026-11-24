@@ -89,7 +89,8 @@ def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int
 
 
 def _defined_result_count(query: TrendsQuery) -> int:
-    """How many result rows the query returns outside a breakdown: one per formula when formulas apply, else one per series."""
+    """How many results the query defines outside a breakdown: one per formula when formulas apply, else one per series.
+    Compare mode returns these rows first and the previous period's rows after them."""
     if query.trendsFilter and query.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
         # The heatmap runner reports one row for series 0, whatever the series and formulas are.
         return 1
@@ -98,20 +99,19 @@ def _defined_result_count(query: TrendsQuery) -> int:
 
 
 def _pick_series_result(series_index: int, results: InsightResult, query: TrendsQuery) -> TrendResult:
-    rows = cast(list[TrendResult], results.result)
-    if series_index < len(rows):
-        return rows[series_index]
-
     # A top-level import is circular: the evaluation package imports this module while it loads.
     from products.alerts.backend.evaluation.contract import (  # noqa: PLC0415
         AlertDataUnavailableError,
         AlertExtractionError,
     )
 
-    if series_index >= _defined_result_count(query):
+    if not 0 <= series_index < _defined_result_count(query):
         raise AlertExtractionError(
             "This alert watches a series or formula the insight no longer has. Edit the alert and choose what to watch."
         )
-    raise AlertDataUnavailableError(
-        "The insight returned fewer results than it defines, so this check couldn't evaluate. The next check will try again."
-    )
+    rows = cast(list[TrendResult], results.result)
+    if series_index >= len(rows):
+        raise AlertDataUnavailableError(
+            "The insight returned fewer results than it defines, so this check couldn't evaluate. The next check will try again."
+        )
+    return rows[series_index]
