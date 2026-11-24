@@ -11,6 +11,7 @@ import {
     PlatformAlertStateEnumApi as PlatformAlertStateApi,
     PlatformAlertStateIntervalApi,
 } from './generated/api.schemas'
+import { STATUS_LABELS } from './platformAlertFormat'
 
 // Snap the hairline to the nearest state-transition boundary when the cursor is within
 // this many pixels — users care about "when did it change" far more than arbitrary mid-
@@ -34,15 +35,7 @@ type TimelineState = PlatformAlertStateApi | 'pending_resolve'
 
 type AlertStateInterval = Omit<PlatformAlertStateIntervalApi, 'state'> & { state: TimelineState }
 
-const STATE_LABELS: Record<TimelineState, string> = {
-    [PlatformAlertStateApi.NotFiring]: 'OK',
-    [PlatformAlertStateApi.Firing]: 'Firing',
-    [PlatformAlertStateApi.NoData]: 'No data',
-    pending_resolve: 'Resolving',
-    [PlatformAlertStateApi.Errored]: 'Errored',
-    [PlatformAlertStateApi.Snoozed]: 'Snoozed',
-    [PlatformAlertStateApi.Broken]: 'Broken',
-}
+const STATE_LABELS: Record<TimelineState, string> = { ...STATUS_LABELS, pending_resolve: 'Resolving' }
 
 const STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success',
@@ -116,7 +109,7 @@ const QUILL_TONE: TimelineTone = {
 
 function labelForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
-        return 'Disabled'
+        return STATUS_LABELS.disabled
     }
     return STATE_LABELS[state] ?? state
 }

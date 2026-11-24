@@ -74,6 +74,7 @@ class CheckFrequency(LabeledStrEnum):
 
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
@@ -442,6 +443,19 @@ class BrandStatus(LabeledStrEnum):
 class BrandSource(LabeledStrEnum):
     CITATIONS = "citations", "Citations"
     MANUAL = "manual", "Manual"
+
+
+class MentionKind(LabeledStrEnum):
+    """Which identifier of a brand an answer used. The first four are found in the answer text."""
+
+    NAME = "name", "Name"
+    ALIAS = "alias", "Alias"
+    DOMAIN_LABEL = "domain_label", "Domain label"
+    DOMAIN = "domain", "Domain"
+    URL = "url", "URL"
+    # Not in the text: the answer cites, or the engine retrieved, a page on the brand's domain.
+    CITATION = "citation", "Citation"
+    RETRIEVAL = "retrieval", "Retrieval"
 
 
 @frozen
