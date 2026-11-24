@@ -2,7 +2,7 @@
 
 This is the ONLY module other products (and the presentation layer) are
 allowed to import. Internal modules (query runners) stay behind this seam
-so import-linter's strict-mode contract holds.
+so hoglint's `presentation-uses-facade` rule holds.
 """
 
 import math
@@ -50,6 +50,7 @@ from products.metrics.backend.derived import (
 )
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
+    DashboardImportInput,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardTemplateSummary,
@@ -1284,6 +1285,28 @@ def list_dashboard_imports(*, team: Team, user: User) -> list[DashboardImportSta
     )
 
     return DashboardImporter(team=team, user=user).recent()
+
+
+def get_dashboard_import_input(*, team: Team, user: User, import_id: str) -> DashboardImportInput | None:
+    """What the user's failed import read. None when the import is not failed or its input expired."""
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).input(import_id)
+
+
+def dismiss_dashboard_import(*, team: Team, user: User, import_id: str) -> bool:
+    """Hide the user's ended import from the recent imports and delete its input. False when there is no such import.
+
+    Raises `DashboardImportInProgress` while the import runs, and `DashboardImportStorageError` when its stored input
+    could not be deleted. The import then stays listed.
+    """
+    from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
+        DashboardImporter,
+    )
+
+    return DashboardImporter(team=team, user=user).dismiss(import_id)
 
 
 def finalize_dashboard_import(*, team_id: int, import_id: str) -> None:

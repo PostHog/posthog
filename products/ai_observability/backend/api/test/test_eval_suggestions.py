@@ -484,6 +484,27 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert (first["pending"], second["pending"]) == (first_pending, later_pending)
         assert start.await_count == starts
 
+    def test_a_project_that_turns_suggestions_off_sees_none_until_it_turns_them_back_on(self) -> None:
+        self._suggestion()
+        with patch(
+            "products.ai_observability.backend.facade.eval_suggestions.start_first_visit_run", new=AsyncMock()
+        ) as start:
+            turned_off = self.client.patch(f"{self.url}/settings/", {"enabled": False}, format="json")
+            empty_patch = self.client.patch(f"{self.url}/settings/", {}, format="json").json()
+            listed_while_off = self.client.get(f"{self.url}/").json()
+            # A project with no run yet must not start one either.
+            self.suggestion_run.delete()
+            self.client.get(f"{self.url}/")
+            settings_while_off = self.client.get(f"{self.url}/settings/").json()
+            self.client.patch(f"{self.url}/settings/", {"enabled": True}, format="json")
+            listed_when_back_on = self.client.get(f"{self.url}/").json()
+
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
+        assert (listed_while_off["results"], listed_while_off["pending"]) == ([], False)
+        assert settings_while_off == empty_patch == {"enabled": False}
+        assert listed_when_back_on["pending"] is True
+        assert start.await_count == 1
+
     @patch(f"{SUGGESTIONS_MODULE}.is_enabled_for_organization", return_value=True)
     def test_dismissing_a_card_also_dismisses_its_replacement(self, _flag: MagicMock) -> None:
         # A run published the replacement while the dismissal of the older card waited on its lock.

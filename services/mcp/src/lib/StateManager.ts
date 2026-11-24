@@ -10,6 +10,7 @@ import {
     findPostHogPermissionError,
     findTransportError,
     hasTimeoutCause,
+    isExpectedApiError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -453,6 +454,9 @@ export class StateManager {
         context: string,
         extra: Record<string, unknown> = {}
     ): Promise<void> {
+        if (isExpectedApiError(error)) {
+            return
+        }
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
@@ -643,7 +647,7 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            if (!(opts.expectTimeouts && hasTimeoutCause(error)) && !findPostHogPermissionError(error)) {
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})

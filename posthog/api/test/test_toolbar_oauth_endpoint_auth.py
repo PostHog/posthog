@@ -83,6 +83,12 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         ("web_vitals_list", "/api/environments/{team_id}/web_vitals/?pathname=/", "get", "query"),
         ("heatmaps_list", "/api/environments/{team_id}/heatmaps/", "get", "heatmap"),
         ("elements_stats", "/api/environments/{team_id}/elements/stats/", "get", "element"),
+        (
+            "event_definitions_search",
+            "/api/projects/{team_id}/event_definitions/?search=signup",
+            "get",
+            "event_definition",
+        ),
     ]
 
     def _url(self, template: str) -> str:
@@ -104,6 +110,16 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         assert response.status_code not in (401, 403), (
             f"Expected access, got {response.status_code}: {response.content[:300]}"
         )
+
+    def test_toolbar_oauth_token_reaches_object_media_preview_validation(self):
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/object_media_previews/",
+            HTTP_AUTHORIZATION=f"Bearer {self.toolbar_token.token}",
+        )
+
+        assert response.status_code == 400, response.content
 
     # -- Correct scope grants access ----------------------------------------
 
@@ -352,6 +368,8 @@ class TestToolbarOAuthScopesConfig(SimpleTestCase):
         "query:read",
         "heatmap:read",
         "element:read",
+        "event_definition:read",
+        "event_definition:write",
         "uploaded_media:write",
         "user:read",
     ]

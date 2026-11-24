@@ -5,20 +5,14 @@ import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import {
-    AI_VISIBILITY_DAYS_OPTIONS,
+    AI_VISIBILITY_DATE_OPTIONS,
     type AiVisibilityFilter,
     type AiVisibilityFilterTab,
-    dateFromToDays,
-    daysToDateFrom,
+    DEFAULT_AI_VISIBILITY_DATE_FROM,
 } from './aiVisibilityFilters'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
-
-const DATE_OPTIONS = AI_VISIBILITY_DAYS_OPTIONS.map((days) => ({
-    key: `Last ${days} days`,
-    values: [daysToDateFrom(days)],
-}))
 
 export const ContentAutopilotFilterBar = ({
     tab,
@@ -27,8 +21,8 @@ export const ContentAutopilotFilterBar = ({
     tab: AiVisibilityFilterTab
     filters: readonly AiVisibilityFilter[]
 }): JSX.Element => {
-    const { days, engine, topic } = useValues(contentAutopilotFiltersLogic)
-    const { setDays, setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
+    const { dateFrom, dateTo, engine, topic } = useValues(contentAutopilotFiltersLogic)
+    const { pickDates, setEngine, setTopic } = useActions(contentAutopilotFiltersLogic)
     const { engineOptions, topicOptions, promptTopicsError, promptTopicsLoading } =
         useValues(contentAutopilotFilterBarLogic)
     const { loadPromptTopics } = useActions(contentAutopilotFilterBarLogic)
@@ -38,17 +32,10 @@ export const ContentAutopilotFilterBar = ({
             {filters.includes('dateRange') ? (
                 <DateFilter
                     size="small"
-                    dateFrom={daysToDateFrom(days)}
-                    dateTo={null}
-                    dateOptions={DATE_OPTIONS}
-                    showCustom={false}
-                    showRollingRangePicker={false}
-                    onChange={(dateFrom) => {
-                        const next = dateFromToDays(dateFrom)
-                        if (next !== null) {
-                            setDays(next, tab)
-                        }
-                    }}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    dateOptions={AI_VISIBILITY_DATE_OPTIONS}
+                    onChange={(nextFrom, nextTo) => pickDates(nextFrom ?? DEFAULT_AI_VISIBILITY_DATE_FROM, nextTo, tab)}
                 />
             ) : null}
             {filters.includes('engine') ? (

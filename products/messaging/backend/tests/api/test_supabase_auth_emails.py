@@ -187,6 +187,29 @@ class TestSupabaseAuthEmails(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("email_changed_notification", "old_email", "current@example.com"),
+            ("phone_changed_notification", "old_phone", "15550000001"),
+            ("identity_linked_notification", "provider", "google"),
+            ("mfa_factor_enrolled_notification", "factor_type", "totp"),
+        ]
+    )
+    def test_notifications_tell_the_template_what_changed(self, mock_post, _flag, _capture, action, field, value):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        self.config.templates = {**self.config.templates, action: str(self.template.id)}
+        self.config.save()
+        payload = _payload(action, **{field: value})
+        payload["user"]["phone"] = "15550000002"
+
+        response = self._post_hook(payload)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        variables = mock_post.call_args.kwargs["json"]["variables"]
+        expected = {"old_email": "", "old_phone": "", "provider": "", "factor_type": "", field: value}
+        assert {key: variables[key] for key in expected} == expected
+        assert variables["phone"] == "15550000002"
+
+    @parameterized.expand(
+        [
             ("wrong_secret", "signup", {"key": b"x" * 32}, {}, None, 401, "other"),
             ("no_template_for_the_email", "signup", {}, {"templates": {}}, None, 400, "signup"),
             ("no_project_url", "signup", {}, {"supabase_url": ""}, None, 400, "signup"),

@@ -602,6 +602,8 @@ const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
         { kind: 'custom_property', id: 'summary' },
         { kind: 'custom_property', id: 'active' },
     ],
+    pinned_properties_source: { kind: 'personal', roles: [] },
+    available_default_pinned_properties: [],
 }
 const PINNED_EXPANSION_SELECTOR = '[data-attr="account-pinned-properties-expansion"]'
 const PINNED_FIELD_SELECTOR = '[data-attr="account-property-row"]'
