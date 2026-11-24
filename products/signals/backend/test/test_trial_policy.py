@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -233,6 +233,36 @@ class TestTrialPolicy(BaseTest):
             assert runtime.service_tier == "flex"
         else:
             assert runtime is None
+
+    @parameterized.expand([(None, "gpt-5.6-luna"), ("cus_example", None)])
+    def test_trial_scout_runtime_takes_the_customer_id_from_billing(
+        self, billing_customer_id: str | None, expected_model: str | None
+    ) -> None:
+        self.claim()
+        billing = {
+            "customer_id": billing_customer_id,
+            "usage_summary": {"signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}},
+            "has_active_subscription": False,
+            "available_product_features": [
+                {"key": "self_driving_trial_allowance_microusd", "limit": 10_000_000},
+                {"key": "self_driving_trial_reports", "limit": 5},
+            ],
+            "products": [
+                {
+                    "type": "inbox_usage",
+                    "usage_key": "signals_spend_credits",
+                    "subscribed": None,
+                    "free_allocation": 0,
+                    "usage_limit": 0,
+                }
+            ],
+        }
+        with (
+            patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
+        ):
+            runtime = trial_scout_runtime(self.team)
+        assert (runtime.model if runtime else None) == expected_model
 
     def test_activation_preserves_enabled_scouts_and_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]

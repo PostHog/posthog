@@ -74,11 +74,17 @@ def written_in_liquid(action: dict[str, Any]) -> bool:
     return _email(_config(action)).get("templating", "hog") == "liquid"
 
 
+def is_sensitive(action: dict[str, Any]) -> bool:
+    # A sandbox step has no `sensitive` setting, so converting a sensitive step would store its email.
+    return _config(action).get("sensitive") is True
+
+
 def can_default_to_sandbox(action: dict[str, Any]) -> bool:
     if (
         action.get("type") != OWN_EMAIL_ACTION_TYPE
         or not valid_sandbox_action_id(action.get("id"))
         or not isinstance(action.get("config"), dict)
+        or is_sensitive(action)
     ):
         return False
     sender = _sender(_value(_email(_config(action))))

@@ -199,10 +199,22 @@ def gateway_post_json(
     raise AssertionError("unreachable: the last attempt returns or raises")
 
 
+def _without_utm(url: str) -> str:
+    """OpenAI adds utm_source=openai to the links it cites, so one page would otherwise count as two URLs.
+    The other parameters stay byte for byte, because a re-encoded query would make the page a different URL again."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return url
+    segments = parts.query.split("&") if parts.query else []
+    kept = [segment for segment in segments if not segment.split("=", 1)[0].lower().startswith("utm_")]
+    return url if len(kept) == len(segments) else parts._replace(query="&".join(kept)).geturl()
+
+
 def _dedupe_urls(urls: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
-    for url in urls:
+    for url in map(_without_utm, urls):
         if url and url not in seen:
             seen.add(url)
             result.append(url)

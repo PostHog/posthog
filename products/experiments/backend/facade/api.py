@@ -29,8 +29,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
-from products.experiments.backend.health.inputs_payload import health_inputs_payload
-from products.experiments.backend.health.loader import evaluate_experiment_health, load_experiment_health_inputs
+from products.experiments.backend.health.loader import evaluate_experiment_health
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     exposure_nodes_without_copies,
@@ -55,6 +54,7 @@ from products.experiments.backend.models.team_experiments_config import (
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
 from products.experiments.backend.running_time_target import load_running_time_target
+from products.experiments.backend.warehouse_native_sources import user_may_read_warehouse_native_results
 from products.experiments.stats.shared.enums import DifferenceType
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
@@ -222,26 +222,18 @@ def get_experiment_health(
     )
 
 
-def get_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> dict[str, Any]:
-    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
-    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
-    experiment defaults and SDK profile."""
-    inputs = load_experiment_health_inputs(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
-    )
-    return health_inputs_payload(inputs)
-
-
-def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
-    """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse.
+def get_stored_primary_result(*, team_id: int, experiment_id: int, user_id: int | None) -> StoredPrimaryResult | None:
+    """The current stored result of the experiment's primary metric, for the user who reads it. It reads Postgres
+    only, not ClickHouse.
 
     None for an experiment that reports absolute differences: the calculation key leaves out the difference type,
-    so the stored interval can be in either unit."""
+    so the stored interval can be in either unit. None for a warehouse-native experiment whose connection the reader
+    cannot read, because the stored totals came from that connection."""
     experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
     config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
     if experiment is None or config is None or config.settings.stats.difference_type == DifferenceType.ABSOLUTE:
+        return None
+    if not user_may_read_warehouse_native_results(experiment.team, experiment.exposure_criteria, user_id):
         return None
     stats = MetricResultStore(experiment_id=experiment_id).current_result(config)
     if stats is None:
@@ -554,6 +546,18 @@ def _to_team_experiments_settings(config: TeamExperimentsConfig) -> TeamExperime
 def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     """The first read creates the team's settings row with the defaults."""
     return _to_team_experiments_settings(_team_experiments_config(team_id))
+
+
+def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
+    """Start the recalculation workflow for a run that ``request_recalculation`` created.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the exception propagates.
+    """
+    from products.experiments.backend.temporal.recalculation import (  # noqa: PLC0415 — dispatch imports temporalio, which must stay off the django.setup() path
+        dispatch,
+    )
+
+    dispatch.start_metrics_recalculation_workflow(recalculation_id, team_id=team_id, organization_id=organization_id)
 
 
 def validate_recalculation_times(times: Sequence[str] | None) -> None:

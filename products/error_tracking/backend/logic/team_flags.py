@@ -36,6 +36,15 @@ def team_flag_enabled(flag: str, team_id: int, *, only_evaluate_locally: bool = 
         return False
 
 
+def local_flag_definitions_loaded() -> bool:
+    """Whether a local-only flag read can answer without a network call.
+
+    With no definitions loaded, the SDK makes a blocking definitions call even for a local-only read. The background
+    poller loads them later. Local dev reads as loaded, because `team_flag_enabled` answers there without the SDK.
+    """
+    return settings.DEBUG or posthoganalytics.feature_flag_definitions() is not None
+
+
 def team_flag_explicitly_off(flag: str, team_id: int) -> bool:
     """Whether a kill switch turns a released feature off for this project. Fails open.
 

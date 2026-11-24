@@ -156,8 +156,40 @@ class AccountDetailTabsConfig:
 
 
 @dataclass(frozen=True)
+class PinnedAccountPropertiesRole:
+    id: UUID
+    name: str
+
+
+PinnedAccountPropertiesSourceKindValue = Literal["personal", "role", "project"]
+
+
+@dataclass(frozen=True)
+class PinnedAccountPropertiesSource:
+    kind: PinnedAccountPropertiesSourceKindValue = "personal"
+    roles: list[PinnedAccountPropertiesRole] = field(default_factory=list)
+
+
+DefaultPinnedAccountPropertiesSourceKindValue = Literal["project", "role"]
+
+
+@dataclass(frozen=True)
+class DefaultPinnedAccountPropertiesSource:
+    kind: DefaultPinnedAccountPropertiesSourceKindValue
+    role: PinnedAccountPropertiesRole | None = None
+
+
+@dataclass(frozen=True)
+class AvailableDefaultPinnedAccountProperties:
+    source: DefaultPinnedAccountPropertiesSource
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    pinned_properties_source: PinnedAccountPropertiesSource = field(default_factory=PinnedAccountPropertiesSource)
+    available_default_pinned_properties: list[AvailableDefaultPinnedAccountProperties] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
     account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
