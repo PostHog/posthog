@@ -323,6 +323,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         responses={200: ProxyRecordSerializer},
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
+        pk = serializers.UUIDField().run_validation(pk)
         with cloudflare_proxy_lock(pk):
             reconciliation_required = False
             try:
@@ -549,6 +550,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
     )
     def destroy(self, request, *args, pk=None, **kwargs):
+        pk = serializers.UUIDField().run_validation(pk)
         with cloudflare_proxy_lock(pk):
             try:
                 record = self.organization.proxy_records.get(id=pk)
