@@ -332,6 +332,34 @@ class TestSendSlackAlert:
         retry_kwargs = client.chat_postMessage.call_args_list[1].kwargs
         assert retry_kwargs == {"channel": "#test-channel", "text": "fallback"}
 
+    @parameterized.expand([("not_in_channel",), ("channel_not_found",), ("is_archived",)])
+    def test_unreachable_channel_resends_to_default_channel(self, code):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        client.chat_postMessage.side_effect = [self._block_rejection(code), {"ok": True}]
+
+        with mock.patch("posthog.dags.slack_alerts.settings") as settings:
+            settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL = "#alerts-default"
+            sent = send_slack_alert(context, client, "#alerts-team", self._blocks(), "fallback")
+
+        assert sent
+        retry = client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["channel"] == "#alerts-default"
+        assert "#alerts-team" in retry["text"] and retry["text"].endswith("fallback")
+        assert retry["blocks"][1:] == self._blocks()
+
+    def test_unreachable_default_channel_does_not_retry(self):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        client.chat_postMessage.side_effect = self._block_rejection("not_in_channel")
+
+        with mock.patch("posthog.dags.slack_alerts.settings") as settings:
+            settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL = "#alerts-default"
+            sent = send_slack_alert(context, client, "#alerts-default", self._blocks(), "fallback")
+
+        assert not sent
+        assert client.chat_postMessage.call_count == 1
+
     def test_ambiguous_api_error_does_not_retry(self):
         context = mock.MagicMock()
         client = mock.MagicMock()
