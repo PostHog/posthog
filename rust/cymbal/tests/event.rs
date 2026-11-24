@@ -4,6 +4,7 @@ use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
 use common_types::error_tracking::FrameId;
 use cymbal::{
+    app_context::AppContext,
     core::code_variables::REDACTED,
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
@@ -196,7 +197,7 @@ impl TestHarness {
         events: Vec<AnyEvent>,
         addr: std::net::SocketAddr,
     ) -> (StatusCode, T) {
-        utils::get_response_with_config(
+        let (status, body, _) = utils::get_response_with_config(
             self.db.clone(),
             STORAGE_BUCKET.to_string(),
             || {
@@ -224,7 +225,8 @@ impl TestHarness {
                 config.remote_resolution_dns_refresh_secs = 3600;
             },
         )
-        .await
+        .await;
+        (status, body)
     }
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
@@ -236,6 +238,17 @@ impl TestHarness {
         event: &AnyEvent,
         configure: impl FnOnce(&mut ProcessingConfig),
     ) -> (StatusCode, T) {
+        let (status, body, _) = self
+            .post_events_with_config(vec![event.clone()], configure)
+            .await;
+        (status, body)
+    }
+
+    async fn post_events_with_config<T: DeserializeOwned>(
+        &self,
+        events: Vec<AnyEvent>,
+        configure: impl FnOnce(&mut ProcessingConfig),
+    ) -> (StatusCode, T, Arc<AppContext>) {
         utils::get_response_with_config(
             self.db.clone(),
             STORAGE_BUCKET.to_string(),
@@ -244,7 +257,7 @@ impl TestHarness {
                     .method("POST")
                     .header("content-type", "application/json")
                     .uri("/process")
-                    .body(Body::from(serde_json::to_vec(&vec![event]).unwrap()))
+                    .body(Body::from(serde_json::to_vec(&events).unwrap()))
                     .unwrap()
             },
             Arc::new(Self::create_s3_mock()),
@@ -461,6 +474,7 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn team_issue_gauge_counts_each_new_issue_once(db: PgPool) {
+    let harness = TestHarness::new(db);
     let event_for = |fingerprint| {
         make_event_with_options(
             vec![make_exception("TypeError", fingerprint)],
@@ -468,44 +482,24 @@ async fn team_issue_gauge_counts_each_new_issue_once(db: PgPool) {
             Some(false),
         )
     };
-    let (status, _): (_, SuccessResponse) = TestHarness::new(db.clone())
-        .post_event(&event_for("gauge-a"))
-        .await;
+    let (status, _): (_, SuccessResponse) = harness.post_event(&event_for("gauge-a")).await;
     assert!(status.is_success());
 
-    let events: Vec<AnyEvent> = ["gauge-a", "gauge-b", "gauge-b"]
-        .into_iter()
-        .map(event_for)
-        .collect();
-    let (status, _, ctx): (_, SuccessResponse, _) = utils::get_response_and_context_with_config(
-        db,
-        STORAGE_BUCKET.to_string(),
-        || {
-            Request::builder()
-                .method("POST")
-                .header("content-type", "application/json")
-                .uri("/process")
-                .body(Body::from(serde_json::to_vec(&events).unwrap()))
-                .unwrap()
-        },
-        Arc::new(TestHarness::create_s3_mock()),
-        |config| {
+    let events = ["gauge-a", "gauge-b", "gauge-b"].map(event_for).to_vec();
+    let (status, _, ctx): (_, SuccessResponse, _) = harness
+        .post_events_with_config(events, |config| {
             config
                 .resolver
                 .team_metrics
                 .team_metrics_issue_created_floor = NonZeroU64::MIN
-        },
-    )
-    .await;
+        })
+        .await;
     assert!(status.is_success());
 
-    let mut rendered = String::new();
-    let window_ended = Instant::now() + ctx.config.resolver.team_metrics.window();
-    ctx.team_issues_created
-        .render_at(&mut rendered, &[], window_ended);
-    assert!(
-        rendered.ends_with("\ncymbal_team_issues_created_last_window{team_id=\"1\"} 1\n"),
-        "{rendered}"
+    assert_eq!(
+        ctx.team_issues_created
+            .last_window_at(Instant::now() + ctx.config.resolver.team_metrics.window()),
+        [(1, 1)]
     );
 }
 

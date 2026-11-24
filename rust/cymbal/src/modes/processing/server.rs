@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use common_metrics::{serve, setup_metrics_routes_with_extra_render, Matcher};
+use common_metrics::{serve, setup_metrics_routes_with_extra_gauges, Matcher};
 use tracing::info;
 
 use crate::{
@@ -40,14 +40,10 @@ pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) ->
             BYTE_HISTOGRAM_BUCKETS,
         ),
     ];
-    let router = setup_metrics_routes_with_extra_render(
-        router,
-        None,
-        bucket_overrides,
-        Arc::new(move |out: &mut String, labels: &[(&str, &str)]| {
-            team_issues_created.render(out, labels)
-        }),
-    );
+    let router =
+        setup_metrics_routes_with_extra_gauges(router, None, bucket_overrides, move || {
+            vec![team_issues_created.gauge()]
+        });
     let bind = format!("{}:{}", config.host, config.port);
     info!("Server started and listening on {}", bind);
     serve(router, &bind)

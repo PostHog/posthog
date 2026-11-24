@@ -183,13 +183,11 @@ impl AppContext {
             build_remote_resolution(config).await?;
 
         let team_metrics = &config.resolver.team_metrics;
-        let team_issues_created = Arc::new(TeamWindowCounter::new(
+        let team_issues_created = team_metrics.counter(
             TEAM_ISSUES_CREATED_LAST_WINDOW,
             "New issues for one team on this pod in the last full window, for teams at or over the floor.",
-            team_metrics.window(),
             team_metrics.team_metrics_issue_created_floor,
-            team_metrics.team_metrics_max_teams,
-        ));
+        );
 
         let rate_limiter = build_rate_limiter(config).await?;
         let adaptive_ingestion = AdaptiveIngestionRuntime::from_config(config).await?;

@@ -1,5 +1,6 @@
 use std::{
     num::{NonZeroU64, NonZeroUsize},
+    sync::Arc,
     time::Duration,
 };
 
@@ -8,6 +9,8 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use sqlx::PgPool;
 use tracing::{info, warn};
+
+use crate::core::team_window::TeamWindowCounter;
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
 /// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
@@ -164,6 +167,21 @@ pub struct TeamMetricsConfig {
 impl TeamMetricsConfig {
     pub fn window(&self) -> Duration {
         Duration::from_secs(self.team_metrics_window_secs.get())
+    }
+
+    pub fn counter(
+        &self,
+        name: &'static str,
+        help: &'static str,
+        floor: NonZeroU64,
+    ) -> Arc<TeamWindowCounter> {
+        Arc::new(TeamWindowCounter::new(
+            name,
+            help,
+            self.window(),
+            floor,
+            self.team_metrics_max_teams,
+        ))
     }
 }
 

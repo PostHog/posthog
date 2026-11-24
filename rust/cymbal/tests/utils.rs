@@ -52,30 +52,13 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, T) {
-    get_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await
-}
-
-#[allow(dead_code)]
-pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
-    db: PgPool,
-    storage_bucket: String,
-    request_factory: impl Fn() -> Request<Body>,
-    s3_client: Arc<MockS3Client>,
-    configure: impl FnOnce(&mut ProcessingConfig),
-) -> (StatusCode, T) {
-    let (status, body, _) = get_response_and_context_with_config(
-        db,
-        storage_bucket,
-        request_factory,
-        s3_client,
-        configure,
-    )
-    .await;
+    let (status, body, _) =
+        get_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await;
     (status, body)
 }
 
 #[allow(dead_code)]
-pub(crate) async fn get_response_and_context_with_config<T: for<'de> Deserialize<'de>>(
+pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     db: PgPool,
     storage_bucket: String,
     request_factory: impl Fn() -> Request<Body>,

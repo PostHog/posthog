@@ -136,7 +136,7 @@ fn spawn_metrics_server(
                 "/_readiness",
                 get(move || readiness(readiness_draining.clone())),
             );
-        let router = common_metrics::setup_metrics_routes_with_extra_render(
+        let router = common_metrics::setup_metrics_routes_with_extra_gauges(
             router,
             Some("cymbal-resolution".to_string()),
             &[
@@ -149,9 +149,7 @@ fn spawn_metrics_server(
                     BYTE_HISTOGRAM_BUCKETS,
                 ),
             ],
-            Arc::new(move |out: &mut String, labels: &[(&str, &str)]| {
-                team_frame_cache_misses.render(out, labels)
-            }),
+            move || vec![team_frame_cache_misses.gauge()],
         );
 
         let bind = format!("0.0.0.0:{port}");

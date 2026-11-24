@@ -127,13 +127,11 @@ impl LocalSymbolResolver {
             .time_to_live(Duration::from_secs(config.release_id_cache_ttl_seconds))
             .build();
 
-        let team_frame_cache_misses = Arc::new(TeamWindowCounter::new(
+        let team_frame_cache_misses = config.team_metrics.counter(
             TEAM_FRAME_CACHE_MISSES_LAST_WINDOW,
             "Frame-cache misses for one team on this pod in the last full window, for teams at or over the floor.",
-            config.team_metrics.window(),
             config.team_metrics.team_metrics_frame_cache_miss_floor,
-            config.team_metrics.team_metrics_max_teams,
-        ));
+        );
 
         Self {
             catalog,
@@ -663,15 +661,11 @@ mod test {
         pool.close().await;
         assert!(resolver.resolve_raw_frame(0, &frame, &[]).await.is_err());
 
-        let mut rendered = String::new();
-        resolver.team_frame_cache_misses().render_at(
-            &mut rendered,
-            &[],
-            Instant::now() + config.team_metrics.window(),
-        );
-        assert!(
-            rendered.ends_with("\ncymbal_team_frame_cache_misses_last_window{team_id=\"0\"} 3\n"),
-            "{rendered}"
+        assert_eq!(
+            resolver
+                .team_frame_cache_misses()
+                .last_window_at(Instant::now() + config.team_metrics.window()),
+            [(0, 3)]
         );
     }
 

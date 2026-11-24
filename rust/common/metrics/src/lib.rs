@@ -4,6 +4,9 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
+use metrics_exporter_prometheus::formatting::{
+    key_to_parts, write_help_line, write_metric_line, write_type_line,
+};
 pub use metrics_exporter_prometheus::Matcher;
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::sync::{Arc, OnceLock};
@@ -78,27 +81,33 @@ pub fn setup_metrics_routes_for_product_with_overrides(
     install_metrics_routes(router, Some(product.into()), overrides, None)
 }
 
-/// For a series that must disappear, because the recorder keeps every series until the process
-/// exits. The slice holds the recorder's global labels, which the appended lines must carry too.
-pub type ExtraRender = Arc<dyn Fn(&mut String, &[(&str, &str)]) + Send + Sync>;
+/// A gauge that `/metrics` serves after the recorder's output, for a series that must disappear,
+/// because the recorder keeps every series until the process exits.
+pub struct ExtraGauge {
+    pub name: &'static str,
+    pub help: &'static str,
+    pub series: Vec<(Vec<(&'static str, String)>, f64)>,
+}
 
-/// Like [`setup_metrics_routes_for_product_with_overrides`], plus `extra_render` on every scrape.
-pub fn setup_metrics_routes_with_extra_render(
+type ExtraGauges = Arc<dyn Fn() -> Vec<ExtraGauge> + Send + Sync>;
+
+/// Like [`setup_metrics_routes_for_product_with_overrides`], plus `extra_gauges` on every scrape.
+pub fn setup_metrics_routes_with_extra_gauges(
     router: Router,
     product: Option<String>,
     overrides: &[(Matcher, &[f64])],
-    extra_render: ExtraRender,
+    extra_gauges: impl Fn() -> Vec<ExtraGauge> + Send + Sync + 'static,
 ) -> Router {
-    install_metrics_routes(router, product, overrides, Some(extra_render))
+    install_metrics_routes(router, product, overrides, Some(Arc::new(extra_gauges)))
 }
 
 fn install_metrics_routes(
     router: Router,
     product: Option<String>,
     overrides: &[(Matcher, &[f64])],
-    extra_render: Option<ExtraRender>,
+    extra_gauges: Option<ExtraGauges>,
 ) -> Router {
-    let product_label = product.clone();
+    let labels = global_labels(product.clone());
     let mut builder = build_prometheus_builder(product);
     for (matcher, buckets) in overrides {
         builder = builder
@@ -113,8 +122,8 @@ fn install_metrics_routes(
             get(move || {
                 std::future::ready(render_metrics(
                     &recorder_handle,
-                    extra_render.as_ref(),
-                    product_label.as_deref(),
+                    extra_gauges.as_ref(),
+                    &labels,
                 ))
             }),
         )
@@ -123,17 +132,39 @@ fn install_metrics_routes(
 
 fn render_metrics(
     recorder_handle: &PrometheusHandle,
-    extra_render: Option<&ExtraRender>,
-    product: Option<&str>,
+    extra_gauges: Option<&ExtraGauges>,
+    global_labels: &[(&'static str, String)],
 ) -> String {
     let mut body = recorder_handle.render();
-    if let Some(extra_render) = extra_render {
-        match product {
-            Some(product) => extra_render(&mut body, &[("product", product)]),
-            None => extra_render(&mut body, &[]),
+    let Some(extra_gauges) = extra_gauges else {
+        return body;
+    };
+    for gauge in extra_gauges() {
+        if gauge.series.is_empty() {
+            continue;
         }
+        write_help_line(&mut body, gauge.name, gauge.help);
+        write_type_line(&mut body, gauge.name, "gauge");
+        for (series_labels, value) in gauge.series {
+            let labels = global_labels
+                .iter()
+                .cloned()
+                .chain(series_labels)
+                .map(|(key, value)| metrics::Label::new(key, value))
+                .collect::<Vec<_>>();
+            let (name, labels) = key_to_parts(&metrics::Key::from_parts(gauge.name, labels), None);
+            write_metric_line::<&str, f64>(&mut body, &name, None, &labels, None, value);
+        }
+        body.push('\n');
     }
     body
+}
+
+fn global_labels(product: Option<String>) -> Vec<(&'static str, String)> {
+    product
+        .map(|product| ("product", product))
+        .into_iter()
+        .collect()
 }
 
 /// Buckets for etcd payload sizes, straddling the server's
@@ -172,8 +203,8 @@ fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
             ETCD_OP_LATENCY_BUCKETS_MS,
         )
         .unwrap();
-    if let Some(product) = product {
-        builder = builder.add_global_label("product", product);
+    for (key, value) in global_labels(product) {
+        builder = builder.add_global_label(key, value);
     }
     builder
 }
@@ -382,8 +413,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        build_prometheus_builder, normalize_unmatched_path, render_metrics,
-        timing_guard_high_precision, ExtraRender, Matcher,
+        build_prometheus_builder, global_labels, normalize_unmatched_path, render_metrics,
+        timing_guard_high_precision, ExtraGauge, ExtraGauges, Matcher,
     };
 
     #[test]
@@ -417,26 +448,40 @@ mod tests {
     }
 
     #[test]
-    fn test_extra_render_follows_recorder_output_with_its_labels() {
-        let recorder = build_prometheus_builder(Some("feature_flags".to_string())).build_recorder();
+    fn test_extra_gauges_follow_recorder_output_with_its_global_labels() {
+        let product = Some("feature_flags".to_string());
+        let recorder = build_prometheus_builder(product.clone()).build_recorder();
         let handle = recorder.handle();
         metrics::with_local_recorder(&recorder, || {
             metrics::counter!("test_counter_before_extra").increment(1);
         });
-        let extra_render: ExtraRender = Arc::new(|out: &mut String, labels: &[(&str, &str)]| {
-            let (key, value) = labels[0];
-            out.push_str(&format!(
-                "extra_gauge{{{key}=\"{value}\",team_id=\"1\"}} 5\n"
-            ));
+        let extra_gauges: ExtraGauges = Arc::new(|| {
+            vec![
+                ExtraGauge {
+                    name: "extra_gauge",
+                    help: "Extra gauge.",
+                    series: vec![(vec![("team_id", "1".to_string())], 5.0)],
+                },
+                ExtraGauge {
+                    name: "empty_gauge",
+                    help: "Empty gauge.",
+                    series: vec![],
+                },
+            ]
         });
 
-        let body = render_metrics(&handle, Some(&extra_render), Some("feature_flags"));
+        let body = render_metrics(&handle, Some(&extra_gauges), &global_labels(product));
 
         let counter_at = body.find("test_counter_before_extra").expect(&body);
         let extra_at = body
-            .find("\nextra_gauge{product=\"feature_flags\",team_id=\"1\"} 5\n")
+            .find(
+                "\n# HELP extra_gauge Extra gauge.\n\
+                 # TYPE extra_gauge gauge\n\
+                 extra_gauge{product=\"feature_flags\",team_id=\"1\"} 5\n",
+            )
             .expect(&body);
         assert!(counter_at < extra_at, "{body}");
+        assert!(!body.contains("empty_gauge"), "{body}");
     }
 
     #[test]
