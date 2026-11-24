@@ -180,7 +180,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         ]
     )
     def test_confidential_partner_without_valid_secret_cannot_exchange_code(self, _name, secret):
-        partner = self._client_secret_partner(run_by_posthog=True)
+        partner = self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
         code, verifier = self._mint_auth_code(partner=partner)
         body = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
         if secret is not None:
@@ -195,7 +195,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert self._exchange_code(code, verifier, partner).status_code == 200
 
     def test_confidential_partner_without_valid_secret_cannot_refresh(self):
-        partner = self._client_secret_partner(run_by_posthog=True)
+        partner = self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
         refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
 
         res = self._post_api(
@@ -215,7 +215,9 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
     def test_pkce_partner_exchanges_code_without_a_secret(self):
         # PKCE partners are public clients: code_verifier is their only client authentication,
         # so requiring a secret from confidential partners must not reach them.
-        code, verifier = self._mint_auth_code(partner=self._public_partner(run_by_posthog=True))
+        code, verifier = self._mint_auth_code(
+            partner=self._public_partner(run_by_posthog=True, can_create_accounts=False)
+        )
 
         res = self._post_api(TOKEN_URL, {"grant_type": "authorization_code", "code": code, "code_verifier": verifier})
 
@@ -245,10 +247,12 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         url: str,
         expected_status: int,
     ) -> None:
-        # Starts as a PostHog app so it can hold a refresh token, as a partner that had one before signing became
-        # required would.
+        # Starts exempt so it can hold a refresh token. Gaining account creation then makes it sign, as any
+        # partner that has to sign does.
         partner = (
-            self._public_partner(run_by_posthog=True) if public else self._client_secret_partner(run_by_posthog=True)
+            self._public_partner(run_by_posthog=True, can_create_accounts=False)
+            if public
+            else self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
         )
         credentials = self._client_auth(partner) if not public else {"client_id": partner.client_id}
         if grant_type == "authorization_code":
@@ -257,8 +261,8 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         else:
             refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
             body = {"grant_type": grant_type, "refresh_token": refresh_token, **credentials}
-        partner.is_first_party = run_by_posthog
-        partner.save(update_fields=["is_first_party"])
+        if not run_by_posthog:
+            partner.update_provisioning(can_create_accounts=True)
 
         with patch("posthoganalytics.capture") as capture:
             res = self._post_api(url, body)
@@ -273,12 +277,13 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
     @parameterized.expand([("public", True), ("client_secret", False)])
     def test_refused_partner_can_still_revoke_its_tokens(self, _name: str, public: bool) -> None:
         partner = (
-            self._public_partner(run_by_posthog=True) if public else self._client_secret_partner(run_by_posthog=True)
+            self._public_partner(run_by_posthog=True, can_create_accounts=False)
+            if public
+            else self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
         )
         credentials = {"client_id": partner.client_id} if public else self._client_auth(partner)
         refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
-        partner.is_first_party = False
-        partner.save(update_fields=["is_first_party"])
+        partner.update_provisioning(can_create_accounts=True)
 
         res = self._post_api(
             "/oauth/revoke/",

@@ -359,7 +359,8 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             ("cannot_provision_resources", {"can_provision_resources": False}, False, False, 403),
             ("dropped_its_private_key", {}, True, False, 401),
             ("dropped_its_private_key_without_creating_accounts", {"can_create_accounts": False}, True, False, 401),
-            ("first_party_app_dropped_its_private_key", {}, True, True, 200),
+            ("first_party_app_that_creates_accounts_dropped_its_key", {}, True, True, 401),
+            ("first_party_resource_app_dropped_its_key", {"can_create_accounts": False}, True, True, 200),
         ]
     )
     def test_bearer_after_partner_changes(
@@ -540,8 +541,9 @@ class TestUnsignedProvisioning(ProvisioningTestBase):
             ("creates_accounts", {}, False, 401, "refused"),
             ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, False, 401, "refused"),
             ("only_provisions_resources", {"can_create_accounts": False}, False, 401, "refused"),
+            ("first_party_app_that_creates_accounts", {}, True, 401, "refused"),
             # Not asked to sign, so it gets past authentication to the capability check.
-            ("first_party_app", {"can_create_accounts": False}, True, 403, "unsigned_exempt"),
+            ("first_party_resource_app", {"can_create_accounts": False}, True, 403, "unsigned_exempt"),
         ]
     )
     def test_partner_that_must_sign_is_refused_unsigned(
