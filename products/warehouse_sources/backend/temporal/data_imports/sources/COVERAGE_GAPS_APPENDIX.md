@@ -1980,10 +1980,10 @@ Diffed against: <https://betterstack.com/docs/uptime/api/getting-started-with-up
 - [x] `GET heartbeat availability summary` — the heartbeat equivalent of the monitor SLA summary (medium)
 - [x] `GET severities and severity groups (/api/v2/urgencies, /api/v2/urgency-groups)` — call-routing severity lookup resolving the severity referenced on incidents (medium)
 - [x] `GET status page resources (/api/v2/status-pages/{id}/resources)` — join table mapping status pages to the monitors and heartbeats they display (medium)
-- [ ] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
-- [ ] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
-- [ ] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
-- [ ] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
+- [x] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
+- [x] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
+- [x] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
+- [x] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
 
 Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API reference nav across several fetched pages under /docs/uptime/api/. The severities routes are `/api/v2/urgencies` and `/api/v2/urgency-groups` — `/api/v2/severities` is a 404; the product was renamed but the API paths were not. On-call events and the on-call rotation are two separate per-schedule endpoints, so they became two tables. Excluded: the Reporting page, which is an outbound incident log drain (webhook payload schema), not a queryable resource, and the New Relic integrations endpoint (integration config).
 

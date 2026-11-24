@@ -1,3 +1,4 @@
+import copy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -75,6 +76,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.api.test.base import APILicensedTest
 
@@ -919,6 +921,17 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         FeatureFlagEvaluationContext.objects.create(
             feature_flag=flag, evaluation_context=EvaluationContext.objects.create(team=self.team, name="web-app")
         )
+        exposure_criteria = copy.deepcopy(experiment_fields.get("exposure_criteria", {}))
+        if _name == "warehouse_native_exposure":
+            # The health endpoint checks the reader's access to the connection, so the exposure needs a real one.
+            connection = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="bigquery",
+                source_type="BigQuery",
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                job_inputs={},
+            )
+            exposure_criteria["exposure_config"]["connection_id"] = str(connection.id)
         experiment = Experiment.objects.create(
             team=self.team,
             name="health-findings",
@@ -927,7 +940,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
-            exposure_criteria=experiment_fields.get("exposure_criteria", {}),
+            exposure_criteria=exposure_criteria,
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -950,7 +963,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             from_launch, fields = flag_edit
             self._edit_flag_at(flag, start_date + from_launch, fields)
 
-        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
+        with (
+            patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True),
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
