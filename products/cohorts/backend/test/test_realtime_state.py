@@ -492,6 +492,51 @@ class TestRealtimeReadiness(BaseTest):
                 },
                 (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
             ),
+            # The save refuses unsupported criteria before it checks history, so shortening the window would not help.
+            (
+                "unsupported_criteria_and_history_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "filters": filters(
+                        {**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year", "bytecode_error": "Unsupported"}
+                    ),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA, None),
+            ),
+            (
+                "members_over_limit",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": filters({**BEHAVIORAL_LEAF, "bytecode": ["_H", 1]}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.MEMBERS_OVER_LIMIT, None),
+            ),
+            # The save refuses a criterion with both, and what is stored can't say which of the two is stale, so
+            # naming a later check would send a person to fix something that leaves the cohort daily.
+            (
+                "criterion_with_bytecode_and_an_error",
+                {
+                    "cohort_type": None,
+                    "realtime_enabled_at": None,
+                    "count": 20_000_001,
+                    "filters": {
+                        **filters(
+                            {
+                                **BEHAVIORAL_LEAF,
+                                "time_value": 2,
+                                "time_interval": "year",
+                                "bytecode": ["_H", 1],
+                                "bytecode_error": "Unsupported",
+                            }
+                        ),
+                        "filterTestAccounts": True,
+                    },
+                },
+                (CohortRealtimeState.DAILY, None, None),
+            ),
             # Past the plan but within the pipeline's cap, so the history is not what keeps it daily.
             (
                 "daily_past_the_plan_within_the_cap",
