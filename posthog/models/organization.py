@@ -776,11 +776,11 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
 
         sync_deactivated_org_flags_limit(Organization.objects.get(pk=organization_id))
 
+    # First and robust: a failure in another callback cannot skip it, and its own failure skips none.
+    transaction.on_commit(_sync_flags_limit, robust=True)
     transaction.on_commit(_invalidate_cache)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)
-    # Robust so a Redis failure here cannot skip the callbacks queued after it.
-    transaction.on_commit(_sync_flags_limit, robust=True)
 
 
 @receiver(post_save, sender=Organization)
