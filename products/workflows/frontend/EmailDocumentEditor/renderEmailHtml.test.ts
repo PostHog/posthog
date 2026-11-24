@@ -221,6 +221,24 @@ describe('renderEmailHtml', () => {
         }
     )
 
+    const setsValue = '{% assign u = secret %}Go'
+    it.each<[string, JSONContent]>([
+        ['a button', { type: 'emailButton', attrs: { href: '{{ u }}' }, content: [{ type: 'text', text: setsValue }] }],
+        [
+            'an image',
+            { type: 'emailImage', attrs: { src: 'https://example.com/a.png', href: '{{ u }}', alt: setsValue } },
+        ],
+        [
+            'a link',
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: setsValue, marks: [{ type: 'link', attrs: { href: '{{ u }}' } }] }],
+            },
+        ],
+    ])('reads the address of %s before its label sets a value', (_name, block) => {
+        expect(renderEmailText(doc(block))).toEqual(`{{ u }} ${setsValue}`)
+    })
+
     it('writes plain text with links, buttons and separate lines from an HTML block', () => {
         const text = renderEmailText(
             doc(

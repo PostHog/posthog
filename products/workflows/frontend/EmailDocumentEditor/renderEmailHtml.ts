@@ -12,7 +12,7 @@ import {
     isEmailDocEmpty,
     resolvePageStyle,
 } from './emailDocument'
-import { htmlToEmailText } from './htmlToEmailText'
+import { changesLiquidValue, htmlToEmailText } from './htmlToEmailText'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
@@ -1077,6 +1077,9 @@ function withLinkAddress(label: string, href: string): string {
     if (!href || href.startsWith('#') || name === href || `mailto:${name}` === href || `tel:${name}` === href) {
         return label
     }
+    if (changesLiquidValue(label)) {
+        return `${href} ${label}`
+    }
     return name ? `${label.trimEnd()} (${href})${label.slice(label.trimEnd().length)}` : `${label}${href}`
 }
 
@@ -1132,6 +1135,9 @@ function blockText(node: JSONContent): string {
         case 'emailButton': {
             const href = safeEmailLink(node.attrs?.href)
             const label = inlineText(node.content)
+            if (href && changesLiquidValue(label)) {
+                return `${href} ${label}`
+            }
             return href && label ? `${label}: ${href}` : label
         }
         case 'emailColumns':

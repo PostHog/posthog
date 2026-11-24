@@ -214,6 +214,11 @@ function liquidTagName(piece: Piece): string | null {
     return piece.kind === 'liquid' ? (LIQUID_TAG_NAME.exec(piece.value)?.[1] ?? null) : null
 }
 
+/** Whether the Liquid in a label sets a value, so an address written after it could read another one. */
+export function changesLiquidValue(source: string): boolean {
+    return piecesOf(source, false).some((piece) => LIQUID_CHANGES_VALUE.has(liquidTagName(piece) ?? ''))
+}
+
 /** Whether the pieces start and end in the same branch of every condition and loop. */
 function staysInOneBranch(pieces: Piece[]): boolean {
     let depth = 0
