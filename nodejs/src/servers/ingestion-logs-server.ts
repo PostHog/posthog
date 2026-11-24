@@ -149,7 +149,8 @@ export class IngestionLogsServer implements NodeServer {
             this.postgres,
             this.pubsub,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
-            this.config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS
+            this.config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS,
+            true
         )
         const hogFunctionMonitoring = createTransformationsMonitoringService(outputs, this.config, teamManager)
 

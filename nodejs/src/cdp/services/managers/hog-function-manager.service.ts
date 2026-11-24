@@ -36,6 +36,11 @@ const HOG_FUNCTION_FIELDS = [
 
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
 
+// Transformations rewrite events and logs at ingestion, such as to drop personal data, so they keep running for a
+// deactivated organization unless the manager is built to skip them too.
+const runsForDeactivatedOrganizations = (hogFunction: Pick<HogFunctionType, 'type'>): boolean =>
+    hogFunction.type === 'transformation' || hogFunction.type === 'transformation_log'
+
 // /**
 //  * Sorts HogFunctions by their execution_order and creation date.
 //  * Functions with no execution_order are placed at the end.
@@ -75,7 +80,8 @@ export class HogFunctionManagerService {
         private postgres: PostgresRouter,
         private pubSub: PubSub,
         private encryptedFields: EncryptedFields,
-        private skipDeactivatedOrganizations = false
+        private skipDeactivatedOrganizations = false,
+        private skipDeactivatedTransformations = false
     ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
@@ -183,7 +189,8 @@ export class HogFunctionManagerService {
                     [id],
                     'fetchHogFunction'
                 )
-            ).rows
+            ).rows,
+            this.keepWhenInactive
         )
 
         this.sanitize(items)
@@ -206,7 +213,7 @@ export class HogFunctionManagerService {
 
         const hogFunctionsByTeam: Record<string, HogFunctionTeamInfo[]> = {}
 
-        for (const item of withoutDeactivatedOrganizations('hog_function', response.rows)) {
+        for (const item of withoutDeactivatedOrganizations('hog_function', response.rows, this.keepWhenInactive)) {
             const teamId = item.team_id.toString()
             if (!hogFunctionsByTeam[teamId]) {
                 hogFunctionsByTeam[teamId] = []
@@ -227,7 +234,7 @@ export class HogFunctionManagerService {
             'fetchHogFunctions'
         )
 
-        const hogFunctions = withoutDeactivatedOrganizations('hog_function', response.rows)
+        const hogFunctions = withoutDeactivatedOrganizations('hog_function', response.rows, this.keepWhenInactive)
 
         this.sanitize(hogFunctions)
 
@@ -236,6 +243,9 @@ export class HogFunctionManagerService {
             return acc
         }, {})
     }
+
+    private keepWhenInactive = (hogFunction: Pick<HogFunctionType, 'type'>): boolean =>
+        !this.skipDeactivatedTransformations && runsForDeactivatedOrganizations(hogFunction)
 
     private organizationInactiveSelect(): string {
         return this.skipDeactivatedOrganizations ? `, ${organizationInactiveColumn('posthog_hogfunction')}` : ''

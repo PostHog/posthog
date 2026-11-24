@@ -449,7 +449,8 @@ export function createHogTransformerService(
         deps.postgres,
         deps.pubSub,
         deps.encryptedFields,
-        config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS
+        config.TRANSFORMATIONS_SKIP_DEACTIVATED_ORGANIZATIONS,
+        true
     )
     const hogInputsService = new HogInputsService(deps.integrationManager, undefined, deps.encryptedFields)
     const hogExecutor = new HogExecutorService(
