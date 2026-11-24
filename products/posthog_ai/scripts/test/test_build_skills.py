@@ -706,27 +706,26 @@ def test_lint_all_fails_when_the_served_skills_file_does_not_match_the_headers(
 
 
 @pytest.mark.parametrize(
-    "listed,body,warns",
+    "audience,body,warns",
     [
-        (True, "x" * 30_000, True),
-        (True, "x\n" * 600, True),
-        (True, "short", False),
-        (False, "x" * 30_000, False),
+        ("customer", "x" * 30_000, True),
+        ("customer", "x\n" * 600, True),
+        ("scout", "x" * 30_000, True),
+        ("customer", "short", False),
+        ("internal", "x" * 30_000, False),
     ],
-    ids=["served-over-5000-tokens", "served-over-500-lines", "served-short", "internal-long"],
+    ids=["customer-over-5000-tokens", "customer-over-500-lines", "scout-long", "customer-short", "internal-long"],
 )
 def test_lint_all_warns_about_a_large_served_skill_without_failing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], listed: bool, body: str, warns: bool
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], audience: str, body: str, warns: bool
 ) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
     skill_dir.mkdir(parents=True)
-    header = "" if listed else "metadata:\n  audience: internal\n"
+    header = f"metadata:\n  audience: {audience}\n"
     (skill_dir / "SKILL.md").write_text(f"---\nname: some-skill\n{header}description: A skill\n---\n{body}\n")
-    served_file = tmp_path / "services" / "mcp" / "src" / "skills" / "served-skills.json"
-    served_file.parent.mkdir(parents=True)
-    served_file.write_text(json.dumps({"skills": {"some-skill": {}} if listed else {}, "context_mill_skills": {}}))
 
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    builder.write_served_skills()
 
     assert builder.lint_all() is True
     captured = capsys.readouterr()

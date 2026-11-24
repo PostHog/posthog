@@ -37,6 +37,10 @@ def _consumers(metadata: dict[str, str]) -> list[str]:
     return [consumer.strip() for consumer in metadata.get("consumers", "").split(",") if consumer.strip()]
 
 
+def _is_served(skill: skill_manifest.DiscoveredSkill) -> bool:
+    return _skill_metadata(skill).get("audience") in SERVED_AUDIENCES
+
+
 def _render_served_skills(skills: list[skill_manifest.DiscoveredSkill]) -> str:
     """Return the text of the served-skills file for these skill headers."""
     served: dict[str, dict[str, object]] = {}

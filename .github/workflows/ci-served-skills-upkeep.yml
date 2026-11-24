@@ -54,7 +54,7 @@ jobs:
                       /products/*/skills/
                       /products/*/product.yaml
                       /services/mcp/schema/
-                      /services/mcp/src/skills/served-skills.json
+                      /services/mcp/src/generated/served-skills.json
                   sparse-checkout-cone-mode: false
 
             - name: Find the commit to compare sizes with

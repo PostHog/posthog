@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills import discovery, upkeep
+from products.posthog_ai.scripts.build_skills import discovery, skill_audience, upkeep
 
-SERVED = "services/mcp/src/skills/served-skills.json"
+SERVED = skill_audience.SERVED_SKILLS_FILE
 
 
 def _write_skill(repo: Path, name: str, body: str = "Body", product: str = "alpha") -> Path:
@@ -25,7 +25,7 @@ def _write_repo(
 ) -> None:
     served_file = repo / SERVED
     served_file.parent.mkdir(parents=True)
-    served_file.write_text(json.dumps({"skills": served, "context_mill_skills": {}}))
+    served_file.write_text(json.dumps({"skills": served}))
     schema_file = repo / "services" / "mcp" / "schema" / "tool-definitions.json"
     schema_file.parent.mkdir(parents=True)
     tools: dict[str, dict[str, str]] = {tool: {"feature_flag": flag} for tool, flag in (tool_flags or {}).items()}

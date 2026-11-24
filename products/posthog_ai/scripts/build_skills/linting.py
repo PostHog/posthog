@@ -66,9 +66,8 @@ class SkillLinter:
 
     def _warn_about_large_served_skills(self) -> None:
         """Advisory only. `learn` loads a served skill's SKILL.md into a customer agent's context in one piece."""
-        served_names = skill_audience._load_served_skill_names(self.repo_root) or set()
         for skill in self.skills:
-            if discovery._unrendered_skill_name(skill) not in served_names:
+            if not skill_audience._is_served(skill):
                 continue
             warning = skill_size.size_warning(skill_size.measure_entry(skill.source_file))
             if warning is None:
