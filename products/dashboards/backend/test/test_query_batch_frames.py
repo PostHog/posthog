@@ -12,6 +12,7 @@ from posthog.schema import BreakdownFilter, EventsNode, HogQLQuery, TrendsFilter
 
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
+from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameMeta
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
 from products.dashboards.backend.v2.frames import (
     MAX_LEGEND_NAME,
@@ -19,9 +20,6 @@ from products.dashboards.backend.v2.frames import (
     MAX_PIVOT_SERIES,
     MAX_PROMETHEUS_SERIES,
     MAX_STREAM_LABEL_BYTES,
-    Frame,
-    FrameField,
-    FrameMeta,
     frame_json,
     frames_for,
     legend_name,

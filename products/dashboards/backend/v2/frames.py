@@ -4,7 +4,8 @@ A frame is Dash's `DataFrame` (packages/schema/src/frame.ts in PostHog/dash): a 
 milliseconds, one or more value fields and meta. Each language's result has one converter here. A result whose kind has
 no frame shape (funnels, retention, paths...) gets None, and its line keeps the raw result.
 
-The trends and metrics converters are ported from the cached tiles frames in PR #138426, which is not merged yet.
+The frame types are the cached tiles' (`facade.contracts`), which also have the string, boolean and other fields a table
+needs. The trends and metrics converters are ported from the cached tiles converters in `logic/frames.py`.
 """
 
 import re
@@ -12,7 +13,7 @@ import json
 import hashlib
 import datetime as dt
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -24,9 +25,8 @@ from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.result_series import get_series_key
 
+from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameFieldType, FrameMeta
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
-
-FrameFieldType = Literal["time", "number", "string", "boolean", "other"]
 
 # Trends displays that draw one value per interval. The others show one number per series.
 _TIME_SERIES_DISPLAYS = {
@@ -59,36 +59,6 @@ MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
 # Each Prometheus series becomes a frame of its own, many times the size of the series in the response. Above this
 # many series, the result stays raw.
 MAX_PROMETHEUS_SERIES = 1000
-
-
-@frozen
-class FrameField:
-    name: str
-    type: FrameFieldType
-    # A time field holds epoch milliseconds. A number field holds None for a gap.
-    values: Sequence[Any]
-    unit: Optional[str] = None
-    labels: Optional[dict[str, str]] = None
-
-
-@frozen
-class FrameMeta:
-    # PostHog's interval name, e.g. `minute_5`, `hour` or `day`, when the result has one.
-    interval: Optional[str] = None
-    date_from: Optional[dt.datetime] = None
-    date_to: Optional[dt.datetime] = None
-    # The same series over the compared period, with that period's dates.
-    previous: bool = False
-    # The table had more rows than were returned, so the frame is cut.
-    truncated: bool = False
-
-
-@frozen
-class Frame:
-    name: Optional[str]
-    labels: dict[str, str]
-    fields: list[FrameField]
-    meta: FrameMeta
 
 
 def frames_for(
