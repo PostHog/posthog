@@ -285,11 +285,13 @@ class MySQLCDCStreamReader:
                 )
 
     def _table_columns(self, event: RowsEvent) -> TableColumns:
-        # The library keeps one column list per table map, and a schema change brings a new table map.
+        # MySQL writes a table map before every statement and the library builds new columns for each, so
+        # equal columns keep the cached mapping: a buffered transaction then holds one per schema.
         cached = self._tables.get(event.table_id)
-        if cached is None or cached.source is not event.columns:
-            cached = TableColumns.from_binlog(event.columns, event.primary_key)
-            self._tables[event.table_id] = cached
+        if cached is not None and cached.matches(event.columns, event.primary_key):
+            return cached
+        cached = TableColumns.from_binlog(event.columns, event.primary_key)
+        self._tables[event.table_id] = cached
         return cached
 
     def confirm_position(self, position: str) -> None:

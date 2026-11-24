@@ -116,6 +116,12 @@ def _as_bytes(value: Any) -> bytes:
     return bytes(value)
 
 
+def _key_list(primary_key: Sequence[str] | str | None) -> list[str]:
+    if isinstance(primary_key, str):
+        return [primary_key] if primary_key else []
+    return list(primary_key or [])
+
+
 @dataclass(frozen=True)
 class TableColumns:
     """One table map's columns: their Arrow types and how to convert a decoded row to them.
@@ -133,10 +139,7 @@ class TableColumns:
 
     @classmethod
     def from_binlog(cls, columns: Sequence[BinlogColumn], primary_key: Sequence[str] | str | None) -> TableColumns:
-        if isinstance(primary_key, str):
-            keys = [primary_key] if primary_key else []
-        else:
-            keys = list(primary_key or [])
+        keys = _key_list(primary_key)
         binary = {column.name for column in columns if _data_type(column) in _BINARY_DATA_TYPES}
         hex_columns = frozenset(name for name in binary if _is_id_like_column(name, keys))
         dropped = frozenset(binary - hex_columns)
@@ -153,6 +156,11 @@ class TableColumns:
             _hex_columns=hex_columns,
             _dropped_columns=dropped,
         )
+
+    def matches(self, columns: Sequence[BinlogColumn], primary_key: Sequence[str] | str | None) -> bool:
+        if self.primary_key != _key_list(primary_key):
+            return False
+        return self.source is columns or list(self.source) == list(columns)
 
     def normalize(
         self, values: Mapping[str, Any], none_sources: Mapping[str, str], time_zone: dt.tzinfo

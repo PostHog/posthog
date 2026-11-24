@@ -136,6 +136,7 @@ class TestMySQLCDCStreamReader:
         assert events[2].columns["created_at"] == snapshot_created_at
         assert events[3].previous_values == {"id": 1}
         assert events[0].column_types is not None
+        assert len({id(e.column_types) for e in events}) == 1
         assert events[0].column_types["id"] == pa.int32()
         assert events[0].column_types["ext_id"] == pa.string()
         assert "raw" not in events[0].column_types
