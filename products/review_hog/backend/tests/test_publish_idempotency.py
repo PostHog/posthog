@@ -156,7 +156,7 @@ def _pr_metadata(head_sha: str) -> PRMetadata:
 
 
 _DRAFT_NOTE = "This is the only automatic review while this pull request is a draft."
-_LAST_NOTE = "This is the last automatic review of this pull request."
+_LAST_NOTE = "New pushes to this pull request won't start an automatic review."
 
 
 class TestPublishIdempotency(BaseTest):

@@ -883,6 +883,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, organization: Organization):
         from ee.billing.billing_manager import BillingManager
+        from ee.billing.billing_types import BillingProvider
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
@@ -898,6 +899,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    if billing.get("billing_provider") == BillingProvider.VERCEL:
+                        raise exceptions.ValidationError(
+                            "Billing for this organization is managed by Vercel. "
+                            "To end the subscription, uninstall the PostHog integration from your Vercel team, "
+                            "then delete the organization. If you no longer have access to that Vercel team, "
+                            "disconnect Vercel in Settings > Organization > Integrations instead."
+                        )
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."

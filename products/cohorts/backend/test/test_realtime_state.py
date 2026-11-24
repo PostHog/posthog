@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -108,10 +109,18 @@ class TestRealtimeReadiness(BaseTest):
         readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
         return readiness.state if readiness else None
 
-    def test_unstamped_cohort_with_no_run_needs_attention_rather_than_building(self) -> None:
+    @parameterized.expand(
+        [
+            ("behavioral_leaf", {}),
+            ("legacy_event_condition_in_groups", {"filters": {}, "groups": [{"action_id": 3, "days": 7}]}),
+        ]
+    )
+    def test_unstamped_cohort_with_no_run_needs_attention_rather_than_building(
+        self, _name: str, definition: dict[str, Any]
+    ) -> None:
         # The whole point of deriving from a run row: a refused, lost, or never-triggered backfill
         # must not read as work in progress, or the progress bar never ends.
-        assert self._state(self._cohort()) == CohortRealtimeState.NEEDS_ATTENTION
+        assert self._state(self._cohort(**definition)) == CohortRealtimeState.NEEDS_ATTENTION
 
     @parameterized.expand(
         [
@@ -291,6 +300,68 @@ class TestRealtimeReadiness(BaseTest):
             ex=300,
         )
         assert self._state(cohort) == CohortRealtimeState.BUILDING
+
+    @parameterized.expand(
+        [
+            (
+                "person_run_scanning",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                CohortBackfillRunStatus.SEEDING,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.BUILDING,
+                CohortHistoryBuildPhase.SCANNING,
+            ),
+            (
+                "person_edit_queued",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                None,
+                CohortBackfillTrigger.COHORT_EDITED,
+                CohortRealtimeState.REBUILDING,
+                CohortHistoryBuildPhase.WAITING,
+            ),
+            (
+                "behavioral_run_checking",
+                "last_backfill_person_properties_at",
+                CohortBackfillKind.BEHAVIORAL,
+                CohortBackfillRunStatus.RECONCILING,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.BUILDING,
+                CohortHistoryBuildPhase.CHECKING,
+            ),
+            (
+                "person_run_blocked",
+                "last_backfill_events_at",
+                CohortBackfillKind.PERSON_PROPERTY,
+                CohortBackfillRunStatus.BLOCKED,
+                CohortBackfillTrigger.COHORT_CREATED,
+                CohortRealtimeState.NEEDS_ATTENTION,
+                None,
+            ),
+        ]
+    )
+    def test_a_stamped_kind_leaves_the_cohort_to_the_kind_still_building(
+        self,
+        _name: str,
+        stamp_field: str,
+        other_kind: str,
+        other_run_status: str | None,
+        other_trigger: str,
+        expected_state: CohortRealtimeState,
+        expected_phase: CohortHistoryBuildPhase | None,
+    ) -> None:
+        cohort = self._cohort(filters=filters(BEHAVIORAL_LEAF, PERSON_LEAF), **{stamp_field: timezone.now()})
+        if other_run_status is None:
+            get_redis_client().set(cohort_backfill_pending_key(cohort.id, other_kind), other_trigger, ex=300)
+        else:
+            self._participate(
+                self._run(status=other_run_status, kind=other_kind, trigger=other_trigger, cohort=cohort), cohort
+            )
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert readiness.state == expected_state
+        assert (readiness.build.phase if readiness.build else None) == expected_phase
 
     def test_a_run_for_a_kind_the_filters_no_longer_need_decides_nothing(self) -> None:
         # A person run left over from an earlier definition is not something this cohort waits on,

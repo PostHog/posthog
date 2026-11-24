@@ -9,7 +9,7 @@ import { AnyResponseType, DataTableNode, NodeKind, SessionQuery } from '~/querie
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { buildAiObservabilityStorageConfig } from './redesign/shared/preferenceStorage'
 
 export interface AIObservabilitySessionDataNodeLogicParams {
     sessionId: string

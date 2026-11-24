@@ -155,6 +155,16 @@ Observation failures stop that probe and are logged. They do not change the agen
 
 The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
 
+Set `renew_relay_certificate: true` in the enrollment or probe JSON only after selecting a relay image that supports certificate reload and `client_ca_file`. It defaults to false for existing images and executions. The worker installs the public enrollment CA in the sidecar and renews the same registered key halfway through the certificate's remaining lifetime. The renewal deadline is saved on the run so another worker can continue it.
+
+```text
+renew lease -> check registered key -> issue certificate
+  publish atomically in sidecar -> SIGHUP identified process
+  relay acknowledges reload -> save next renewal deadline
+```
+
+The relay retains its private key. The CA signing key stays with the worker. Renewal verifies the process identity before signalling, waits for the reload result and restores the previous file on failure. A failed delivery does not advance the saved deadline. The existing lease and run checks still apply before publication; certificate renewal does not extend the observation window or restore revoked authority. A 600-second observation can exercise the first renewal of a 15-minute certificate, but cannot prove continuity past its original expiry. Use an isolated test with short-lived certificates for that check until full-run enrollment is available. Enrollment-CA rotation remains separate.
+
 ```text
 Selected TaskRun -> ordinary VM provision and agent launch
   attach relay -> register execution -> publish bounded capability
@@ -167,6 +177,9 @@ Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. It
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
 Excess requests receive 429 before registry lookup or normal audit reservation. Every refusal increments `egress_requests_total{outcome="rate_limited"}`. Audit records include the authenticated relay-key fingerprint; rate-limit records are coalesced to one admission/completion pair per key per ten seconds, subject to audit availability. The metric counts all refusals, while the audit marker identifies affected relay keys without letting rejected traffic fill the shared queue.
+
+Rate-limit responses preserve HTTP/2 connections and bodyless HTTP/1.1 connections, so retrying does not require a new TLS handshake.
+An unread HTTP/1.1 body still closes the connection promptly; HTTP/2 closes the rejected stream while other streams can continue.
 
 The feature flag selects new enrollments; turning it off does not revoke running ones. Each activity rereads worker configuration and the run binding. Removing or changing configuration stops renewal; cleanup can revoke and remove its relay even if the configuration file is gone. An unavailable worker leaves authority bounded by the 30-second lease. Delayed cleanup cannot close a replacement relay or the agent VM.
 
@@ -236,7 +249,8 @@ The relay configuration names the exact run authority and its own client certifi
   "endpoint": "https://run-a.egress.example.com",
   "admin_address": "127.0.0.1:9091",
   "certificate_file": "/run/egress/relay.pem",
-  "private_key_file": "/run/egress/relay-key.pem"
+  "private_key_file": "/run/egress/relay-key.pem",
+  "client_ca_file": "/run/egress/enrollment-ca.pem"
 }
 ```
 
@@ -271,7 +285,11 @@ Send SIGHUP to the proxy after replacing its referenced TLS, CA, verification-ke
 It loads them together and retains the active configuration if any file is invalid.
 Failed reloads log the reason to stderr without exposing file contents.
 Every request checks the current client CA, including requests on reused TLS connections.
-Listener addresses and limits require a restart. Relay credentials also require a restart.
+The relay also reloads its certificate, key and server CA files on SIGHUP. Renewed certificates must use the same public key; a new key needs a new execution registration.
+Set `client_ca_file` to the enrollment CA bundle trusted by the regional proxy. Reload verifies the candidate's client-authentication chain against this bundle. Existing configurations can start without it, but cannot reload certificates until it is configured and the relay restarted.
+Successful relay reloads replace the upstream connection pool and close its idle connections. In-flight requests can finish, and new requests use the renewed certificate even on an existing guest connection.
+Invalid material leaves the previous material active. Readiness and new requests fail once that certificate expires. Opted-in workers issue and publish renewed certificates through the existing renewal activity; SIGHUP does not extend enrollment or relay process lifetime.
+Listener addresses, endpoints and limits require a restart.
 SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
 
 ### Audit output
@@ -281,13 +299,17 @@ Events include a generated request ID, trusted run identity when authorization s
 They exclude tokens, raw URLs, headers and bodies.
 Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
 
-Each request reserves room for both events before authorization.
-A full queue returns 503 without running the operation.
-An output error stops new admissions and makes readiness and liveness fail until restart.
-The `egress_audit_export_failed` gauge is 1 after an output error and 0 otherwise.
+Each request passing the rate limiter reserves room for both events before authorization.
+
+| Failure                                 | Behavior                                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Output stalls and the queue fills       | New admissions receive 503 and increment `egress_audit_rejected_total`. Health checks stay healthy; admission resumes when output drains. |
+| Output returns an error                 | New admissions receive 503, readiness and liveness fail, and `egress_audit_export_failed` becomes 1 until restart.                        |
+| Collector or log storage is unavailable | Successful stdout writes do not acknowledge central delivery. Recovery and loss depend on collector buffering and node-log retention.     |
+
 Configure the supervisor to restart on liveness failure and send SIGTERM for normal shutdown.
 Queue pressure and planned draining do not fail liveness.
-Shutdown attempts to drain accepted events; a crash or drain timeout can lose buffered events.
+Shutdown attempts to drain accepted events; an output error, crash or drain timeout can lose buffered events.
 This is bounded asynchronous output, not a durable audit guarantee. Deployment must connect stdout to the regional log collector.
 
 ## Adapter contract
@@ -336,6 +358,8 @@ Replacement requires the previous execution ID and keeps the old registration re
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. Missing, revoked or expired authority on a live run still fails the child.
+Failed probe rounds emit `agent_egress_probe_failed` with their status counts before checking whether the run ended. A normal child completion does not erase that failure evidence.
 
 Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
 

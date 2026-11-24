@@ -5144,6 +5144,67 @@ export interface PinnedAccountPropertyApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `role` - Role
+ * * `project` - Project
+ */
+export type PinnedAccountPropertiesSourceKindEnumApi =
+    (typeof PinnedAccountPropertiesSourceKindEnumApi)[keyof typeof PinnedAccountPropertiesSourceKindEnumApi]
+
+export const PinnedAccountPropertiesSourceKindEnumApi = {
+    Personal: 'personal',
+    Role: 'role',
+    Project: 'project',
+} as const
+
+export interface PinnedAccountPropertiesRoleApi {
+    /** Organization role UUID. */
+    readonly id: string
+    /** Organization role name. */
+    readonly name: string
+}
+
+export interface PinnedAccountPropertiesSourceApi {
+    /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+     *
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project */
+    readonly kind: PinnedAccountPropertiesSourceKindEnumApi
+    /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+    readonly roles: readonly PinnedAccountPropertiesRoleApi[]
+}
+
+/**
+ * * `project` - Project
+ * * `role` - Role
+ */
+export type DefaultPinnedAccountPropertiesSourceKindEnumApi =
+    (typeof DefaultPinnedAccountPropertiesSourceKindEnumApi)[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnumApi]
+
+export const DefaultPinnedAccountPropertiesSourceKindEnumApi = {
+    Project: 'project',
+    Role: 'role',
+} as const
+
+export interface DefaultPinnedAccountPropertiesSourceApi {
+    /** Whether this default option is the project default or a role default.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    readonly kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /** Role this default belongs to when kind is role, or null for the project default. */
+    readonly role: PinnedAccountPropertiesRoleApi | null
+}
+
+export interface AvailableDefaultPinnedAccountPropertiesApi {
+    /** Which default this entry represents. */
+    readonly source: DefaultPinnedAccountPropertiesSourceApi
+    /** Ordered account properties saved for this default. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+/**
  * * `weekdays` - Weekdays
  * * `every_day` - Every day
  */
@@ -5181,10 +5242,27 @@ export interface AccountDetailTabsConfigApi {
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+    /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+    readonly pinned_properties_source: PinnedAccountPropertiesSourceApi
+    /** Project and role defaults the requesting user can reset their pinned properties to. */
+    readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountPropertiesApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
     /** Personal order, visibility, and default for account tabs. */
     readonly account_detail_tabs: AccountDetailTabsConfigApi
+}
+
+export interface FollowedDefaultPinnedPropertiesApi {
+    /** Follow the project default or the default of one of the requesting user's roles.
+     *
+     * * `project` - Project
+     * * `role` - Role */
+    kind: DefaultPinnedAccountPropertiesSourceKindEnumApi
+    /**
+     * Role whose default to follow. Required when kind is role.
+     * @nullable
+     */
+    role_id?: string | null
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -5202,6 +5280,8 @@ export interface TaskDigestPreferencesUpdateApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+    /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+    followed_default?: FollowedDefaultPinnedPropertiesApi
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
     /** Complete personal account tab configuration. Omit to keep it unchanged. */

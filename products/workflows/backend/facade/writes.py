@@ -2,6 +2,7 @@
 the workflow's row lock with its staleness fences, revision bump and post-commit follow-ups."""
 
 from products.workflows.backend.models.hog_flow.hog_flow import defer_hog_flow_reloads
+from products.workflows.backend.services.conversion_goals import backfill_conversion_goals
 from products.workflows.backend.services.hog_flow_writes import (
     DRAFT_CONTENT_FIELDS,
     apply_email_utm_defaults,
@@ -21,6 +22,7 @@ from products.workflows.backend.services.publish_impact import build_publish_imp
 __all__ = [
     "DRAFT_CONTENT_FIELDS",
     "apply_email_utm_defaults",
+    "backfill_conversion_goals",
     "build_publish_impact",
     "create_workflow",
     "defer_hog_flow_reloads",

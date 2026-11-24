@@ -26,6 +26,7 @@ from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTE
 from products.tasks.backend.metrics import observe_custom_image_build
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,7 @@ def _judge_spec_safety(spec_yaml: str, team_id: int, repository: str = "") -> Sc
 @asyncify
 def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
     with log_activity_execution("scan_image_spec", **input.to_log_context()):
+        check_organization_execution(input.team_id)
         image = _get_image(input)
         image.status = SandboxCustomImage.Status.SCANNING
         image.save(update_fields=["status", "updated_at"])
@@ -329,6 +331,7 @@ def build_and_publish_image(input: ImageBuildActivityInput) -> str:
     import modal  # noqa: PLC0415 — heavy dep, keep off the import path of non-worker processes
 
     with log_activity_execution("build_and_publish_image", **input.to_log_context()):
+        check_organization_execution(input.team_id)
         image = _get_image(input)
         image.status = SandboxCustomImage.Status.BUILDING
         image.build_log = ""

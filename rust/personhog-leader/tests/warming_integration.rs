@@ -13,8 +13,8 @@ use personhog_leader::cache::{
     CacheLookup, DirtyIndex, PartitionedCache, PersonCache, PersonCacheKey,
 };
 use personhog_leader::warming::{
-    fill_source, lookback_offset, warm_from_sources, FillConfig, FillEnd, WarmClientPools,
-    WarmingConfig,
+    fill_source, lookback_offset, warm_from_sources, FillConfig, FillEnd, FillPace,
+    WarmClientPools, WarmingConfig, MAX_FILL_OFFSETS_PER_SEC,
 };
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as ProtoMessage;
@@ -128,6 +128,11 @@ const FILL: FillConfig = FillConfig {
     chunk_offsets: 2,
     room_fraction: 0.9,
 };
+
+/// The fastest pace, which no test fill waits on.
+fn unpaced() -> FillPace {
+    FillPace::new(MAX_FILL_OFFSETS_PER_SEC)
+}
 
 /// Six applied records on partition 0, then a warm that finds nothing left to read.
 async fn warmed_over_applied_history(
@@ -285,9 +290,18 @@ async fn a_fill_reads_each_record_once_when_markers_end_its_chunks() {
         .fetch_watermarks(&topic.topic, 0, Duration::from_secs(5))
         .expect("watermarks");
 
-    let stats = fill_source(&cfg, &FILL, &pools, &serving(&cache), &source, 0, end)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        end,
+    )
+    .await
+    .expect("fill should succeed");
 
     let filled: Vec<i64> = (1..=3)
         .filter(|person_id| version_of(&cache, 0, *person_id).is_some())
@@ -300,15 +314,49 @@ async fn a_fill_reads_each_record_once_when_markers_end_its_chunks() {
 }
 
 #[tokio::test]
+async fn a_fill_waits_on_its_pace_between_chunks() {
+    let cache = PartitionedCache::new(1 << 20);
+    let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
+    let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
+    let started = std::time::Instant::now();
+
+    // Six offsets in chunks of two at two a second: the third chunk is read two seconds in.
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &FillPace::new(2),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
+
+    assert_eq!(stats.records, 6);
+    assert!(started.elapsed() >= Duration::from_secs(2));
+}
+
+#[tokio::test]
 async fn a_fill_restores_the_newest_applied_record_of_each_live_person() {
     let cache = PartitionedCache::new(1 << 20);
     let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&cache).await;
     assert_eq!(version_of(&cache, 0, 1), None);
 
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
-    let stats = fill_source(&cfg, &FILL, &pools, &serving(&cache), &source, 0, upper)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
 
     assert_eq!((stats.end, stats.records), (FillEnd::Bound, 6));
     assert_eq!(version_of(&cache, 0, 1), Some(3));
@@ -351,9 +399,18 @@ async fn a_chunk_larger_than_the_caches_room_keeps_its_newest_persons_and_ends_t
     };
 
     let upper = history.len() as i64;
-    let stats = fill_source(&cfg, &fill, &pools, &serving(&cache), &source, 0, upper)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
 
     assert_eq!((stats.end, stats.inserted), (FillEnd::Budget, 1));
     assert_eq!(version_of(&cache, 0, 4), Some(1));
@@ -379,9 +436,18 @@ async fn a_fill_stops_inside_a_chunk_once_the_cache_has_no_room() {
         ..FILL
     };
 
-    let stats = fill_source(&cfg, &fill, &pools, &serving(&cache), &source, 0, PERSONS)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        PERSONS,
+    )
+    .await
+    .expect("fill should succeed");
 
     assert_eq!(stats.end, FillEnd::Budget);
     assert!(stats.inserted > 0 && stats.inserted < PERSONS as u64);
@@ -426,6 +492,7 @@ async fn a_fill_leaves_a_person_put_since_the_warm_alone() {
     let stats = fill_source(
         &cfg,
         &one_chunk,
+        &unpaced(),
         &pools,
         &serving(&cache),
         &source,
@@ -452,17 +519,35 @@ async fn a_fill_stops_when_the_cache_has_no_room_or_tracks_no_puts() {
         room_fraction: 0.0,
         ..FILL
     };
-    let stats = fill_source(&cfg, &no_room, &pools, &serving(&full), &source, 0, upper)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &no_room,
+        &unpaced(),
+        &pools,
+        &serving(&full),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
     assert_eq!((stats.end, stats.inserted), (FillEnd::Budget, 0));
 
     let untracked = PartitionedCache::new(1 << 20);
     let (_cluster, cfg, pools, upper) = warmed_over_applied_history(&untracked).await;
     serving(&untracked).stop_tracking_puts();
-    let stats = fill_source(&cfg, &FILL, &pools, &serving(&untracked), &source, 0, upper)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &unpaced(),
+        &pools,
+        &serving(&untracked),
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
     assert_eq!((stats.end, stats.inserted), (FillEnd::Stopped, 0));
 }
 
@@ -477,9 +562,18 @@ async fn a_fill_never_inserts_into_a_later_build_of_its_partition() {
     cache.publish_warmed_partition(0);
 
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
-    let stats = fill_source(&cfg, &FILL, &pools, &first_build, &source, 0, upper)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &FILL,
+        &unpaced(),
+        &pools,
+        &first_build,
+        &source,
+        0,
+        upper,
+    )
+    .await
+    .expect("fill should succeed");
 
     assert!(stats.inserted > 0);
     assert_eq!(version_of(&cache, 0, 1), None);
@@ -516,9 +610,18 @@ async fn a_fill_over_many_chunks_reads_every_record_once() {
         ..FILL
     };
 
-    let stats = fill_source(&cfg, &fill, &pools, &serving(&cache), &source, 0, PERSONS)
-        .await
-        .expect("fill should succeed");
+    let stats = fill_source(
+        &cfg,
+        &fill,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        PERSONS,
+    )
+    .await
+    .expect("fill should succeed");
 
     assert_eq!(
         (stats.records, stats.inserted),
@@ -539,7 +642,17 @@ async fn a_fill_fails_on_a_record_it_cannot_decode() {
     cache.publish_warmed_partition(0);
     let source = WarmSource::live(CHANGELOG_TOPIC, None, 0);
 
-    let failed = fill_source(&cfg, &FILL, &pools, &serving(&cache), &source, 0, 3).await;
+    let failed = fill_source(
+        &cfg,
+        &FILL,
+        &unpaced(),
+        &pools,
+        &serving(&cache),
+        &source,
+        0,
+        3,
+    )
+    .await;
 
     assert!(failed.is_err());
     assert_eq!(version_of(&cache, 0, 2), None);
