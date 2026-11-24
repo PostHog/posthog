@@ -29,7 +29,7 @@ export const RESULT_WRITE_MARGIN_MS = 5_000
 const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
 const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
 const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
-export const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
+const CALLS_SETTLE_BEFORE_WRITE_MS = 3_000
 // Long enough for a send at the size limit that starts right before the stop to reach its deadline, wait for its
 // calls, and write its result.
 export const EMAIL_STOP_DEADLINE_MS = LARGEST_SEND_DEADLINE_MS + CALLS_SETTLE_BEFORE_WRITE_MS + RESULT_WRITE_MARGIN_MS

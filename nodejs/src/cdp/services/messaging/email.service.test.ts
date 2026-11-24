@@ -2790,11 +2790,17 @@ describe('EmailService', () => {
                     const untilOnTheFakeClock = async (done: () => boolean): Promise<void> => {
                         const givesUpAt = performance.now() + 10_000
                         let clockAt = performance.now()
+                        let slowed = false
                         while (!done()) {
                             if (performance.now() > givesUpAt) {
                                 throw new Error('the send did not get there in 10 real seconds')
                             }
                             await new Promise((resolve) => setImmediate(resolve))
+                            if (!slowed && timeouts.mock.calls.length > 0) {
+                                slowed = true
+                                const busyUntil = performance.now() + 6_000
+                                while (performance.now() < busyUntil) {}
+                            }
                             const passedMs = Math.floor(performance.now() - clockAt)
                             clockAt += passedMs
                             await jest.advanceTimersByTimeAsync(passedMs)

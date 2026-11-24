@@ -10,7 +10,6 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
     BucketProxy,
     EmailQueueOfOneTest,
-    HeldQuery,
     PostgresProxy,
     StoredFile,
     attachmentStoreConfig,
@@ -60,7 +59,6 @@ const completes = (request: string): boolean => request.includes("SET status = '
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
 const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
-const reschedules = (request: string): boolean => request.includes("SET status = 'available'") && !defers(request)
 const checksOwnership = (request: string): boolean =>
     request.includes('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')
 const writeOf =
@@ -105,7 +103,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let template: { template_id: string }
     let backToRealClock: () => void = () => undefined
     let posthogDb: Pool
-    let workflowTableHolders: Client[]
+    let lockHolders: Client[]
     let routers: PostgresRouter[]
 
     const roomFor = (sends: number): InFlightLimits => ({
@@ -129,7 +127,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         queueName = `email-worker-test-${randomUUID()}`
         recipient = `${randomUUID()}@example.com`
         workers = []
-        workflowTableHolders = []
+        lockHolders = []
         routers = []
         team = (await createTestTeamFixture(hub.postgres)).team
         ses = await startFakeSes({
@@ -176,7 +174,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         backToRealClock()
-        await Promise.all(workflowTableHolders.map((holder) => holder.end()))
+        await Promise.all(lockHolders.map((holder) => holder.end()))
         cyclotron.releaseAll()
         bucket.release('refuse')
         await Promise.all(workers.map((worker) => worker.stop()))
@@ -692,8 +690,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2)
             )
             const [running] = await enqueue(transactionalSend([report.metadata]))
-            let retryWrite: HeldQuery | undefined
-            void cyclotron.hold(writeOf(reschedules, running)).then((held) => (retryWrite = held))
             const clockStarted = Date.now()
             useFakeClock()
             let callStarted = false
@@ -709,6 +705,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 expect((await jobRow(running)).status).toBe('running')
                 expect(callStarted).toBe(true)
             }, clockStarted + 5_000)
+            const rowLock = await lockJobRow(running)
 
             let stopReturned = false
             const stopStarted = Date.now()
@@ -718,14 +715,11 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 stopReturned: false,
                 status: 'running',
             })
-            const write = await onTheFakeClock(() => {
-                expect(retryWrite).toBeDefined()
-                return Promise.resolve(retryWrite!)
-            }, stopStarted + 53_000)
+            await onTheFakeClock(async () => expect(await rowLock.waiting()).toBeGreaterThan(0), stopStarted + 53_000)
             expect(stopReturned).toBe(false)
             await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
             expect(stopReturned).toBe(false)
-            write.release()
+            await rowLock.release()
             await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
 
             const row = await jobRow(running)
@@ -820,10 +814,31 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         })
     })
 
+    async function lockJobRow(
+        id: string
+    ): Promise<{ waiting: () => Promise<number>; release: () => Promise<unknown> }> {
+        const holder = new Client({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+        await holder.connect()
+        lockHolders.push(holder)
+        await holder.query('BEGIN')
+        await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+        const { rows } = await holder.query('SELECT pg_backend_pid() AS pid')
+        return {
+            waiting: async () =>
+                (
+                    await db.query(
+                        'SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+                        [rows[0].pid]
+                    )
+                ).rows[0].waiting,
+            release: () => holder.query('ROLLBACK'),
+        }
+    }
+
     async function lockWorkflowTable(): Promise<Client> {
         const holder = new Client({ connectionString: hub.DATABASE_URL })
         await holder.connect()
-        workflowTableHolders.push(holder)
+        lockHolders.push(holder)
         await holder.query('BEGIN')
         await holder.query('LOCK TABLE posthog_hogflow IN ACCESS EXCLUSIVE MODE')
         return holder
