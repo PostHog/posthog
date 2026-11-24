@@ -644,7 +644,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(askAboutHistoryThenApply)
             return
         }
 

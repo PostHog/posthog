@@ -499,6 +499,8 @@ describe('featureFlagsStaffToolsLogic', () => {
                 running_experiments_needing_flag_calls_in_events: experimentsNeedingFlagCalls,
                 current_mode: currentMode,
                 target_mode: 1,
+                current_keeps_events_writes: false,
+                target_keeps_events_writes: false,
                 changed,
                 left_above_mode: leftAboveMode,
             }))
@@ -524,7 +526,7 @@ describe('featureFlagsStaffToolsLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
             // Only a move to mode 2 stops these experiments, so the mode 1 preview warns about none.
             expect(logic.values.flagEvaluationsModePreviewSummary?.experimentsNeedingFlagCallsInEvents).toBe(0)
-            logic.actions.setFlagEvaluationsModeRequest({ mode: 2 })
+            logic.actions.setFlagEvaluationsModeRequest({ mode: 2, keepWritingFlagCallsToEvents: true })
             // A preview of the previous request must not stay on screen next to an Apply button
             // that sends the new one.
             expect(logic.values.flagEvaluationsModePreview).toBeNull()
@@ -543,9 +545,20 @@ describe('featureFlagsStaffToolsLogic', () => {
 
             // The preview fires on every form change, so a preview without dry_run would write the
             // mode while staff are still choosing it.
-            const request = { flag_evaluations_mode: 2, allow_downgrade: false, team_ids: [5, 99] }
+            const request = {
+                flag_evaluations_mode: 2,
+                allow_downgrade: false,
+                keep_writing_flag_calls_to_events: true,
+                team_ids: [5, 99],
+            }
             expect(bodies).toEqual([
-                { flag_evaluations_mode: 1, allow_downgrade: false, team_ids: [5, 99], dry_run: true },
+                {
+                    flag_evaluations_mode: 1,
+                    allow_downgrade: false,
+                    keep_writing_flag_calls_to_events: false,
+                    team_ids: [5, 99],
+                    dry_run: true,
+                },
                 { ...request, dry_run: true },
                 { ...request, dry_run: false },
             ])

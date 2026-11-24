@@ -44,14 +44,3 @@ export function parseLosslessJson(text: string): unknown {
         return undefined
     }
 }
-
-// Decodes one escaped JSON string literal, quotes included. Undefined when it isn't one. A JSON
-// reader that keeps key order calls this for every escaped string, so it skips zod.
-export function decodeJsonString(literal: string): string | undefined {
-    try {
-        const value: unknown = JSON.parse(literal)
-        return typeof value === 'string' ? value : undefined
-    } catch {
-        return undefined
-    }
-}

@@ -107,6 +107,20 @@ _WITH_A_SECOND_CONDITION = {
         },
     }
 }
+_WITH_AN_OVERRIDE_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+                "variant": "test",
+            },
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     until=datetime(2026, 10, 19, tzinfo=UTC),
@@ -784,6 +798,86 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
                 (timedelta(days=1), _WITH_A_SECOND_CONDITION),
             ),
+            (
+                "override_set_before_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
+            ),
+            (
+                "override_on_a_device_id_flag",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
+            ),
+            (
+                "frequentist_with_project_defaults",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "metrics_secondary": [
+                        {
+                            **_HEALTH_METRIC,
+                            "uuid": "health-threshold-metric",
+                            "name": "Reached 3 pageviews",
+                            "threshold": 3,
+                        },
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "health-funnel-metric",
+                            "name": "Pageview funnel",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    ],
+                    "stats_config": {
+                        "method": "frequentist",
+                        "frequentist": {"alpha": 0.1},
+                        "cuped": {"enabled": True},
+                    },
+                    "exposure_criteria": {
+                        "activation_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "warehouse_native_exposure",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "custom_exposure_event",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -795,6 +889,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        if _name == "frequentist_with_project_defaults":
+            TeamExperimentsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={
+                    "default_sequential_testing_enabled": True,
+                    "default_cuped_enabled": False,
+                    "default_cuped_lookback_days": 7,
+                },
+            )
         EventDefinition.objects.create(
             team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
         )
@@ -824,6 +927,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
+            exposure_criteria=experiment_fields.get("exposure_criteria", {}),
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -869,25 +973,85 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
-        # The condition set added after launch has no rollout percentage, which the flag service reads as 100.
+        # The added condition set has no rollout percentage, which the flag service reads as 100. It serves nobody,
+        # because the first set has no filters and a 100% rollout. On a flag that buckets by device ID, a request
+        # without a device ID skips the first set, so neither set's reach is known.
+        added_variant = {
+            "condition_added_after_launch": None,
+            "override_set_before_launch": "test",
+            "override_on_a_device_id_flag": "test",
+        }
+        by_device_id = _name == "override_on_a_device_id_flag"
         added_condition = (
-            [{"rollout_percentage": 100.0, "property_count": 1, "aggregation_group_type_index": None}]
-            if _name == "condition_added_after_launch"
+            [
+                {
+                    "rollout_percentage": 100.0,
+                    "property_count": 1,
+                    "aggregation_group_type_index": None,
+                    "variant": added_variant[_name],
+                    "reachable": None if by_device_id else False,
+                }
+            ]
+            if _name in added_variant
             else []
         )
+        counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
+        activation_event = {"frequentist_with_project_defaults": "$pageview"}.get(_name)
+        warehouse_native = _name == "warehouse_native_exposure"
         self.assertEqual(
             health["setup"],
             {
                 "release_conditions": [
-                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None},
+                    {
+                        "rollout_percentage": 100.0,
+                        "property_count": 0,
+                        "aggregation_group_type_index": None,
+                        "variant": None,
+                        "reachable": None if by_device_id else True,
+                    },
                     *added_condition,
                 ],
                 "early_exit": False,
-                "bucketing_identifier": "distinct_id",
+                "bucketing_identifier": "device_id" if by_device_id else "distinct_id",
                 "aggregation_group_type_index": None,
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
+                "exposure": None
+                if warehouse_native
+                else {"event": counted_event, "action": None, "activation": activation_event},
+                "analysis": {
+                    "stats_method": "bayesian",
+                    "confidence_level": 0.95,
+                    "sequential_testing": None,
+                    "sequential_testing_from_project_default": False,
+                    "cuped": False,
+                    "cuped_lookback_days": None,
+                    "cuped_from_project_default": True,
+                    "cuped_lookback_days_from_project_default": False,
+                    "metrics_without_cuped_support": [],
+                    "filters_test_accounts": None if warehouse_native else True,
+                    "test_account_filter_count": 0 if warehouse_native else 1,
+                    "multiple_variant_handling": "exclude",
+                    "only_count_matured_users": False,
+                    "baseline_variant": "holdout" if _name == "baseline_not_a_variant" else "control",
+                    "excluded_variants": [],
+                    **(
+                        {
+                            "stats_method": "frequentist",
+                            "confidence_level": 0.9,
+                            "sequential_testing": True,
+                            "sequential_testing_from_project_default": True,
+                            "cuped": True,
+                            "cuped_lookback_days": 7,
+                            "cuped_from_project_default": False,
+                            "cuped_lookback_days_from_project_default": True,
+                            "metrics_without_cuped_support": ["Reached 3 pageviews", "Pageview funnel"],
+                        }
+                        if _name == "frequentist_with_project_defaults"
+                        else {}
+                    ),
+                },
             },
         )
         if _name == "condition_added_after_launch":

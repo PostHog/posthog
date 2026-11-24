@@ -156,15 +156,15 @@ const emailSendsStoppedForJobOwnershipTotal = new Counter({
 
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
-    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
-    labelNames: ['result'],
+    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error) and whether it carried attachment files (with_files).',
+    labelNames: ['result', 'with_files'],
     buckets: [25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000],
 })
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
-    labelNames: ['source', 'priority_class', 'team_capped'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose. with_files is true for an email that carries attachment files, so plain sends can be read apart from them.',
+    labelNames: ['source', 'priority_class', 'team_capped', 'with_files'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
@@ -1782,12 +1782,14 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        const withFiles = files.length > 0 ? 'true' : 'false'
         if (queueWait) {
             emailQueueToSendMs
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
                     team_capped: queueWait.teamCapped ? 'true' : 'false',
+                    with_files: withFiles,
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
@@ -1805,11 +1807,15 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
-            sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'success', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
             return response.MessageId
         } catch (error: unknown) {
-            sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'error', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
                 if (!anAttemptSesMayHaveAccepted()) {

@@ -790,6 +790,20 @@ def _iter_issue_tag_values_rows(
                             status_code=response.status_code,
                         )
                         break
+                    # Some tag keys the tags listing returns (e.g. ones with embedded
+                    # spaces or multiple dots) 400 on the values sub-resource itself,
+                    # even though the key is otherwise valid. Same graceful-skip as the
+                    # 403 case above — a malformed request we built would 400 on every
+                    # tag, not just this one.
+                    if response.status_code == 400:
+                        logger.warning(
+                            "sentry_source.issue_tag_values_bad_request_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            status_code=response.status_code,
+                        )
+                        break
                     # Warehouse-snapshot parents can be deleted upstream mid-list; their
                     # values endpoint 404s. Skip the tag, same as the stale-issue skip above.
                     if use_warehouse_parent and response.status_code == 404:

@@ -147,9 +147,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             // Read on each launch, so a team-list change in the settings reaches the next webhook.
             intake: {
                 modeOf: (teamId) => intakeModeOf(this.config)(teamId),
-                producer: new IntakeProducer(this.outputs, undefined, undefined, (teamId) =>
-                    intakeClusterOf(this.config)(teamId)
-                ),
+                producer: new IntakeProducer(this.outputs, undefined, undefined, intakeClusterOf(this.config)),
             },
         })
     }
@@ -421,7 +419,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return answerQuotaLimited()
                 }
 
-                const committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
+                const committed = (await this.runIntake.launch([run]))[0]
                 if (committed.outcome !== 'created') {
                     return answerDuplicate()
                 }
