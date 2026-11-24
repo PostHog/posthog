@@ -22,6 +22,7 @@ from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
+from pymongo.common import validate_non_negative_integer
 from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
@@ -365,6 +366,11 @@ _ALLOWED_CLIENT_OPTIONS = {
         "readPreference",
         "readPreferenceTags",
         "maxStalenessSeconds",
+        "readConcernLevel",
+        "srvServiceName",
+        "srvMaxHosts",
+        "compressors",
+        "zlibCompressionLevel",
         "authSource",
         "authMechanism",
         "appName",
@@ -377,6 +383,9 @@ _ALLOWED_CLIENT_OPTIONS = {
 }
 # Each occurrence adds a tag set. pymongo decodes the tags itself, so the value stays encoded.
 _READ_PREFERENCE_TAGS_OPTION = "readpreferencetags"
+# pymongo gives this keyword to the SRV resolver before it validates keywords, and the resolver
+# compares it with a host count, so it must already be an int.
+_SRV_MAX_HOSTS_OPTION = "srvmaxhosts"
 
 
 class UnsupportedConnectionOptionError(ValueError):
@@ -409,6 +418,8 @@ def _client_arguments(connection_string: str) -> tuple[str, dict[str, Any]]:
             continue
         if key == _READ_PREFERENCE_TAGS_OPTION:
             options.setdefault(name, []).append(value)
+        elif key == _SRV_MAX_HOSTS_OPTION:
+            options[name] = validate_non_negative_integer(name, unquote_plus(value))
         else:
             options[name] = unquote_plus(value)
     return address, options

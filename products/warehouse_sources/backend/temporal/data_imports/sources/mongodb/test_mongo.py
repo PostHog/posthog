@@ -1590,7 +1590,6 @@ class TestClientOptions(SimpleTestCase):
             ("tls_turned_off", "&tls=false&ssl=false"),
             ("server_selection_timeout", "&serverSelectionTimeoutMS=1"),
             ("uuid_representation", "&uuidRepresentation=pythonLegacy"),
-            ("srv_service_name", "&srvServiceName=other"),
             ("ca_file", "&tlsCAFile=ca.pem"),
             # pymongo splits options on whitespace when the string has no `&` or `;`, but the client
             # never gets the options, so the text after the space is only part of the `tls` value.
@@ -1616,7 +1615,8 @@ class TestClientOptions(SimpleTestCase):
                 "replicaSet=rs0&directConnection=false&loadBalanced=false&readPreference=secondary"
                 "&readPreferenceTags=dc:ny&maxStalenessSeconds=120&authSource=admin&authMechanism=SCRAM-SHA-256"
                 "&appName=import&tlsAllowInvalidHostnames=true&tlsAllowInvalidCertificates=true"
-                "&connectTimeoutMS=5000&socketTimeoutMS=5000",
+                "&connectTimeoutMS=5000&socketTimeoutMS=5000&readConcernLevel=majority&compressors=zlib"
+                "&zlibCompressionLevel=5",
             ),
             # pymongo refuses tlsInsecure together with the two options it implies.
             ("tls_insecure", "tlsInsecure=true"),
@@ -1679,6 +1679,19 @@ class TestClientOptions(SimpleTestCase):
 
         assert resolver.call_args.args[0] == "cluster0.example.com"
         assert replica_set_name == "atlas-rs"
+
+    def test_a_srv_string_keeps_its_service_name_and_host_limit(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
+        resolver.return_value.get_options.return_value = ""
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with mongo_client(
+                "mongodb+srv://user:pw@cluster0.example.com/app?srvServiceName=analytics&srvMaxHosts=1", team_id=1
+            ):
+                pass
+
+        # The resolver compares the limit with a host count, so the string "1" would fail there.
+        assert resolver.call_args.args[2:] == ("analytics", 1)
 
     def test_a_dns_txt_record_cannot_add_an_authentication_mechanism(self):
         resolver = MagicMock()
