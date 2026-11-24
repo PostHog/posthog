@@ -35,12 +35,14 @@ export interface ReleaseChange {
     date: string
     who: string
     lines: string[]
+    applied: string[]
 }
 
 interface ConditionProperty {
     key?: string
     type?: string
     value?: unknown
+    operator?: string
     cohort_name?: string
 }
 
@@ -56,18 +58,22 @@ interface FlagFilters {
 
 const NOUN: Record<ChangeKind, string> = { flag: 'flag', experiment: 'experiment', survey: 'survey' }
 
-const IGNORED_FIELDS = new Set([
-    'version',
-    'updated_at',
-    'last_modified_at',
-    'last_modified_by',
-    'is_simple_flag',
-    'rollout_percentage',
-    'performed_rollback',
-    'can_edit',
-    'usage_dashboard',
-    'analytics_dashboards',
-])
+const OPERATOR_TEXT: Record<string, string> = {
+    exact: 'is',
+    is_not: 'is not',
+    icontains: 'contains',
+    not_icontains: 'does not contain',
+    regex: 'matches',
+    not_regex: 'does not match',
+    gt: '>',
+    gte: '≥',
+    lt: '<',
+    lte: '≤',
+    is_set: 'is set',
+    is_not_set: 'is not set',
+    in: 'is in',
+    not_in: 'is not in',
+}
 
 const MAX_LINES = 3
 
@@ -189,52 +195,60 @@ export function describeFilters(beforeValue: unknown, afterValue: unknown): stri
     return lines.length ? lines : ['Changed the release conditions']
 }
 
-function fieldLabel(field: string): string {
-    return field.replace(/_/g, ' ')
-}
-
 type DescribeField = (before: unknown, after: unknown) => string[]
 
 const SCHEDULED_FIELDS: Record<string, DescribeField> = {
     start_date: (before) => [before ? 'Changed the start date' : 'Launched'],
     archived: (_, after) => [after ? 'Archived' : 'Unarchived'],
-    name: (_, after) => [`Renamed to ${String(after)}`],
 }
 
 const FIELDS: Record<ChangeKind, Map<string, DescribeField>> = {
     flag: new Map<string, DescribeField>([
         ['filters', describeFilters],
         ['active', (_, after) => [after ? 'Turned on' : 'Turned off']],
-        ['key', (_, after) => [`Changed the key to ${String(after)}`]],
-        ['name', () => ['Edited the description']],
         ['deleted', (_, after) => [after ? 'Deleted the flag' : 'Restored the flag']],
     ]),
     experiment: new Map<string, DescribeField>([
         ...Object.entries(SCHEDULED_FIELDS),
         ['end_date', (_, after) => [after ? 'Ended' : 'Resumed']],
         ['status', (_, after) => [`Status changed to ${String(after).toLowerCase()}`]],
-        ['metrics', () => ['Edited the metrics']],
-        ['metrics_secondary', () => ['Edited the metrics']],
         ['parameters', () => ['Edited the variants']],
     ]),
     survey: new Map<string, DescribeField>([
         ...Object.entries(SCHEDULED_FIELDS),
         ['end_date', (_, after) => [after ? 'Stopped' : 'Resumed']],
-        ['questions', () => ['Edited the questions']],
         ['conditions', () => ['Changed who sees it']],
         ['targeting_flag_filters', () => ['Changed who sees it']],
         ['linked_flag', () => ['Changed who sees it']],
-        ['appearance', () => ['Changed how it looks']],
     ]),
 }
 
 function describeField(kind: ChangeKind, change: ActivityChange): string[] {
-    const { field, before, after } = change
-    if (IGNORED_FIELDS.has(field)) {
+    return FIELDS[kind].get(change.field)?.(change.before, change.after) ?? []
+}
+
+function propertyValue(value: unknown): string {
+    return Array.isArray(value) ? value.join(', ') : String(value)
+}
+
+function propertyText(property: ConditionProperty): string {
+    if (property.type === 'cohort') {
+        return property.operator === 'not_in' ? `not in ${cohortName(property)}` : cohortName(property)
+    }
+    const operator = property.operator ? (OPERATOR_TEXT[property.operator] ?? property.operator) : 'is'
+    return ['is_set', 'is_not_set'].includes(property.operator ?? '')
+        ? `${property.key} ${operator}`
+        : `${property.key} ${operator} ${propertyValue(property.value)}`
+}
+
+function appliedConditions(kind: ChangeKind, change: ActivityChange): string[] {
+    if (kind !== 'flag' || change.field !== 'filters') {
         return []
     }
-    const describe = FIELDS[kind].get(field)
-    return describe ? describe(before, after) : [`Edited the ${fieldLabel(field)}`]
+    return (((change.after ?? {}) as FlagFilters).groups ?? []).map((group) => {
+        const who = group.properties?.length ? group.properties.map(propertyText).join(' and ') : 'Everyone'
+        return `${who} · ${rollout(group)}%`
+    })
 }
 
 export function changeAuthor(entry: ActivityEntry): string {
@@ -255,10 +269,9 @@ const LIFECYCLE_VERBS = new Map([
     ['restored', 'Restored'],
 ])
 
-const CHILD_NOUNS = new Map([
-    ['holdout', 'holdout'],
-    ['shared_metric', 'shared metric'],
-])
+const CHILD_NOUNS = new Map([['holdout', 'holdout']])
+
+const SKIPPED_TYPES = new Set(['shared_metric'])
 
 interface ChangeSubject {
     kind: ChangeKind
@@ -279,15 +292,14 @@ function changeSubject(kind: ChangeKind, entry: ActivityEntry): ChangeSubject {
 
 export function describeChange(kind: ChangeKind, entry: ActivityEntry): ReleaseChange | null {
     const subject = changeSubject(kind, entry)
-    const verb = LIFECYCLE_VERBS.get(entry.activity)
-    let lines: string[]
-    if (verb) {
-        lines = [`${verb} the ${subject.noun}`]
-    } else if (subject.child) {
-        lines = [`Edited the ${subject.noun}`]
-    } else {
-        lines = [...new Set((entry.detail?.changes ?? []).flatMap((change) => describeField(subject.kind, change)))]
+    if (SKIPPED_TYPES.has(entry.detail?.type ?? '') || (entry.activity === 'created' && !subject.child)) {
+        return null
     }
+    const verb = LIFECYCLE_VERBS.get(entry.activity) ?? (subject.child ? 'Edited' : undefined)
+    const changes = entry.detail?.changes ?? []
+    const lines = verb
+        ? [`${verb} the ${subject.noun}`]
+        : [...new Set(changes.flatMap((change) => describeField(subject.kind, change)))]
     if (!lines.length) {
         return null
     }
@@ -295,7 +307,8 @@ export function describeChange(kind: ChangeKind, entry: ActivityEntry): ReleaseC
         lines.length > MAX_LINES
             ? [...lines.slice(0, MAX_LINES - 1), `${lines.length - MAX_LINES + 1} more changes`]
             : lines
-    return { key: entry.id, date: entry.created_at, who: changeAuthor(entry), lines: shown }
+    const applied = verb ? [] : changes.flatMap((change) => appliedConditions(subject.kind, change))
+    return { key: entry.id, date: entry.created_at, who: changeAuthor(entry), lines: shown, applied }
 }
 
 export function describeChanges(kind: ChangeKind, entries: readonly ActivityEntry[]): ReleaseChange[] {
