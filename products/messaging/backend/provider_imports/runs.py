@@ -268,8 +268,12 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
     if already_recorded:
         # Temporal ran this again after it saved, and the counter adds each contact once.
         return
+    _count_contacts(run.provider, step, progress)
+
+
+def _count_contacts(provider: str, step: str, progress: Mapping[str, Any]) -> None:
     for outcome_name, count in _step_outcomes(progress).items():
-        IMPORT_CONTACTS.labels(provider=run.provider, step=step, outcome=outcome_name).inc(count)
+        IMPORT_CONTACTS.labels(provider=provider, step=step, outcome=outcome_name).inc(count)
 
 
 def _people_imports(team_id: int, run_id: UUID, step: str) -> list[PeopleImportPlan]:
@@ -422,6 +426,7 @@ def _close_stale_run(team_id: int, run_id: UUID) -> None:
 
 
 def _close_run(team_id: int, run_id: UUID) -> None:
+    unreported_steps: list[str] = []
     with transaction.atomic():
         run = _runs(team_id).select_for_update().get(id=run_id)
         if run.status not in ACTIVE_IMPORT_STATUSES:
@@ -430,6 +435,7 @@ def _close_run(team_id: int, run_id: UUID) -> None:
             progress = run.progress.setdefault(step, _new_step_progress())
             if progress.get("people_imports") and "people_import" not in progress:
                 # The workflow ended before it sent the step's contacts, so their cohorts can't finish.
+                unreported_steps.append(step)
                 for plan in progress["people_imports"]:
                     fail_contacts_cohort(team_id, plan["cohort_id"])
                 progress.update(
@@ -446,6 +452,8 @@ def _close_run(team_id: int, run_id: UUID) -> None:
         run.temporary_api_key = None
         run.save(update_fields=["progress", "status", "finished_at", "temporary_api_key"])
 
+    for step in unreported_steps:
+        _count_contacts(run.provider, step, run.progress[step])
     IMPORT_RUNS.labels(provider=run.provider, status=run.status).inc()
     _report_finished(run)
 
