@@ -13,7 +13,12 @@ from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.service import RPCError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.managed_proxy import cloudflare_proxy_lock, proxy_domain_can_be_provisioned, reconcile_cloudflare_proxy
+from posthog.managed_proxy import (
+    cloudflare_proxy_lock,
+    deprovision_cloudflare_proxy,
+    proxy_domain_can_be_provisioned,
+    reconcile_cloudflare_proxy,
+)
 from posthog.models import ProxyRecord
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -110,25 +115,30 @@ def reconcile_proxy_root_redirect(proxy_record_id: str) -> None:
 @skip_team_scope_audit
 def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: bool = False) -> None:
     with cloudflare_proxy_lock(proxy_record_id):
-        record = ProxyRecord.objects.filter(
-            organization_id=organization_id,
-            pk=proxy_record_id,
-            status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
-        ).first()
-        if record is not None and record.status == ProxyRecord.Status.DELETING:
-            asyncio.run(_resume_proxy(record))
-            return
-        if record is not None and is_cloudflare_proxy(record):
-            active = (
-                ProxyRecord.objects.filter(organization_id=organization_id, pk=proxy_record_id)
-                .exclude(organization__is_active=False)
-                .exists()
+        record = (
+            ProxyRecord.objects.select_related("organization")
+            .filter(
+                organization_id=organization_id,
+                pk=proxy_record_id,
+                status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
             )
-            if active:
+            .first()
+        )
+        if record is not None:
+            cloudflare = is_cloudflare_proxy(record)
+            active = record.organization.is_active is not False
+            if cloudflare and not active:
+                deprovision_cloudflare_proxy(record)
+            if record.status == ProxyRecord.Status.DELETING:
+                asyncio.run(_resume_proxy(record))
+                return
+            if cloudflare and active:
                 if from_sweep and record.status == ProxyRecord.Status.ERRORING and not record.needs_activation_recovery:
                     return
                 if proxy_domain_can_be_provisioned(record):
                     asyncio.run(_resume_proxy(record))
+                return
+            if cloudflare:
                 return
     reconcile_cloudflare_proxy(organization_id, proxy_record_id, from_sweep=from_sweep)
 
