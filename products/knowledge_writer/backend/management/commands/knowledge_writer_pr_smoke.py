@@ -44,7 +44,14 @@ from ...facade.api import record_pull_request_event
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsChangeKind
 from ...facade.finished_check_hooks import FinishedDocsCheck
-from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, WRITER_FLAG, team_flag_state
+from ...feature_flags import (
+    AGENT_LAUNCH_FLAG,
+    OPEN_PULL_REQUESTS_AUTHORS_FLAG,
+    OPEN_PULL_REQUESTS_FLAG,
+    WRITER_FLAG,
+    open_pull_requests_author_flag_state,
+    team_flag_state,
+)
 from ...logic import intake
 from ...logic.launch import start_writer
 from ...logic.pull_requests import (
@@ -129,6 +136,12 @@ class Command(BaseCommand):
         )
         parser.add_argument("--section", default="session-replay", help="Docs section the request targets")
         parser.add_argument(
+            "--author",
+            required=True,
+            help="GitHub login the docs pull request asks to review, opted in through the authors flag; "
+            "with --from-merge, the merged pull request's author",
+        )
+        parser.add_argument(
             "--with-agent",
             metavar="SOURCE_PULL_REQUEST_URL",
             help="Run the real writer agent for a merged pull request whose change the section's docs lack",
@@ -154,7 +167,8 @@ class Command(BaseCommand):
         if source_url and merge_source_url:
             raise CommandError("Pass --with-agent or --from-merge, not both")
         merge_source = parsed_source_pull_request(merge_source_url) if merge_source_url else None
-        missing = missing_prerequisites(team, repository, needs_agent=bool(source_url or merge_source))
+        author_login: str = options["author"]
+        missing = missing_prerequisites(team, repository, author_login, needs_agent=bool(source_url or merge_source))
         if merge_source:
             missing += missing_merge_check_prerequisites(merge_source)
         github = None if missing else connected_github(team.id, repository, options["installation_id"])
@@ -183,6 +197,7 @@ class Command(BaseCommand):
                     writer,
                     team,
                     section,
+                    author_login,
                     source_url,
                     smoke_id,
                     options["agent_timeout_minutes"],
@@ -190,7 +205,9 @@ class Command(BaseCommand):
                     self.stdout.write,
                 )
                 if source_url
-                else run_scratch_request(github, writer, team, section, smoke_id, branches, self.stdout.write)
+                else run_scratch_request(
+                    github, writer, team, section, author_login, smoke_id, branches, self.stdout.write
+                )
             )
             failures = check_pull_request(github, repository, opened)
         finally:
@@ -255,9 +272,16 @@ class Command(BaseCommand):
         self.stdout.write(f"PASS {run.finished.status} for {source.repository}#{source.number}, cleaned up for a rerun")
 
 
-def missing_prerequisites(team: Team, repository: str, *, needs_agent: bool) -> list[MissingPrerequisite]:
+def missing_prerequisites(
+    team: Team, repository: str, author_login: str, *, needs_agent: bool
+) -> list[MissingPrerequisite]:
     flags = [WRITER_FLAG, OPEN_PULL_REQUESTS_FLAG, *([AGENT_LAUNCH_FLAG] if needs_agent else [])]
-    missing = [*missing_writer_environment(team, repository), *missing_github_app(), *missing_flags(team, flags)]
+    missing = [
+        *missing_writer_environment(team, repository),
+        *missing_github_app(),
+        *missing_flags(team, flags),
+        *missing_author_opt_in(author_login),
+    ]
     temporal_problem = temporal_worker_problem()
     if temporal_problem:
         missing.append(temporal_problem)
@@ -308,6 +332,17 @@ def missing_flags(team: Team, flags: list[str]) -> list[MissingPrerequisite]:
         MissingPrerequisite(name=f"{flag} flag", fix=f"create it if missing and turn it on at 100% for team {team.id}")
         for flag, state in states.items()
         if state is not True
+    ]
+
+
+def missing_author_opt_in(author_login: str) -> list[MissingPrerequisite]:
+    if open_pull_requests_author_flag_state(author_login) is True:
+        return []
+    return [
+        MissingPrerequisite(
+            name=f"{OPEN_PULL_REQUESTS_AUTHORS_FLAG} flag for {author_login}",
+            fix=f"create it as a person flag with a condition matching github_login {author_login.lower()}",
+        )
     ]
 
 
@@ -599,11 +634,12 @@ def run_scratch_request(
     writer: WriterSettings,
     team: Team,
     section: str,
+    author_login: str,
     smoke_id: str,
     branches: list[str],
     announce: Callable[[str], object],
 ) -> WriterPullRequest:
-    request = smoke_request(section, unreachable_source(writer.user_id), smoke_id)
+    request = smoke_request(section, unreachable_source(writer.user_id), smoke_id, author_login)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     base_sha = docs_branch_head(github, writer.docs_repository)
     if base_sha is None:
@@ -666,17 +702,17 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     )
 
 
-def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
+def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str, author_login: str) -> AdapterVerdict:
     return AdapterVerdict(
         source=CommandTagAdapter.source,
         subject_id=pull_request_dedupe_id(source.repository, source.pull_request_number),
         needs_docs=True,
         reason="requested",
-        request=smoke_request(section, source, smoke_suffix),
+        request=smoke_request(section, source, smoke_suffix, author_login),
     )
 
 
-def smoke_request(section: str, source: DocsCommandRequest, smoke_suffix: str) -> DocsRequest:
+def smoke_request(section: str, source: DocsCommandRequest, smoke_suffix: str, author_login: str) -> DocsRequest:
     source_url = source_pull_request_url(source)
     return DocsRequest(
         source=CommandTagAdapter.source,
@@ -688,6 +724,7 @@ def smoke_request(section: str, source: DocsCommandRequest, smoke_suffix: str) -
         dedupe_id=f"knowledge_writer:command_tag:smoke-{smoke_suffix}",
         requested_by=source.requested_by,
         requested_by_user_id=source.requested_by_user_id,
+        source_author_login=author_login,
     )
 
 
@@ -700,6 +737,7 @@ def run_agent_request(
     writer: WriterSettings,
     team: Team,
     section: str,
+    author_login: str,
     source_url: str,
     smoke_id: str,
     timeout_minutes: int,
@@ -710,7 +748,7 @@ def run_agent_request(
     async_to_sync(initialize_self_capture_api_token)()
     deadline = time.monotonic() + timeout_minutes * 60
     try:
-        outcome = intake.submit(smoke_verdict(section, source, smoke_id), team_id=team.id)
+        outcome = intake.submit(smoke_verdict(section, source, smoke_id, author_login), team_id=team.id)
     except intake.WriterLaunchDeferred as error:
         raise CommandError("open writer pull requests could not be listed, retry") from error
     if outcome.status == "shadow":

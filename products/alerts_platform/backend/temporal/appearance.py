@@ -4,6 +4,7 @@ The evaluation lives in `logic/appearance.py`, so a test can call it without Tem
 """
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -17,6 +18,9 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import SourceBatchEvaluation, SourceEvaluationInputs
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=40)
 EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=60)
@@ -54,5 +58,5 @@ class AppearanceAlertEvaluateWorkflow(PostHogWorkflow):
         return await record_and_start_deliveries(inputs, evaluation)
 
 
-APPEARANCE_EVALUATION_WORKFLOWS = [AppearanceAlertEvaluateWorkflow]
-APPEARANCE_EVALUATION_ACTIVITIES = [evaluate_appearance_alerts_activity]
+APPEARANCE_EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AppearanceAlertEvaluateWorkflow]
+APPEARANCE_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [evaluate_appearance_alerts_activity]

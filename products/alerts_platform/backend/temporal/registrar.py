@@ -6,7 +6,7 @@ identities it would record. Appearance checks read the registry and never wait o
 
 import asyncio
 import datetime as dt
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -20,6 +20,9 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import SourceKind
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 REGISTRAR_WORKFLOW_NAME = "alerts-platform-register-occurrences"
 # How long one run keeps reading one project's feed. A registry far behind, such as one seeding,
@@ -95,7 +98,7 @@ class AlertsPlatformRegisterOccurrencesWorkflow(PostHogWorkflow):
 
 
 REGISTRAR_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformRegisterOccurrencesWorkflow]
-REGISTRAR_ACTIVITIES: list[Callable[..., object]] = [
+REGISTRAR_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_registrar_targets_activity,
     alerts_platform_register_occurrences_activity,
 ]

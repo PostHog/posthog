@@ -164,6 +164,15 @@ class ExternalDataSourceViewSet(
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        scopes = super().dangerously_get_required_scopes(request, view)
+        if scopes is not None:
+            return scopes
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     @extend_schema(responses=ExternalDataSourceExistsSerializer)
     @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
     def exists(self, request: Request, **kwargs: object) -> Response:

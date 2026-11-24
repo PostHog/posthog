@@ -114,6 +114,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     reset_task_run_stream,
 )
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
@@ -4847,6 +4848,38 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_starts_on_the_model_the_message_asks_for(self, _mock_workflow):
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.POSTHOG_AI
+        task.save(update_fields=["origin_product"])
+        completion = MagicMock()
+        completion.choices = [
+            MagicMock(message=MagicMock(content='{"model": "claude-opus-4-8", "reasoning_effort": null}'))
+        ]
+        lookup = "products.tasks.backend.logic.services.prompt_model_switch"
+        with (
+            patch(
+                "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+                return_value=(
+                    GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
+                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+                ),
+            ),
+            patch(f"{lookup}.prompt_model_switch_enabled", return_value=True),
+            patch("products.tasks.backend.logic.model_override.build_ai_gateway_openai_client") as build,
+        ):
+            build.return_value.with_options.return_value.chat.completions.create.return_value = completion
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/run/",
+                {"pending_user_message": "use opus for this", "runtime_adapter": "codex", "model": "gpt-5.5"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        state = TaskRun.objects.get(id=response.json()["latest_run"]["id"]).state
+        self.assertEqual((state["runtime_adapter"], state["model"]), ("claude", "claude-opus-4-8"))
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
         task = self.create_task()
 
@@ -8754,6 +8787,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("written", {}, {"state": {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"}}, None),
+            (
+                "removed",
+                {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"},
+                {"state": {}, "state_remove_keys": [ENDED_BY_STALE_SWEEP_STATE_KEY]},
+                "heartbeat",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_change_the_stale_sweep_mark(self, _name, state, body, kept, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", body, format="json")
+
+        run.refresh_from_db()
+        assert response.status_code == status.HTTP_200_OK
+        assert run.state.get(ENDED_BY_STALE_SWEEP_STATE_KEY) == kept
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):

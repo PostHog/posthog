@@ -83,7 +83,7 @@ import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
-import { MESSAGE_MAX_BYTES } from './message-estimate'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
@@ -1645,6 +1645,14 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
+        it('should send html-only content with a text part made from the html', async () => {
+            invocation.queueParameters = createEmailParams({ html: '<p>Your code is <b>482913</b></p>', text: '' })
+            const result = await createService({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            expect(email.text).toBe('Your code is 482913')
+        })
         it.each([
             ['a plain recipient name', 'Test User'],
             ['a non-ASCII recipient name', 'Café "Müller"'],
@@ -2243,11 +2251,13 @@ describe('EmailService', () => {
                 teamConfigDb,
                 attachmentSendDeadlineMs,
                 ownershipCheckTimeoutMs,
+                textPartTeams,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
                 ownershipCheckTimeoutMs?: number
+                textPartTeams?: string
             } = {}): EmailService =>
                 createService(
                     {
@@ -2256,6 +2266,7 @@ describe('EmailService', () => {
                             : {}),
                         attachmentSendDeadlineMs,
                         ownershipCheckTimeoutMs,
+                        textPartTeams,
                     },
                     {
                         workflowEmailRateLimiter: createRateLimiter('workflow-email-test'),
@@ -2679,6 +2690,41 @@ describe('EmailService', () => {
                     expect(ses.sent).toEqual([])
                 }
             )
+
+            const longHtml = `<p>${'x'.repeat(200_000)}</p>`
+            // Leaves room for the html and half of its text part, so the message fits only without the text part.
+            const fileBytesThatLeaveNoRoomForText = Math.floor(
+                (((MESSAGE_MAX_BYTES - estimateMessageBytes([], [longHtml, 'x'.repeat(100_000)])) * 76) / 78) * 0.75
+            )
+
+            it.each([
+                ['with a text part when it fits beside them', 0, '<p>Hello</p>', 'Hello'],
+                [
+                    'without a text part when one would carry it past the size limit',
+                    fileBytesThatLeaveNoRoomForText,
+                    longHtml,
+                    undefined,
+                ],
+            ])('sends html-only content with files %s', async (_name, fileBytes, html, expectedText) => {
+                const file = fileBytes
+                    ? await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(fileBytes, 1))
+                    : pdf
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: recipient, name: 'Test User' },
+                    attachments: [file.metadata],
+                    html,
+                    text: '',
+                })
+
+                const result = await sender({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                // A projection, so a failure does not print the file bytes.
+                expect(
+                    ses.sent.map(({ text, attachments }) => ({ text, files: attachments.map((a) => a.filename) }))
+                ).toEqual([{ text: expectedText, files: [file.metadata.filename] }])
+            })
 
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
@@ -3819,30 +3865,64 @@ describe('EmailService', () => {
             [
                 'text only',
                 { html: '', text: 'Hello, this is a plain text email.' },
-                { text: 'Hello, this is a plain text email.', html: undefined },
+                'another team',
+                { text: 'Hello, this is a plain text email.', html: undefined, charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, no text',
                 { html: '<p>Hello</p>', text: undefined },
-                { text: undefined, html: expect.any(String) },
+                'this team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, empty text',
-                { html: '<p>Hello</p>', text: '' },
-                { text: undefined, html: expect.any(String) },
+                { html: '<p>Your code is <b>482913</b></p><a href="https://example.com/help">Help</a>', text: '' },
+                'this team',
+                {
+                    text: 'Your code is 482913\n\nHelp (https://example.com/help)',
+                    html: expect.any(String),
+                    charsets: { text: 'UTF-8' },
+                },
             ],
-        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
+            [
+                'html and text, from a team on the text part list',
+                { html: '<p>Hello</p>', text: 'Your own text' },
+                'this team',
+                { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, from a team not on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'another team',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+            [
+                'html only, with every team on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'every team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, with the default text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'default',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+        ])('sends a part for each kind of content: %s', async (_name, content, listed, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
             )
-            const result = await service.executeSendEmail(invocation)
+            const textPartTeams = {
+                'this team': String(team.id),
+                'another team': String(team.id + 1),
+                'every team': '*',
+                default: hub.CDP_EMAIL_TEXT_PART_TEAMS,
+            }[listed]
+            const result = await createService({ textPartTeams }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const [sent] = ses.sent
             expect(sent).toMatchObject(expectedParts)
-            if (content.text) {
-                expect(sent.charsets.text).toEqual('UTF-8')
-            }
         })
 
         it('should not include preheader span if not in params', async () => {

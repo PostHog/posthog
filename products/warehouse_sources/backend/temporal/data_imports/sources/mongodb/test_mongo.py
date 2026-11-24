@@ -20,7 +20,13 @@ from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
 from pymongo import DESCENDING
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import (
+    ConfigurationError,
+    CursorNotFound,
+    ExecutionTimeout,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
@@ -370,6 +376,14 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             # documents forever, so it must be classified non-retryable.
             ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
+            # dnspython's NoAnswer: the SRV name resolves but the zone has no `_mongodb._tcp` SRV
+            # record, distinct from the NXDOMAIN case above. A host that never publishes one (e.g.
+            # a non-Atlas endpoint used with mongodb+srv://) fails this way on every retry.
+            (
+                "srv_no_answer",
+                "The DNS response does not contain an answer to the question: "
+                "_mongodb._tcp.cluster0.example.mongodb.net. IN SRV",
+            ),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # pymongo InvalidURI raised before any network call when credentials in the connection
             # string contain unescaped reserved characters — a malformed string the user must fix.
@@ -518,6 +532,11 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_bad_auth", "bad auth", "password"),
             ("dns_name_not_found", "Name or service not known", "resolved"),
             ("srv_dns_name_not_found", "The DNS query name does not exist", "resolved"),
+            (
+                "srv_no_answer",
+                "The DNS response does not contain an answer to the question",
+                "mongodb+srv://",
+            ),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
@@ -1508,16 +1527,67 @@ class TestConnectionTimeouts(SimpleTestCase):
         assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
 
     @parameterized.expand(
-        [("revocation_list", "tlsCRLFile=crl.pem"), ("client_certificate", "tlscertificatekeyfile=c.pem")]
+        [
+            ("revocation_list", "&tlsCRLFile=crl.pem"),
+            ("client_certificate", "&tlscertificatekeyfile=c.pem"),
+            ("oidc", "&authMechanism=MONGODB-OIDC"),
+            ("aws", "&authMechanism=MONGODB-AWS"),
+            ("x509", "&authMechanism=MONGODB-X509"),
+            ("gssapi", "&authMechanism=GSSAPI"),
+            ("plain", "&authMechanism=PLAIN"),
+            ("mechanism_in_mixed_case", "&AUTHMECHANISM=mongodb-oidc"),
+            ("mechanism_percent_encoded", "&authMechanism=MONGODB%2DOIDC"),
+            ("mechanism_repeated", "&authMechanism=SCRAM-SHA-256&authMechanism=MONGODB-OIDC"),
+            ("mechanism_properties_alone", "&authMechanismProperties=SERVICE_NAME:mongodb"),
+            ("mechanism_properties_in_mixed_case", "&AuthMechanismProperties=SERVICE_NAME:mongodb"),
+            (
+                "mechanism_properties_with_password_mechanism",
+                "&authMechanism=SCRAM-SHA-256&authMechanismProperties=SERVICE_NAME:mongodb",
+            ),
+            ("mechanism_after_a_space", " authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("mechanism_after_a_tab", "\tauthMechanism=MONGODB-OIDC;tlsCAFile=ca.pem"),
+            ("mechanism_after_a_newline", "\nauthMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("mechanism_after_a_non_breaking_space", "\xa0authMechanism=MONGODB-OIDC&tlsCAFile=ca.pem"),
+            ("file_option_after_a_space", " tlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
+            ("file_option_after_a_space_before_a_semicolon", " tlsCRLFile=crl.pem;tlsCAFile=ca.pem"),
+            ("file_option_after_a_newline", "\ntlsCertificateKeyFile=c.pem&tlsCAFile=ca.pem"),
+            ("ca_file_after_a_space", " tlsCAFile=/some/path"),
+        ]
     )
-    def test_a_file_option_with_no_replacement_stops_the_sync_before_the_client_opens(self, _name, option):
+    def test_an_unsupported_option_stops_the_sync_before_the_client_opens(self, _name, options_after_tls):
         with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
             with pytest.raises(UnsupportedConnectionOptionError) as raised:
-                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true&{option}", team_id=1):
+                # The URL sets tls=true, but the rule only matches it before `&` or the closing quote.
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true{options_after_tls}", team_id=1):
                     pass
 
         client_class.assert_not_called()
         assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("default", "authMechanism=DEFAULT"),
+            ("scram_sha_1", "authMechanism=SCRAM-SHA-1"),
+            ("scram_sha_256", "authmechanism=SCRAM-SHA-256&authSource=admin"),
+        ]
+    )
+    def test_a_password_mechanism_reaches_the_client_unchanged(self, _name, option):
+        connection_string = f"mongodb://user:pw@db.example.com/db?tls=true&{option}"
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client(connection_string, team_id=1):
+                pass
+
+        assert client_class.call_args.args[0] == connection_string
+
+    def test_a_dns_txt_record_cannot_add_an_authentication_mechanism(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("db.example.com", 27017)]
+        resolver.return_value.get_options.return_value = "authMechanism=MONGODB-OIDC"
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with pytest.raises(ConfigurationError, match="Only authSource, replicaSet, and loadBalanced"):
+                with mongo_client("mongodb+srv://user:pw@cluster.example.com/db", team_id=1):
+                    pass
 
     def test_socket_timeout_error_is_retryable(self):
         # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.

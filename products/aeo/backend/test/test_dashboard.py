@@ -36,7 +36,7 @@ class TestCreateDashboardAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.aeo.backend.presentation.views.posthog_feature_flag_enabled",
+            "posthog.permissions.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()
@@ -151,7 +151,8 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
             self.team, 2, "best analytics tool", "analytics", answer="acme", engine="claude-no-search", mode="no_search"
         )
         # The week before. "beta" is another team's brand, so the prompt is non-branded here.
-        self._check(self.team, 9, "best analytics tool", "analytics", cited=True, urls=["https://docs.acme.com/a"])
+        # The topic differs only in case, so it is the same topic as "analytics".
+        self._check(self.team, 9, "best analytics tool", "Analytics", cited=True, urls=["https://docs.acme.com/a"])
         self._check(self.team, 9, "is beta good", "", answer="no")
         self._check(self.other_team, 2, "best analytics tool", "analytics", cited=True, answer="acme")
 
@@ -200,13 +201,13 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
     @parameterized.expand(
         [
             ("scorecard", SCORECARD_SQL, [(66.7, 50.0, 16.7, 33.3, 50.0, -16.7, 3, 2)]),
-            ("topics", TOPICS_SQL, [("No topic", 100.0, 0.0, 100.0, 1), ("analytics", 50.0, 100.0, -50.0, 2)]),
+            ("topics", TOPICS_SQL, [("No topic", 100.0, 0.0, 100.0, 1), ("Analytics", 50.0, 100.0, -50.0, 2)]),
             (
                 "pages",
                 PAGES_SQL,
                 [
-                    ("analytics", "Competitor page gained", "https://rival.io/b", 100.0, 0.0, 100.0),
-                    ("analytics", "Own page lost", "https://docs.acme.com/a", 50.0, 100.0, -50.0),
+                    ("Analytics", "Competitor page gained", "https://rival.io/b", 100.0, 0.0, 100.0),
+                    ("Analytics", "Own page lost", "https://docs.acme.com/a", 50.0, 100.0, -50.0),
                 ],
             ),
         ]

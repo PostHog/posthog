@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Skeleton } from '@posthog/quill'
+import { Skeleton, cn } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -104,7 +104,9 @@ export function CatalogMetricsSection(): JSX.Element {
             {/* Search and filters have nothing to act on in an empty catalog that has no suggestions. */}
             {catalogEmpty ? suggestionsAvailable && <SuggestionsToolbar /> : <CatalogMetricsToolbar />}
             <ChecksLoadError />
-            <div className="flex flex-col gap-6">
+            {/* The padded last row of each table adds to the gap above the next heading. This padding gives the
+                first heading the same visible space below the toolbar. */}
+            <div className={cn('flex flex-col gap-6', layered && 'pt-5')}>
                 {suggestionsAvailable && <CatalogSuggestedMetrics />}
                 <MetricsContent layered={layered} />
             </div>

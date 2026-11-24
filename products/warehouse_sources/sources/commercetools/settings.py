@@ -60,6 +60,13 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/product-projections",
         scope="view_products",
     ),
+    # Holds both the current and the staged product data, which product_projections
+    # flattens to one of the two.
+    "products": CommercetoolsEndpointConfig(
+        name="products",
+        path="/products",
+        scope="view_products",
+    ),
     "product_types": CommercetoolsEndpointConfig(
         name="product_types",
         path="/product-types",
@@ -82,6 +89,16 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/discount-codes",
         scope="view_discount_codes",
     ),
+    "cart_discounts": CommercetoolsEndpointConfig(
+        name="cart_discounts",
+        path="/cart-discounts",
+        scope="view_cart_discounts",
+    ),
+    "product_discounts": CommercetoolsEndpointConfig(
+        name="product_discounts",
+        path="/product-discounts",
+        scope="view_product_discounts",
+    ),
     "inventory": CommercetoolsEndpointConfig(
         name="inventory",
         path="/inventory",
@@ -91,6 +108,11 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         name="standalone_prices",
         path="/standalone-prices",
         scope="view_standalone_prices",
+    ),
+    "shipping_methods": CommercetoolsEndpointConfig(
+        name="shipping_methods",
+        path="/shipping-methods",
+        scope="view_shipping_methods",
     ),
     "stores": CommercetoolsEndpointConfig(
         name="stores",
