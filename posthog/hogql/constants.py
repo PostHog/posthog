@@ -221,9 +221,7 @@ def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
         ("max_bytes_before_external_sort", "max_bytes_ratio_before_external_sort"),
         ("max_bytes_before_external_group_by", "max_bytes_ratio_before_external_group_by"),
     ):
-        threshold = settings.get(threshold_key)
-        if not threshold or threshold > spill_after_bytes:
-            settings[threshold_key] = spill_after_bytes
+        settings[threshold_key] = min(settings.get(threshold_key) or spill_after_bytes, spill_after_bytes)
         # A non-zero ratio in the user profile stops the byte threshold from firing.
         settings[ratio_key] = 0
 
