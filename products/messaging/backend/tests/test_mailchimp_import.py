@@ -701,6 +701,35 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert len(tried) == 5
         assert run.progress["contacts"]["items"][6]["notes"][0].startswith("4 more")
 
+    def test_listing_tags_stops_at_its_page_limit(self) -> None:
+        module = "products.messaging.backend.provider_imports.mailchimp"
+        self._patch(f"{module}.MAX_EXTRA_SEGMENT_PAGES", 1)
+        self._patch(f"{CLIENT}.PAGE_SIZE", 4)
+        self._add_segments(0, *((number, f"Tag {number}", "static", []) for number in range(1, 20)))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert sum(call["route"] == "segments" for call in self.mailchimp.calls) == 4
+        assert run.progress["contacts"]["items"][1]["notes"][0].startswith("11 more tags and segments")
+
+    @parameterized.expand([("empty_page", {"segments": [], "total_items": 0}), ("no_total", {"segments": []})])
+    def test_a_tag_list_that_breaks_off_is_reported(self, _name: str, later: dict[str, Any]) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 4)
+        self._add_segments(0, *((number, f"Tag {number}", "static", []) for number in range(1, 8)))
+        handle = self.mailchimp.handle
+
+        def broken(path: str, query: dict[str, str], authorization: str) -> tuple[int, dict[str, Any], dict[str, str]]:
+            if path.endswith("/segments") and int(query.get("offset", 0)):
+                return 200, later, {}
+            return handle(path, query, authorization)
+
+        with patch.object(self.mailchimp, "handle", broken):
+            run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["counts"]["segments_failed"] == 1
+        assert run.progress["contacts"]["items"][1]["label"] == "Tags and segments in Weekly newsletter"
+
     def test_listing_tags_stops_after_several_audiences_fail(self) -> None:
         self.mailchimp.data["lists"] += [
             {

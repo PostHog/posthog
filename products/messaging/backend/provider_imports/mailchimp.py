@@ -119,7 +119,10 @@ MAX_SEGMENTS = 300
 # A read that fails can take minutes, so the rest are left for the next import.
 MAX_FAILED_SEGMENTS = 5
 MAX_SEGMENT_MEMBERSHIPS = 250_000
+# Past the first page of each audience, so a huge account can't keep the import listing tags it won't take.
+MAX_EXTRA_SEGMENT_PAGES = 50
 SEGMENT_NAME_LENGTH = 200
+_SEGMENT_FIELDS = "segments.id,segments.name,segments.type,total_items"
 UNLISTED_SEGMENTS_NOTE = (
     "Mailchimp couldn't share this audience's tags and segments, so their cohorts stay as they are. Import again."
 )
@@ -915,32 +918,40 @@ def _read_segments(
     memberships = left_out = failed = 0
     found: list[tuple[int, dict[str, Any], int]] = []
     unlisted = 0
+    extra_pages = MAX_EXTRA_SEGMENT_PAGES
     for position, (audience, _rows) in enumerate(subscribed):
         if failed >= MAX_FAILED_SEGMENTS:
             unlisted += 1
             continue
+        path = f"/lists/{quoted(str(audience['id']))}/segments"
+        offset = 0
         try:
-            segments = client.all(
-                f"/lists/{quoted(str(audience['id']))}/segments",
-                "segments",
-                {"fields": "segments.id,segments.name,segments.type,total_items"},
-                whole=True,
-            )
+            while True:
+                page = client.page(path, "segments", offset, {"fields": _SEGMENT_FIELDS})
+                found += [
+                    (segment["id"], segment, position)
+                    for segment in page.items
+                    if isinstance(segment.get("id"), int) and segment.get("type") in _SEGMENT_KINDS
+                ]
+                found.sort(key=lambda entry: entry[0])
+                left_out += len(found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :])
+                del found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :]
+                end = offset + len(page.items)
+                if end > page.total or (not page.items and (offset or page.total)):
+                    raise MailchimpAPIError("Mailchimp sent an unexpected response.")
+                offset = end
+                if offset >= page.total:
+                    break
+                if not extra_pages:
+                    left_out += page.total - offset
+                    break
+                extra_pages -= 1
         except (MailchimpKeyRejected, MailchimpRateLimited):
             raise
         except MailchimpAPIError:
             failed += 1
             label = f"Tags and segments in {_audience_name(audience)}"
             skipped.append(ImportItem(label=label, status="failed", notes=(UNLISTED_SEGMENTS_NOTE,)))
-            continue
-        found += [
-            (segment["id"], segment, position)
-            for segment in segments
-            if isinstance(segment.get("id"), int) and segment.get("type") in _SEGMENT_KINDS
-        ]
-        found.sort(key=lambda entry: entry[0])
-        left_out += len(found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :])
-        del found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :]
     # Oldest first, so a later import of an account past the limit fills the same cohorts.
     for segment_id, segment, position in found:
         if len(lists) >= MAX_SEGMENTS or failed >= MAX_FAILED_SEGMENTS:
