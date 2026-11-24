@@ -793,6 +793,25 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         return router
     }
 
+    function fakeOnlyTheDate(): void {
+        jest.useFakeTimers({
+            advanceTimers: true,
+            doNotFake: [
+                'hrtime',
+                'nextTick',
+                'performance',
+                'queueMicrotask',
+                'setImmediate',
+                'clearImmediate',
+                'setInterval',
+                'clearInterval',
+                'setTimeout',
+                'clearTimeout',
+            ],
+        })
+        backToRealClock = () => jest.useRealTimers()
+    }
+
     const waitedTooLong = (): Partial<CyclotronJobInvocation> => ({
         queueMetadata: { attachmentDeferrals: 40, attachmentDueAt: Date.now() - LONGEST_WAIT_FOR_ROOM_MS },
     })
@@ -1092,6 +1111,42 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await ended(holder)).toBe('completed')
     })
 
+    it('fails a send the overdue poll claimed without sending it, though this clock reads it as not yet overdue and a slot freed during the claim', async () => {
+        bucket.answer = 'hold'
+        const [holder] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker({ ...roomFor(2), maxInFlight: 1 }, undefined, undefined, {
+            CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: true,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+
+        const nextOverdueClaim = cyclotron.hold((request) => request.includes("INTERVAL '1 millisecond'"))
+        const [overdue] = await enqueue(
+            transactionalSend([invoice.metadata], {
+                queueScheduledAt: DateTime.now().minus({ milliseconds: LONGEST_WAIT_FOR_ROOM_MS + 60_000 }),
+            })
+        )
+        const overdueClaim = await nextOverdueClaim
+        bucket.release()
+        expect(await ended(holder)).toBe('completed')
+        await waitForExpect(async () => expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(0))
+        fakeOnlyTheDate()
+        jest.setSystemTime(Date.now() - 60 * 60_000)
+        overdueClaim.release()
+
+        expect(await ended(overdue)).toBe('failed')
+        await waitForExpect(() =>
+            expect(emailStatusOf(overdue)).toEqual({
+                status: 'failed',
+                reason: 'attachment_wait_expired',
+                sendingDomain: '',
+            })
+        )
+        expect({
+            delivered: delivered(),
+            sendsInFlight: await metric('cdp_email_attachments_sends_in_flight'),
+        }).toEqual({ delivered: [['invoice.pdf']], sendsInFlight: 0 })
+    })
+
     it('fails its health check once every slot for sends with files stays taken past the stall bound, and recovers once one frees', async () => {
         bucket.answer = 'hold'
         const [withFiles] = await enqueue(transactionalSend([invoice.metadata]))
@@ -1099,22 +1154,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_SEPARATE_POLL: true,
         })
         await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
-        jest.useFakeTimers({
-            advanceTimers: true,
-            doNotFake: [
-                'hrtime',
-                'nextTick',
-                'performance',
-                'queueMicrotask',
-                'setImmediate',
-                'clearImmediate',
-                'setInterval',
-                'clearInterval',
-                'setTimeout',
-                'clearTimeout',
-            ],
-        })
-        backToRealClock = () => jest.useRealTimers()
+        fakeOnlyTheDate()
         expect(worker.isHealthy().status).toBe('ok')
 
         const dueOnTheDatabaseClock = DateTime.now()
