@@ -43,6 +43,7 @@ from products.autoresearch.backend.presentation.views.serializers import (
     ValidationWarningSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.models import Task
 
 MOCK_VALIDATION_OK = ValidationResult(
@@ -440,6 +441,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["id"] == str(pipeline.id)
         assert resp.json()["target_definition"] == {"type": "event"}
+
+    def test_retrieve_pipeline_while_the_model_listing_is_unavailable(self):
+        pipeline = self._make_pipeline()
+
+        with serve_gateway_listing(()):
+            resp = self.client.get(f"{self.base_url}/{pipeline.id}/")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
 
     @parameterized.expand(
         [

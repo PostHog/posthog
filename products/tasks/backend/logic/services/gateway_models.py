@@ -97,11 +97,16 @@ def _last_good(product: Product) -> tuple[GatewayModel, ...]:
         return ()
 
 
-def cached_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
+def _cached(cache_key: str) -> tuple[GatewayModel, ...] | None:
     try:
-        cached = cache.get(f"{_CACHE_KEY_PREFIX}:{product}")
+        return cache.get(cache_key)
     except Exception:
-        return ()
+        logger.exception("tasks_llm_gateway_models_cache_read_failed", cache_key=cache_key)
+        return None
+
+
+def cached_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
+    cached = _cached(f"{_CACHE_KEY_PREFIX}:{product}")
     return cached if cached is not None else _last_good(product)
 
 
@@ -111,14 +116,13 @@ def known_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
 
 def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
     cache_key = f"{_CACHE_KEY_PREFIX}:{product}"
+    cached = _cached(cache_key)
+    if cached is not None:
+        return cached
 
     from posthog.llm.gateway_client import build_openai_client  # noqa: PLC0415 — keeps the LLM SDKs off startup paths
 
     try:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
         client = build_openai_client(product, ai_product=product)
         page = client.with_options(timeout=_FETCH_TIMEOUT_SECONDS, max_retries=1).models.list()
         models = tuple(_gateway_model(row) for row in page.data if getattr(row, "allowed", None) is not False)

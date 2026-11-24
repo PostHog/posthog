@@ -67,15 +67,6 @@ _RESERVED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
 }
 
-_DESKTOP_LEGACY_MODEL_ADAPTERS: dict[str, str] = {"gpt-5.4": "codex", "gpt-5.3-codex": "codex", "gpt-5-mini": "codex"}
-
-
-def uncataloged_runtime_adapter(model_id: str) -> str | None:
-    if model_id in SDK_IMPLICIT_MODELS:
-        return "claude"
-    return _DESKTOP_LEGACY_MODEL_ADAPTERS.get(model_id)
-
-
 MODEL_FAMILY_ACCESS_FLAGS: dict[str, str] = {}
 
 OFFERED_VERSIONS_PER_FAMILY = 2
@@ -179,6 +170,10 @@ def admitted_family_models(product: str) -> tuple[str, ...]:
 
 def minted_family_models(product: str) -> tuple[str, ...]:
     return family_models(product, list_gateway_models(_LISTING_PRODUCT)).admitted
+
+
+def family_listing_unavailable(product: str) -> bool:
+    return product in PRODUCT_MODEL_FAMILIES and not minted_family_models(product)
 
 
 def product_pin(product: str) -> list[str] | None:

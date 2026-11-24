@@ -21,6 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.access import DesktopAccessDecision, DesktopAccessResolutionError
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     DESKTOP_GATEWAY_MINTS,
     desktop_limit_tier,
@@ -343,6 +344,14 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         )
         assert response.json()["plan"] == "paid"
         assert response.json()["allowed_models"] == paid_pin
+
+    def test_no_token_is_minted_while_the_model_listing_is_unavailable(self) -> None:
+        with serve_gateway_listing(()):
+            response, post = self._mint()
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["reason"] == "model_listing_unavailable"
+        post.assert_not_called()
 
     def test_missing_echo_falls_back_to_the_sent_pin(self) -> None:
         response, _ = self._mint()

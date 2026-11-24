@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_MODELS,
     PRODUCT_ALLOWED_MODELS,
+    family_listing_unavailable,
     gateway_pin,
     model_allowed_by_product_pin,
     product_pin,
@@ -287,7 +288,7 @@ def mint_refusal(
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
-        return "model_outside_pin"
+        return "model_listing_unavailable" if family_listing_unavailable(ai_product) else "model_outside_pin"
     bucket = PRODUCT_CREDIT_BUCKET.get(ai_product)
     if bucket is None:
         return None

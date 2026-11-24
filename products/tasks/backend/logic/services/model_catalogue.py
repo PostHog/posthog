@@ -188,10 +188,6 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     return _choices(offered_listing(product, listing), listing)
 
 
-def runnable_model_choices(product: Product) -> tuple[ModelChoice, ...]:
-    return product_model_choices(product, offered_only=False)
-
-
 def plan_model_choices(product: Product, plan_pin: str) -> tuple[ModelChoice, ...]:
     return tuple(
         replace(choice, allowed=model_allowed_by_product_pin(plan_pin, choice.model))
@@ -285,7 +281,6 @@ __all__ = [
     "offered_model_choices",
     "plan_model_choices",
     "product_model_choices",
-    "runnable_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
     "find_model_choice",

@@ -128,6 +128,15 @@ def test_a_cache_that_refuses_writes_does_not_fail_the_listing() -> None:
         assert [model.id for model in list_gateway_models(_PRODUCT)] == ["gpt-6.2-sol"]
 
 
+@pytest.mark.parametrize("read", [list_gateway_models, known_gateway_models], ids=["refreshing_read", "known_read"])
+def test_asks_the_gateway_when_the_cache_cannot_be_read(read: Callable[[Any], tuple[GatewayModel, ...]]) -> None:
+    with (
+        patch(_BUILD_CLIENT, return_value=_client([_BARE_ROW])),
+        patch.object(cache, "get", side_effect=RuntimeError("cache down")),
+    ):
+        assert [model.id for model in read(_PRODUCT)] == ["gpt-6.2-sol"]
+
+
 def test_serves_the_last_listing_when_the_gateway_fails() -> None:
     with patch(_BUILD_CLIENT, return_value=_client([_BARE_ROW])):
         served = list_gateway_models(_PRODUCT)

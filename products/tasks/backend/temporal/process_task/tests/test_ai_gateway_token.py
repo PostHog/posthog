@@ -1236,6 +1236,14 @@ class TestSlackAppMint:
             env, _ = self._env(mint_settings, model="gpt-6.3-sol")
         assert env["_AI_GATEWAY_FAMILY_MODELS"] == '["gpt-6.3-sol"]'
 
+    @pytest.mark.parametrize("model", [None, "gpt-6.2-sol"], ids=["no_model_pinned", "a_pinned_model"])
+    def test_an_unavailable_model_listing_fails_the_attempt_for_a_retry(self, mint_settings, model):
+        with (
+            serve_gateway_listing(()),
+            pytest.raises(ProcessTaskTransientError, match="model_listing_unavailable"),
+        ):
+            self._env(mint_settings, model=model)
+
     def test_stamped_slack_run_mints(self, mint_settings):
         env, mint = self._env(mint_settings)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
@@ -1555,6 +1563,20 @@ class TestMintRefusalScope:
             origin_product="support_reply",
         )
         assert refusal == "model_outside_pin"
+
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
+    def test_family_products_ask_for_a_retry_while_the_listing_is_unavailable(self, product):
+        with serve_gateway_listing(()):
+            refusal = mint_refusal(
+                product,
+                team_id=2,
+                state=None,
+                model="gpt-6.2-sol",
+                runtime="acp",
+                internal=True,
+                origin_product="support_reply",
+            )
+        assert refusal == "model_listing_unavailable"
 
     def test_unpinned_products_take_any_model(self):
         assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None

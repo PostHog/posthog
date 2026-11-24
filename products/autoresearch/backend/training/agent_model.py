@@ -17,6 +17,7 @@ from products.tasks.backend.facade.model_catalogue import ModelChoice, filter_un
 from products.tasks.backend.facade.run_config import get_required_model_flag, get_runtime_adapter_for_model
 
 AUTORESEARCH_DEFAULT_MODEL = "claude-opus-5-5"
+AUTORESEARCH_DEFAULT_RUNTIME_ADAPTER = "claude"
 AUTORESEARCH_DEFAULT_REASONING_EFFORT = "medium"
 
 
@@ -52,11 +53,11 @@ def resolve_agent_run_config(model: str | None, reasoning_effort: str | None) ->
     if adapter is None:
         resolved_model = AUTORESEARCH_DEFAULT_MODEL
         adapter = get_runtime_adapter_for_model(resolved_model)
-    assert adapter is not None
+    runtime_adapter = adapter.value if adapter else AUTORESEARCH_DEFAULT_RUNTIME_ADAPTER
     resolved_effort = filter_unsupported_effort(
-        adapter.value, resolved_model, reasoning_effort
-    ) or filter_unsupported_effort(adapter.value, resolved_model, AUTORESEARCH_DEFAULT_REASONING_EFFORT)
-    return AgentRunConfig(runtime_adapter=adapter.value, model=resolved_model, reasoning_effort=resolved_effort)
+        runtime_adapter, resolved_model, reasoning_effort
+    ) or filter_unsupported_effort(runtime_adapter, resolved_model, AUTORESEARCH_DEFAULT_REASONING_EFFORT)
+    return AgentRunConfig(runtime_adapter=runtime_adapter, model=resolved_model, reasoning_effort=resolved_effort)
 
 
 def agent_run_config_for(pipeline: AutoresearchPipeline) -> AgentRunConfig:

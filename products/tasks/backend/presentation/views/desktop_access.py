@@ -44,6 +44,7 @@ from products.tasks.backend.facade.desktop_gateway import (
     desktop_limit_tier,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
+    model_listing_unavailable,
     plan_allowed_models,
     posthog_code_plan,
     record_gateway_token_refusal,
@@ -306,6 +307,12 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response["X-PostHog-Denial"] = CREDIT_BUCKET_EXHAUSTED_DENIAL
             return response
 
+        if model_listing_unavailable():
+            return _disabled(
+                "model_listing_unavailable",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="We couldn't load the model list. Try again.",
+            )
         plan = posthog_code_plan(team)
         allowed_models = plan_allowed_models(plan)
         try:

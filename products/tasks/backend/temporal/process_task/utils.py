@@ -68,6 +68,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     GATEWAY_FAMILY_MODELS_STATE_KEY,
     GATEWAY_PRODUCT_STATE_KEY,
     PRODUCT_ALLOWED_MODELS,
+    PRODUCT_MODEL_FAMILIES,
     minted_family_models,
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
@@ -1955,6 +1956,8 @@ def ai_gateway_env_vars(
     family_models = () if "allowed_models" in mint_kwargs else minted_family_models(ai_product)
     if family_models:
         mint_kwargs["family_models"] = family_models
+    elif "allowed_models" not in mint_kwargs and ai_product in PRODUCT_MODEL_FAMILIES:
+        raise gateway_token_unavailable("model_listing_unavailable", team_id, ai_product)
     if run_id:
         mint_kwargs["run_id"] = run_id
     token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
@@ -1989,7 +1992,12 @@ _POSTHOG_CODE_REFUSAL_MESSAGES = {
 }
 # A credit lookup or mint can succeed on the next attempt.
 _TRANSIENT_REFUSALS = frozenset(
-    {"mint_failed", "pin_unrecorded", *(f"{bucket}_unknown" for bucket in PRODUCT_CREDIT_BUCKET.values())}
+    {
+        "mint_failed",
+        "model_listing_unavailable",
+        "pin_unrecorded",
+        *(f"{bucket}_unknown" for bucket in PRODUCT_CREDIT_BUCKET.values()),
+    }
 )
 
 
