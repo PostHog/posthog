@@ -456,15 +456,7 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
             }
             actions.backToInput()
             if (input) {
-                actions.setDashboardName(input.name ?? '')
-                if (input.grafana_json) {
-                    actions.setGrafanaJson(input.grafana_json)
-                }
-                if (input.image_base64) {
-                    actions.setScreenshot(
-                        `data:${input.image_content_type ?? 'image/png'};base64,${input.image_base64}`
-                    )
-                }
+                fillForm(input, actions)
             }
             actions.retryImportDone()
         },
@@ -515,6 +507,23 @@ function startPolling(cache: Record<string, any>, loadRecentImports: () => void)
         const intervalId = setInterval(loadRecentImports, POLL_INTERVAL_MS)
         return () => clearInterval(intervalId)
     }, POLL_KEY)
+}
+
+function fillForm(
+    input: DashboardImportInputApi,
+    actions: {
+        setDashboardName: (name: string) => void
+        setGrafanaJson: (grafanaJson: string) => void
+        setScreenshot: (screenshot: string) => void
+    }
+): void {
+    actions.setDashboardName(input.name ?? '')
+    if (input.grafana_json) {
+        actions.setGrafanaJson(input.grafana_json)
+    }
+    if (input.image_base64) {
+        actions.setScreenshot(`data:${input.image_content_type ?? 'image/png'};base64,${input.image_base64}`)
+    }
 }
 
 function notifyFinished(
