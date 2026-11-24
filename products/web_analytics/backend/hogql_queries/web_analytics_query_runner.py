@@ -36,12 +36,14 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.cohort import inline_cohort_names_flag_called_event
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     action_to_expr,
     apply_path_cleaning,
     get_property_key,
     get_property_type,
+    get_property_value,
     property_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
@@ -837,6 +839,8 @@ WHERE and(
                 filters.extend(step.properties or [])
         if any(get_property_type(prop) not in _POSTHOG_TABLE_PROPERTY_TYPES for prop in filters):
             return False
+        if any(self._cohort_may_read_flag_calls(prop) for prop in filters if get_property_type(prop) == "cohort"):
+            return False
         # A saved expression can add a custom field to sessions, and only the full database loads it.
         session_fields = self._posthog_tables_database.get_table("sessions").fields
         if any(
@@ -845,6 +849,20 @@ WHERE and(
             return False
         # The built-in-only database carries no per-user access control.
         return not team_has_property_access_rules(team_id=self.team.pk)
+
+    def _cohort_may_read_flag_calls(self, prop: Any) -> bool:
+        # An inline cohort reads flag calls through the flag-call union, and the built-in-only database turns the
+        # union off. The cohort would then count only the flag calls that `events` holds.
+        try:
+            return inline_cohort_names_flag_called_event(int(get_property_value(prop)), self.team)
+        except Exception:
+            logger.warning(
+                "web_analytics_cohort_flag_call_check_failed",
+                team_id=self.team.pk,
+                cohort_id=get_property_value(prop),
+                exc_info=True,
+            )
+            return True
 
     @cached_property
     def _posthog_tables_database(self) -> Database:

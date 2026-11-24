@@ -1,5 +1,14 @@
+from datetime import UTC, datetime, timedelta
+
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from parameterized import parameterized
 
@@ -7,6 +16,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     DateRange,
     HogQLQueryModifiers,
+    InlineCohortCalculation,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsBreakdown,
@@ -17,6 +27,8 @@ from posthog.models.utils import uuid7
 
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -392,3 +404,88 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         visitors = response.results[0]
         assert visitors.key == "visitors"
         assert visitors.value == 0
+
+    @parameterized.expand(
+        [
+            ("overview_event", "overview", "events"),
+            ("stats_table_event", "stats_table", "events"),
+            ("overview_action", "overview", "actions"),
+        ]
+    )
+    def test_behavioral_cohort_counts_flag_calls_that_only_flag_evaluations_holds(
+        self, _name: str, kind: str, event_type: str
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        timestamp = datetime.now(UTC) - timedelta(hours=1)
+        people = {
+            distinct_id: _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for distinct_id in ("flag_caller", "other_visitor")
+        }
+        for distinct_id, person in people.items():
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                person_id=person.uuid,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": str(uuid7(int(timestamp.timestamp() * 1000))),
+                    "$pathname": f"/{distinct_id}",
+                    "$current_url": f"https://example.com/{distinct_id}",
+                    "$host": "example.com",
+                },
+            )
+        flush_persons_and_events()
+        _create_flag_evaluations(
+            self.team.pk,
+            "checkout-flag",
+            timestamp=timestamp + timedelta(minutes=1),
+            distinct_id="flag_caller",
+            person_id=people["flag_caller"].uuid,
+        )
+        key: str | int = "$feature_flag_called"
+        if event_type == "actions":
+            key = create_action(team=self.team, name="Flag called", steps_json=[{"event": "$feature_flag_called"}]).id
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Called a flag",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": key,
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "event_type": event_type,
+                            "time_value": 7,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+        properties = [CohortPropertyFilter(key="id", value=cohort.id, type="cohort")]
+        modifiers = HogQLQueryModifiers(inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
+        date_range = DateRange(date_from="-7d")
+
+        if kind == "overview":
+            overview = WebOverviewQueryRunner(
+                team=self.team,
+                query=WebOverviewQuery(dateRange=date_range, properties=properties, modifiers=modifiers),
+            ).calculate()
+            assert {item.key: item.value for item in overview.results}["visitors"] == 1
+        else:
+            stats = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=date_range,
+                    properties=properties,
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    modifiers=modifiers,
+                ),
+            ).calculate()
+            assert [row[0] for row in stats.results] == ["/flag_caller"]

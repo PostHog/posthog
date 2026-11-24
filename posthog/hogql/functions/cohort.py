@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.utils import timezone
 
@@ -12,6 +12,9 @@ from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
 
 from posthog.schema_enums import InlineCohortCalculation
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
@@ -104,6 +107,23 @@ def inline_cohort_query(
     from posthog.hogql.transforms.flag_calls_union import read_flag_calls_in_inline_cohort  # noqa: PLC0415
 
     return read_flag_calls_in_inline_cohort(query, context)
+
+
+def inline_cohort_names_flag_called_event(cohort_id: int, team: "Team") -> bool:
+    """Whether the subquery that `inline_cohort_query` builds for the cohort names `$feature_flag_called`.
+
+    A nested cohort compiles to a read of its stored members, so only this cohort's own conditions count.
+    """
+    from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    cohort = Cohort.objects.get(id=cohort_id, team__project_id=team.project_id, deleted=False)
+    if cohort.is_static:
+        return False
+    return names_flag_called_event(HogQLCohortQuery(cohort=cohort, team=team).get_query())
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:
