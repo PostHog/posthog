@@ -48,26 +48,17 @@ def _deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
     if record.cloudflare_deprovisioned:
         return
     # Record the intent first so a partial Cloudflare cleanup can still be recovered.
-    if not record.needs_activation_recovery and record.status in (ProxyRecord.Status.VALID, ProxyRecord.Status.WARNING):
+    if not record.needs_activation_recovery and record.status in (
+        ProxyRecord.Status.ISSUING,
+        ProxyRecord.Status.VALID,
+        ProxyRecord.Status.WARNING,
+    ):
         ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=True)
     hostname = get_custom_hostname_by_domain(record.domain)
     if hostname:
         delete_custom_hostname(hostname.id)
     update_cloudflare_proxy_root_redirect(record.domain, None)
     ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_deprovisioned=True)
-
-
-def mark_proxy_activation_recovered(organization_id: UUID, proxy_record_id: UUID) -> None:
-    records = ProxyRecord.objects.filter(
-        organization_id=organization_id,
-        pk=proxy_record_id,
-        needs_activation_recovery=True,
-        cloudflare_deprovisioned=False,
-        status=ProxyRecord.Status.ISSUING,
-    ).exclude(organization__is_active=False)
-    if records.exists():
-        with cloudflare_proxy_lock(proxy_record_id):
-            records.update(needs_activation_recovery=False)
 
 
 def reconcile_cloudflare_proxy(
