@@ -213,7 +213,9 @@ class TestSettleReview(APIBaseTest):
         app.refresh_from_db()
         assert app.provisioning.active is expected_active
         assert app.provisioning.disabled is expected_disabled
-        assert OAuthAccessToken.objects.filter(application=app).exists()
+        # The pipeline declines the apps it judges malicious, so a decline signs them out.
+        token_survives = status != ProvisioningReviewStatus.DECLINED
+        assert OAuthAccessToken.objects.filter(application=app).exists() is token_survives
         assert CIMDProvisioningReview.objects.get(application=app).status == status
 
     def test_a_decision_staff_made_is_kept(self):

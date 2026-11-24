@@ -1,9 +1,17 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.provisioning_review import (
+    MAX_PARTNER_NOTES_IN_RUN_LOG,
+    MAX_RUN_LOG_ENTRIES,
+    PARTNER_NOTE_STEP,
+    _with_partner_note,
+)
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
@@ -219,3 +227,32 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             self.assertEqual(review.run_log, [])
         app.refresh_from_db()
         self.assertEqual((app.provisioning.active, app.provisioning.disabled), (False, disabled))
+
+    def test_review_note_answers_a_decision_at_once_and_waits_between_notes_to_staff(self):
+        app = self._create_app(self.organization, is_provisioning_partner=True)
+        CIMDProvisioningReview.objects.create(
+            application=app, domain="example.com", status=ProvisioningReviewStatus.DECLINED
+        )
+        url = f"/api/organizations/@current/oauth_applications/{app.id}/review_note/"
+
+        answer = self.client.post(url, {"note": "We added a homepage."})
+        first_note = self.client.post(url, {"note": "It describes the product."})
+        second_note = self.client.post(url, {"note": "And the pricing."})
+
+        self.assertEqual(answer.status_code, status.HTTP_200_OK, answer.content)
+        self.assertEqual(first_note.status_code, status.HTTP_200_OK, first_note.content)
+        self.assertEqual(second_note.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestPartnerNotesInRunLog(SimpleTestCase):
+    def test_partner_notes_cannot_push_staff_decisions_out_of_the_run_log(self):
+        verdicts = [{"step": "settled", "message": f"Decision {index}"} for index in range(5)]
+        run_log: list[dict] = list(verdicts)
+
+        for index in range(MAX_RUN_LOG_ENTRIES):
+            run_log = _with_partner_note(run_log, {"step": PARTNER_NOTE_STEP, "message": f"Note {index}"})
+
+        notes = [entry for entry in run_log if entry["step"] == PARTNER_NOTE_STEP]
+        self.assertEqual(run_log[:5], verdicts)
+        self.assertEqual(len(notes), MAX_PARTNER_NOTES_IN_RUN_LOG)
+        self.assertEqual(notes[-1]["message"], f"Note {MAX_RUN_LOG_ENTRIES - 1}")

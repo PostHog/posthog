@@ -198,7 +198,9 @@ class ChangesRequestedForm(DecisionForm):
 
 DECISION_SUCCESS_MESSAGES = {
     ProvisioningReviewStatus.ACCEPTED: "Provisioning is on for {name}.",
-    ProvisioningReviewStatus.DECLINED: "Declined {name}. Its organization can ask for another review.",
+    ProvisioningReviewStatus.DECLINED: (
+        "Declined {name} and signed out every connection it had. Its organization can ask for another review."
+    ),
     ProvisioningReviewStatus.CHANGES_REQUESTED: "Asked {name} for changes. Its answer brings the review back here.",
     ProvisioningReviewStatus.REJECTED: "Blocked {name} and signed out every connection it had.",
 }
@@ -413,8 +415,8 @@ class OAuthApplicationProvisioningPanel(Panel):
                 )
             if review_status != ProvisioningReviewStatus.DECLINED:
                 description = (
-                    f"Turns off provisioning for {obj.name} without blocking it. Its organization admins can ask for "
-                    "another review from organization settings."
+                    f"Turns off provisioning for {obj.name} and signs out every connection it has, without blocking "
+                    "it. Its organization admins can ask for another review from organization settings."
                 )
                 if config.disabled:
                     description += " Lifts the block."
@@ -424,8 +426,8 @@ class OAuthApplicationProvisioningPanel(Panel):
                         label="Decline partner",
                         handler=_decision_handler(ProvisioningReviewStatus.DECLINED),
                         form_class=DecisionForm,
-                        danger=config.active,
-                        undo_hint="Accept the partner here.",
+                        danger=True,
+                        undo_hint="Accept the partner here. Its users have to connect again.",
                         description=description,
                     )
                 )

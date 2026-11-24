@@ -195,8 +195,9 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
         CIMDProvisioningReview.objects.filter(pk=review.pk).update(
             slack_channel_id=channel_id, slack_message_ts=message_ts
         )
-        # The post already shows the decision that made it. A later decision still updates it and replies.
-        if posted_status == status:
+        # The post already shows the decision that made it. A later decision, or a partner note that leaves the
+        # status as it was, still updates it and replies.
+        if posted_status == status and previous_status != status:
             return
         review.slack_channel_id, review.slack_message_ts = channel_id, message_ts
 
@@ -211,10 +212,12 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
     client.chat_postMessage(channel=review.slack_channel_id, thread_ts=review.slack_message_ts, text=reply[:3000])
 
 
-def queue_review_slack_thread(review: CIMDProvisioningReview, *, previous_status: str | None) -> None:
+def queue_review_slack_thread(
+    review: CIMDProvisioningReview, *, previous_status: str | None, reply: str | None = None
+) -> None:
     # Queued without checking the bot settings: reviews settle on a Temporal worker that does not carry them,
     # and the task checks them on the Celery worker that talks to Slack.
-    args = (str(review.pk), str(review.status), previous_status, review.reason)
+    args = (str(review.pk), str(review.status), previous_status, review.reason if reply is None else reply)
     transaction.on_commit(lambda: sync_review_slack_thread.delay(*args))
 
 

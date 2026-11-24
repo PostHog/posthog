@@ -144,11 +144,14 @@ class TestProvisioningReviewSlack(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, False),
-            ("later_decision", ProvisioningReviewStatus.REJECTED, True),
+            ("same_decision_retried", ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.PENDING, False),
+            ("later_decision", ProvisioningReviewStatus.REJECTED, ProvisioningReviewStatus.NEEDS_HUMAN, True),
+            ("partner_note", ProvisioningReviewStatus.NEEDS_HUMAN, ProvisioningReviewStatus.NEEDS_HUMAN, True),
         ]
     )
-    def test_a_post_the_database_missed_is_reused(self, _send_email, _name, next_status, replies) -> None:
+    def test_a_post_the_database_missed_is_reused(
+        self, _send_email, _name, next_status, previous_status, replies
+    ) -> None:
         client = _slack_client()
 
         with patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client):
@@ -163,7 +166,7 @@ class TestProvisioningReviewSlack(APIBaseTest):
             _sync_review_slack_thread(
                 str(self.review.pk),
                 status=next_status,
-                previous_status=ProvisioningReviewStatus.NEEDS_HUMAN,
+                previous_status=previous_status,
                 reason="Staff: Malicious usage",
             )
 

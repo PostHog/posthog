@@ -3,7 +3,7 @@
 {% block section %}
     <p>
         We reviewed <strong>{{ app_name }}</strong> and didn't approve it for provisioning, so it can't use the PostHog provisioning
-        API. Its existing connections to PostHog accounts keep working.
+        API. Every connection it had to a PostHog account was signed out.
     </p>
     {% if partner_message %}
         <p><strong>Note from the PostHog team:</strong> {{ partner_message }}</p>

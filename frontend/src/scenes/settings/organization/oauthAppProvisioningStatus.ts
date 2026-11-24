@@ -1,6 +1,6 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { PartnerProvisioningStatusEnumApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi, PartnerProvisioningStatusEnumApi } from '~/generated/core/api.schemas'
 
 export const PROVISIONING_STATUS_LABELS: Record<PartnerProvisioningStatusEnumApi, string> = {
     not_a_partner: 'Not a partner',
@@ -53,4 +53,20 @@ export const REVIEW_NOTE_SUBMIT_LABELS: Partial<Record<PartnerProvisioningStatus
     waiting_for_staff: 'Send note',
     changes_requested: 'Send answer',
     declined: 'Ask for another review',
+}
+
+export interface OAuthAppActions {
+    showsProvisioning: boolean
+    takesANote: boolean
+    needsSupport: boolean
+    canRequestVerification: boolean
+}
+
+export function oauthAppActions(app: OrganizationOAuthApplicationApi): OAuthAppActions {
+    return {
+        showsProvisioning: app.is_cimd_client || app.provisioning_status !== 'not_a_partner',
+        takesANote: !!app.provisioning_review && PROVISIONING_STATUSES_TAKING_A_NOTE.has(app.provisioning_status),
+        needsSupport: PROVISIONING_STATUSES_NEEDING_SUPPORT.has(app.provisioning_status),
+        canRequestVerification: !!app.is_cimd_client && !app.is_verified,
+    }
 }

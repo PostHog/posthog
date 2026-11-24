@@ -3,8 +3,9 @@
 A partner under review has its provisioning config written but left inactive, so every partner
 endpoint refuses it the way it refuses a deactivated partner. Accepting turns it on. Declining, or
 asking for changes, keeps it off, and the partner's organization admins can answer with a note
-that sends the review back to staff. Blocking, which only staff do, sets the ``disabled`` kill
-switch, which neither re-registering nor a note can clear, and revokes the app's sessions. Staff
+that sends the review back to staff. Declining and blocking revoke the app's sessions. Blocking,
+which only staff do, also sets the ``disabled`` kill switch, which neither re-registering nor a note
+can clear. Staff
 can reverse any verdict later, and the review keeps each change in its run log. The pipeline that
 reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
 """
@@ -55,6 +56,13 @@ ORGANIZATION_LINK_REQUIRED_MESSAGE = (
 # Retries append to the log, so it is capped to keep a review that failed for hours readable.
 MAX_RUN_LOG_ENTRIES = 200
 PARTNER_NOTE_MAX_LENGTH = 4000
+# Notes the run log keeps per review, so partner text can't push the pipeline's evidence and the staff
+# decisions out of the capped log.
+MAX_PARTNER_NOTES_IN_RUN_LOG = 20
+# Each note posts to the staff Slack thread. Answering a decision is never held back, because a decision
+# has to happen between two answers.
+PARTNER_NOTE_COOLDOWN_SECONDS = 10 * 60
+PARTNER_NOTE_STEP = "partner_note"
 # A partner already waiting for staff can add to what it told them.
 PARTNER_NOTE_STATUSES = frozenset(
     {
@@ -381,6 +389,8 @@ def settle_review(
         app = review.application
         if status == ProvisioningReviewStatus.ACCEPTED and not app.provisioning.disabled:
             app.update_provisioning(active=True)
+        elif status == ProvisioningReviewStatus.DECLINED:
+            _decline(app)
 
     _capture_settled(review, previous_status=previous)
     return True
@@ -390,6 +400,13 @@ def _block(app: OAuthApplication) -> None:
     app.update_provisioning(active=False, disabled=True)
     # In the same transaction as the verdict: a revocation that failed after a committed
     # rejection would leave live tokens that no retry revisits, since the review is settled.
+    revoke_application_sessions(app)
+
+
+def _decline(app: OAuthApplication) -> None:
+    """Like a block, a decline signs out every connection, because the pipeline declines the apps it judges
+    malicious. It leaves the kill switch off, so the partner's organization can ask for another review."""
+    app.update_provisioning(active=False, disabled=False)
     revoke_application_sessions(app)
 
 
@@ -428,6 +445,8 @@ def decide_partner(
             app.update_provisioning(active=True, disabled=False)
         elif decision == ProvisioningReviewStatus.REJECTED:
             _block(app)
+        elif decision == ProvisioningReviewStatus.DECLINED:
+            _decline(app)
         else:
             app.update_provisioning(active=False, disabled=False)
 
@@ -469,20 +488,24 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
             )
         previous = review.status
         status = ProvisioningReviewStatus.NEEDS_HUMAN
+        if previous == status and not cache.add(
+            f"cimd-provisioning-review-note:{review.pk}", True, timeout=PARTNER_NOTE_COOLDOWN_SECONDS
+        ):
+            raise PartnerNoteRefused(
+                "You sent a note a few minutes ago, and PostHog staff will read it. Wait a few minutes to add another."
+            )
         message = (
             f"{user.email} asked for another review: {note}"
             if previous != status
             else f"{user.email} added a note: {note}"
         )
         review.status = status
-        review.reason = message
         review.decided_stage = None
         review.decided_at = None
-        review.run_log = [
-            *review.run_log,
-            _log_entry("partner_note", message, user_id=user.pk, previous_status=previous),
-        ][-MAX_RUN_LOG_ENTRIES:]
-        review.save(update_fields=["status", "reason", "decided_stage", "decided_at", "run_log"])
+        review.run_log = _with_partner_note(
+            review.run_log, _log_entry(PARTNER_NOTE_STEP, message, user_id=user.pk, previous_status=previous)
+        )
+        review.save(update_fields=["status", "decided_stage", "decided_at", "run_log"])
 
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -496,8 +519,15 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
         },
         groups={"organization": str(app.organization_id)} if app.organization_id else None,
     )
-    queue_review_slack_thread(review, previous_status=previous)
+    queue_review_slack_thread(review, previous_status=previous, reply=message)
     return review
+
+
+def _with_partner_note(run_log: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
+    notes = [index for index, logged in enumerate(run_log) if logged.get("step") == PARTNER_NOTE_STEP]
+    dropped = set(notes[: max(0, len(notes) + 1 - MAX_PARTNER_NOTES_IN_RUN_LOG)])
+    kept = [logged for index, logged in enumerate(run_log) if index not in dropped]
+    return [*kept, entry][-MAX_RUN_LOG_ENTRIES:]
 
 
 def partner_provisioning_status(

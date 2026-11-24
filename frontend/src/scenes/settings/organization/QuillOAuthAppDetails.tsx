@@ -7,11 +7,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
-import {
-    PROVISIONING_STATUSES_NEEDING_SUPPORT,
-    PROVISIONING_STATUSES_TAKING_A_NOTE,
-    PROVISIONING_STATUS_NEXT_STEPS,
-} from './oauthAppProvisioningStatus'
+import { PROVISIONING_STATUS_NEXT_STEPS, oauthAppActions } from './oauthAppProvisioningStatus'
 import { oauthAppsLogic } from './oauthAppsLogic'
 import { QuillCopyableCode } from './QuillCopyableCode'
 import { QuillOAuthAppReviewNoteForm } from './QuillOAuthAppReviewNoteForm'
@@ -21,10 +17,7 @@ export function QuillOAuthAppDetails({ app }: { app: OrganizationOAuthApplicatio
     const { contactSupport } = useActions(oauthAppsLogic)
 
     const review = app.provisioning_review
-    const canRequestVerification = app.is_cimd_client && !app.is_verified
-    const needsSupport = PROVISIONING_STATUSES_NEEDING_SUPPORT.has(app.provisioning_status)
-    const takesANote = !!review && PROVISIONING_STATUSES_TAKING_A_NOTE.has(app.provisioning_status)
-    const showsProvisioning = app.is_cimd_client || app.provisioning_status !== 'not_a_partner'
+    const { showsProvisioning, takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
     const redirectUris = app.redirect_uris_list ?? []
 
     return (
