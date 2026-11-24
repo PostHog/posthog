@@ -3,6 +3,9 @@ import types
 import pytest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
+from django.db import DataError
+
 from parameterized import parameterized
 
 from posthog.sync import database_sync_to_async
@@ -98,10 +101,25 @@ async def test_record_worker_time_adds_up_over_blocks_and_keeps_a_failed_one(ate
     assert (ajob.worker_seconds, ajob.attempts) == (13.0, 2)
 
 
+@pytest.mark.parametrize(
+    "job_exists,attempt,reported_error",
+    [
+        # Postgres refuses the attempt number before the block runs, because it does not fit the integer column.
+        (True, 2**40, DataError),
+        # The time write fails after the block, on a job id that Django cannot read as a UUID.
+        (False, None, ValidationError),
+    ],
+)
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_record_worker_time_keeps_the_block_result_when_its_writes_fail(ateam) -> None:
-    async with record_worker_time(ateam.pk, "not-a-job-id", attempt=1):
-        result = "materialized"
+async def test_record_worker_time_keeps_the_block_error_when_its_write_fails(
+    ateam, ajob, job_exists, attempt, reported_error
+) -> None:
+    job_id = str(ajob.id) if job_exists else "not-a-job-id"
 
-    assert result == "materialized"
+    with patch.object(utils, "capture_exception") as report:
+        with pytest.raises(ValueError, match="query failed"):
+            async with record_worker_time(ateam.pk, job_id, attempt=attempt):
+                raise ValueError("query failed")
+
+    assert [type(call.args[0]) for call in report.call_args_list] == [reported_error]

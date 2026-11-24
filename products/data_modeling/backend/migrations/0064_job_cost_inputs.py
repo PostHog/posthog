@@ -64,7 +64,7 @@ class Migration(migrations.Migration):
             name="table_files",
             field=models.IntegerField(
                 blank=True,
-                help_text="Live parquet files in the Delta table when this run ended. Publishing copies every one of them.",
+                help_text="Parquet files that back the table when this run ended, which are the files publishing copies. A table with no rows has one empty file.",
                 null=True,
             ),
         ),
@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
             name="written_files",
             field=models.IntegerField(
                 blank=True,
-                help_text="Parquet files this run added to the Delta table that were live when it ended. Null when an earlier attempt of the run had already written rows.",
+                help_text="Live parquet files this run wrote, including files that an upsert or a compaction rewrote. Files it wrote and then replaced are not counted.",
                 null=True,
             ),
         ),

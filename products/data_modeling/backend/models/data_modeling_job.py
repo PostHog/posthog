@@ -93,14 +93,15 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     written_files = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Parquet files this run added to the Delta table that were live when it ended. "
-        "Null when an earlier attempt of the run had already written rows.",
+        help_text="Live parquet files this run wrote, including files that an upsert or a compaction rewrote. "
+        "Files it wrote and then replaced are not counted.",
     )
     written_bytes = models.BigIntegerField(null=True, blank=True, help_text="Total size of written_files.")
     table_files = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Live parquet files in the Delta table when this run ended. Publishing copies every one of them.",
+        help_text="Parquet files that back the table when this run ended, which are the files publishing copies. "
+        "A table with no rows has one empty file.",
     )
     table_bytes = models.BigIntegerField(null=True, blank=True, help_text="Total size of table_files.")
 

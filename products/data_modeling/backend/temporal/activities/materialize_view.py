@@ -8,7 +8,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -445,9 +445,11 @@ def _key_columns(plan: WritePlan) -> frozenset[str]:
     return frozenset((plan.config.incremental_key, *plan.config.unique_key))
 
 
-async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
+async def _write_empty_parquet_for_zero_rows(
+    table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger
+) -> tuple[str, int]:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
-    is still queryable.
+    is still queryable. Returns its URI and its size in bytes.
     """
     buf = pa.BufferOutputStream()
     # write_table() on an empty table emits a 0-row row group, which ClickHouse rejects,
@@ -464,7 +466,7 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
 
     await asyncio.to_thread(_upload)
     await logger.ainfo(f"Wrote empty parquet for zero-row materialization: uri={file_uri} bytes={len(parquet_bytes)}")
-    return file_uri
+    return file_uri, len(parquet_bytes)
 
 
 @contextlib.contextmanager
@@ -881,7 +883,7 @@ def _drop_watermark_and_say_why(saved_query: DataWarehouseSavedQuery, job: DataM
     with transaction.atomic():
         clear_incremental_state(saved_query)
         job.full_refresh_reason = reason
-        job.save()
+        job.save(update_fields=["full_refresh_reason", "updated_at"])
 
 
 def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
@@ -925,14 +927,39 @@ def _read_live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int]:
     return dict(zip(paths, sizes, strict=True))
 
 
-async def _live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int] | None:
-    """Size in bytes of each live file, keyed by its path in the table, or None when the read fails.
+# Commits a retry looks back through for the ones its job made. Each commit is one read from the Delta log.
+JOB_COMMIT_LOOKBACK = 1000
+
+
+def _read_files_before_job(
+    delta_table: deltalake.DeltaTable, table_uri: str, storage_options: dict[str, str], job_id: str, attempt: int
+) -> dict[str, int] | None:
+    """Size in bytes of each file that was live before the job's first commit, or None when that is unknown.
+
+    An earlier attempt of the job can have committed upserts already, and their files belong to the job too.
+    Every upsert carries the job id in its commit, so the version before the first of them is where the job started.
+    """
+    if attempt == 1:
+        return _read_live_file_sizes(delta_table)
+    history = delta_table.history(JOB_COMMIT_LOOKBACK)
+    own_versions = [commit["version"] for commit in history if commit.get("posthog_job_id") == job_id]
+    if not own_versions:
+        return _read_live_file_sizes(delta_table)
+    if len(history) == JOB_COMMIT_LOOKBACK and history[-1].get("posthog_job_id") in (job_id, None):
+        # The lookback ends inside what can still be this job's commits, so its first one is not known.
+        return None
+    before = deltalake.DeltaTable(table_uri, version=min(own_versions) - 1, storage_options=storage_options)
+    return _read_live_file_sizes(before)
+
+
+async def _measured(read: Callable[..., dict[str, int] | None], *args: typing.Any) -> dict[str, int] | None:
+    """Run a file-size read off the event loop, and return None when it fails.
 
     The sizes are a measurement of a write that is already committed, so a failure here must not fail the run.
     The error goes to error tracking only, because its text can name storage hosts and run logs are customer-visible.
     """
     try:
-        return await asyncio.to_thread(_read_live_file_sizes, delta_table)
+        return await asyncio.to_thread(read, *args)
     except Exception as error:
         capture_exception(error)
         return None
@@ -1037,7 +1064,7 @@ async def _materialize_fully(
                 watermark = max_of(batch, plan.config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
-            await database_sync_to_async_pool(objects.job.save)()
+            await _save_job_fields(objects.job, "rows_materialized")
     finally:
         if tracker is not None:
             tracker.close()
@@ -1050,12 +1077,16 @@ async def _materialize_fully(
         await _compact(delta_table)
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
-        files = _table_files(await _live_file_sizes(delta_table), before={})
+        files = _table_files(await _measured(_read_live_file_sizes, delta_table), before={})
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
             # queryable folder has a file with a schema attached that's queryable
-            empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
+            empty_parquet_uri, empty_parquet_bytes = await _write_empty_parquet_for_zero_rows(
+                table_uri, pa_schema, logger
+            )
             file_uris = [empty_parquet_uri]
+            # The file is outside the Delta log, and it is the one file that publishing copies.
+            files = _table_files({empty_parquet_uri: empty_parquet_bytes}, before={})
 
     # Recording the watermark here is what lets the *next* run go incremental. A rebuild that
     # can't produce one (no config, or the key missing from the output) simply leaves the query
@@ -1097,9 +1128,9 @@ async def _materialize_incrementally(
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
     target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
-    # Rows on the job at this point come from an earlier attempt of the same run. That attempt's files are
-    # already live and nothing marks them as this run's, so the files the run wrote stay unmeasured.
-    files_before = None if objects.job.rows_materialized else await _live_file_sizes(delta_table)
+    files_before = await _measured(
+        _read_files_before_job, delta_table, table_uri, storage_options, str(objects.job.id), activity.info().attempt
+    )
     window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
 
     row_count = 0
@@ -1144,7 +1175,7 @@ async def _materialize_incrementally(
             watermark = max_of(batch, config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
-            await database_sync_to_async_pool(objects.job.save)()
+            await _save_job_fields(objects.job, "rows_materialized")
     except DuplicateUniqueKeyError:
         # The watermark stays, because a rebuild would fail on the same repeat. The rows already
         # upserted from earlier batches are safe to keep: the next run re-reads them from the
@@ -1183,7 +1214,9 @@ async def _materialize_incrementally(
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
-    await _record_table_files(objects.job, _table_files(await _live_file_sizes(delta_table), before=files_before))
+    await _record_table_files(
+        objects.job, _table_files(await _measured(_read_live_file_sizes, delta_table), before=files_before)
+    )
     return row_count, delta_table.file_uris()
 
 
@@ -1216,6 +1249,16 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
         )
     except deltalake.exceptions.CommitFailedError as e:
         await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
+
+
+@database_sync_to_async_pool
+def _save_job_fields(job: DataModelingJob, *fields: str) -> None:
+    """Save only ``fields``, because the job in memory is as old as the start of the attempt.
+
+    A full save would write back every other column as it was then. That undoes what an overlapping
+    attempt or another activity wrote since, such as ``attempts`` and ``worker_seconds``.
+    """
+    job.save(update_fields=[*fields, "updated_at"])
 
 
 @database_sync_to_async_pool
@@ -1320,7 +1363,7 @@ async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewRes
     )
     activity_span.set_attribute("incremental", plan.incremental)
     objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
-    await database_sync_to_async_pool(objects.job.save)()
+    await _save_job_fields(objects.job, "run_mode", "full_refresh_reason")
 
     person_property_sink = await _build_person_property_sink(
         objects, inputs.job_id, logger, incremental=plan.incremental

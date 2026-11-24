@@ -83,9 +83,11 @@ The materialization activities write the worker-side inputs on the same row when
 `attempts` is the Temporal attempt number of the materialize activity, saved when the attempt starts.
 `worker_seconds` adds the wall-clock time of the materialize and publish activities over all attempts.
 An attempt whose worker is killed counts in `attempts` and adds nothing to `worker_seconds`.
-`table_files` and `table_bytes` describe the live files in the Delta table when the run ends, and publishing copies every one of them.
-`written_files` and `written_bytes` cover the live files that the run itself added.
-They stay null when an incremental run retries after an earlier attempt wrote rows, because that attempt's files cannot be separated from older ones.
+`table_files` and `table_bytes` describe the files that back the table when the run ends, and publishing copies every one of them.
+A table with no rows has one empty file.
+`written_files` and `written_bytes` cover the live files that the run wrote.
+They include files that an upsert or a compaction rewrote, and they leave out files that the run wrote and then replaced.
+A retry counts the files of its earlier attempts too.
 
 Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
 The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.

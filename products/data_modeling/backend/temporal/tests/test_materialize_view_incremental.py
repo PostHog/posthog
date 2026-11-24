@@ -7,6 +7,7 @@ would assert our idea of deltalite rather than deltalite.
 
 import asyncio
 import threading
+import dataclasses
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -154,11 +155,6 @@ def _file_columns(job: DataModelingJob) -> dict[str, int | None]:
         "written_files": job.written_files,
         "written_bytes": job.written_bytes,
     }
-
-
-async def _forget_rows(job: DataModelingJob) -> None:
-    job.rows_materialized = 0
-    await database_sync_to_async(job.save)(update_fields=["rows_materialized"])
 
 
 async def _configure(asaved_query, config: dict | None = None) -> None:
@@ -763,14 +759,13 @@ class TestIncrementalMaterialization:
             after_rebuild = _file_columns(ajob)
             rebuilt = _live_object_sizes(first.table_uri)
 
-            # Every run has its own job in production, so the next run starts from a job with no rows.
-            await _forget_rows(ajob)
             await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2], [20]))
             await database_sync_to_async(ajob.refresh_from_db)()
             after_update = _file_columns(ajob)
             updated = _live_object_sizes(first.table_uri)
 
-            # The job keeps its rows this time, which is what a retry sees after an attempt that wrote some.
+            # The same job runs again as attempt 2, as it does after an attempt that committed and then died.
+            activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
             await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY3], [30]))
             await database_sync_to_async(ajob.refresh_from_db)()
             retried = _live_object_sizes(first.table_uri)
@@ -789,14 +784,45 @@ class TestIncrementalMaterialization:
             "written_files": len(added),
             "written_bytes": sum(added),
         }
+        added_by_both_attempts = [size for uri, size in retried.items() if uri not in rebuilt]
+        assert len(added_by_both_attempts) > len(added)
         assert _file_columns(ajob) == {
             "table_files": len(retried),
             "table_bytes": sum(retried.values()),
-            "written_files": None,
-            "written_bytes": None,
+            "written_files": len(added_by_both_attempts),
+            "written_bytes": sum(added_by_both_attempts),
         }
-        assert ajob.attempts == 1
+        assert ajob.attempts == 2
         assert ajob.worker_seconds > 0
+
+    async def test_a_batch_save_keeps_what_an_overlapping_attempt_wrote_to_the_job(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        def hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def rows():
+                # Attempt 2 records itself after this attempt loaded the job and before it saves a batch.
+                await database_sync_to_async(DataModelingJob.objects.filter(id=ajob.id).update)(attempts=2)
+                yield _batch([DAY1], [1]), [("day", "DateTime64(6, 'UTC')"), ("c", "Int64")]
+
+            return rows()
+
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch(
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", hogql_table
+            ),
+        ):
+            await activity_environment.run(
+                materialize_view_activity,
+                MaterializeViewInputs(
+                    team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                ),
+            )
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert (ajob.rows_materialized, ajob.attempts) == (1, 2)
 
     async def test_a_delta_log_that_cannot_be_measured_leaves_the_run_intact(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

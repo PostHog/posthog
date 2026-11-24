@@ -2098,6 +2098,9 @@ class TestMaterializeViewActivity:
                 empty_parquet = pq.ParquetFile(BytesIO(f.read()))
             assert empty_parquet.metadata.num_row_groups == 0
             assert empty_parquet.schema_arrow.names == ["id", "name"]
+            # The job counts the file that publishing copies, although the Delta log holds no file.
+            await database_sync_to_async(ajob.refresh_from_db)()
+            assert (ajob.table_files, ajob.table_bytes) == (1, s3.info(result.file_uris[0])["size"])
 
     @pytest.mark.parametrize(
         "write_error,expected_message",
