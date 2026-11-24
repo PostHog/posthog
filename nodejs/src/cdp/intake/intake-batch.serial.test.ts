@@ -209,6 +209,8 @@ describe('insertIntakeBatch', () => {
     const sealedSendThroughKafka = async (
         contentState: Record<string, unknown>
     ): Promise<{ id: string; delivered: Message[] }> => {
+        // One budget for the ack and the delivery together, so the round trip and its cleanup end inside the test timeout.
+        const deadline = Date.now() + KAFKA_WAIT_MS
         const topicName = createKafkaTestTopicName(KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL)
         let producer: KafkaProducerWrapper | undefined
         let consumer: KafkaConsumer | undefined
@@ -255,7 +257,7 @@ describe('insertIntakeBatch', () => {
             // The production ack deadline is short; a slow local broker that acks late is not what this test checks.
             const outcome = await new IntakeProducer(
                 topic as IngestionOutputs<IntakeOutput>,
-                KAFKA_WAIT_MS,
+                deadline - Date.now(),
                 sealing.seal
             ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
             expect(outcome).toBe('acked')
@@ -271,7 +273,10 @@ describe('insertIntakeBatch', () => {
             })
             // Bounded here, so a message Kafka never delivers fails with its own error and the cleanup still runs.
             const nothingDelivered = new Promise<never>((_, reject) => {
-                giveUp = setTimeout(() => reject(new Error('Kafka delivered nothing in 30 s')), KAFKA_WAIT_MS)
+                giveUp = setTimeout(
+                    () => reject(new Error('Kafka delivered nothing in 30 s')),
+                    Math.max(0, deadline - Date.now())
+                )
             })
             // The consumer runs its poll loop detached, so a loop that fails or ends first fails the wait here.
             const loopEnded = consumer['consumerLoop']!.then(() => {
@@ -322,6 +327,10 @@ describe('insertIntakeBatch', () => {
 
         const [job] = await storedJobs([id])
         expect(job.fileBytes).toBe('1000')
+        for (const hidden of ['invoice.pdf', 'a'.repeat(64)]) {
+            expect(delivered.map((message) => message.value!.toString())).toEqual([expect.not.stringContaining(hidden)])
+            expect(JSON.stringify(job.state)).not.toContain(hidden)
+        }
     }, 60_000)
 
     it('writes the queued status of a keyed send, dated by its trigger event', async () => {
