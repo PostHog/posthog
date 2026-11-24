@@ -88,7 +88,6 @@ describe("ResumeSaga", () => {
         createUserMessage("Hello"),
         createAgentChunk("Hi there!"),
         createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
-          reason: "rejected",
           droppedCount: 1,
         }),
         createUserMessage("Help me"),
@@ -577,7 +576,6 @@ describe("ResumeSaga", () => {
           runStarted("session-abc"),
           createUserMessage("Hello"),
           createNotification(POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP, {
-            reason: "overflow",
             droppedCount: 3,
           }),
         ],
