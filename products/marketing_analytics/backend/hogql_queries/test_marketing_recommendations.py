@@ -556,6 +556,27 @@ class TestMarketingRecommendations(SimpleTestCase):
         review_steps = [step.text for rec in recs if rec.rule == "review_campaign" for step in rec.steps or []]
         assert any('spent the most: "product analytics"' in text for text in review_steps) is lists_costly_searches
 
+    def test_leaking_search_campaigns_leave_no_benchmark_instead_of_falling_back(self) -> None:
+        # The fallback is for accounts without Search campaigns, so a leaking Search campaign must not slip back in.
+        leaky = _campaign(id="leaky", name="Leaky", cost=2000, conversions=40)
+        pmax = _campaign(
+            id="pmax",
+            name="PMax",
+            channel_type="PERFORMANCE_MAX",
+            cost=1000,
+            conversions=20,
+            status_reasons=("BUDGET_CONSTRAINED",),
+            recommended_daily_budget=200.0,
+        )
+        terms = (
+            _term("example", "leaky", cost=800, conversions=0),
+            _term("product analytics", "leaky", cost=1200, conversions=0),
+        )
+
+        recs = recommend(replace(_inputs((leaky, pmax), terms), search_term_conversions=False))
+
+        assert not any(rec.rule == "budget_constrained" for rec in recs)
+
     @parameterized.expand(
         [
             ("misspelling_is_blocked_too", "NONE", '"example"\n"exampel"'),

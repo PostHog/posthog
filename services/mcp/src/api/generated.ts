@@ -62333,6 +62333,7 @@ export namespace Schemas {
       PosthogConversionsNotReady: 'posthog_conversions_not_ready',
       PosthogConversionGoalsUnusable: 'posthog_conversion_goals_unusable',
       PosthogCampaignsUnmatched: 'posthog_campaigns_unmatched',
+      PosthogConversionsFailed: 'posthog_conversions_failed',
     } as const;
 
     export interface MarketingAnalyticsRecommendationsDataGap {

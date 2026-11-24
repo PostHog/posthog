@@ -40870,7 +40870,8 @@
                 "performance_max_search_terms_count_primary_conversions",
                 "posthog_conversions_not_ready",
                 "posthog_conversion_goals_unusable",
-                "posthog_campaigns_unmatched"
+                "posthog_campaigns_unmatched",
+                "posthog_conversions_failed"
             ],
             "type": "string"
         },

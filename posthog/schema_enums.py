@@ -2284,6 +2284,7 @@ class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     POSTHOG_CONVERSIONS_NOT_READY = "posthog_conversions_not_ready"
     POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
     POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
+    POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):

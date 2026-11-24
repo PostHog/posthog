@@ -5,6 +5,7 @@ from functools import cached_property
 from typing import Any, Optional
 
 from posthog.schema import (
+    BaseMathType,
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     CacheMissResponse,
     ConversionGoalFilter1,
@@ -12,6 +13,7 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     GenericCachedQueryResponse,
+    IntegrationFilter,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendation,
@@ -34,11 +36,13 @@ from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import goal_sums_a_property
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -100,6 +104,11 @@ PERFORMANCE_MAX_GAP = (
     "terms count the primary conversion actions. The account's search term CPA includes them."
 )
 UNMATCHED_CAMPAIGNS_SHOWN = 3
+UNMATCHED_MIN_SHARE = 0.05
+SHOWN_VALUE_LENGTH = 60
+POSTHOG_CONVERSIONS_FAILED_GAP = (
+    "PostHog conversions could not be counted for this period, so CPAs use the conversions Google Ads reports."
+)
 # The id the conversion goal queries give a row that no campaign's cost matched.
 NO_CAMPAIGN_ID = "-"
 POSTHOG_CONVERSIONS_NOT_READY_GAP = (
@@ -116,11 +125,20 @@ class PostHogConversions:
     gap_message: str | None = None
     # utm_campaign values of Google Ads conversions that match no campaign, most conversions first.
     unmatched_campaigns: tuple[str, ...] = ()
+    # Why each marked goal that the other marked goals are counted without was skipped.
+    skipped_goals: tuple[str, ...] = ()
 
 
 class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
     def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
-        return [goal for goal in super()._get_team_conversion_goals() if goal.use_in_recommendations]
+        # A CPA divides by conversions, so a goal that sums a value, such as revenue, is counted instead.
+        return [
+            goal.model_copy(update={"math": BaseMathType.TOTAL, "math_property": None})
+            if goal_sums_a_property(goal)
+            else goal
+            for goal in super()._get_team_conversion_goals()
+            if goal.use_in_recommendations
+        ]
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
@@ -168,6 +186,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 "campaign_name_mappings": config.campaign_name_mappings,
                 "custom_source_mappings": config.custom_source_mappings,
                 "campaign_field_preferences": config.campaign_field_preferences,
+                "filter_test_accounts": config.filter_test_accounts,
+                "test_account_filters": self.team.test_account_filters,
             }
         return payload
 
@@ -201,6 +221,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 ),
                 drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
                 limit=ROW_LIMIT,
+                # Only Google Ads costs can match these campaigns, so the other integrations would add scans for nothing.
+                integrationFilter=IntegrationFilter(integrationSourceIds=self._google_ads_source_ids or None),
             ),
             team=self.team,
             user=self.user,
@@ -218,7 +240,15 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 gap_message="CPAs use the conversions Google Ads reports, because none of the goals marked for "
                 "recommendations can be counted: " + " ".join(goal.message for goal in skipped),
             )
-        response = runner.calculate()
+        try:
+            response = runner.calculate()
+        except Exception as error:
+            # A goal can still break the query, such as a warehouse goal that lost a column, and that must not take
+            # down every recommendation.
+            capture_exception(error)
+            return _posthog_conversions_failed()
+        if response.hasMore:
+            return _posthog_conversions_failed()
         if response.precomputeNotReady:
             return PostHogConversions(
                 by_campaign=None,
@@ -236,12 +266,17 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if campaign_id and campaign_id != NO_CAMPAIGN_ID:
                 by_campaign[str(campaign_id)] += conversions
             # A row without an id holds conversions whose utm_campaign matched no campaign's cost.
-            elif conversions and cells.get(MarketingAnalyticsBaseColumns.SOURCE) == google:
+            elif conversions and str(cells.get(MarketingAnalyticsBaseColumns.SOURCE) or "").lower() == google:
                 unmatched[str(cells.get(MarketingAnalyticsBaseColumns.CAMPAIGN) or "")] += conversions
         return PostHogConversions(
             by_campaign=dict(by_campaign),
-            unmatched_campaigns=tuple(sorted(unmatched, key=lambda campaign: -unmatched[campaign])),
+            unmatched_campaigns=_unmatched_campaigns(sum(by_campaign.values()), unmatched),
+            skipped_goals=tuple(goal.message for goal in skipped),
         )
+
+    @cached_property
+    def _google_ads_source_ids(self) -> list[str]:
+        return [str(source.id) for source in list_sources(self.team.pk) if source.source_type == "GoogleAds"]
 
     def run(
         self,
@@ -965,12 +1000,45 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return None
 
 
+def _posthog_conversions_failed() -> PostHogConversions:
+    return PostHogConversions(
+        by_campaign=None,
+        gap=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSIONS_FAILED,
+        gap_message=POSTHOG_CONVERSIONS_FAILED_GAP,
+    )
+
+
+# Anyone who can send events sets utm_campaign, and data gaps reach PostHog AI, so a value is shown short and flat.
+def _shown_value(value: str) -> str:
+    flat = " ".join("".join(char if char.isprintable() else " " for char in value).split())
+    return flat if len(flat) <= SHOWN_VALUE_LENGTH else flat[: SHOWN_VALUE_LENGTH - 1] + "…"
+
+
+def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]) -> tuple[str, ...]:
+    # An empty utm_campaign names nothing to map, and a few stray conversions should not stop judging every
+    # campaign without conversions.
+    named = {campaign: conversions for campaign, conversions in unmatched.items() if campaign.strip()}
+    total = sum(named.values())
+    if total < UNMATCHED_MIN_SHARE * (matched_conversions + total):
+        return ()
+    return tuple(sorted(named, key=lambda campaign: -named[campaign]))
+
+
 def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecommendationsDataGap]:
     gaps = []
     if posthog.gap and posthog.gap_message:
         gaps.append(MarketingAnalyticsRecommendationsDataGap(kind=posthog.gap, message=posthog.gap_message))
+    if posthog.skipped_goals:
+        gaps.append(
+            MarketingAnalyticsRecommendationsDataGap(
+                kind=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSION_GOALS_UNUSABLE,
+                message="CPAs count only the marked goals that can be counted: " + " ".join(posthog.skipped_goals),
+            )
+        )
     if posthog.unmatched_campaigns:
-        shown = ", ".join(f'"{campaign}"' for campaign in posthog.unmatched_campaigns[:UNMATCHED_CAMPAIGNS_SHOWN])
+        shown = ", ".join(
+            f'"{_shown_value(campaign)}"' for campaign in posthog.unmatched_campaigns[:UNMATCHED_CAMPAIGNS_SHOWN]
+        )
         more = len(posthog.unmatched_campaigns) - UNMATCHED_CAMPAIGNS_SHOWN
         gaps.append(
             MarketingAnalyticsRecommendationsDataGap(

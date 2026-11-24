@@ -578,14 +578,7 @@ class _Recommender:
             for campaign in self.campaigns.values()
             if campaign.channel_type == "SEARCH" and not self._is_brand_campaign(campaign, self.brand_spend)
         ]
-        # Without search term conversions, a leaking campaign keeps the conversions of its brand searches, so it
-        # would lower the bar for every other campaign.
-        self.benchmark_campaigns = [
-            campaign
-            for campaign in self.search_campaigns
-            if campaign.conversions_measured
-            and (inputs.search_term_conversions or not self._leak_to_fix(campaign, self.brand_spend))
-        ]
+        self.benchmark_campaigns = [campaign for campaign in self.search_campaigns if self._sets_the_bar(campaign)]
         # The same campaigns and non-brand basis as the benchmark, so a Search campaign's CPA sits inside the range.
         search_cpas = [
             cpa for campaign in self.benchmark_campaigns if (cpa := self._nonbrand_cpa(campaign)) is not None
@@ -1912,12 +1905,25 @@ class _Recommender:
 
     def _account_nonbrand_cpa(self) -> float | None:
         # An account without Search campaigns, such as one that only runs Performance Max, still needs a benchmark.
-        campaigns = self.benchmark_campaigns or [
-            campaign for campaign in self.campaigns.values() if not self._is_brand_campaign(campaign, self.brand_spend)
-        ]
+        campaigns = (
+            self.benchmark_campaigns
+            if self.search_campaigns
+            else [
+                campaign
+                for campaign in self.campaigns.values()
+                if not self._is_brand_campaign(campaign, self.brand_spend) and self._sets_the_bar(campaign)
+            ]
+        )
         cost = sum(self.nonbrand[campaign.id].cost for campaign in campaigns)
         conversions = sum(self.nonbrand[campaign.id].conversions for campaign in campaigns)
         return cost / conversions if conversions else None
+
+    def _sets_the_bar(self, campaign: CampaignStats) -> bool:
+        # Without search term conversions, a leaking campaign keeps the conversions of its brand searches, so it
+        # would lower the bar for every other campaign.
+        return campaign.conversions_measured and (
+            self.inputs.search_term_conversions or not self._leak_to_fix(campaign, self.brand_spend)
+        )
 
     def _campaign_benchmark(self, campaign: CampaignStats | None) -> _Benchmark | None:
         # Without a benchmark, no rule judges the campaign by its CPA.
