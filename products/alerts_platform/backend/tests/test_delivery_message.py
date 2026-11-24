@@ -137,6 +137,15 @@ class TestAlertMessage:
             MessageDetail(label="Failed checks", value="3"),
         )
 
+    def test_a_group_with_no_data_says_so_without_a_threshold_it_measured_nothing_against(self) -> None:
+        message = _build(_announcement(source=SourceKind.METRICS), _transition(AlertEventKind.NO_DATA, value=None))
+
+        assert (message.headline, message.symbol, message.details) == (
+            "Metric alert 'API errors' has no data",
+            "⚪",
+            (),
+        )
+
     @pytest.mark.parametrize(
         "window_minutes,expected",
         [(1, "1 minute"), (5, "5 minutes")],

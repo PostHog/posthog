@@ -35,6 +35,7 @@ class AlertState(StrEnum):
     FIRING = "firing"
     # Input-only: accepted from adopters whose models persist it, never produced here.
     PENDING_RESOLVE = "pending_resolve"
+    NO_DATA = "no_data"
     ERRORED = "errored"
     SNOOZED = "snoozed"
     BROKEN = "broken"
@@ -46,6 +47,7 @@ class NotificationAction(Enum):
     RESOLVE = "resolve"
     ERROR = "error"
     BROKEN = "broken"
+    NO_DATA = "no_data"
 
 
 # What a source reports as a check's kind. A check that announced nothing is a CHECK even when it
@@ -57,6 +59,7 @@ NOTIFICATION_EVENT_KINDS: dict[NotificationAction, AlertEventKind] = {
     NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
     NotificationAction.ERROR: AlertEventKind.ERRORED,
     NotificationAction.BROKEN: AlertEventKind.BROKEN,
+    NotificationAction.NO_DATA: AlertEventKind.NO_DATA,
 }
 
 
@@ -148,6 +151,8 @@ class CheckInput:
     # resolves against the team's timezone. Read only under `mute_gates_notification_only`, so a
     # source that sets it against another policy is silently unmuted.
     muted: bool = False
+    no_data: bool = False
+    notify_no_data: bool = False
 
 
 @dataclass(frozen=True)
@@ -220,7 +225,7 @@ def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
 
 
 # A mute is about the alert's condition, not its health.
-_MUTABLE_NOTIFICATIONS = frozenset({NotificationAction.FIRE, NotificationAction.RESOLVE})
+_MUTABLE_NOTIFICATIONS = frozenset({NotificationAction.FIRE, NotificationAction.RESOLVE, NotificationAction.NO_DATA})
 
 
 def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
@@ -267,7 +272,7 @@ def decide_firing_episode(
     parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
     two state strings cannot tell that state from a resolve.
     """
-    was_firing = _inside_firing(snapshot.state, policy)
+    was_firing = _inside_firing(snapshot.state, policy, snapshot.firing_started_at)
     is_firing = _firing_after(was_firing, outcome.new_state, policy)
     if is_firing:
         # A firing that began before the platform recorded starts keeps an unknown one rather
@@ -280,17 +285,25 @@ def decide_firing_episode(
     return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
 
 
-def _inside_firing(state: AlertState, policy: AlertPolicy) -> bool:
+def _inside_firing(state: AlertState, policy: AlertPolicy, firing_started_at: datetime | None = None) -> bool:
+    if state == AlertState.NO_DATA:
+        return firing_started_at is not None
     return state in FIRING_STATES or (policy.clear_check_ends_snooze and state == AlertState.SNOOZED)
 
 
 def _firing_after(was_firing: bool, new_state: AlertState, policy: AlertPolicy) -> bool:
+    if new_state == AlertState.NO_DATA:
+        return was_firing
     # A move into SNOOZED parks a firing only under clear_check_ends_snooze, and never starts one.
     return _inside_firing(new_state, policy) and (new_state != AlertState.SNOOZED or was_firing)
 
 
 def decide_incident_action(
-    previous_state: AlertState, new_state: AlertState, *, policy: AlertPolicy
+    previous_state: AlertState,
+    new_state: AlertState,
+    *,
+    policy: AlertPolicy,
+    firing_started_at: datetime | None = None,
 ) -> IncidentAction | None:
     """Whether a transition opens or closes the incident a paging destination holds for the alert.
 
@@ -298,9 +311,10 @@ def decide_incident_action(
     announcement while the state still moves, and an incident manager needs one resolve for every
     trigger it received, so a held resolve must still close the incident. The firing rule is
     `decide_firing_episode`'s, so a policy that parks a firing alert in SNOOZED keeps its incident
-    open there.
+    open there. `firing_started_at` is the group's before the transition, which is what tells a
+    NO_DATA group that was firing from one that was not.
     """
-    was_firing = _inside_firing(previous_state, policy)
+    was_firing = _inside_firing(previous_state, policy, firing_started_at)
     is_firing = _firing_after(was_firing, new_state, policy)
     if is_firing and not was_firing:
         return IncidentAction.TRIGGER
@@ -364,6 +378,9 @@ def evaluate_alert_check(
             error_message=None,
         )
 
+    if check.no_data:
+        return _no_data(snapshot, check, muted=muted)
+
     if snoozing and check.threshold_breached and policy.clear_check_ends_snooze:
         # Breach while muted: park in SNOOZED without notifying, whatever the prior state.
         return AlertCheckOutcome(
@@ -382,6 +399,14 @@ def evaluate_alert_check(
     elif snapshot.state in (AlertState.ERRORED, AlertState.BROKEN):
         # BROKEN is only reachable here when the policy allows checks to un-break.
         effective_state = AlertState.NOT_FIRING
+    elif snapshot.state == AlertState.NO_DATA:
+        # Data is back, so the group continues from where it was when the data stopped: a firing
+        # resolves or carries on as the same firing, and a quiet group fires as a new one. A firing
+        # a mute kept unannounced re-enters as not firing, so it announces itself, as below.
+        resumes_firing = snapshot.firing_started_at is not None and not (
+            policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot)
+        )
+        effective_state = AlertState.FIRING if resumes_firing else AlertState.NOT_FIRING
     elif policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot):
         # Re-evaluating from scratch is what makes a condition that survived the mute announce
         # itself, and is what the SNOOZED arm does for an expired snooze. Last in the chain, so a
@@ -435,6 +460,23 @@ def evaluate_alert_check(
         notification=notification,
         consecutive_failures=0,
         update_last_notified_at=update_last_notified_at,
+        error_message=None,
+    )
+    return _muted(outcome) if muted else outcome
+
+
+def _no_data(snapshot: AlertSnapshot, check: CheckInput, *, muted: bool) -> AlertCheckOutcome:
+    """A group whose data the source is sure is missing moves to NO_DATA, and announces it once.
+
+    Neither cooldown nor `last_notified_at` is touched, because both measure announcements about the
+    condition, and whether a firing was announced is read from `last_notified_at`.
+    """
+    entering = snapshot.state != AlertState.NO_DATA
+    outcome = AlertCheckOutcome(
+        new_state=AlertState.NO_DATA,
+        notification=NotificationAction.NO_DATA if entering and check.notify_no_data else NotificationAction.NONE,
+        consecutive_failures=0,
+        update_last_notified_at=False,
         error_message=None,
     )
     return _muted(outcome) if muted else outcome

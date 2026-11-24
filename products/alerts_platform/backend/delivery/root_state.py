@@ -25,6 +25,8 @@ def state_line(snapshot: PlatformAlertSnapshot | None, *, episode_started_at: da
     episode_open = snapshot.firing_started_at == episode_started_at
     if episode_open and snapshot.state == PlatformAlertState.FIRING:
         return f"{state_symbol(AlertEventKind.FIRING)} Still firing as of {when}"
+    if episode_open and snapshot.state == PlatformAlertState.NO_DATA:
+        return f"{state_symbol(AlertEventKind.NO_DATA)} No data as of {when}"
     # Shown only for the two states a reader of a firing expects. A later firing has its own root,
     # so this one reads as resolved even while the group fires again.
     if not episode_open and snapshot.state in (PlatformAlertState.NOT_FIRING, PlatformAlertState.FIRING):

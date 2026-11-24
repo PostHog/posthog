@@ -23,12 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     PlatformAlertOutcome,
 )
-from products.alerts_platform.backend.facade.enums import (
-    HoldRelease,
-    HoldReleasedBy,
-    PlatformAlertOwner,
-    PlatformAlertState,
-)
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
@@ -228,17 +223,20 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
     )
     if not held:
         return frozenset()
-    current = {
-        grouping_key: (state, _in_utc(firing_started_at))
-        for grouping_key, state, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
-        .filter(configuration_id=request.configuration_id, grouping_key__in=triggering)
-        .values_list("grouping_key", "state", "firing_started_at")
+    still_firing = {
+        grouping_key: _in_utc(firing_started_at)
+        for grouping_key, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
+        .filter(PlatformAlert.inside_firing(), configuration_id=request.configuration_id, grouping_key__in=triggering)
+        .values_list("grouping_key", "firing_started_at")
     }
     return frozenset(
         transition.grouping_key
         for transition in transitions
         if transition.grouping_key in triggering
-        and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, _in_utc(transition.episode_started_at))
+        and (
+            transition.grouping_key not in still_firing
+            or still_firing[transition.grouping_key] != _in_utc(transition.episode_started_at)
+        )
     )
 
 

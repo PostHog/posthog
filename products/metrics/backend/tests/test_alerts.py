@@ -517,6 +517,31 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             ("", AlertEventKind.RESOLVED)
         ]
 
+    def test_a_firing_series_that_stops_shows_no_data_once_and_resolves_when_it_returns_clear(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.set_on_missing_data(self.configuration_id, OnMissingData.NOTIFY_NO_DATA)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        fired = self._evaluate()
+        assert self._kinds(fired) == {"a": AlertEventKind.FIRING}
+
+        self._next_check(fired)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector())
+        lost = self._evaluate()
+        assert self._kinds(lost) == {"a": AlertEventKind.NO_DATA}
+        assert [group.firing_episode for group in lost.groups] == [fired.groups[0].firing_episode]
+
+        self._next_check(lost)
+        self.checkpoint.return_value = self.due_at
+        still_lost = self._evaluate()
+        assert self._kinds(still_lost) == {}
+
+        self._next_check(still_lost)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
     def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
         self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))
         self.snuffle.return_value = _response(200, _vector(*(({"group": str(index)}, "2000") for index in range(50))))

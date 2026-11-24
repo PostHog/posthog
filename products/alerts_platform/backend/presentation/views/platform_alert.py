@@ -100,7 +100,9 @@ RULE_ANNOTATIONS_HELP = (
 ON_MISSING_DATA_HELP = (
     "What a group means once the source is sure the check did not return it. resolve counts it as not "
     "breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as "
-    "breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every "
+    "breaching, which suits a heartbeat alert, and needs an ungrouped alert. no_data moves the group to the "
+    "no_data state, and notify_no_data also sends one notification when it does. A group that was firing "
+    "keeps its incident open while it has no data. Metrics alerts accept every "
     "option, and other source kinds accept only resolve."
 )
 

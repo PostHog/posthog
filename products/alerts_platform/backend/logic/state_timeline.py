@@ -30,6 +30,7 @@ _PRIORITY: Final = (
     PlatformAlertState.BROKEN,
     PlatformAlertState.ERRORED,
     PlatformAlertState.FIRING,
+    PlatformAlertState.NO_DATA,
     PlatformAlertState.NOT_FIRING,
 )
 

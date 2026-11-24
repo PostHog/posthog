@@ -26,7 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, OnMissingData, PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -226,6 +226,12 @@ def set_evaluation_window(configuration_id: UUID, *, periods: int, datapoints: i
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(
         evaluation_periods=periods, datapoints_to_alarm=datapoints
     )
+
+
+def set_on_missing_data(configuration_id: UUID, on_missing_data: OnMissingData) -> None:
+    """Set what a missing group means, without the source's validation. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(on_missing_data=on_missing_data.value)
 
 
 def set_source_config(configuration_id: UUID, source_config: dict[str, Any]) -> None:

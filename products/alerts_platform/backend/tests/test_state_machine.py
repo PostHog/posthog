@@ -557,3 +557,62 @@ class TestIncidentAction:
         expected: IncidentAction | None,
     ) -> None:
         assert decide_incident_action(state, new_state, policy=policy) == expected
+
+
+NO_DATA = CheckInput(threshold_breached=False, no_data=True)
+NOTIFY_NO_DATA = CheckInput(threshold_breached=False, no_data=True, notify_no_data=True)
+STARTED = NOW - timedelta(hours=1)
+
+
+class TestNoData:
+    @parameterized.expand(
+        [
+            ("firing_loses_data", AlertState.FIRING, STARTED, NOTIFY_NO_DATA, AlertState.NO_DATA, NotificationAction.NO_DATA, None, False),
+            ("firing_loses_data_quietly", AlertState.FIRING, STARTED, NO_DATA, AlertState.NO_DATA, NotificationAction.NONE, None, False),
+            ("was_firing_returns_breaching", AlertState.NO_DATA, STARTED, BREACH, AlertState.FIRING, NotificationAction.NONE, None, False),
+            ("was_firing_returns_clear", AlertState.NO_DATA, STARTED, CLEAR, AlertState.NOT_FIRING, NotificationAction.RESOLVE, IncidentAction.RESOLVE, True),
+            ("quiet_loses_data", AlertState.NOT_FIRING, None, NOTIFY_NO_DATA, AlertState.NO_DATA, NotificationAction.NO_DATA, None, None),
+            ("was_quiet_returns_breaching", AlertState.NO_DATA, None, BREACH, AlertState.FIRING, NotificationAction.FIRE, IncidentAction.TRIGGER, False),
+            ("was_quiet_returns_clear", AlertState.NO_DATA, None, CLEAR, AlertState.NOT_FIRING, NotificationAction.NONE, None, None),
+            ("stays_without_data", AlertState.NO_DATA, STARTED, NOTIFY_NO_DATA, AlertState.NO_DATA, NotificationAction.NONE, None, False),
+        ]
+    )  # fmt: skip
+    def test_a_group_moves_through_no_data_as_the_proposal_tables_it(
+        self,
+        _name: str,
+        state: AlertState,
+        started_at: datetime | None,
+        check: CheckInput,
+        new_state: AlertState,
+        notification: NotificationAction,
+        incident: IncidentAction | None,
+        episode_ended: bool | None,
+    ) -> None:
+        # Announced at the start, so a mute-free return reads the firing as announced.
+        before = snapshot(state=state, firing_started_at=started_at, last_notified_at=started_at, cooldown=timedelta(0))
+
+        result = evaluate_alert_check(before, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        episode = decide_firing_episode(before, result, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+
+        assert (result.new_state, result.notification) == (new_state, notification)
+        assert (
+            decide_incident_action(
+                state, result.new_state, policy=PLATFORM_LOGS_ALERT_POLICY, firing_started_at=started_at
+            )
+            == incident
+        )
+        assert (None if episode is None else episode.ended) == episode_ended
+
+    def test_a_mute_holds_the_no_data_announcement(self) -> None:
+        result = evaluate_alert_check(
+            snapshot(state=AlertState.FIRING, firing_started_at=STARTED, snooze_until=SNOOZING),
+            NOTIFY_NO_DATA,
+            NOW,
+            policy=PLATFORM_LOGS_ALERT_POLICY,
+        )
+
+        assert (result.new_state, result.notification, result.muted_notification) == (
+            AlertState.NO_DATA,
+            NotificationAction.NONE,
+            NotificationAction.NO_DATA,
+        )

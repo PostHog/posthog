@@ -32,6 +32,7 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "{kind} alert '{name}' is resolved",
     AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
+    AlertEventKind.NO_DATA: "{kind} alert '{name}' has no data",
     AlertEventKind.VERDICT_CHANGED: "{kind} alert '{name}' has a new verdict",
 }
 
@@ -41,6 +42,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "🟢",
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
+    AlertEventKind.NO_DATA: "⚪",
     AlertEventKind.VERDICT_CHANGED: "🔄",
 }
 
@@ -250,7 +252,7 @@ def build_message(
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
         details = list(_failure_details(transition, announcement.consecutive_failures))
-    elif transition.kind == AlertEventKind.VERDICT_CHANGED:
+    elif transition.kind in (AlertEventKind.VERDICT_CHANGED, AlertEventKind.NO_DATA):
         # The row records no measurement, so the breach details would state the threshold without a value.
         details = list(description.details)
     else:

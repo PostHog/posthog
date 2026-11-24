@@ -152,6 +152,8 @@ class GroupObservation:
     labels: dict[str, str] = field(default_factory=dict)
     # False for a group judged through its absence whose missing streak counts from `last_seen_at`.
     seen: bool = True
+    # The alert treats the group's missing data as its own state, so `current_breached` says nothing.
+    no_data: bool = False
 
 
 @frozen
@@ -206,6 +208,9 @@ def muted_value(outcome: Outcome) -> str:
 
 def not_breaching(grouping_key: str) -> GroupObservation:
     return GroupObservation(grouping_key=grouping_key, current_breached=False)
+
+
+_NO_DATA_OPTIONS: Final = frozenset({OnMissingData.NO_DATA, OnMissingData.NOTIFY_NO_DATA})
 
 
 def _missing_keys(check: PlatformAlertCheckInput) -> list[str]:
@@ -290,12 +295,22 @@ def decide_groups(
             continue
         if check.on_missing_data == OnMissingData.BREACHING:
             missing = _breaching_when_missing(check, missing, now)
+        elif check.on_missing_data in _NO_DATA_OPTIONS:
+            missing = replace(missing, no_data=True)
         by_key[key] = missing
     judged: list[tuple[GroupObservation, AlertSnapshot, AlertCheckOutcome]] = []
     for observation in by_key.values():
         snapshot = snapshot_of(check.instance(observation.grouping_key), observation.prior_breached)
         outcome = evaluate_alert_check(
-            snapshot, CheckInput(threshold_breached=observation.current_breached, muted=muted), now, policy=policy
+            snapshot,
+            CheckInput(
+                threshold_breached=observation.current_breached,
+                muted=muted,
+                no_data=observation.no_data,
+                notify_no_data=check.on_missing_data == OnMissingData.NOTIFY_NO_DATA,
+            ),
+            now,
+            policy=policy,
         )
         if observation.grouping_key not in existing and _decided_nothing(outcome):
             continue

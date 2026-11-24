@@ -116,8 +116,18 @@ def _decided(
         (OnMissingData.BREACHING, (_FIRING,), {"": (AlertEventKind.CHECK, "firing", False)}),
         (OnMissingData.BREACHING, (), {"": (AlertEventKind.FIRING, "firing", False)}),
         (OnMissingData.RESOLVE, (), {}),
+        (OnMissingData.NO_DATA, (_FIRING,), {"": (AlertEventKind.CHECK, "no_data", True)}),
+        (OnMissingData.NOTIFY_NO_DATA, (_FIRING,), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
     ],
-    ids=["resolve", "keep_last_state", "breaching_stays_firing", "breaching_fires_on_empty_result", "resolve_no_group"],
+    ids=[
+        "resolve",
+        "keep_last_state",
+        "breaching_stays_firing",
+        "breaching_fires_on_empty_result",
+        "resolve_no_group",
+        "no_data",
+        "notify_no_data",
+    ],
 )
 def test_a_group_the_source_is_sure_is_missing_is_judged_by_the_alerts_choice(
     on_missing_data: OnMissingData,

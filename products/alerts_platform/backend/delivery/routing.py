@@ -20,6 +20,7 @@ from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
     AlertDeliveryRequest,
+    AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
@@ -156,7 +157,8 @@ def _hears(receiver: RoutedReceiver, transition: AnnouncedTransition, request: A
     return (
         request.sends_messages
         and transition.kind.value in request.event_ids_by_kind
-        and transition.kind in receiver.event_kinds
+        and (AlertEventKind.FIRING if transition.kind == AlertEventKind.NO_DATA else transition.kind)
+        in receiver.event_kinds
     )
 
 

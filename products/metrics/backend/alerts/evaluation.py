@@ -320,7 +320,12 @@ def _evaluate(
         results_cut=False,
     )
     moves = {
-        verdict.group.grouping_key: (verdict.snapshot.state, verdict.outcome.new_state) for verdict in decision.verdicts
+        verdict.group.grouping_key: _Move(
+            before=verdict.snapshot.state,
+            after=verdict.outcome.new_state,
+            firing_started_at=verdict.snapshot.firing_started_at,
+        )
+        for verdict in decision.verdicts
     }
     sends_messages = any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts)
     return recorded, _request(check, recorded, moves, sends_messages=sends_messages)
@@ -563,15 +568,22 @@ def _failed(check: PlatformAlertCheckInput, message: str, *, transient: bool, no
     return recorded, _request(
         check,
         recorded,
-        {"": (snapshot.state, outcome.new_state)},
+        {"": _Move(before=snapshot.state, after=outcome.new_state, firing_started_at=snapshot.firing_started_at)},
         sends_messages=outcome.notification != NotificationAction.NONE,
     )
+
+
+@frozen
+class _Move:
+    before: AlertState
+    after: AlertState
+    firing_started_at: datetime | None
 
 
 def _request(
     check: PlatformAlertCheckInput,
     recorded: PlatformAlertOutcome,
-    moves: dict[str, tuple[AlertState, AlertState]],
+    moves: dict[str, _Move],
     *,
     sends_messages: bool,
 ) -> AlertDeliveryRequest | None:
@@ -582,8 +594,13 @@ def _request(
     """
     actions = {
         key: action
-        for key, (before, after) in moves.items()
-        if (action := decide_incident_action(before, after, policy=POLICY)) is not None
+        for key, move in moves.items()
+        if (
+            action := decide_incident_action(
+                move.before, move.after, policy=POLICY, firing_started_at=move.firing_started_at
+            )
+        )
+        is not None
     }
     if actions and not has_incident_destination(team_id=check.team_id, configuration_id=check.id):
         actions = {}

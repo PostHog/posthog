@@ -753,14 +753,19 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    NO_DATA = "no_data"
     # A follow-up about a firing that already went out. History readers leave it out of the checks.
     VERDICT_CHANGED = "verdict_changed"
 
     @property
     def delivered_as(self) -> AlertEventKind:
         """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
-        reaches the destinations of the firing it follows, the way that firing did."""
-        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+        reaches the destinations of the firing it follows, the way that firing did. No destination
+        lists no data either: only an alert that chose to notify on it announces it, so it reaches
+        the destinations that hear the alert fire."""
+        if self in (AlertEventKind.VERDICT_CHANGED, AlertEventKind.NO_DATA):
+            return AlertEventKind.FIRING
+        return self
 
 
 @frozen

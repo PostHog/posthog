@@ -38,7 +38,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import alert_destinations, source_configs
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.alert_routes import (
@@ -499,7 +499,7 @@ def address(data: AlertDestinationData) -> str:
 
 def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> dict[UUID, dict[str, _Group]]:
     rows = PlatformAlert.objects.for_team(team_id).filter(
-        state=PlatformAlertState.FIRING, firing_started_at__isnull=False
+        PlatformAlert.inside_firing(), firing_started_at__isnull=False
     )
     if configuration_ids is not None:
         rows = rows.filter(configuration_id__in=configuration_ids)

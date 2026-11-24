@@ -564,6 +564,7 @@ def _without_stale_groups(
 _HELD_BY_MUTE: Final = {
     AlertEventKind.FIRING: NotificationAction.FIRE.value,
     AlertEventKind.RESOLVED: NotificationAction.RESOLVE.value,
+    AlertEventKind.NO_DATA: NotificationAction.NO_DATA.value,
 }
 
 
@@ -998,7 +999,7 @@ def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: date
     records nothing. Otherwise it would write back the firing this just ended, with no incident open.
     """
     instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
-        configuration=configuration, state=PlatformAlertState.FIRING
+        PlatformAlert.inside_firing(), configuration=configuration
     )
     firing = list(instances)
     if firing:
