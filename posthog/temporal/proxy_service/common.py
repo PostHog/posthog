@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import connection
+from django.utils import timezone
 
 import grpc.aio
 import posthoganalytics
@@ -86,16 +87,17 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
 
 @sync_to_async
 def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
-    connection.connect()
+    connection.ensure_connection()
     prs = ProxyRecord.objects.filter(id=proxy_record_id)
-    if len(prs) == 0:
-        raise RecordDeletedException("proxy record was deleted before workflow completed")
-    pr = prs[0]
+    updates: dict[str, t.Any] = {"updated_at": timezone.now()}
     if message is not None:
-        pr.message = message
+        updates["message"] = message
     if status is not None:
-        pr.status = status
-    pr.save()
+        updates["status"] = status
+    # A failed deletion and late provisioning updates must not erase deletion intent.
+    # Keep this conditional in SQL so an API deletion cannot race a stale record save.
+    if not prs.exclude(status=ProxyRecord.Status.DELETING).update(**updates) and not prs.exists():
+        raise RecordDeletedException("proxy record was deleted before workflow completed")
 
 
 @dataclass

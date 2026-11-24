@@ -11,6 +11,7 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record import ProxyRecordUpdateSerializer
+from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.temporal.proxy_service.cloudflare import (
@@ -196,6 +197,15 @@ class TestProxyRecordAPI(APIBaseTest):
             ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
         )
         get_hostname.return_value = hostname
+
+        def write_redirect(domain, url):
+            competing_lock = cloudflare_proxy_lock(record.id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            assert not acquired
+
+        update_redirect.side_effect = write_redirect
 
         with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"):
             response = self.client.patch(
@@ -691,6 +701,14 @@ class TestProxyRecordAPI(APIBaseTest):
             status=ProxyRecord.Status.ERRORING,
         )
 
+        async def start_deletion(*args, **kwargs):
+            competing_lock = cloudflare_proxy_lock(record.id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            assert not acquired
+
+        mock_temporal.start_workflow.side_effect = start_deletion
         with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-proxy.example.net"):
             response = self.client.delete(
                 f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
