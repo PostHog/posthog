@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
@@ -41,6 +42,7 @@ function CountsAsToggles({
     onChange: (goal: ConversionGoalFilter) => void
     disabledReason?: string | null
 }): JSX.Element {
+    const recommendationsEnabled = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATIONS')
     return (
         <div className="flex flex-col gap-1">
             <LemonCheckbox
@@ -57,13 +59,15 @@ function CountsAsToggles({
                 onChange={(counts_as_customer) => onChange({ ...goal, counts_as_customer })}
                 disabledReason={disabledReason}
             />
-            <LemonCheckbox
-                size="small"
-                label="Google Ads conversion"
-                checked={!!goal.use_in_recommendations}
-                onChange={(use_in_recommendations) => onChange({ ...goal, use_in_recommendations })}
-                disabledReason={disabledReason}
-            />
+            {recommendationsEnabled && (
+                <LemonCheckbox
+                    size="small"
+                    label="Google Ads conversion"
+                    checked={!!goal.use_in_recommendations}
+                    onChange={(use_in_recommendations) => onChange({ ...goal, use_in_recommendations })}
+                    disabledReason={disabledReason}
+                />
+            )}
         </div>
     )
 }
@@ -76,6 +80,7 @@ export function ConversionGoalsConfiguration({
     hideDescription?: boolean
 }): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const recommendationsEnabled = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATIONS')
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const formLogic = conversionGoalFormLogic({ projectId: currentTeamId ?? -1 })
@@ -337,7 +342,7 @@ export function ConversionGoalsConfiguration({
                                 const flags = [
                                     goal.counts_as_revenue && 'Revenue',
                                     goal.counts_as_customer && 'Customer',
-                                    goal.use_in_recommendations && 'Google Ads conversion',
+                                    recommendationsEnabled && goal.use_in_recommendations && 'Google Ads conversion',
                                 ].filter(Boolean)
                                 return flags.length ? (
                                     <span className="text-xs">{flags.join(', ')}</span>
