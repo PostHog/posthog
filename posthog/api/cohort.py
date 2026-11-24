@@ -43,6 +43,7 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMP
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -348,11 +349,34 @@ class CohortFilterBytecodeResult:
     condition_hash: str | None = None
 
 
+# The compiler checks calls against the Python Hog library, which differs from the evaluator's Rust one here.
+_ONLY_IN_REALTIME_EVALUATOR = frozenset({"tryBase64Decode"})
+_MISSING_FROM_REALTIME_EVALUATOR = frozenset({"print", "run", "sleep"})
+
+
+class _CalledFunctionNames(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_call(self, node: ast.Call):
+        self.names.add(node.name)
+        super().visit_call(node)
+
+
 def _compile_cohort_leaf(expr: ast.Expr, team: Team) -> CohortFilterBytecodeResult:
     context = HogQLContext(team_id=team.id)
     bytecode = create_bytecode(
-        expr, context=context, cohort_membership_supported=True, null_safe_comparisons=True
+        expr,
+        supported_functions=set(_ONLY_IN_REALTIME_EVALUATOR),
+        context=context,
+        cohort_membership_supported=True,
+        null_safe_comparisons=True,
     ).bytecode
+    called = _CalledFunctionNames()
+    called.visit(expr)
+    for name in sorted(called.names & _MISSING_FROM_REALTIME_EVALUATOR):
+        context.add_error(message=f"Hog function `{name}` is not implemented")
     if context.errors:
         # The realtime evaluator scores a call to a function it lacks as a non-match, with no error.
         messages = "; ".join(error.message for error in context.errors if error.message)

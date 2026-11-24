@@ -642,20 +642,23 @@ class TestCohortBytecodeScenarios(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("uppercase NOT is a library function", "NOT (properties.x ILIKE '%a%')", "realtime"),
-            ("function the VM lacks", "lengthUTF8(properties.a) > 3", None),
+            ("uppercase NOT is a library function", "NOT (properties.x ILIKE '%a%')", None),
+            ("function only the realtime evaluator has", "tryBase64Decode(properties.a) = 'x'", None),
+            ("function the VM lacks", "lengthUTF8(properties.a) > 3", "lengthUTF8"),
+            ("function only the Python library has", "sleep(1) = 'x'", "sleep"),
         ]
     )
-    def test_hogql_event_filter_function_call(self, _name: str, expression: str, expected_cohort_type: str | None):
+    def test_hogql_event_filter_function_call(self, _name: str, expression: str, refused_function: str | None):
         cohort = self._create_and_fetch("HogQL function call", self._hogql_event_filter_cohort(expression))
 
-        self.assertEqual(cohort.cohort_type, expected_cohort_type)
         leaf = cohort.filters["properties"]["values"][0]["values"][0]
-        if expected_cohort_type:
+        if refused_function is None:
+            self.assertEqual(cohort.cohort_type, "realtime")
             self.assertIsNone(leaf.get("bytecode_error"))
             self.assertNotIn("NOT", leaf["bytecode"])
         else:
-            self.assertEqual(leaf["bytecode_error"], "Hog function `lengthUTF8` is not implemented")
+            self.assertIsNone(cohort.cohort_type)
+            self.assertEqual(leaf["bytecode_error"], f"Hog function `{refused_function}` is not implemented")
             self.assertIsNone(leaf.get("bytecode"))
             self.assertIsNone(leaf.get("conditionHash"))
 
