@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,9 +10,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { useMocks } from '~/mocks/jest'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -60,6 +62,69 @@ describe('Analytics sidebar options', () => {
         expect(container.querySelector('[data-attr="analytics-sidebar-reset"]')).toBeNull()
         expect(container.querySelector('[data-attr="analytics-sidebar-retry"]')).toBeNull()
         expect(SidebarAgentListener).not.toHaveBeenCalled()
+    })
+
+    it('reports the row a person opens, and the search they stop on without its text', async () => {
+        jest.useFakeTimers()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            // Two pins, so Pinned draws as the sortable list, which renders its rows itself.
+            projectTreeDataLogic.mount()
+            projectTreeDataLogic.actions.loadShortcutsSuccess([
+                { id: 'sc-1', type: 'insight/trends', path: 'Signups', ref: 'abc123', href: '/insights/abc123' },
+                { id: 'sc-2', type: 'dashboard', path: 'KPIs', ref: '7', href: '/dashboard/7' },
+            ] as FileSystemEntry[])
+            const { container } = render(<TodayAnalyticsSidebar />)
+            const search = container.querySelector('[data-attr="analytics-sidebar-search"]')!
+            const sent = (event: string): unknown[] =>
+                capture.mock.calls.filter(([name]) => name === event).map(([, properties]) => properties)
+            const settle = async (): Promise<void> => {
+                await act(async () => {
+                    await jest.advanceTimersByTimeAsync(800)
+                })
+            }
+
+            fireEvent.click(container.querySelectorAll('[data-attr="analytics-sidebar-pinned"]')[1])
+            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
+            fireEvent.change(search, { target: { value: 'collections' } })
+            const resultCount = container.querySelectorAll('[role="option"]').length
+            await settle()
+            // A row that joins the results later is not a new search.
+            projectTreeDataLogic.actions.loadShortcutsSuccess([
+                { id: 'sc-3', type: 'dashboard', path: 'Collections KPIs', ref: '8', href: '/dashboard/8' },
+            ] as FileSystemEntry[])
+            await settle()
+            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
+            fireEvent.change(search, { target: { value: 'zz' } })
+            fireEvent.change(search, { target: { value: 'zzzz' } })
+            await settle()
+
+            expect(sent('sidebar item opened')).toEqual([
+                {
+                    object_type: 'dashboard',
+                    sidebar: 'analytics_sidebar',
+                    section: 'pinned',
+                    source: 'pinned',
+                    from_search: false,
+                    customized: false,
+                },
+                expect.objectContaining({
+                    section: 'browse',
+                    source: 'link',
+                    page: 'analytics_all',
+                    from_search: false,
+                }),
+                expect.objectContaining({ section: 'browse', page: 'collections', from_search: true }),
+            ])
+            expect(resultCount).toBeGreaterThan(0)
+            expect(sent('sidebar search used')).toEqual([
+                expect.objectContaining({ query_length: 11, result_count: resultCount, zero_results: false }),
+                expect.objectContaining({ query_length: 4, result_count: 0, zero_results: true }),
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
     })
 
     it('offers only personalization before a layout is saved, and opens PostHog AI in the side panel', () => {
