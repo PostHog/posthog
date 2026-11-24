@@ -55,6 +55,8 @@ if [[ -n $DEBUG && -z $PLUGIN_SERVER_MODE ]]; then
   # The local all-in-one server consumes intake beside the API, so it answers from Kafka and seals with the dev key.
   export CDP_INTAKE_KAFKA_ASYNC_TEAMS=${CDP_INTAKE_KAFKA_ASYNC_TEAMS-*}
   export CDP_SEAL_TRANSACTIONAL_EMAIL_STATE=${CDP_SEAL_TRANSACTIONAL_EMAIL_STATE-true}
+  # A record left on the topic by an older build parks on the dead-letter topic instead of crash-looping the server.
+  export CDP_DLQ_ENABLED=${CDP_DLQ_ENABLED-true}
 fi
 
 if [[ -n $DEBUG ]]; then
