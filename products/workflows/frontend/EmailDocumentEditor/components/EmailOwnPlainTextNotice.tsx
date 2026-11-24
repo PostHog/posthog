@@ -22,7 +22,7 @@ export function EmailOwnPlainTextNotice({ editor }: { editor: Editor }): JSX.Ele
                     description:
                         "This email came with its own plain text, which stays the same when you edit the email. Updating replaces it with text written from the email, now and on every edit. You can't undo this.",
                     content: (
-                        <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-xs border rounded p-2 mb-0">
+                        <pre className="ph-no-capture max-h-60 overflow-auto whitespace-pre-wrap text-xs border rounded p-2 mb-0">
                             {logicProps.value?.text}
                         </pre>
                     ),
