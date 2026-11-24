@@ -11,6 +11,16 @@ import {
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
 
+export const STATUS_LABELS: Record<PlatformAlertConfigurationStatus, string> = {
+    not_firing: 'OK',
+    firing: 'Firing',
+    errored: 'Errored',
+    snoozed: 'Snoozed',
+    broken: 'Broken',
+    disabled: 'Disabled',
+    not_checked: 'Not checked yet',
+}
+
 interface SourceKind {
     label: string
     // The source product's own page for the alert, or null when the configuration cannot reach it.
@@ -73,11 +83,25 @@ const CALENDAR_UNIT_LABELS: Record<CalendarUnitEnumApi, string> = {
 }
 
 export function configurationStatus(configuration: PlatformAlertConfigurationApi): PlatformAlertConfigurationStatus {
+    return configurationStateCounts(configuration)[0].status
+}
+
+export interface PlatformAlertStateCount {
+    status: PlatformAlertConfigurationStatus
+    count: number
+}
+
+export function configurationStateCounts(
+    configuration: PlatformAlertConfigurationApi
+): [PlatformAlertStateCount, ...PlatformAlertStateCount[]] {
     if (!configuration.enabled) {
-        return 'disabled'
+        return [{ status: 'disabled', count: configuration.alerts.length }]
     }
-    const states = new Set(configuration.alerts.map((alert) => alert.state))
-    return STATE_PRIORITY.find((state) => states.has(state)) ?? 'not_checked'
+    const [mostUrgent = { status: 'not_checked', count: 0 }, ...rest] = STATE_PRIORITY.map((status) => ({
+        status,
+        count: configuration.alerts.filter((alert) => alert.state === status).length,
+    })).filter(({ count }) => count > 0)
+    return [mostUrgent, ...rest]
 }
 
 // Each source keeps its bound under `source_config.condition` in its own shape. Only the logs shape
