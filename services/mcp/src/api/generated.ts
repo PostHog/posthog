@@ -77234,9 +77234,10 @@ export namespace Schemas {
       readonly parent_resource: NotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      restore_previous_app_release?: boolean;
       /** Editable app layout. Does not change the published layout. */
       app_draft?: NotebookAppLayout | null;
-      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
       app_published?: NotebookAppLayout | null;
       /**
          * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
@@ -77244,6 +77245,38 @@ export namespace Schemas {
          */
       app_revision?: number;
       _create_in_folder?: string;
+    }
+
+    export interface NotebookAppRelease {
+      revision: number;
+      /** @nullable */
+      published_at: string | null;
+      /** @nullable */
+      results_as_of: string | null;
+      title: string;
+      layout: NotebookAppLayout;
+      markdown: string;
+      variables: NotebookVariable[];
+      has_previous: boolean;
+    }
+
+    export interface NotebookAppReleaseReview {
+      has_previous: boolean;
+      problems: string[];
+      /** @nullable */
+      results_as_of: string | null;
+    }
+
+    export interface NotebookAppViewerQuery {
+      node_id: string;
+      query: string;
+      matches_defaults: boolean;
+    }
+
+    export interface NotebookAppViewerRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
     }
 
     export interface NotebookCellLastRun {
@@ -77886,7 +77919,7 @@ export namespace Schemas {
          * @nullable
          */
       error?: string | null;
-      /** SQL (hogql) runs only: the full capped row set for client-side paging, present while the query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel (python/duckdb) runs, which keep only the envelope's first_page preview. */
+      /** Capped SQL rows for paging, available from the query cache or a retained app release. The result envelope also includes the first saved page. */
       rows?: unknown[][];
     }
 
@@ -95409,9 +95442,10 @@ export namespace Schemas {
       readonly parent_resource?: PatchedNotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      restore_previous_app_release?: boolean;
       /** Editable app layout. Does not change the published layout. */
       app_draft?: NotebookAppLayout | null;
-      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
       app_published?: NotebookAppLayout | null;
       /**
          * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
