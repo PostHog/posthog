@@ -324,6 +324,7 @@ services:
             # hobby extends, so that a hobby install never runs with them.
             INTERNAL_API_SECRET: 'posthog123'
             RECORDING_API_JWT_SECRET: 'dev-recording-api-jwt-secret'
+            RECORDING_API_STAFF_JWT_SECRET: 'dev-recording-api-staff-jwt-secret'
         depends_on:
             redis7:
                 condition: service_healthy

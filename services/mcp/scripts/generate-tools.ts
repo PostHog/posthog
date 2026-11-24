@@ -758,9 +758,16 @@ function composeToolSchema(
                 }
             } else if (override.schema_ref) {
                 const excludeProps = override.exclude_properties ?? []
-                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                // A write stores this value, so its objects keep undeclared keys (see SchemaRefOptions).
+                const schemaRefOptions = { keepUnknownKeys: isWriteOp }
+                const zodCode = generateZodFromSchemaRef(
+                    getQuerySchema(),
+                    override.schema_ref,
+                    excludeProps,
+                    schemaRefOptions
+                )
                 schemaRefBlocks.push(zodCode)
-                const varName = getEntryVarName(override.schema_ref)
+                const varName = getEntryVarName(override.schema_ref, schemaRefOptions)
                 schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)

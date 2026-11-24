@@ -138,7 +138,7 @@ Choices the build contract left open, with the reason for each.
 
 - `hogli product:lint --all` (the CI gate) only lints product directories with `__init__.py`, so it
   skips `products/mobile`, the same as `products/desktop`. Running `hogli product:lint mobile`
-  by name reports a missing `__init__.py`, a missing tach entry and Python test files inside
+  by name reports a missing `__init__.py` and Python test files inside
   `node_modules`, exactly as `hogli product:lint desktop` does. The fix belongs in the linter.
 
 ## Chat

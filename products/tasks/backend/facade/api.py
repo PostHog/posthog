@@ -190,6 +190,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
@@ -259,12 +260,14 @@ from products.tasks.backend.stale_runs import (
     WorkflowLiveness,
     collect_stale_live_runs,
     quiet_since_q,
+    reopen_swept_runs,
     runs_to_sweep,
 )
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    read_run_log_tail,
 )
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
@@ -394,6 +397,7 @@ __all__ = [
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
+    "origin_run_ids_since",
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
@@ -489,6 +493,7 @@ __all__ = [
     "get_task_run_logs",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_log_tail",
     "read_task_run_conversation_logs",
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
@@ -2160,6 +2165,7 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
                     "This run stopped responding, so it was ended.",
                     error_type="stale_heartbeat",
                     quiet_since=run.quiet_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
                 )
             else:
                 claimed = claim_and_fail_stale_run(
@@ -2167,6 +2173,7 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
                     "This run made no progress for a day, so it was ended.",
                     error_type="stale_live_run",
                     not_updated_since=run.not_written_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
                 )
         except Exception as error:
             logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
@@ -2175,6 +2182,22 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
         if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def reopen_swept_task_runs(
+    *,
+    profile: str,
+    hours: int = 24,
+    team_id: int | None = None,
+    check_workflows: bool = True,
+    dry_run: bool = False,
+) -> list[contracts.ReopenedSweptRunsRow]:
+    outcomes = Counter(
+        reopen_swept_runs(
+            profile=profile, hours=hours, team_id=team_id, check_workflows=check_workflows, dry_run=dry_run
+        )
+    )
+    return [contracts.ReopenedSweptRunsRow(outcome=outcome.value, count=count) for outcome, count in outcomes.items()]
 
 
 def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
@@ -2385,6 +2408,21 @@ def owner_origin_recent_run_ids(
         )
         .order_by("-created_at")
         .values_list("id", flat=True)[:limit]
+    )
+
+
+def origin_run_ids_since(*, team_id: int, origin_product: str, since: datetime) -> list[UUID]:
+    """Ids of every run started since ``since`` on the team's tasks of this origin, deleted tasks included.
+
+    Reads only Tasks rows, so a product that deletes its own records of a run still finds it here.
+    """
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        ).values_list("id", flat=True)
     )
 
 
@@ -2803,6 +2841,7 @@ def claim_and_fail_stale_run(
     *,
     not_updated_since: datetime | None = None,
     quiet_since: datetime | None = None,
+    state_updates: dict[str, Any] | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2821,7 +2860,10 @@ def claim_and_fail_stale_run(
         claimable = claimable.filter(updated_at__lt=not_updated_since)
     if quiet_since is not None:
         claimable = claimable.filter(quiet_since_q(quiet_since))
-    claimed = claimable.update(status=TaskRun.Status.FAILED)
+    with transaction.atomic():
+        claimed = claimable.update(status=TaskRun.Status.FAILED, completed_at=django_timezone.now())
+        if claimed and state_updates:
+            TaskRun.update_state_atomic(run_id, updates=state_updates)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
@@ -3405,6 +3447,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "resume_from_run_id",
         # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
         "agent_memory_locked",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -6029,6 +6072,17 @@ def read_task_run_conversation_log_slice(
     )
 
 
+def read_task_run_log_tail(run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int) -> str | None:
+    """The newest whole JSONL entries of the run's own log, at most `max_bytes`. None when the run is not visible.
+
+    Reads a byte range from storage, so a caller that polls pays for `max_bytes`, not for the whole log.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return read_run_log_tail(run.log, max_bytes)
+
+
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:
     """Logs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -6356,6 +6410,7 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     person_message: str | None = None,
+    person_message_ts: str | None = None,
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
@@ -6425,7 +6480,11 @@ def signal_task_run_user_message(
                 claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
-        context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context_values = {
+            "actor_slack_user_id": actor_slack_user_id,
+            "person_message": person_message,
+            "person_message_ts": person_message_ts,
+        }
         context = {key: value for key, value in context_values.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
