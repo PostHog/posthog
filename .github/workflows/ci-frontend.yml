@@ -786,12 +786,9 @@ jobs:
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
-            # Vendored replacement for preactjs/compressed-size-action: build the pull request,
-            # then read the base branch's reports that `frontend-base-reports` produced beside
-            # this job. The sha-suffixed files hold this build's numbers and the plain filenames
-            # hold the base's — the post scripts pick the pull request's report by sha and treat
-            # the plain file as the base. Budgets are enforced warn-only further down, so a base
-            # report that is missing costs a delta and never this required check.
+            # Vendored replacement for preactjs/compressed-size-action: build the pull request
+            # to produce the bundle-size, layer, and eager-graph reports.
+            # Comparison against the base branch reports is handled by `frontend-size-report`.
             - name: Build frontend (bundle-size + eager-graph report)
               run: pnpm --filter=@posthog/frontend build:with-report
 
@@ -814,8 +811,8 @@ jobs:
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
-            # Runs against the PR's own build, whose numbers the reports below and in
-            # `frontend-size-report` compare with the base branch's.
+            # Runs against the PR's own build, whose numbers `frontend-size-report` compares
+            # with the base branch's.
             - name: Check toolbar bundle stays under the CloudFront gzip limit
               run: pnpm --filter=@posthog/frontend check-toolbar-size
 
