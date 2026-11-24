@@ -1308,12 +1308,16 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
-            it('resets the mark of a notification a redelivered batch skips, even when that batch fails its flush', async () => {
+            it('marks a recorded notification for 25 hours, and resets the mark when a redelivered batch skips it, even when that batch fails its flush', async () => {
                 const snsMessageId = new UUIDT().toString()
                 const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
                 await postBounce({ functionId: hogFunction.id, snsMessageId })
                 const batch = queuedSesNotifications()
                 await consumer.processBatch(batch)
+                const writtenTtl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) =>
+                    client.ttl(mark)
+                )
+                expect(writtenTtl).toBeGreaterThan(25 * 60 * 60 - 60)
                 await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
                 jest.spyOn(
                     consumer['emailTrackingService']['hogFunctionMonitoringService'],

@@ -23,13 +23,12 @@ const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
 // Counted from the last batch that wrote or read the mark. It outlives the longest window of the workflow email health
 // detector (products/workflows/backend/services/workflow_email_health.py), so an SES redelivery inside that window
-// can't count a complaint or bounce twice and pause a workflow. The detector counts whole clock hours, so its window
-// can start up to an hour before the first delivery; the extra hour lets one mark cover the whole window. Keep the
-// two in sync.
+// can't count a complaint or bounce twice and pause a workflow. The detector buckets metrics by clock hour, by the time
+// a batch flushed rather than the time Redis set the mark, so the extra hour is a buffer that keeps the mark alive past
+// the edge of the bucket that holds the first delivery. Keep the two in sync.
 const WORKFLOW_EMAIL_HEALTH_LONGEST_WINDOW_SECONDS = 24 * 60 * 60
-const DETECTOR_HOUR_ALIGNMENT_SECONDS = 60 * 60
-const SES_NOTIFICATION_RECORDED_TTL_SECONDS =
-    WORKFLOW_EMAIL_HEALTH_LONGEST_WINDOW_SECONDS + DETECTOR_HOUR_ALIGNMENT_SECONDS
+const CLOCK_HOUR_BUFFER_SECONDS = 60 * 60
+const SES_NOTIFICATION_RECORDED_TTL_SECONDS = WORKFLOW_EMAIL_HEALTH_LONGEST_WINDOW_SECONDS + CLOCK_HOUR_BUFFER_SECONDS
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
 
 const sesRecordedMarksUnavailableCounter = new Counter({
