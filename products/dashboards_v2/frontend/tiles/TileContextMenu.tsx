@@ -31,6 +31,11 @@ function isUsable(action: TileAction): boolean {
     return action.submenu ? action.submenu.some(isUsable) : true
 }
 
+/** Whether `TileContextMenu` opens a menu for these actions. */
+export function hasTileMenu(actions: TileAction[]): boolean {
+    return actions.some(isUsable)
+}
+
 export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
     const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions } = useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
@@ -185,7 +190,7 @@ function menuGroups(actions: TileAction[]): { key: string; label?: string; actio
  * browser's own menu still shows.
  */
 export function TileContextMenu({ actions, children }: { actions: TileAction[]; children: ReactNode }): JSX.Element {
-    if (!actions.some(isUsable)) {
+    if (!hasTileMenu(actions)) {
         return <>{children}</>
     }
     return (
