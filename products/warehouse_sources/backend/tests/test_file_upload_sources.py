@@ -211,6 +211,29 @@ class TestFileUploadSources(APIBaseTest):
         table.refresh_from_db()
         assert table.name == "orders"
 
+    @parameterized.expand(
+        [
+            ("same_cell", "notes/sql_1", status.HTTP_202_ACCEPTED),
+            ("other_cell", "notes/sql_2", status.HTTP_400_BAD_REQUEST),
+            ("other_notebook", "other/sql_1", status.HTTP_400_BAD_REQUEST),
+            ("ordinary_file_upload", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_replace_from_a_notebook_cell(self, _case: str, origin: str | None, expected_status: int) -> None:
+        created = self._create(**({"notebook_cell": origin} if origin is not None else {}))
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table = DataWarehouseTable.objects.get(id=created.json()["id"])
+        schema = ExternalDataSchema.objects.select_related("source").get(table=table)
+
+        response = self._replace(table, notebook_cell="notes/sql_1")
+
+        assert response.status_code == expected_status, response.json()
+        schema.source.refresh_from_db()
+        replaced = expected_status == status.HTTP_202_ACCEPTED
+        assert schema.source.job_inputs["upload_id"] == (NEW_UPLOAD_ID if replaced else UPLOAD_ID)
+        assert (schema.source.connection_metadata or {}).get("notebook_cell") == origin
+        assert self.trigger_count == (2 if replaced else 1)
+
     def test_replacing_the_file_of_an_append_schema_switches_it_to_full_refresh(self) -> None:
         table, schema = self._table_with_source()
         ExternalDataSchema.objects.filter(pk=schema.pk).update(sync_type=ExternalDataSchema.SyncType.APPEND)

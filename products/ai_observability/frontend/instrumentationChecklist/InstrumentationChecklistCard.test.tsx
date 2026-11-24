@@ -47,6 +47,13 @@ const CHECK_TITLES = ['Sessions', 'Tool calls', 'User identity', 'Trace structur
 function buildChecklist(...statuses: InstrumentationCheckStatusEnumApi[]): InstrumentationChecklistApi {
     return {
         window_days: 30,
+        agent_prompt: null,
+        passing: statuses.filter(
+            (status) =>
+                status === InstrumentationCheckStatusEnumApi.Ok ||
+                status === InstrumentationCheckStatusEnumApi.Dismissed
+        ).length,
+        total: statuses.length,
         checks: statuses.map((status, index) => ({
             key: CHECK_KEYS[index],
             status,

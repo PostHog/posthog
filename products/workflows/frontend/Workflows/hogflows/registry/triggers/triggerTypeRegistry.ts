@@ -14,6 +14,8 @@ export type TriggerFrequencyOption = {
     /** trigger_masking hash template (a Hog expression over the trigger event's globals), or null for no masking */
     value: string | null
     label: string
+    /** Shown on the closed picker and in summaries, where the TTL picker next to it supplies the period */
+    shortLabel?: string
     /** Pin the masking TTL to this many seconds and hide the TTL picker (e.g. calendar-day options) */
     fixedTtl?: number
 }
@@ -23,7 +25,7 @@ const CALENDAR_DAY_TTL = 24 * 60 * 60
 
 export const PERSON_FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
     { value: null, label: 'Every time the trigger fires' },
-    { value: '{person.id}', label: 'One time' },
+    { value: '{person.id}', label: 'One time per period', shortLabel: 'One time' },
     { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
 ]
 

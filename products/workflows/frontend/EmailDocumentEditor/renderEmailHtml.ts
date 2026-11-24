@@ -12,6 +12,7 @@ import {
     isEmailDocEmpty,
     resolvePageStyle,
 } from './emailDocument'
+import { changesLiquidValue, htmlToEmailText } from './htmlToEmailText'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
@@ -977,24 +978,34 @@ export function oldEditorInlineHtml(nodes: JSONContent[] | undefined, page: Emai
     return renderInline(nodes, { page, contentWidth: page.bodyWidth })
 }
 
+/** The html of an email that goes out exactly as written, so no page style applies. Null for every other email. */
+export function htmlSentAsWritten(doc: JSONContent): string | null {
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
+    const html = String(nodes[0]?.attrs?.html ?? '')
+    const page = doc.attrs?.page
+    if (
+        nodes.length !== 1 ||
+        nodes[0].type !== 'emailHtml' ||
+        page?.wrapFullHtml ||
+        !(isFullHtmlDocument(html) || page?.htmlAsWritten === true)
+    ) {
+        return null
+    }
+    // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
+    return html.trim()
+}
+
 /** The email as it is sent. An empty document renders to nothing, so "no content" checks keep working. */
 export function renderEmailHtml(doc: JSONContent): string {
     if (isEmailDocEmpty(doc)) {
         return ''
     }
-    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
-
-    // An email that is only one HTML block is the author's own document: it goes out exactly as written.
-    if (
-        nodes.length === 1 &&
-        nodes[0].type === 'emailHtml' &&
-        (FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') || doc.attrs?.page?.htmlAsWritten === true) &&
-        !doc.attrs?.page?.wrapFullHtml
-    ) {
-        // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
-        return String(nodes[0].attrs?.html).trim()
+    const asWritten = htmlSentAsWritten(doc)
+    if (asWritten !== null) {
+        return asWritten
     }
 
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
     const page = resolvePageStyle(doc.attrs?.page)
     const padding = page.bodyPadding
     const bodyWidth = px(page.bodyWidth, 600) || 600
@@ -1063,62 +1074,40 @@ ${blocks}
 </html>`
 }
 
-/** The html without its doctype, `<html>`, `<head>` and `<body>` tags, which only wrap what a person reads. */
-function withoutDocumentWrapper(html: string): string {
-    let rest = html.replace(/<!doctype[^>]*>/gi, '')
-    let start = rest.search(/<head[\s>]/i)
-    while (start !== -1) {
-        const end = rest.toLowerCase().indexOf('</head>', start)
-        rest = end === -1 ? rest.slice(0, start) : rest.slice(0, start) + rest.slice(end + '</head>'.length)
-        start = rest.search(/<head[\s>]/i)
-    }
-    return rest.replace(/<\/?(html|body)(\s[^>]*)?>/gi, '')
+function inlineNodeText(node: JSONContent): string {
+    return node.type === 'variable' ? renderVariable(node) : node.type === 'hardBreak' ? '\n' : (node.text ?? '')
 }
 
-function textFromHtml(html: string): string {
-    // The parser moves text between table rows to before the table, which would take a Liquid tag out of the rows it
-    // wraps. A comment stays where it is, so each tag travels as one and turns back into text afterwards.
-    const tags: string[] = []
-    const marked = html.replace(/\{%[\s\S]*?%\}/g, (tag) => `<!--ph-liquid-${tags.push(tag) - 1}-->`)
-    // Every tag has to stay inside the body in its source order, also around a whole document or several of them,
-    // so the document wrapper goes and one body holds it all.
-    const doc = new DOMParser().parseFromString(`<body>${withoutDocumentWrapper(marked)}</body>`, 'text/html')
-    const comments = doc.createTreeWalker(doc, NodeFilter.SHOW_COMMENT)
-    const found: Comment[] = []
-    while (comments.nextNode()) {
-        found.push(comments.currentNode as Comment)
+function linkHref(node: JSONContent): string {
+    return safeEmailLink(node.marks?.find((mark) => mark.type === 'link')?.attrs?.href)
+}
+
+function withLinkAddress(label: string, href: string): string {
+    const name = label.trim()
+    if (!href || href.startsWith('#') || name === href || `mailto:${name}` === href || `tel:${name}` === href) {
+        return label
     }
-    for (const comment of found) {
-        const index = /^ph-liquid-(\d+)$/.exec(comment.data)?.[1]
-        if (index !== undefined && comment.parentNode !== doc) {
-            comment.replaceWith(doc.createTextNode(tags[Number(index)]))
-        }
+    if (changesLiquidValue(label)) {
+        return `${href} ${label}`
     }
-    doc.querySelectorAll('style, script, head, title').forEach((element) => element.remove())
-    // textContent runs neighboring blocks together, so each one gets a line of its own first.
-    doc.querySelectorAll('br, p, div, tr, li, h1, h2, h3, h4, h5, h6').forEach((element) => element.after('\n'))
-    doc.querySelectorAll('td').forEach((element) => element.after(' '))
-    return (doc.body?.textContent ?? '')
-        .replace(/[ \t]+/g, ' ')
-        .replace(/ ?\n ?/g, '\n')
-        .replace(/\n{2,}/g, '\n')
-        .trim()
+    return name ? `${label.trimEnd()} (${href})${label.slice(label.trimEnd().length)}` : `${label}${href}`
 }
 
 function inlineText(nodes: JSONContent[] | undefined): string {
-    return (nodes ?? [])
-        .map((node) => {
-            if (node.type === 'variable') {
-                return renderVariable(node)
-            }
-            if (node.type === 'hardBreak') {
-                return '\n'
-            }
-            const text = node.text ?? ''
-            const href = node.marks?.find((mark) => mark.type === 'link')?.attrs?.href
-            return href && href !== text ? `${text} (${href})` : text
-        })
-        .join('')
+    let text = ''
+    let label = ''
+    let href = ''
+    for (const node of nodes ?? []) {
+        // A link's text is split wherever its formatting changes, and its address belongs after the whole of it.
+        const nodeHref = linkHref(node)
+        if (nodeHref !== href) {
+            text += withLinkAddress(label, href)
+            label = ''
+            href = nodeHref
+        }
+        label += inlineNodeText(node)
+    }
+    return text + withLinkAddress(label, href)
 }
 
 /** The plain-text part goes out too, so a block's condition has to gate its text as well. */
@@ -1149,10 +1138,16 @@ function blockText(node: JSONContent): string {
         case 'horizontalRule':
             return '---'
         case 'emailImage':
-            return String(node.attrs?.alt ?? '')
+            return withLinkAddress(
+                String(node.attrs?.alt ?? ''),
+                safeImage(node.attrs?.src) ? safeEmailLink(node.attrs?.href) : ''
+            )
         case 'emailButton': {
             const href = safeEmailLink(node.attrs?.href)
             const label = inlineText(node.content)
+            if (href && changesLiquidValue(label)) {
+                return `${href} ${label}`
+            }
             return href && label ? `${label}: ${href}` : label
         }
         case 'emailColumns':
@@ -1160,7 +1155,7 @@ function blockText(node: JSONContent): string {
         case 'emailColumn':
             return (node.content ?? []).map(visibleText).filter(Boolean).join('\n\n')
         case 'emailHtml':
-            return textFromHtml(String(node.attrs?.html ?? ''))
+            return htmlToEmailText(String(node.attrs?.html ?? ''))
         default:
             return ''
     }

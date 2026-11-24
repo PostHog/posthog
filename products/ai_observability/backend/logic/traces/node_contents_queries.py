@@ -6,9 +6,9 @@ from posthog.hogql import ast
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
 
+from .trace_expression_queries import NODE_EVENT_NAMES
 from .trace_queries import (
     NODE_COLUMNS,
-    NODE_EVENT_NAMES,
     TraceNodeRow,
     ai_events,
     canonical_uuid,

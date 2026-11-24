@@ -29,7 +29,19 @@ from products.feature_flags.backend.models.scheduled_change import ScheduledChan
 
 
 class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
-    def test_schedule_feature_flag_set_active(self) -> None:
+    @parameterized.expand(
+        [
+            ("active", True, True),
+            ("never_deactivated", None, True),
+            ("deactivated", False, False),
+        ]
+    )
+    def test_schedule_feature_flag_set_active(
+        self, _name: str, organization_is_active: bool | None, expect_applied: bool
+    ) -> None:
+        self.organization.is_active = organization_is_active
+        self.organization.save()
+
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",
             key="flag-1",
@@ -39,7 +51,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        ScheduledChange.objects.create(
+        scheduled_change = ScheduledChange.objects.create(
             team=self.team,
             record_id=feature_flag.id,
             model_name="FeatureFlag",
@@ -50,7 +62,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         process_scheduled_changes()
 
         updated_flag = FeatureFlag.objects.get(key="flag-1")
-        self.assertEqual(updated_flag.active, True)
+        self.assertEqual(updated_flag.active, expect_applied)
+        scheduled_change.refresh_from_db()
+        self.assertEqual(scheduled_change.executed_at is not None, expect_applied)
 
     def test_schedule_feature_flag_add_release_condition(self) -> None:
         feature_flag = FeatureFlag.objects.create(
