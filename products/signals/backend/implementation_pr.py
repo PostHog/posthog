@@ -368,9 +368,8 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
             team_id=team_id, repository__iexact=repository, pr_number=pr_number
         ).values("report_id"),
     ]
-    if task_ids:
-        candidate_querysets.extend(SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id))
     candidate_ids = {str(row["report_id"]) for queryset in candidate_querysets for row in queryset}
+    candidate_ids.update(SignalReport.pr_target_report_ids_for_tasks(team_id, task_ids))
     prs = fetch_implementation_prs_for_reports(sorted(candidate_ids), team_id=team_id)
     return [
         report_id

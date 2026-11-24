@@ -84,6 +84,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    EXTRACTED_FIELD_EXPRESSIONS,
     native_events_export_query,
     native_recent_events_export_query,
 )
@@ -586,7 +587,7 @@ async def _get_new_events_query(
     extra_query_parameters: dict[str, typing.Any],
     s3_function: str,
 ) -> tuple[str, dict[str, typing.Any], bool]:
-    """The export query on the new events tables, its parameters, and whether it reads `events_json_recent`."""
+    """The export query on the new events tables, its parameters, and whether it reads `events_recent`."""
     # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
     # TODO: Temporary. Choose the table once up front and compile for it in `resolve_batch_exports_model` instead
     # (see `prepare_serialized_export_query`).
@@ -610,7 +611,7 @@ async def _get_new_events_query(
         is_backfill=backfill_details is not None, backfill_details=backfill_details, data_interval_start=full_range[0]
     )
     if reads_recent_events:
-        LOGGER.info("Using events_json_recent table for batch export")
+        LOGGER.info("Using events_recent table with the export cleaner for batch export")
         query = native_recent_events_export_query(
             fields,
             filters_str,
@@ -672,7 +673,9 @@ async def _get_legacy_events_query(
             filters, team_id=team_id, values=parameters, use_new_events_schema=False
         )
 
-    query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in with_inserted_at_field(fields))
+    query_fields = _select_list(
+        with_inserted_at_field(fields), extracts_ip=query_template is not EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
+    )
     query = query_template.safe_substitute(
         fields=query_fields,
         filters=f"AND {filters_str}" if filters_str else "",
@@ -791,6 +794,13 @@ async def _get_query(
 
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters, reads_recent_events
+
+
+def _select_list(fields: list[BatchExportField], *, extracts_ip: bool) -> str:
+    field_expressions = EXTRACTED_FIELD_EXPRESSIONS if extracts_ip else {}
+    return ",".join(
+        f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
+    )
 
 
 def get_base_s3_staging_folder(

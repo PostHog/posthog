@@ -1,0 +1,21 @@
+"""The workflows and activities alerts runs on the alerts platform's evaluation queue."""
+
+from typing import TYPE_CHECKING
+
+from products.alerts.backend.temporal.platform_evaluate import (
+    PLATFORM_EVALUATION_ACTIVITIES as _EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as _EVALUATION_WORKFLOWS,
+)
+from products.alerts.backend.temporal.platform_late_chart import LATE_CHART_ACTIVITIES, LATE_CHART_WORKFLOWS
+from products.alerts.backend.temporal.platform_native_cleanup import NATIVE_CLEANUP_ACTIVITIES, NATIVE_CLEANUP_WORKFLOWS
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+# The evaluation workflow starts the late chart by name on its own queue, so both run on one worker.
+PLATFORM_EVALUATION_WORKFLOWS = [*_EVALUATION_WORKFLOWS, *LATE_CHART_WORKFLOWS, *NATIVE_CLEANUP_WORKFLOWS]
+PLATFORM_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
+    *_EVALUATION_ACTIVITIES,
+    *LATE_CHART_ACTIVITIES,
+    *NATIVE_CLEANUP_ACTIVITIES,
+]

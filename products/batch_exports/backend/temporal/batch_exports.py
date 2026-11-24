@@ -45,6 +45,7 @@ from products.batch_exports.backend.temporal.metrics import get_export_finished_
 from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
+    EXTRACTED_FIELD_EXPRESSIONS,
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -249,7 +250,7 @@ def _build_new_events_records_query(
     is_backfill: bool,
     backfill_details: BackfillDetails | None,
 ) -> str:
-    """The `iter_records` query on the new events tables, which `events_json_recent` serves for the ranges it holds."""
+    """The `iter_records` query on the new events tables, which `events_recent` serves for the ranges it holds."""
     start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
     # TODO: this can be simplified once all backfill inputs are migrated
     is_backfill = (backfill_details is not None) or is_backfill
@@ -350,7 +351,10 @@ def iter_records(
                 team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
             )
 
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
+        query_fields = ",".join(
+            f"{EXTRACTED_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+            for field in select_fields
+        )
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

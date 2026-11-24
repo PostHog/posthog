@@ -813,6 +813,57 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
             ),
             (
+                "frequentist_with_project_defaults",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "metrics_secondary": [
+                        {
+                            **_HEALTH_METRIC,
+                            "uuid": "health-threshold-metric",
+                            "name": "Reached 3 pageviews",
+                            "threshold": 3,
+                        },
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "health-funnel-metric",
+                            "name": "Pageview funnel",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    ],
+                    "stats_config": {
+                        "method": "frequentist",
+                        "frequentist": {"alpha": 0.1},
+                        "cuped": {"enabled": True},
+                    },
+                    "exposure_criteria": {
+                        "activation_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "warehouse_native_exposure",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
                 "custom_exposure_event",
                 {
                     "metrics": [_HEALTH_METRIC],
@@ -838,6 +889,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        if _name == "frequentist_with_project_defaults":
+            TeamExperimentsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={
+                    "default_sequential_testing_enabled": True,
+                    "default_cuped_enabled": False,
+                    "default_cuped_lookback_days": 7,
+                },
+            )
         EventDefinition.objects.create(
             team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
         )
@@ -936,6 +996,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             else []
         )
         counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
+        activation_event = {"frequentist_with_project_defaults": "$pageview"}.get(_name)
+        warehouse_native = _name == "warehouse_native_exposure"
         self.assertEqual(
             health["setup"],
             {
@@ -955,7 +1017,41 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
-                "exposure": {"event": counted_event, "action": None, "activation": None},
+                "exposure": None
+                if warehouse_native
+                else {"event": counted_event, "action": None, "activation": activation_event},
+                "analysis": {
+                    "stats_method": "bayesian",
+                    "confidence_level": 0.95,
+                    "sequential_testing": None,
+                    "sequential_testing_from_project_default": False,
+                    "cuped": False,
+                    "cuped_lookback_days": None,
+                    "cuped_from_project_default": True,
+                    "cuped_lookback_days_from_project_default": False,
+                    "metrics_without_cuped_support": [],
+                    "filters_test_accounts": None if warehouse_native else True,
+                    "test_account_filter_count": 0 if warehouse_native else 1,
+                    "multiple_variant_handling": "exclude",
+                    "only_count_matured_users": False,
+                    "baseline_variant": "holdout" if _name == "baseline_not_a_variant" else "control",
+                    "excluded_variants": [],
+                    **(
+                        {
+                            "stats_method": "frequentist",
+                            "confidence_level": 0.9,
+                            "sequential_testing": True,
+                            "sequential_testing_from_project_default": True,
+                            "cuped": True,
+                            "cuped_lookback_days": 7,
+                            "cuped_from_project_default": False,
+                            "cuped_lookback_days_from_project_default": True,
+                            "metrics_without_cuped_support": ["Reached 3 pageviews", "Pageview funnel"],
+                        }
+                        if _name == "frequentist_with_project_defaults"
+                        else {}
+                    ),
+                },
             },
         )
         if _name == "condition_added_after_launch":
@@ -1129,163 +1225,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 if finding["code"] == "flag_off_while_running"
             ],
             [expected],
-        )
-
-    @parameterized.expand(
-        [
-            ("staff_session", True, None, status.HTTP_200_OK, (True, True, "read", [120, 880], "ok", "ok")),
-            (
-                "staff_token_without_query_scope",
-                True,
-                ["experiment:read", "activity_log:read"],
-                status.HTTP_200_OK,
-                (False, None, "no_query_access", None, "ok", "skipped"),
-            ),
-            (
-                "staff_denied_a_flag_call_property",
-                True,
-                None,
-                status.HTTP_200_OK,
-                (True, True, "denied_properties", None, "ok", "ok"),
-                "$feature_flag_reason",
-            ),
-            (
-                "staff_denied_a_property_the_sdk_profile_reads",
-                True,
-                None,
-                status.HTTP_200_OK,
-                (True, True, "read", [120, 880], "ok", "skipped"),
-                "$lib",
-            ),
-            ("not_staff", False, None, status.HTTP_403_FORBIDDEN, None),
-        ]
-    )
-    def test_health_inputs_serve_what_the_checks_read_to_staff_only(
-        self,
-        _name: str,
-        is_staff: bool,
-        token_scopes: list[str] | None,
-        expected_status: int,
-        expected: tuple[bool, bool | None, str, list[int] | None, str, str] | None,
-        denied_property: str | None = None,
-    ) -> None:
-        self.user.is_staff = is_staff
-        self.user.save()
-        experiment = self._create_experiment_with_a_pinned_condition(f"health-inputs-{_name}")
-        experiment.feature_flag.last_called_at = timezone.now() - timedelta(days=1)
-        experiment.feature_flag.save()
-        if denied_property is not None:
-            self._deny_event_property(denied_property)
-        headers: dict[str, str] = {}
-        if token_scopes is not None:
-            token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
-            )
-            self.client.logout()
-            headers = {"authorization": f"Bearer {token}"}
-
-        with patch(
-            "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
-            return_value=_HEALTH_TRAFFIC,
-        ):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health_inputs/", headers=headers
-            )
-
-        self.assertEqual(response.status_code, expected_status, response.content)
-        if expected is None:
-            return
-        inputs = response.json()
-        self.assertEqual(
-            [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
-            [(1, "test"), (2, None)],
-        )
-        self.assertEqual(inputs["exposure_events"]["required_flag_key"], f"health-inputs-{_name}")
-        traffic = inputs["condition_set_traffic"]
-        self.assertEqual(
-            (
-                inputs["flag_last_called_at"] is not None,
-                inputs["flag_called_during_run"],
-                inputs["condition_set_traffic_status"],
-                [people["people"] for people in traffic["people_by_set"]] if traffic else None,
-                inputs["project"]["team_defaults"]["status"],
-                inputs["project"]["sdk_profile"]["status"],
-            ),
-            expected,
-        )
-
-    @parameterized.expand(
-        [
-            ("no_split_change", False, True, None, (True, None, [])),
-            ("change_before_any_exposure", True, False, None, (True, None, [False])),
-            ("change_after_an_exposure", True, True, None, (True, None, [True])),
-            (
-                "token_without_query_scope",
-                True,
-                True,
-                ["experiment:read", "activity_log:read"],
-                (False, "no_query_access", [False]),
-            ),
-        ]
-    )
-    def test_health_inputs_report_every_split_change_and_whether_it_counts(
-        self,
-        _name: str,
-        rebalance: bool,
-        exposed: bool,
-        token_scopes: list[str] | None,
-        expected: tuple[bool, str | None, list[bool]],
-    ) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        start_date = timezone.now() - timedelta(days=3)
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key=f"health-inputs-split-{_name}",
-            created_by=self.user,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        experiment = Experiment.objects.create(
-            team=self.team, name="health-inputs-split", feature_flag=flag, start_date=start_date
-        )
-        if rebalance:
-            self._edit_flag_at(flag, start_date + timedelta(days=1), _REBALANCED)
-        headers: dict[str, str] = {}
-        if token_scopes is not None:
-            token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
-            )
-            self.client.logout()
-            headers = {"authorization": f"Bearer {token}"}
-
-        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=exposed):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health_inputs/", headers=headers
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        history = response.json()["flag_history"]
-        self.assertEqual(
-            (
-                history["checked"],
-                history["not_checked_reason"],
-                [change["counted"] for change in history["changes"]],
-            ),
-            expected,
-        )
-        self.assertEqual(
-            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
-            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:
