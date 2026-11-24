@@ -2933,19 +2933,26 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_')).toEqual([])
             })
 
-            it('replays a keyed retry from its claim without producing it again', async () => {
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
-                const headers = authorized()
-                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
-                const first = await send(hogFlow.id, headers, keyed)
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+            it.each([
+                ['on', true],
+                ['off', false],
+            ])(
+                'replays a keyed retry from its claim without producing it again with sealing %s',
+                async (_, sealing) => {
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                    const headers = authorized()
+                    const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                    const first = await send(hogFlow.id, headers, keyed)
+                    api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                    api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
 
-                const retry = await send(hogFlow.id, headers, keyed)
+                    const retry = await send(hogFlow.id, headers, keyed)
 
-                expect(retry.status).toEqual(202)
-                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
-                expect(producedTo('cdp_intake_')).toEqual([])
-            })
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                    expect(producedTo('cdp_intake_')).toEqual([])
+                }
+            )
 
             it.each([
                 ['refuses a sensitive send with 503 and produces nothing when sealing is off', false, false, 503, 0],

@@ -1539,14 +1539,6 @@ export class CdpApi {
                     transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized', route: 'single' })
                     return
                 }
-                if (
-                    intakeModeOf(this.config)(parseInt(req.params.team_id)) === 'async' &&
-                    !this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE
-                ) {
-                    return reply('not_sealing', 503, {
-                        error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',
-                    })
-                }
                 stages.start('validate')
                 const parsed = schema.safeParse(req.body)
                 if (!parsed.success) {
@@ -1571,6 +1563,14 @@ export class CdpApi {
                 )
                 if (recalled) {
                     return answer(recalled)
+                }
+                if (
+                    intakeModeOf(this.config)(parseInt(req.params.team_id)) === 'async' &&
+                    !this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE
+                ) {
+                    return reply('not_sealing', 503, {
+                        error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',
+                    })
                 }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
