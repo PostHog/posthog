@@ -723,7 +723,14 @@ export class EmailService {
         isTest: boolean,
         senderEmail: string
     ): Promise<WorkflowRunTag | null> {
-        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+        // A send that opts out of click tracking expects its links to go out as written, so it gets no run tag.
+        // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
+        if (
+            !trackingEnabled ||
+            invocation.state?.send?.tracking.clicks === false ||
+            isTest ||
+            isSensitiveMessage(invocation)
+        ) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {

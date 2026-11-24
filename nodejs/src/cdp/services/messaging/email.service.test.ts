@@ -4258,7 +4258,7 @@ describe('EmailService', () => {
                 allowlisted: boolean
                 isTest: boolean
                 sensitive: boolean
-                send?: { sensitive: boolean }
+                send?: { sensitive?: boolean; tracking?: { clicks: boolean } }
                 teamOptedOut?: boolean
                 href: string
             }>([
@@ -4329,6 +4329,15 @@ describe('EmailService', () => {
                     send: { sensitive: false },
                     href: TAGGED_HREF,
                 },
+                {
+                    case: 'leaves the links of a code send that opts out of click tracking but keeps opens',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { tracking: { clicks: false } },
+                    href: STALE_HREF,
+                },
             ])(
                 '$case with the workflow run id',
                 async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
@@ -4347,7 +4356,10 @@ describe('EmailService', () => {
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
-                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
+                    invocation.state.send = send && {
+                        ...send,
+                        tracking: { captureEngagement: true, ...send.tracking },
+                    }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,
