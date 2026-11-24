@@ -54,15 +54,16 @@ The pause reason then says the project's workflows passed the pause limit and na
 
 ## Rollout
 
-`WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` (default off) gates every automatic write; warnings and pauses arm together.
+`WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE` (default off) gates every automatic write; warnings and pauses arm together.
+Older releases read `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED` instead, and the oldest of them pause transactional workflows. Keep that key off, so a rollback to any of them falls back to dry run.
 Staff admin actions write regardless of the flag, which is the intended dogfood path before enabling.
 
 1. Deploy dark. The detector logs `would_pause_workflow_email_sending` and `would_warn_workflow_email_sending` (with workflow name, rates, and volume) and counts `workflow_email_auto_pause_total` / `workflow_email_warning_total` with `mode="dry_run"`.
 2. Read the would-pause list for a week or two and tune thresholds per region if needed.
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
 4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`, using a synthetic log line, since a real breach logs `mode="dry_run"` until enforcement is on. Without the alert, a transactional breach reaches only the project's admins.
-5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=true` per region via `posthog/charts`, once this release runs in both regions.
-6. To back out, unset the flag; existing pauses stay until resumed. Before rolling back to a release without the transactional warning, unset the flag, confirm the sweep workers run with it off and any sweep started before that has finished, then let the email queue drain. An older worker drops a transactional warning, and its cooldown is already saved.
+5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE=true` per region via `posthog/charts`, once this release runs in both regions.
+6. To back out, unset `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE`; existing pauses stay until resumed. A rollback to an older release falls back to dry run by itself. Before rolling back to a release without the transactional warning, let the email queue drain: an older worker drops a transactional warning, and its cooldown is already saved.
 
 `WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
 The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.
@@ -76,7 +77,8 @@ A workflow whose every email step is transactional (`message_category_type` is `
 Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach at warning level with `mode="transactional"`.
 While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
 Its warning email says it is not paused automatically and that staff can pause it by hand.
-Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
+Its sends and feedback stay out of the project totals that can pause other workflows.
+The project's transactional workflows get their own project check instead, on the same rule: when their sends together breach, each one at the rate gets the warning and the transactional log with `scope="project"`, never a pause.
 Transactional email sent from code, by template or by key, runs a workflow built with one transactional email step, so this rule covers it.
 A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
 That includes a code-sent workflow whose email step someone switched to marketing in the editor.

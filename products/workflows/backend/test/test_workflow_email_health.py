@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -37,7 +38,7 @@ from products.workflows.backend.services.workflow_email_health import (
     sweep_workflow_email_health,
 )
 
-AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
+AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE": True}
 
 
 class SeedCounts(TypedDict, total=False):
@@ -111,7 +112,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     def _unenforced(self, enforced: bool):
         if enforced:
             return override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS=frozenset({str(self.flow.id)}))
-        return override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=False)
+        return override_settings(WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED=True, WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE=False)
 
     def test_complaint_breach_pauses_the_workflow_and_notifies(self):
         self._seed(sent=400, complaints=8)
@@ -557,6 +558,45 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             "that do not exist came from it."
         )
 
+    def test_a_project_breach_from_transactional_workflows_warns_each_without_a_pause(self):
+        transactional_actions = [
+            {"id": "step_0", "type": "function_email", "config": {"message_category_type": "transactional"}}
+        ]
+        sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=transactional_actions)
+        self.flow.actions = transactional_actions
+        self.flow.save()
+        self._seed(sent=150, hard_bounces=30)
+        self._seed(source_id=str(sibling.id), sent=150, hard_bounces=30)
+        labels = {"signal": "bounce", "window": "1h", "mode": "transactional", "scope": "project"}
+        counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
+
+        with capture_logs() as logs:
+            applied, paused_email = self._sweep()
+
+        assert (applied, paused_email.call_count) == ([], 0)
+        assert REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) == counted_before + 2
+        assert sorted(
+            (log["hog_flow_id"], log["project_emails_sent"], log["project_rate"])
+            for log in logs
+            if log["event"] == "would_pause_workflow_email_sending" and log["mode"] == "transactional"
+        ) == sorted([(str(self.flow.id), 300, 0.2), (str(sibling.id), 300, 0.2)])
+        assert sorted(
+            (call.kwargs["hog_flow_id"], call.kwargs["transactional"], call.kwargs["reason"])
+            for call in self.warning_email.call_args_list
+        ) == sorted(
+            (
+                str(flow.id),
+                True,
+                "Emails to addresses that do not exist reached 20% of the 300 emails this project's workflows "
+                "sent in the last hour. This workflow sent 150 of those emails, and 30 of the emails to "
+                "addresses that do not exist came from it.",
+            )
+            for flow in (self.flow, sibling)
+        )
+        for flow in (self.flow, sibling):
+            flow.refresh_from_db()
+            assert flow.email_sending_paused_at is None
+
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(self):
         spreading = HogFlow.objects.create(name="Second blast", team=self.team)
         self._seed(sent=150, hard_bounces=12)
@@ -900,6 +940,23 @@ def test_exempt_workflow_ids_from_the_environment_match_stored_ids(raw: str, exp
     try:
         with patch.dict(os.environ, {"WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS": raw}):
             assert importlib.reload(ses_settings).WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS == expected
+    finally:
+        importlib.reload(ses_settings)
+
+
+@pytest.mark.parametrize(
+    "env,enforced",
+    [
+        ({"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": "true"}, False),
+        ({"WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE": "true"}, True),
+    ],
+)
+def test_only_the_enforce_key_turns_enforcement_on(env: dict[str, str], enforced: bool):
+    try:
+        with patch.dict(os.environ, env):
+            for key in {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", "WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE"} - env.keys():
+                os.environ.pop(key, None)
+            assert importlib.reload(ses_settings).WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE is enforced
     finally:
         importlib.reload(ses_settings)
 
