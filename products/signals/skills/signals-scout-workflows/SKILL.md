@@ -103,9 +103,9 @@ Read `workflows-version-stats` with `version=<n>`, `breakdown_by=name` and no `i
 Divide `conversion_by_start` by `triggered`, and never use `conversion`: that one is filed when the conversion happens, while `conversion_by_start` is filed under the hour the run started, so only it compares the same runs as `triggered`.
 
 - A run can still convert until the workflow's `conversion.window` closes. Read whole UTC days, and end the last one at least that window plus 2 hours ago. A window that reaches later is refused.
-- Start no earlier than `2026-11-13T00:00:00Z`, when this metric began. An earlier start is refused. If no whole day fits between that start and the last settled day, skip conversion for now.
+- Start no earlier than `2026-11-13T00:00:00Z`, when this metric began. For a version with a webhook, tracking pixel or manual trigger, start no earlier than `2026-11-28T00:00:00Z`, because its earlier run starts carry no version. An earlier start is refused. If no whole day fits between that start and the last settled day, skip conversion for now.
 - Skip conversion when that window is longer than 30 days, or when the goal names no window, which means 90 days. Metrics expire after 90, so there is too little settled data to compare versions.
-- A version with conversions and no `triggered` has no readable rate, because some triggers do not count run starts per version. Read the email metrics instead.
+- A version with conversions and no `triggered` has no readable rate. Read the email metrics instead.
 - A run that was in flight when a new version went live can count its start and its conversion under different versions. Do not read a small move right after a publish as a result.
 
 **Zero opens on healthy sends is a measurement gap, not a bad subject line.** Engagement splits by version only for sends made after the versioned tracking code shipped, and you cannot check that date from here.
