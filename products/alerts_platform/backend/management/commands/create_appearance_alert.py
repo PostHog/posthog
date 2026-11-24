@@ -15,12 +15,9 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.alerts_platform.backend.facade.appearance import create_appearance_alert
 from products.alerts_platform.backend.facade.contracts import (
-    AlertDestinationData,
     AlertDestinationValidationError,
-    AlertEventKind,
-    DestinationType,
+    AppearanceAlertDestination,
     InvalidPlatformAlertEdit,
-    NewAlertDestination,
     SourceKind,
 )
 
@@ -57,21 +54,20 @@ class Command(BaseCommand):
                 source=source,
                 name=options["name"],
                 filters=[parse_filter(raw) for raw in options["filters"]],
-                destinations=[NewAlertDestination(data=destination, event_kinds=(AlertEventKind.FIRING,))],
+                destination=destination,
             )
         except (InvalidPlatformAlertEdit, AlertDestinationValidationError) as error:
             raise CommandError(str(error)) from error
         self.stdout.write(f"Created appearance alert {view.id}")
 
 
-def _destination(options: dict[str, Any]) -> AlertDestinationData:
+def _destination(options: dict[str, Any]) -> AppearanceAlertDestination:
     if options["webhook_url"] and (options["slack_integration_id"] or options["slack_channel_id"]):
         raise CommandError("Pass --webhook-url or the Slack flags, not both.")
     if options["webhook_url"]:
-        return AlertDestinationData(type=DestinationType.WEBHOOK, webhook_url=options["webhook_url"])
+        return AppearanceAlertDestination(webhook_url=options["webhook_url"])
     if options["slack_integration_id"] and options["slack_channel_id"]:
-        return AlertDestinationData(
-            type=DestinationType.SLACK,
+        return AppearanceAlertDestination(
             slack_workspace_id=options["slack_integration_id"],
             slack_channel_id=options["slack_channel_id"],
         )

@@ -1749,6 +1749,15 @@ class NewAlertDestination:
 
 
 @frozen
+class AppearanceAlertDestination:
+    """The one Slack or webhook destination a new appearance alert starts with."""
+
+    webhook_url: str | None = None
+    slack_workspace_id: int | None = None
+    slack_channel_id: str | None = None
+
+
+@frozen
 class StoredAlertDestination:
     """One `AlertDestination` row, with its configuration decrypted."""
 

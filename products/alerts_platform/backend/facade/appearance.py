@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_GROUPING,
+    AlertDestinationData,
+    AlertEventKind,
+    AppearanceAlertDestination,
+    DestinationType,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
     NewAlertDestination,
@@ -162,10 +166,10 @@ def create_appearance_alert(
     source: SourceKind,
     name: str,
     filters: Sequence[dict[str, Any]],
-    destinations: Sequence[NewAlertDestination],
+    destination: AppearanceAlertDestination,
     created_by_id: int | None = None,
 ) -> PlatformAlertConfigurationView:
-    """Creates an appearance alert and its destinations in one transaction."""
+    """Creates an appearance alert and its destination in one transaction. The destination hears of firing only."""
     # Imported here, because sources import this module from `ready()` and the write path reaches Temporal.
     from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
 
@@ -174,6 +178,20 @@ def create_appearance_alert(
         source=source,
         name=name,
         filters=filters,
-        destinations=destinations,
+        destinations=[NewAlertDestination(data=_destination_data(destination), event_kinds=(AlertEventKind.FIRING,))],
         created_by_id=created_by_id,
+    )
+
+
+def _destination_data(destination: AppearanceAlertDestination) -> AlertDestinationData:
+    if destination.webhook_url is not None:
+        return AlertDestinationData(type=DestinationType.WEBHOOK, webhook_url=destination.webhook_url)
+    if destination.slack_workspace_id is None or destination.slack_channel_id is None:
+        raise InvalidPlatformAlertEdit(
+            "destination", "An appearance alert needs a webhook URL, or a Slack workspace and channel."
+        )
+    return AlertDestinationData(
+        type=DestinationType.SLACK,
+        slack_workspace_id=destination.slack_workspace_id,
+        slack_channel_id=destination.slack_channel_id,
     )
