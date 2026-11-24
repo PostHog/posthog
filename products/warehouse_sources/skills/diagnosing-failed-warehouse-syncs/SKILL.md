@@ -96,8 +96,11 @@ fresh the data is. Do not use it to tell how long a `Running` job has run: a dai
 `last_synced_at` more than a day old while its current job is only a few hours old.
 
 To judge a `Running` schema, call `external-data-sources-jobs` with the source id and the schema name in `schemas`.
-The newest job is the current one. Compare its age (from `created_at`) with the schema's sync frequency and with how
-long earlier `Completed` jobs took (`finished_at` minus `created_at`). Also read its `rows_synced` and `latest_error`.
+Skip jobs whose `cdc_write_mode` is `scd2_append`. A CDC table in `both` mode adds this second job to each run. It
+starts later, has no `workflow_run_id`, and gets its `rows_synced` only at the end of the run. The newest remaining job
+is the current one. If its `status` is not `Running`, or no job exists, the schema status is stale (see F). Otherwise,
+compare its age (from `created_at`) with the schema's sync frequency and with how long earlier `Completed` jobs took
+(`finished_at` minus `created_at`). Also read its `rows_synced` and `latest_error`.
 
 ### Step 3 — Interpret `latest_error`
 
@@ -181,14 +184,17 @@ The recovery action depends on root cause, not just status. Match the user's sit
 **F. Sync is stuck in `Running` for hours**
 
 - Do not decide from `last_synced_at`. An old `last_synced_at` only says the last successful sync started long ago.
-- Call `external-data-sources-jobs` for the schema and find the current job. Its `created_at` is when this run
-  started.
+- Call `external-data-sources-jobs` for the schema and find the current job as Step 2 says. Its `created_at` is when
+  this run started.
+- If the current job's `status` is not `Running`, or no job exists, no sync is running and the schema status is stale.
+  `external-data-schemas-cancel` repairs the status. Then call `external-data-schemas-reload`.
 - The job is healthy when its age is in line with the earlier completed jobs, or when `rows_synced` grows between two
   checks a few minutes apart. Tell the user it is still running and how long earlier runs took.
 - The job is likely orphaned when it has run much longer than earlier jobs and longer than the sync interval, and
   `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id` and the job's
   `workflow_run_id` as `job_id` to confirm that no recent log lines exist.
-- Action, only for an orphaned job: `external-data-schemas-cancel` to stop it, then `external-data-schemas-reload`.
+- Action, only for an orphaned job or a stale status: `external-data-schemas-cancel` to stop it, then
+  `external-data-schemas-reload`.
 
 **G. Table data is corrupt but you want to keep the schema config**
 
