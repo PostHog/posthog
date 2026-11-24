@@ -213,6 +213,13 @@ export function deprecateOptions(
     return keepMaterialized ? { keep_materialized: true } : undefined
 }
 
+function shownDeprecateAction(
+    suggestion: WarehouseSuggestionApi | null,
+    deprecateAction: DeprecateAction
+): DeprecateAction | undefined {
+    return suggestion?.kind === 'deprecate' ? deprecateAction : undefined
+}
+
 function defaultDeprecateAction(suggestion: WarehouseSuggestionApi | null): DeprecateAction {
     if (canEditDataCatalog()) {
         return 'deprecate'
@@ -964,12 +971,17 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
                         surface: props.surface,
+                        deprecate_action: shownDeprecateAction(values.acceptConfirmSuggestion, values.deprecateAction),
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
                     capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
                         surface: props.surface,
+                        deprecate_action: shownDeprecateAction(
+                            selectors.acceptConfirmSuggestion(previousState),
+                            selectors.deprecateAction(previousState)
+                        ),
                     })
                 },
                 openDismissDialog: ({ id }) => {

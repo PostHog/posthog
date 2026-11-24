@@ -986,6 +986,7 @@ describe('warehouseSuggestionsLogic', () => {
         'a view deprecation opens on the choice that %s',
         async (_name, canEditCatalog, materialized, expectedAction) => {
             jest.mocked(userHasAccess).mockReturnValue(canEditCatalog)
+            const capture = jest.spyOn(posthog, 'capture')
             const suggestion = { ...DEPRECATE, payload: { ...DEPRECATE.payload, materialized } }
             mockList.mockResolvedValue(page([suggestion]))
             await mountLogic()
@@ -993,8 +994,27 @@ describe('warehouseSuggestionsLogic', () => {
             logic.actions.openAcceptConfirm(suggestion.id)
 
             expect(logic.values.deprecateAction).toBe(expectedAction)
+            expect(capture).toHaveBeenCalledWith(
+                'warehouse suggestion confirm opened',
+                expect.objectContaining({ deprecate_action: expectedAction })
+            )
         }
     )
+
+    it('reports the choice someone left the deprecate dialog on', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mockList.mockResolvedValue(page([DEPRECATE]))
+        await mountLogic()
+        logic.actions.openAcceptConfirm(DEPRECATE.id)
+        logic.actions.setDeprecateAction('unmarked')
+
+        logic.actions.closeAcceptConfirm()
+
+        expect(capture).toHaveBeenCalledWith(
+            'warehouse suggestion confirm cancelled',
+            expect.objectContaining({ deprecate_action: 'unmarked' })
+        )
+    })
 
     it('reloads the list when an accept finds the view or table deleted', async () => {
         mockAccept.mockRejectedValue(new ApiError('Not found.', 404, undefined, { detail: 'Not found.' }))

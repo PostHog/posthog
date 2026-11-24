@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, fields
 from datetime import timedelta
-from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -69,7 +68,7 @@ from .candidates.base import inlining_could_deny_a_reader, reads_direct_source
 from .candidates.unmaterialize import effective_definition
 from .payloads import payload_from_json
 from .rules import RULES
-from .suggestions import HUMAN_TRANSITIONS, Transitions, only_stopped_materializing, transition_to
+from .suggestions import HUMAN_TRANSITIONS, DeprecateChoice, Transitions, deprecate_choice, transition_to
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -113,21 +112,17 @@ ALREADY_MARKED_DEPRECATED = (
     "This suggestion was already accepted by marking the view deprecated. Change the view from its page instead."
 )
 ACCEPTED_BY_ANOTHER_REQUEST = "Another request just accepted this suggestion. Reload it to see what changed."
+ALREADY_DELETED = "This suggestion was already accepted by deleting the view."
 ALREADY_STOPPED_REFRESHES = (
     "This suggestion was already accepted by stopping the view's refreshes without marking it deprecated. "
     "Change the view from its page instead."
 )
 
 
-class DeprecateChoice(StrEnum):
-    MARK_DEPRECATED = "mark_deprecated"
-    ONLY_STOP_REFRESHES = "only_stop_refreshes"
-    DELETE = "delete"
-
-
 ALREADY_ACCEPTED_AS: Mapping[DeprecateChoice, str] = {
     DeprecateChoice.MARK_DEPRECATED: ALREADY_MARKED_DEPRECATED,
     DeprecateChoice.ONLY_STOP_REFRESHES: ALREADY_STOPPED_REFRESHES,
+    DeprecateChoice.DELETE: ALREADY_DELETED,
 }
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
@@ -584,17 +579,9 @@ def _refuse_a_different_deprecate_choice(suggestion: WarehouseSuggestion, option
         return
     if suggestion.created_asset is None:
         raise SuggestionOutdatedError(ACCEPTED_BY_ANOTHER_REQUEST)
-    accepted_choice = _accepted_deprecate_choice(suggestion.created_asset)
+    accepted_choice = deprecate_choice(suggestion.kind, suggestion.created_asset)
     if accepted_choice is not None and accepted_choice != _requested_deprecate_choice(options):
         raise SuggestionOutdatedError(ALREADY_ACCEPTED_AS[accepted_choice])
-
-
-def _accepted_deprecate_choice(created_asset: Mapping[str, object]) -> DeprecateChoice | None:
-    if "certification_id" in created_asset:
-        return DeprecateChoice.MARK_DEPRECATED
-    if only_stopped_materializing(created_asset):
-        return DeprecateChoice.ONLY_STOP_REFRESHES
-    return None
 
 
 def _requested_deprecate_choice(options: AcceptOptions) -> DeprecateChoice:

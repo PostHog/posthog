@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, fields
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -9,8 +10,14 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from ..facade.contracts import CreatedAsset, SuggestionAlreadyDecidedError, SuggestionDraft, UnmaterializationAsset
-from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionStatus
+from ..facade.contracts import (
+    CreatedAsset,
+    DeletionAsset,
+    SuggestionAlreadyDecidedError,
+    SuggestionDraft,
+    UnmaterializationAsset,
+)
+from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion
 from .payloads import payload_to_json
 
@@ -38,7 +45,19 @@ HUMAN_TRANSITIONS: Transitions = {
 }
 
 HUMAN_DECISIONS = frozenset({WarehouseSuggestionStatus.ACCEPTED, WarehouseSuggestionStatus.DISMISSED})
-UNMATERIALIZATION_ASSET_FIELDS = frozenset(field.name for field in fields(UnmaterializationAsset))
+
+
+class DeprecateChoice(StrEnum):
+    MARK_DEPRECATED = "mark_deprecated"
+    ONLY_STOP_REFRESHES = "only_stop_refreshes"
+    DELETE = "delete"
+
+
+CERTIFICATION_ID_FIELD = "certification_id"
+DEPRECATE_CHOICE_BY_ASSET_FIELDS: Mapping[frozenset[str], DeprecateChoice] = {
+    frozenset(field.name for field in fields(UnmaterializationAsset)): DeprecateChoice.ONLY_STOP_REFRESHES,
+    frozenset(field.name for field in fields(DeletionAsset)): DeprecateChoice.DELETE,
+}
 
 DRAFT_FIELDS_UPDATED_ON_INGEST = (
     "payload",
@@ -105,8 +124,12 @@ def _record_dismissal(
     suggestion.dismissed_at_score = suggestion.score
 
 
-def only_stopped_materializing(created_asset: Mapping[str, object] | None) -> bool:
-    return created_asset is not None and set(created_asset) == UNMATERIALIZATION_ASSET_FIELDS
+def deprecate_choice(kind: str, created_asset: Mapping[str, object] | None) -> DeprecateChoice | None:
+    if kind != WarehouseSuggestionKind.DEPRECATE or not created_asset:
+        return None
+    if CERTIFICATION_ID_FIELD in created_asset:
+        return DeprecateChoice.MARK_DEPRECATED
+    return DEPRECATE_CHOICE_BY_ASSET_FIELDS.get(frozenset(created_asset))
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:

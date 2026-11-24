@@ -27,7 +27,14 @@ from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import ALLOWED_TRANSITIONS, Transitions, only_stopped_materializing, transition_to, upsert_suggestions
+from .suggestions import (
+    ALLOWED_TRANSITIONS,
+    DeprecateChoice,
+    Transitions,
+    deprecate_choice,
+    transition_to,
+    upsert_suggestions,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -313,7 +320,7 @@ def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[
 
 
 def _asset_kind(row: WarehouseSuggestion) -> WarehouseSuggestionKind:
-    if row.kind == WarehouseSuggestionKind.DEPRECATE and only_stopped_materializing(row.created_asset):
+    if deprecate_choice(row.kind, row.created_asset) == DeprecateChoice.ONLY_STOP_REFRESHES:
         return WarehouseSuggestionKind.UNMATERIALIZE
     return WarehouseSuggestionKind(row.kind)
 
