@@ -314,6 +314,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             | \`gen_ai.output.messages\` | \`$ai_output_choices\` |
                             | \`gen_ai.usage.input_tokens\` (or \`gen_ai.usage.prompt_tokens\`) | \`$ai_input_tokens\` |
                             | \`gen_ai.usage.output_tokens\` (or \`gen_ai.usage.completion_tokens\`) | \`$ai_output_tokens\` |
+                            | \`gen_ai.usage.cost\` (in USD, only when greater than 0) | \`$ai_total_cost_usd\`, used in place of the cost PostHog calculates from tokens |
                             | \`server.address\` | \`$ai_base_url\` |
                             | \`telemetry.sdk.name\` / \`telemetry.sdk.version\` | \`$ai_lib\` / \`$ai_lib_version\` |
                             | Span start/end timestamps | \`$ai_latency\` (computed in seconds) |

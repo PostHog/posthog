@@ -1,4 +1,6 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import {
     aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
@@ -111,6 +113,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
         delete event.properties[otelKey]
     }
 
+    mapProviderCost(event)
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
     normalizeGroups(event)
@@ -208,6 +211,27 @@ function normalizeGroups(event: PluginEvent): void {
         outcome = 'malformed'
     }
     aiOtelGroupsCounter.labels({ outcome }).inc()
+}
+
+// `gen_ai.usage.cost` is the cost in USD that the provider reported for the call.
+// Only a positive value becomes the total, because some providers report 0 for
+// cached or free-tier calls, and a $0 total would hide what the tokens cost. A 0
+// or an unusable value stays on the event as-is, and token pricing runs.
+// Passthrough stops processCost from also estimating an input/output split that
+// would not add up to the reported total. The token counts stay on the event, so
+// the call can be re-priced later.
+function mapProviderCost(event: PluginEvent): void {
+    const props = event.properties!
+    if (!COSTED_AI_EVENT_TYPES.has(event.event) || props['$ai_total_cost_usd'] !== undefined) {
+        return
+    }
+    const cost = finiteNumberOrUndefined(props['gen_ai.usage.cost'])
+    if (cost === undefined || cost <= 0) {
+        return
+    }
+    props['$ai_total_cost_usd'] = cost
+    props['$ai_cost_passthrough'] = true
+    delete props['gen_ai.usage.cost']
 }
 
 function computeLatency(event: PluginEvent): void {
