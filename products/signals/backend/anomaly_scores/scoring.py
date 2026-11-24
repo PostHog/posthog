@@ -141,8 +141,7 @@ class InsightScores:
     ai_member: LazyAndEnsemble | None = None
     # The fetched values of each series, which the AI member reads. Empty when the profile has no AI member.
     fetched: tuple["FetchedSeries", ...] = ()
-    # The fetch that `fetch_judge_history` runs before the AI member is asked. None when ``fetched`` already
-    # holds the history of a train step.
+    # None when ``fetched`` already holds the history of a train step.
     judge_history: "JudgeHistory | None" = None
 
 

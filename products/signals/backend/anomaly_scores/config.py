@@ -128,7 +128,6 @@ class ScoringRun(StrEnum):
     SCORE = "score"
 
 
-# The `name` tag of the fetch that gives the AI judge of a score step its history, see `scoring.fetch_judge_history`.
 JUDGE_HISTORY_QUERY_NAME = "anomaly_scoring_judge_history"
 
 

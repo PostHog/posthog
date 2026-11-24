@@ -1042,8 +1042,6 @@ class TestTrainScoreSplit(BaseTest):
         # A retrain replaces the blob and deletes the previous one.
         assert list(self.blobs) == [state.artifact_key] != [first_key]
 
-    # A `default-v2` score step fetches the 6 buckets of a `default-v1` one. Only a flag that the judge is asked
-    # about fetches the 62 buckets that a train step gives the judge.
     @parameterized.expand(
         [
             ("no_new_flag", 100.0, True, False, ["-6d"], 0),

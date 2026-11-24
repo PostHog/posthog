@@ -205,7 +205,7 @@ class AnomalyScoringTickResult:
     duration_ms: int = 0
     # Picks left for a later tick because the tick budget ran out.
     deferred: int = 0
-    # The query cost of the picks that started, and the queries of their judge's history fetches.
+    # The queries of the picks that started.
     queries: int = 0
     skipped_for_budget: int = 0
     stopped_at_capacity: bool = False
