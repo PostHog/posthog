@@ -158,6 +158,12 @@ def test_parse_openai_responses_citations() -> None:
         ("utm_only", "https://example.com/flags?utm_source=openai", "https://example.com/flags"),
         ("utm_and_others", "https://example.com/a?id=7&utm_source=openai#top", "https://example.com/a?id=7#top"),
         ("no_utm", "https://example.com/a?id=7&page=2", "https://example.com/a?id=7&page=2"),
+        (
+            "encoded_param_kept_as_is",
+            "https://example.com/s?q=feature%20flags&utm_source=openai",
+            "https://example.com/s?q=feature%20flags",
+        ),
+        ("malformed_url", "https://[invalid/path", "https://[invalid/path"),
     ]
 )
 def test_parse_openai_responses_citations_drop_utm_params(_name: str, cited: str, expected: str) -> None:

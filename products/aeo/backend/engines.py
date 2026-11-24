@@ -20,7 +20,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Protocol
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -200,11 +200,15 @@ def gateway_post_json(
 
 
 def _without_utm(url: str) -> str:
-    """OpenAI adds utm_source=openai to the links it cites, so one page would otherwise count as two URLs."""
-    parts = urlparse(url)
-    params = parse_qsl(parts.query, keep_blank_values=True)
-    kept = [(key, value) for key, value in params if not key.lower().startswith("utm_")]
-    return url if len(kept) == len(params) else parts._replace(query=urlencode(kept)).geturl()
+    """OpenAI adds utm_source=openai to the links it cites, so one page would otherwise count as two URLs.
+    The other parameters stay byte for byte, because a re-encoded query would make the page a different URL again."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return url
+    segments = parts.query.split("&") if parts.query else []
+    kept = [segment for segment in segments if not segment.split("=", 1)[0].lower().startswith("utm_")]
+    return url if len(kept) == len(segments) else parts._replace(query="&".join(kept)).geturl()
 
 
 def _dedupe_urls(urls: list[str]) -> list[str]:
