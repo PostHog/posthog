@@ -62,6 +62,8 @@ class TestResolveWindow(SimpleTestCase):
             ("from_after_to", "2026-10-10", "2026-10-01", "date_from"),
             ("from_in_the_future", "2026-11-01", None, "date_from"),
             ("too_long", "-91d", None, "date_from"),
+            ("before_earliest_day", "0001-01-01", "0001-01-01", "date_from"),
+            ("relative_day_overflows", "-999999999999999999999d", None, "date_from"),
         ]
     )
     def test_rejects_a_range_it_cannot_read_or_serve(
