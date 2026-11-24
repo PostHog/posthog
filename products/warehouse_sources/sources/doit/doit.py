@@ -1,3 +1,4 @@
+import random
 import hashlib
 import datetime
 from collections.abc import Callable
@@ -5,6 +6,7 @@ from typing import Any, Optional, cast
 from urllib.parse import quote, urlencode
 
 import pyarrow as pa
+import requests
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
@@ -22,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     build_chained_resource,
     frozen,
+    interruptible_wait,
     make_tracked_session,
     rest_api_resource,
 )
@@ -46,6 +49,17 @@ REPORT_TIMEOUT_SECONDS = (DOIT_CONNECT_TIMEOUT_SECONDS, 300)
 
 # Key under a schema's persisted `schema_metadata` holding the DoIt report id.
 REPORT_ID_METADATA_KEY = "report_id"
+
+# DoiT limits how many report queries one account can run at the same time. A query over that limit
+# gets a 429 with this text in the body. All report schemas of a source start on the same schedule,
+# and one report query can run for minutes. The adapter retries and the Temporal activity retries
+# end within seconds, so they spend their whole budget while the other queries still run. Wait on
+# the scale of a report query instead. The jitter keeps the schemas that collide from retrying
+# together again. The waits double from the first value up to the cap, for 12 minutes at most.
+DOIT_CONCURRENCY_QUOTA_ERROR = "exhausted; please wait for previous requests to complete"
+DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS = 15.0
+DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS = 120.0
+DOIT_CONCURRENCY_QUOTA_MAX_WAITS = 8
 
 DOIT_BASE_URL = "https://api.doit.com"
 DOIT_REPORTS_URL = f"{DOIT_BASE_URL}/analytics/v1/reports"
@@ -91,6 +105,39 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
+def _is_concurrency_quota_error(response: requests.Response) -> bool:
+    return response.status_code == 429 and DOIT_CONCURRENCY_QUOTA_ERROR in response.text
+
+
+def _get_waiting_for_concurrency_quota(
+    session: requests.Session,
+    url: str,
+    *,
+    api_key: str,
+    timeout: tuple[int, int],
+    logger: FilteringBoundLogger,
+) -> requests.Response:
+    wait_seconds = DOIT_CONCURRENCY_QUOTA_FIRST_WAIT_SECONDS
+    waits_done = 0
+    while True:
+        response = session.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=timeout)
+        if not _is_concurrency_quota_error(response) or waits_done == DOIT_CONCURRENCY_QUOTA_MAX_WAITS:
+            return response
+
+        delay = random.uniform(wait_seconds / 2, wait_seconds)
+        logger.info(
+            "DoIt concurrent report query quota is exhausted, waiting before the next try",
+            wait_seconds=round(delay, 1),
+            waits_done=waits_done,
+        )
+        # A worker that shuts down ends the wait early. Return the 429, so that the caller raises the
+        # retryable error and Temporal runs the activity again on another worker.
+        if interruptible_wait(delay):
+            return response
+        waits_done += 1
+        wait_seconds = min(wait_seconds * 2, DOIT_CONCURRENCY_QUOTA_MAX_WAIT_SECONDS)
+
+
 @frozen
 class DoItReport:
     id: str
@@ -113,10 +160,8 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
         if page_token:
             url = f"{DOIT_REPORTS_URL}?{urlencode({'pageToken': page_token})}"
 
-        res = session.get(
-            url,
-            headers={"Authorization": f"Bearer {config.api_key}"},
-            timeout=LIST_REPORTS_TIMEOUT_SECONDS,
+        res = _get_waiting_for_concurrency_quota(
+            session, url, api_key=config.api_key, timeout=LIST_REPORTS_TIMEOUT_SECONDS, logger=logger
         )
 
         # `DOIT_RETRY` sets `raise_on_status=False`, so a 5xx that outlives the retries lands here as
@@ -229,10 +274,12 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = make_tracked_session(retry=DOIT_RETRY).get(
+        res = _get_waiting_for_concurrency_quota(
+            make_tracked_session(retry=DOIT_RETRY),
             request_uri,
-            headers={"Authorization": f"Bearer {config.api_key}"},
+            api_key=config.api_key,
             timeout=REPORT_TIMEOUT_SECONDS,
+            logger=logger,
         )
 
         if res.status_code != 200:
