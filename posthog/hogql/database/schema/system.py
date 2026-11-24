@@ -949,7 +949,8 @@ experiments: PostgresTable = PostgresTable(
             expr=parse_expr(
                 "coalesce(_status, multiIf(start_date IS NULL, 'draft', end_date IS NULL, 'running', 'stopped'))"
             ),
-            description="Lifecycle status: 'draft', 'running' or 'stopped'.",
+            description="Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; "
+            "it is paused when its linked flag has feature_flags.active = 0.",
         ),
         "conclusion": StringDatabaseField(
             name="conclusion",
@@ -1022,6 +1023,17 @@ class _ExperimentScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable
     """The link table has no `team_id` column; isolation flows through `system.experiments`."""
 
     predicates: list[Expr] = [parse_expr("experiment_id IN (SELECT id FROM system.experiments)")]
+
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        from products.experiments.backend.facade.api import experiment_ids_created_by  # noqa: PLC0415
+
+        if team_id is None:
+            raise ValueError("system.experiment_to_saved_metrics needs a team to resolve experiment access")
+        return experiment_ids_created_by(
+            team_id=team_id, user_id=user_access_control.user.pk, experiment_ids=candidate_ids
+        )
 
 
 experiment_to_saved_metrics: _ExperimentScopedPostgresTable = _ExperimentScopedPostgresTable(

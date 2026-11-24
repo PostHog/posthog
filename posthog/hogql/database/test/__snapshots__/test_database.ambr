@@ -8216,7 +8216,7 @@
               },
               "status": {
                   "chain": null,
-                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'.",
+                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; it is paused when its linked flag has feature_flags.active = 0.",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,
@@ -25425,7 +25425,7 @@
               },
               "status": {
                   "chain": null,
-                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'.",
+                  "description": "Lifecycle status: 'draft', 'running' or 'stopped'. A paused experiment reads 'running'; it is paused when its linked flag has feature_flags.active = 0.",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,

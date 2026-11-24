@@ -2593,6 +2593,33 @@ class TestSystemExperimentAndFlagColumns(NonAtomicBaseTest):
 
         assert [row[0] for row in response.results] == ["open", *expected_restricted]
 
+    @parameterized.expand([("other_creator", False, 0), ("reader_is_creator", True, 1)])
+    def test_saved_metric_links_follow_experiment_access(self, _name, reader_is_creator, expected_links):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=creator.id)
+        saved_metric_id = create_saved_metric(team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric"})
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment",
+            resource_id=str(experiment_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT count() FROM system.experiment_to_saved_metrics", team=self.team, user=self.user
+        )
+
+        assert response.results == [(expected_links,)]
+
     def test_saved_metrics_join_to_their_experiments(self):
         flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
         experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="checkout")
