@@ -57,7 +57,7 @@ describe('storyCards', () => {
     it('shows the top model on the share card, and p95 speed without one', () => {
         const withModel = { ...BASE, models: { shares: [{ name: 'Claude Sonnet', share: 0.6 }] } }
 
-        expect(shareTiles(withModel).at(-1)).toEqual({ kind: 'model', label: 'Top model', value: 'Claude Sonnet' })
+        expect(shareTiles(withModel).at(-1)).toEqual({ kind: 'model', label: 'Top AI model', value: 'Claude Sonnet' })
         expect(shareTiles(BASE).at(-1)).toEqual({ kind: 'speed', label: '95% answered in', value: '410 ms' })
     })
 

@@ -86,6 +86,12 @@
 }
 
 // A highlighter stroke behind a word, the way posthog.com marks what matters.
+// The chunky button posthog.com uses for its calls to action.
+.MCPWrapped__cta {
+    background: var(--wrapped-cta);
+    box-shadow: 0 3px 0 black;
+}
+
 .MCPWrapped__highlight {
     padding: 0 0.15em;
     background: linear-gradient(transparent 58%, rgb(255 206 28 / 85%) 58%, rgb(255 206 28 / 85%) 92%, transparent 92%);
