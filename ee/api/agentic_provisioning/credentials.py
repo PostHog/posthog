@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import unicodedata
+from contextlib import AbstractContextManager, nullcontext
 
 from django.db import transaction
 from django.db.models import Q
 
 from posthog.accessible_teams import AccessibleTeams
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -58,18 +60,23 @@ def validate_label_prefix(raw: object) -> str | None:
     return stripped
 
 
-def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User | None = None) -> int:
-    """Delete the personal API keys ``app`` minted for ``team_id``, for one user or for all of them.
+def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
+    """Delete the personal API keys ``app`` minted for ``team_id``, for every member of the team.
+
+    The partner holds every key it minted for the project, whichever member it connected as,
+    so removing the resource or rotating its credentials ends all of them.
 
     A key ``app`` minted whose owner removed its project restriction still reaches the
     project, so it is deleted too when its organization restriction covers the project's
     organization, or when it has no organization restriction and its owner belongs to that
     organization.
 
-    Deletes key by key so the activity log records each deletion. Keys the user created
-    themselves carry no ``provisioned_by``, so they are never matched.
+    Deletes key by key so the activity log records each deletion. The deletions are actions of
+    the project's organization, so a row in another organization the key reaches names no actor.
+    Keys the user created themselves carry no ``provisioned_by``, so they are never matched.
     """
     in_scope = Q(scoped_teams__contains=[team_id])
+    acting_organization: AbstractContextManager[object] = nullcontext()
     organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
     if organization_id is not None:
         no_team_restriction = Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
@@ -78,15 +85,15 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int, user: User |
             no_organization_restriction & Q(user__organization_membership__organization_id=organization_id)
         )
         in_scope |= no_team_restriction & covers_organization
+        acting_organization = OrganizationAdminKeyActionContext(str(organization_id))
 
     keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope).distinct()
-    if user is not None:
-        keys = keys.filter(user=user)
 
     deleted = 0
-    for key in keys:
-        key.delete()
-        deleted += 1
+    with acting_organization:
+        for key in keys:
+            key.delete()
+            deleted += 1
 
     return deleted
 
@@ -130,19 +137,23 @@ def maybe_create_provisioned_pat(
     change the token rows before they delete the keys, so both sides take their row locks
     in the same order.
 
-    ``replace_existing`` first deletes the keys ``app`` minted earlier for this user and
-    team, in the same transaction as the mint. It deletes them even when no new key is
-    minted, so a rotation always ends the earlier keys.
+    ``replace_existing`` first deletes every key ``app`` minted earlier for the team, in the
+    same transaction as the mint. It deletes them even when no new key is minted, including
+    when the bearer row is gone, because an ordinary token refresh also deletes that row.
+    A rotation therefore always ends the earlier keys.
     """
     if not app:
         return None
 
     with transaction.atomic():
-        if access_token is not None and not _lock_access_token_for_team(access_token, team.id):
-            return None
+        # The token lock comes before the key deletion, in the order the revocation paths lock rows.
+        bearer_covers_team = access_token is None or _lock_access_token_for_team(access_token, team.id)
 
         if replace_existing:
-            delete_provisioned_pats(app, team_id=team.id, user=user)
+            delete_provisioned_pats(app, team_id=team.id)
+
+        if not bearer_covers_team:
+            return None
 
         pat_scopes = _provisioned_pat_scopes(team, app, granted_scope)
         if not pat_scopes:

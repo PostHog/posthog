@@ -6,8 +6,10 @@ from posthog.accessible_teams import AccessibleTeams
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
 
+from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 
@@ -96,13 +98,17 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
 
-    def test_rotate_replaces_the_partners_pat_and_keeps_the_users_own_key(self):
+    def test_rotate_replaces_the_partners_pats_for_every_member_and_keeps_the_users_own_key(self):
         token = self._get_bearer_token()
         self._post_with_bearer(
             "/api/agentic/provisioning/resources",
             token=token,
         )
         initial_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.partner)
+        teammate = User.objects.create_and_join(
+            organization=self.organization, email="teammate@example.com", password="testpass"
+        )
+        assert maybe_create_provisioned_pat(teammate, self.team, self.partner, "query:read")
         own_key = mint_personal_api_key(
             self.user,
             label=initial_pat.label,
@@ -118,6 +124,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
 
         assert res.status_code == 200
         assert not PersonalAPIKey.objects.filter(id=initial_pat.id).exists()
+        assert not PersonalAPIKey.objects.filter(user=teammate).exists()
         rotated_pat = PersonalAPIKey.objects.get(user=self.user, provisioned_by=self.partner)
         assert rotated_pat.scoped_teams == [self.team.id]
         assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
