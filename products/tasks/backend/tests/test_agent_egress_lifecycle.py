@@ -21,6 +21,8 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
+from structlog.testing import capture_logs
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
@@ -29,7 +31,11 @@ from products.tasks.backend.logic.services.agent_egress_enrollment import (
     AgentEgressEnrollmentConfig,
     AgentEgressRunConfig,
 )
-from products.tasks.backend.logic.services.agent_egress_lifecycle import STATE_KEY, AgentEgressLifecycle
+from products.tasks.backend.logic.services.agent_egress_lifecycle import (
+    STATE_KEY,
+    AgentEgressLifecycle,
+    AgentEgressRunEnded,
+)
 from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeCertificate, AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_egress_probe_runner import AgentEgressProbeRunner
 from products.tasks.backend.logic.services.connection_token import reset_sandbox_jwt_key_cache
@@ -39,6 +45,7 @@ from products.tasks.backend.temporal.process_task.activities.agent_egress import
     AgentEgressCleanupInput,
     AgentEgressExecutionInput,
     AgentEgressProbeInput,
+    _probe,
     cleanup_agent_egress,
     renew_agent_egress,
 )
@@ -66,6 +73,7 @@ class FakeProbe:
         self.published: list[str] = []
         self.on_publish: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
+        self.on_probe: Callable[[], None] = lambda: None
 
     def certificate_request(self) -> str:
         return self.object_id
@@ -78,6 +86,7 @@ class FakeProbe:
         self.on_publish()
 
     def probe(self, *, count: int, concurrency: int) -> dict[int, int]:
+        self.on_probe()
         return {self.status: count}
 
     def destroy(self) -> None:
@@ -398,11 +407,40 @@ class TestAgentEgressLifecycle(TestCase):
         self.task_run.refresh_from_db()
         self.assertTrue(self.task_run.state[STATE_KEY]["closed"])
 
-    def test_rejected_probe_raises_a_non_retryable_error(self) -> None:
+    @parameterized.expand(
+        [("live", 401), ("cancel_requested", 401), ("cancelled", 503), ("completed", 503), ("failed", 503)]
+    )
+    def test_rejected_probe_preserves_failure_evidence(self, run_end: str, status: int) -> None:
         sandbox_id = self.controller().prepare()
-        self.probes[sandbox_id].status = 401
-        with self.assertRaises(ValueError):
-            self.controller().probe()
+        probe = self.probes[sandbox_id]
+        probe.status = status
+
+        def end_run() -> None:
+            if run_end == "cancel_requested":
+                TaskRun.update_state_atomic(
+                    self.task_run.id, updates={"cancel_requested_at": timezone.now().isoformat()}
+                )
+            elif run_end != "live":
+                TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(status=run_end)
+
+        probe.on_probe = end_run
+        with capture_logs() as logs:
+            with self.assertRaises(ValueError) as error:
+                self.controller().probe()
+        self.assertEqual(isinstance(error.exception, AgentEgressRunEnded), run_end != "live")
+        self.assertEqual(
+            [log for log in logs if log["event"] == "agent_egress_probe_failed"],
+            [
+                {
+                    "event": "agent_egress_probe_failed",
+                    "log_level": "warning",
+                    "team_id": self.team.id,
+                    "run_id": str(self.task_run.id),
+                    "execution_id": str(self.execution_id),
+                    "statuses": {status: self.config.requests_per_round},
+                }
+            ],
+        )
 
     @parameterized.expand([("completed",), ("create_response",), ("relay",), ("registration",), ("publication",)])
     def test_new_worker_recovers_enrollment_without_replacing_the_vm_or_key(self, failure: str) -> None:
@@ -556,6 +594,8 @@ class TestAgentEgressLifecycle(TestCase):
             ("actor",),
             ("cancelled",),
             ("completed",),
+            ("revoked",),
+            ("missing",),
             ("sandbox",),
             ("closed",),
             ("probe_owner",),
@@ -572,6 +612,12 @@ class TestAgentEgressLifecycle(TestCase):
         )
         if failure == "actor":
             User.objects.filter(id=self.actor.id).update(is_active=False)
+        elif failure == "revoked":
+            self.controller().registry.revoke(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
+        elif failure == "missing":
+            self.registration().delete()
         elif failure == "completed":
             TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(status=TaskRun.Status.COMPLETED)
         elif failure == "cancelled":
@@ -592,13 +638,56 @@ class TestAgentEgressLifecycle(TestCase):
             execution_id=uuid4() if failure == "execution" else self.execution_id,
             workflow_run_id="workflow-b" if failure == "workflow" else "workflow-a",
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as error:
             controller.renew()
+        self.assertEqual(isinstance(error.exception, AgentEgressRunEnded), failure in ("cancelled", "completed"))
+        if failure == "missing":
+            self.assertIsNone(controller.registry.latest(team_id=self.team.id, run_id=self.task_run.id))
+            return
         self.assertEqual(self.registration().lease_expires_at, expires_at)
         self.controller().close(reason="failed", sandbox_id=None)
         self.assertTrue(self.registration().revoked)
         with self.assertRaises(ValueError):
             self.controller().prepare()
+
+    @parameterized.expand(
+        [
+            (status, operation)
+            for status in ("completed", "cancelled", "failed", "cancel_requested")
+            for operation in ("renew", "probe")
+        ]
+    )
+    def test_activity_reports_run_end_without_extending_authority(self, status: str, operation: str) -> None:
+        sandbox = self.enroll_run()
+        self.controller().prepare()
+        lease_expires_at = self.registration().lease_expires_at
+        if status == "cancel_requested":
+            TaskRun.update_state_atomic(self.task_run.id, updates={"cancel_requested_at": timezone.now().isoformat()})
+        else:
+            TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(status=status)
+        execution = AgentEgressExecutionInput(
+            probe=AgentEgressProbeInput(
+                config_path="",
+                team_id=self.team.id,
+                run_id=str(self.task_run.id),
+                sandbox_id=sandbox.id,
+                enrollment=True,
+            ),
+            execution_id=str(self.execution_id),
+        )
+        with patch("products.tasks.backend.temporal.process_task.activities.agent_egress.activity.info") as info:
+            info.return_value.workflow_run_id = "workflow-a"
+            with self.assertRaises(ApplicationError) as error:
+                unwrap(renew_agent_egress if operation == "renew" else _probe)(execution)
+        self.assertEqual(error.exception.type, "AgentEgressRunEnded")
+        self.assertEqual(list(error.exception.details), ["cancelled" if status == "cancel_requested" else status])
+        self.assertTrue(error.exception.non_retryable)
+        self.assertEqual(self.registration().lease_expires_at, lease_expires_at)
+        self.assertIsNone(
+            self.controller().registry.lookup(
+                team_id=self.team.id, run_id=self.task_run.id, execution_id=self.execution_id
+            )
+        )
 
     def test_delayed_cleanup_leaves_the_replacement_live(self) -> None:
         previous = self.controller()

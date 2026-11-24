@@ -11,7 +11,7 @@ import { runCellHandler } from '@/tools/notebooks/runCell'
 import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
 import { runNotebookStatusHandler } from '@/tools/notebooks/runNotebookStatus'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
-import { updateCellHandler } from '@/tools/notebooks/updateCell'
+import { NotebooksUpdateCellSchema, updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
@@ -472,6 +472,33 @@ describe('notebook cell tools', () => {
             expect(targetProp(state, 'code')).toBe('select 2 as x')
             expect(targetProp(state, 'outputTab')).toBe('visualization')
             expect(targetProp(state, 'vizQuery')).toMatchObject({ display: 'ActionsPie' })
+        })
+
+        it('update cell keeps the chart settings it was sent that the schema does not list', async () => {
+            const state = makeState(`# Doc\n\n<SQLV2 nodeId="target" code="select 1 as x" returnVariable="df" />\n`)
+            const context = createMockContext(state)
+            const chartSettings = {
+                yAxis: [{ column: 'x', settings: { display: { color: 'preset-2' }, formatting: { style: 'number' } } }],
+                yAxisAtZero: false,
+            }
+            const tableSettings = {
+                columns: [{ column: 'x' }],
+                conditionalFormatting: [{ id: 'rule-1', columnName: 'x', input: '10', color: '#ff0000' }],
+            }
+            const params = NotebooksUpdateCellSchema.parse({
+                notebook_id: 'aBcD1234',
+                node_id: 'target',
+                visualization: { display: 'ActionsTable', chartSettings, tableSettings },
+            })
+
+            await updateCellHandler(context, params)
+
+            expect(targetProp(state, 'vizQuery')).toEqual({
+                kind: 'DataVisualizationNode',
+                display: 'ActionsTable',
+                chartSettings,
+                tableSettings,
+            })
         })
 
         it.each(['WorldMap', 'TwoDimensionalHeatmap'])(

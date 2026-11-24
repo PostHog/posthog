@@ -819,7 +819,7 @@ def _run_plans(
     team: Team, insight_ids: list[int], config: AnomalyScoringConfig, now: datetime.datetime
 ) -> dict[int, RunPlan]:
     insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
-    states = load_states(team, insights) if config.train_score_split else {}
+    states = load_states(team, insights, config.ai_judge) if config.train_score_split else {}
     plans = {insight.id: plan_run(insight, team, states.get(insight.id), config, now) for insight in insights}
     # An insight that no longer exists sends no query, but one query is the safe charge.
     missing = RunPlan(queries=1, run=ScoringRun.TRAIN if config.train_score_split else None)

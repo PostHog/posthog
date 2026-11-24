@@ -56,6 +56,7 @@ const meta: Meta = {
                     generation: { total_spend: 162.75, incomplete: false },
                     implementation: { total_spend: 490, incomplete: true },
                     shared_scout_runs: { total_spend: 46.25, incomplete: false },
+                    scout_authored: true,
                 },
             },
         }),

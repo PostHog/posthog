@@ -645,6 +645,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
         ),
+    pr_targets: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report."
+        ),
     priority: zod
         .string()
         .optional()

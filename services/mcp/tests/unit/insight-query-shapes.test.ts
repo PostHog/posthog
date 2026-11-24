@@ -15,16 +15,37 @@ const BARE_TRENDS_QUERY = {
 const acceptedQueries = [
     {
         shape: 'wrapped InsightVizNode',
-        query: { kind: 'InsightVizNode', source: BARE_TRENDS_QUERY },
+        query: {
+            kind: 'InsightVizNode',
+            showHeader: true,
+            source: BARE_TRENDS_QUERY,
+            vizSpecificOptions: { RETENTION: { hideLineGraph: true } },
+        },
     },
     {
         shape: 'wrapped DataVisualizationNode',
         query: {
             kind: 'DataVisualizationNode',
+            version: 1,
             source: { kind: 'HogQLQuery', query: 'select 1 as value' },
-            chartSettings: { legendPosition: 'bottom', showAnnotations: true },
+            chartSettings: {
+                legendPosition: 'bottom',
+                showAnnotations: true,
+                yAxisAtZero: true,
+                goalLines: [{ label: 'Target', value: 10, borderColor: '#ff0000' }],
+            },
             tableSettings: {
-                columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
+                columns: [{ column: 'value', settings: { display: { description: 'Value in USD', label: 'Value' } } }],
+                conditionalFormatting: [
+                    {
+                        id: 'rule-1',
+                        templateId: 'less_than',
+                        columnName: 'value',
+                        bytecode: ['_H', 1, 32, 'input'],
+                        input: '0',
+                        color: '#ff0000',
+                    },
+                ],
             },
         },
     },

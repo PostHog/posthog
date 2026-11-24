@@ -73,6 +73,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.variant_distribution import is_evenly_distributed
+from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
@@ -135,11 +136,6 @@ SDK_PROFILE_WINDOW_DAYS: Final = 7
 SDK_ANY_EVENT_WINDOW_DAYS: Final = 1
 TARGET_WINDOW_DAYS: Final = 14
 SDK_PROFILE_MAX_LIBS: Final = 10
-# The event properties that the SDK profile's queries read. Keep it in step with `_compute_sdk_profile` and
-# `_libs_on_any_event`: `build_project_setup_facts` skips the profile for a reader denied one of them.
-SDK_PROFILE_PROPERTIES: Final[frozenset[str]] = frozenset(
-    {"$feature_flag", "$feature_flag_response", "$lib", "locally_evaluated", "$device_id", "$is_identified"}
-)
 TARGET_SURFACE_MAX_LIBS: Final = 5
 DEFAULT_LIST_LIMIT: Final = 10
 MAX_LIST_LIMIT: Final = 25
@@ -430,29 +426,6 @@ class ExperimentSetupContext:
 
 # A skipped section never runs a provider, so the observer never hears about it.
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
-
-
-@frozen
-class ProjectSetupFacts:
-    """The sections of the setup context that describe the project as it is, without a planned experiment."""
-
-    team_defaults: SetupContextSection[TeamDefaults]
-    sdk_profile: SetupContextSection[SdkProfile]
-
-
-def build_project_setup_facts(
-    team: Team, *, can_query_events: bool, denied_event_properties: frozenset[str]
-) -> ProjectSetupFacts:
-    """The team's experiment defaults and its SDK profile. The SDK profile queries events across the project without
-    the reader and is cached for every reader, so it is skipped for a reader who may not query events or is denied a
-    property it reads."""
-    may_read_sdk_profile = can_query_events and not (denied_event_properties & SDK_PROFILE_PROPERTIES)
-    return ProjectSetupFacts(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team))
-        if may_read_sdk_profile
-        else SetupContextSection(status=SetupContextSectionStatus.SKIPPED),
-    )
 
 
 def build_setup_context(
@@ -1084,6 +1057,9 @@ def _outcome_metric(experiment: Experiment, team_config: TeamExperimentsConfig) 
     that a funnel or a mean wins over a retention or a ratio: only their sample counts are the
     analyzed population, which is the fact the outcome exists to carry.
     """
+    # A warehouse-native result goes only to a reader who can read its connection, and this section has no reader.
+    if warehouse_native_exposure_config(experiment.exposure_criteria) is not None:
+        return None
     candidates = [
         OutcomeMetric(
             calculation_config=calculation_config, metric_type=str(calculation_config.definition["metric_type"])

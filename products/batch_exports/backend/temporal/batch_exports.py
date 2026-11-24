@@ -44,6 +44,7 @@ from products.batch_exports.backend.temporal.metrics import get_export_finished_
 from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
+    EXTRACTED_FIELD_EXPRESSIONS,
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -337,7 +338,10 @@ def iter_records(
     if use_new_events_schema and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
         query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in select_fields)
+        query_fields = ",".join(
+            f"{EXTRACTED_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+            for field in select_fields
+        )
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

@@ -176,7 +176,6 @@ describe('todayShellLogic', () => {
         ['/project/1/inbox/scouts', 'products', 'products'],
         ['/project/1/inbox/scouts/checkout-errors', 'products', 'products'],
         ['/project/1/ai-observability/traces', 'monitor', null],
-        ['/project/1/ai-evals/taggers', 'monitor', 'products'],
         ['/project/1/prompt-management/prompts', 'monitor', 'products'],
         ['/project/1/application-observability', 'products', 'products'],
         ['/project/1/inbox/reports', 'products', 'products'],

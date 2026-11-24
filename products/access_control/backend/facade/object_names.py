@@ -3,7 +3,7 @@
 The registry (`resources_with_object_access_controls`) walks the registered routes, so it cannot
 drift from the code: a viewset opts in by mixing in AccessControlViewSetMixin, which stamps the
 `object_access_controls` marker this module keys on. The naming helpers build the display names
-the settings UI and the resolution preview show for object rules.
+the settings UI shows for object rules.
 """
 
 from collections.abc import Callable, Collection

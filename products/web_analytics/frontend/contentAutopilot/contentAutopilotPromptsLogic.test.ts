@@ -81,7 +81,7 @@ describe('contentAutopilotPromptsLogic', () => {
         })
 
         // The date range and the engine only narrow the needs improvement view.
-        filters.actions.setDays(7, 'prompts')
+        filters.actions.setDates('-7d', null, 'prompts')
         filters.actions.setEngine('exa-answer', 'prompts')
         await expectLogic(logic).toFinishAllListeners()
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
@@ -104,7 +104,7 @@ describe('contentAutopilotPromptsLogic', () => {
             include_archived: true,
             branded: undefined,
             needs_improvement: true,
-            days: 7,
+            date_from: '-7d',
             engine: 'exa-answer',
         })
     })

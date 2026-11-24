@@ -25,10 +25,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from products.slack_app.backend.services.model_catalogue import (
-    ModelChoice,
     available_model_choices,
     filter_unsupported_effort,
-    normalize_model_id,
+    find_model_choice,
     runtime_adapter_for,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
@@ -223,14 +222,6 @@ def resolve_live_run_override(
         model=target_model if requested and requested.model != model else None,
         reasoning_effort=effort if effort and effort != reasoning_effort else None,
     )
-
-
-def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
-    """Match a requested model id against the catalogue, case-insensitively."""
-    if not model:
-        return None
-    normalized = normalize_model_id(model)
-    return next((c for c in choices if normalize_model_id(c.model) == normalized), None)
 
 
 __all__ = [

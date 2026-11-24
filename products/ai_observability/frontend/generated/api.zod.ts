@@ -828,6 +828,18 @@ export const EvaluationSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object
         ),
 })
 
+/**
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
+ */
+export const EvaluationSuggestionsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project.'
+        ),
+})
+
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
