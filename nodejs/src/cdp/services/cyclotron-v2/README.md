@@ -7,7 +7,7 @@ TypeScript job queue backed by PostgreSQL, using `pg` directly.
 Lives in a **separate database** (`cyclotron_node`) with its own migrations
 in `rust/cyclotron-node-migrations/`.
 Run them with `rust/bin/migrate-cyclotron-node`.
-An interrupted `CREATE INDEX CONCURRENTLY` leaves its index INVALID, and the next run rebuilds it, so a failed index migration recovers when the deploy runs the migrations again.
+An interrupted `CREATE INDEX CONCURRENTLY` leaves its index INVALID, and a rerun's `IF NOT EXISTS` skips it. Check `pg_index.indisvalid` after an index migration deploys, and rebuild an invalid index with `REINDEX INDEX CONCURRENTLY`.
 
 Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).

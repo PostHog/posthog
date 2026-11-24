@@ -7,7 +7,7 @@
 -- every waiting send with files, future ones included, to find the due ones.
 --
 -- An interrupted build leaves the index INVALID, and the rerun's IF NOT EXISTS skips it.
--- rust/bin/migrate-entry rebuilds it after the migrations run.
+-- Rebuild it with REINDEX INDEX CONCURRENTLY.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cyclotron_jobs_email_files_due
     ON cyclotron_jobs (priority, scheduled)
     WHERE status = 'available' AND queue_name = 'email' AND file_bytes IS NOT NULL;

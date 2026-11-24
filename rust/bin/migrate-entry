@@ -100,46 +100,6 @@ run_persons_migrations() {
     fi
 }
 
-# An interrupted CREATE INDEX CONCURRENTLY leaves its index INVALID, and the planner does not use it.
-# The rerun's IF NOT EXISTS skips the existing index and sqlx records the migration as applied, so no later
-# run builds it again. This step rebuilds each INVALID index that a migration in $2 builds concurrently, and
-# drops the INVALID copies (<name>_ccnew, <name>_ccold) that an interrupted REINDEX CONCURRENTLY leaves.
-# A failed step fails the run, and the next run repeats it.
-# Each statement goes in its own psql call because the CONCURRENTLY forms cannot run in a transaction block.
-rebuild_invalid_concurrent_indexes() {
-    local database_url="$1"
-    local source="$2"
-    local db_type="$3"
-
-    local names
-    names=$(grep -ohiE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY +(IF +NOT +EXISTS +)?[a-z0-9_]+' "$source"/*.sql \
-        | awk '{ print $NF }' | sort -u | paste -sd, -)
-    [ -n "$names" ] || return 0
-
-    local statements
-    statements=$(psql "$database_url" -X -q -t -A -v ON_ERROR_STOP=1 -v names="{$names}" <<'SQL'
-SELECT CASE WHEN c.relname = ANY (:'names'::text[])
-            THEN format('REINDEX INDEX CONCURRENTLY %I.%I', n.nspname, c.relname)
-            ELSE format('DROP INDEX CONCURRENTLY IF EXISTS %I.%I', n.nspname, c.relname)
-       END
-FROM pg_index i
-JOIN pg_class c ON c.oid = i.indexrelid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE NOT i.indisvalid
-  AND (c.relname = ANY (:'names'::text[])
-       OR substring(c.relname FROM '^(.*)_cc(?:new|old)[0-9]*$') = ANY (:'names'::text[]))
-ORDER BY c.relname = ANY (:'names'::text[]), c.relname
-SQL
-)
-
-    local statement
-    while IFS= read -r statement; do
-        [ -n "$statement" ] || continue
-        log_json "info" "Repairing an invalid index" "running" "$db_type" "\"statement\":\"$statement\""
-        psql "$database_url" -X -q -v ON_ERROR_STOP=1 -c "$statement"
-    done <<< "$statements"
-}
-
 run_cyclotron_node_migrations() {
     local db_type="cyclotron-node"
     CYCLOTRON_NODE_DATABASE_NAME=${CYCLOTRON_NODE_DATABASE_NAME:-cyclotron_node}
@@ -155,7 +115,6 @@ run_cyclotron_node_migrations() {
         log_json "info" "Database created or already exists" "running" "$db_type"
 
         sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-node-migrations/"
-        rebuild_invalid_concurrent_indexes "$CYCLOTRON_NODE_DATABASE_URL" "$MIGRATIONS_BASE/cyclotron-node-migrations" "$db_type"
         log_json "info" "Migrations completed successfully" "completed" "$db_type"
     fi
 }
