@@ -441,6 +441,40 @@ class TestRowTracking(BaseTest):
             finally:
                 await finish_row_tracking(self.team.pk, schema.id)
 
+    @parameterized.expand(
+        [
+            ("seed_billed", "both", True, True),
+            ("seed_free", "both", False, False),
+            # The seed is the history-only table's one table, already counted once.
+            ("history_only", "cdc_only", True, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_cdc_snapshot_counts_a_billed_history_seed(self, _name, table_mode, flag_on, hits_the_limit):
+        source = await self._create_source()
+        schema = await sync_to_async(ExternalDataSchema.objects.create)(
+            team=self.team,
+            source=source,
+            name=str(uuid.uuid4()),
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": table_mode},
+            initial_sync_complete=False,
+        )
+
+        async with self._billing_check_environment(limit=25):
+            try:
+                with mock.patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.history_billing.feature_enabled_or_false",
+                    return_value=flag_on,
+                ):
+                    if hits_the_limit:
+                        with pytest.raises(BillingLimitsWillBeReachedException):
+                            await self._start_sync(schema, rows_to_sync=20)
+                    else:
+                        await self._start_sync(schema, rows_to_sync=20)
+            finally:
+                await finish_row_tracking(self.team.pk, schema.id)
+
     @pytest.mark.asyncio
     async def test_row_tracking_with_previous_rows_from_other_team_in_org(self):
         another_team = await sync_to_async(Team.objects.create)(organization=self.organization)

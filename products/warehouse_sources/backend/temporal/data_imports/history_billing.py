@@ -22,3 +22,8 @@ def history_lane_billable(schema: "ExternalDataSchema", *, history_only: bool) -
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
     )
+
+
+def history_seed_billable(schema: "ExternalDataSchema") -> bool:
+    """Whether the rows a snapshot seeds into the history table bill again, beside the main table that holds them."""
+    return schema.cdc_table_mode == "both" and history_lane_billable(schema, history_only=False)

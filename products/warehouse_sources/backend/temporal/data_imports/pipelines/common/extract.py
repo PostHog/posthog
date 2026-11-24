@@ -19,6 +19,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.billing import is_in_free_historical_window
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.temporal.data_imports.history_billing import history_seed_billable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DUPLICATE_PRIMARY_KEYS_ERROR,
@@ -482,7 +483,15 @@ async def setup_row_tracking_with_billing_check(
         return
 
     # Every billed table takes each row the run reads, so a billed history table counts them again.
-    rows = resource.rows_to_sync * max(1, sum(lane.billable for lane in resource.lanes or ()))
+    billed_tables = max(1, sum(lane.billable for lane in resource.lanes or ()))
+    # A CDC snapshot copies its rows into a billed history table as the table's seed.
+    if (
+        schema.is_cdc
+        and not schema.initial_sync_complete
+        and await database_sync_to_async_pool(history_seed_billable)(schema)
+    ):
+        billed_tables += 1
+    rows = resource.rows_to_sync * billed_tables
     await increment_rows(team_id, schema.id, rows)
     if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
         raise BillingLimitsWillBeReachedException(
