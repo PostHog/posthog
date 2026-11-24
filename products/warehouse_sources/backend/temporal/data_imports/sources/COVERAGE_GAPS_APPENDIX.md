@@ -7923,7 +7923,7 @@ Note: Parsed the official Swagger resource index and individual JSON definitions
 
 ## Intercom — gaps
 
-Today (30): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+Today (34): `activity_logs`, `admins`, `articles`, `audiences`, `calls`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contact_notes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_handling_events`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `data_connectors`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
 
 Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
 
@@ -7944,16 +7944,16 @@ These endpoints were announced in the 2.17 changelog and are only in the 2.17 de
 
 Re-audited 2026-11-19 against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.17/api.intercom.io.yaml>
 
-- [ ] `Calls (GET /calls)` — Phone call records with timing and outcome, for call volume and handling analysis next to conversations (high)
-- [ ] `Contact notes (GET /contacts/{contact_id}/notes)` — Internal notes teammates write on the contacts we sync, fanned out over contacts (medium)
+- [x] `Calls (GET /calls)` — Phone call records with timing and outcome, for call volume and handling analysis next to conversations (high). Added as `calls` for sources pinned to 2.15 or later, full refresh (no timestamp filter).
+- [x] `Contact notes (GET /contacts/{contact_id}/notes)` — Internal notes teammates write on the contacts we sync, fanned out over contacts (medium). Added as `contact_notes`, fanned out over the contacts search, full refresh because a new note does not reliably move the contact's `updated_at`.
 - [ ] `Company notes (GET /companies/{company_id}/notes)` — Internal notes on the companies we sync, fanned out over companies (low)
-- [ ] `Conversation handling events (GET /conversations/{id}/handling_events)` — Assignment, Fin and teammate handling history per conversation, fanned out over conversations (medium)
+- [x] `Conversation handling events (GET /conversations/{id}/handling_events)` — Assignment, Fin and teammate handling history per conversation, fanned out over conversations (medium). Added as `conversation_handling_events` for sources pinned to 2.15 or later. The endpoint returns only teammate pause and resume events, not assignment or Fin history. Incremental on the parent's `updated_at`, like `conversation_hitl_events`.
 - [ ] `Brands (GET /brands)` — Workspace brands, a lookup for multi-brand setups (low)
 - [ ] `Away status reasons (GET /away_status_reasons)` — Lookup for the reasons an admin can set when away; admins carry away mode state (low)
 - [ ] `Office hours schedules (GET /office_hours_schedules; GET /office_hours_schedules/{id}/office_hours_exceptions)` — Support hours and exceptions, context for response and SLA metrics (low)
 - [ ] `Internal articles (GET /internal_articles)` — Internal knowledge articles for teammates, separate from public articles (low)
 - [ ] `Article versions (GET /articles/{article_id}/versions)` — Edit history of the articles we sync, fanned out over articles (low)
-- [ ] `Data connectors (GET /data_connectors)` — Definitions of external data connectors used by Fin and workflows (low)
+- [x] `Data connectors (GET /data_connectors)` — Definitions of external data connectors used by Fin and workflows (low). Added as `data_connectors` for sources pinned to 2.16 or later, full refresh (no timestamp filter).
 
 Note (2026-11-19): Parsed the 2.17 OpenAPI description by regex over every GET and search path, and compared with the 30 tables. The routes above also exist in 2.16. Excluded: events (needs a user per call), contact tags, segments and companies fan-outs (covered by tags, segments, company_segments), search POSTs (duplicates of list tables), side conversations, merge histories, export and download jobs, content import sources, external pages, email settings and single-record GETs. Most are fan-outs and may need a parent id per call.
 
