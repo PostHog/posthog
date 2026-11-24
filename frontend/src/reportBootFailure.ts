@@ -1,5 +1,4 @@
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { redactMetricVariableUrl } from 'lib/utils/metricVariableUrlRedaction'
 
 function getDistinctId(apiKey: string): string | undefined {
     let distinctId: string | undefined
@@ -12,11 +11,19 @@ function getDistinctId(apiKey: string): string | undefined {
     return distinctId
 }
 
+function sendBeacon(url: string, payload: string): boolean {
+    try {
+        return typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload)
+    } catch {
+        return false
+    }
+}
+
 function sendBootFailure(host: string, payload: string): void {
     // A string body goes out as text/plain: CORS-safelisted (no preflight) and accepted by
     // the capture endpoints. sendBeacon delivery survives the page unloading under a reload.
     const url = `${host}/e/`
-    if (!(typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload))) {
+    if (!sendBeacon(url, payload)) {
         void fetch(url, { method: 'POST', body: payload, keepalive: true }).catch(() => {})
     }
 }
@@ -42,7 +49,8 @@ export function reportBootFailure(error: unknown): void {
             properties: {
                 // Personless event: don't create person profiles from anonymous boot beacons
                 $process_person_profile: false,
-                $current_url: redactMetricVariableUrl(window.location.href),
+                // Origin only: the path can carry a credential, such as the token in /reset/<uuid>/<token>
+                $current_url: window.location.origin,
                 $exception_level: 'fatal',
                 $exception_list: [
                     {

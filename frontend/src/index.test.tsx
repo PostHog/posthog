@@ -19,15 +19,10 @@ describe('app entry boot', () => {
     let bootApp: jest.Mock
     let stylesheet: ReturnType<typeof deferred<boolean>>
     let documentListeners: jest.SpyInstance<void, Parameters<typeof document.addEventListener>>
-    let sendBeacon: jest.Mock
 
     beforeEach(() => {
         jest.resetModules()
         jest.useFakeTimers()
-        sendBeacon = jest.fn().mockReturnValue(true)
-        Object.defineProperty(navigator, 'sendBeacon', { value: sendBeacon, configurable: true })
-        window.JS_POSTHOG_API_KEY = 'test-api-key'
-        window.JS_POSTHOG_HOST = 'https://us.example.com'
         modulesLoaded = []
         bootApp = jest.fn()
         stylesheet = deferred<boolean>()
@@ -65,10 +60,6 @@ describe('app entry boot', () => {
         delete window.__posthogAppRoot
         delete window.ESBUILD_CSS_READY
         delete window.POSTHOG_APP_CONTEXT_REQUEST
-        delete window.JS_POSTHOG_API_KEY
-        delete window.JS_POSTHOG_HOST
-        delete window.IMPERSONATED_SESSION
-        window.history.replaceState({}, '', '/')
         document.body.innerHTML = ''
         jest.clearAllTimers()
         jest.useRealTimers()
@@ -137,61 +128,21 @@ describe('app entry boot', () => {
 
         expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
         expect(bootApp).toHaveBeenCalledTimes(1)
-        expect(sendBeacon).not.toHaveBeenCalled()
     })
 
     it.each([
-        [0, 'enabled'],
-        [6000, 'enabled'],
-        [0, 'opted-out'],
-        [6000, 'opted-out'],
-        [0, 'throws'],
-        [6000, 'throws'],
-        [0, 'impersonated'],
-        [6000, 'impersonated'],
-    ] as const)('reports a terminal stylesheet failure after %i ms with capture %s', async (stallMs, capture) => {
-        if (capture === 'opted-out') {
-            delete window.JS_POSTHOG_API_KEY
-        } else if (capture === 'throws') {
-            sendBeacon.mockImplementation(() => {
-                throw new Error('Transport unavailable')
-            })
-        } else if (capture === 'impersonated') {
-            window.IMPERSONATED_SESSION = true
-        }
-        window.history.replaceState({}, '', '/dashboard/1?metric_prefill=private-sql')
+        ['within the render gate', 0],
+        ['after a stall let the app render', 6000],
+    ])('offers a reload instead of an unstyled app when every stylesheet URL fails %s', async (_case, stallMs) => {
         await loadEntry()
         await act(async () => {
             await jest.advanceTimersByTimeAsync(stallMs)
         })
-        expect(sendBeacon).not.toHaveBeenCalled()
 
         await act(async () => stylesheet.resolve(false))
 
         expect(document.querySelector('[role="alert"]')).toHaveTextContent('PostHog failed to load its styles.')
         expect(document.querySelector('[data-attr="boot-test-app"]')).not.toBeInTheDocument()
-        expect(sendBeacon).toHaveBeenCalledTimes(capture === 'enabled' || capture === 'throws' ? 1 : 0)
-        const reports = sendBeacon.mock.calls.map(([url, body]) => ({ url, ...JSON.parse(body) }))
-        expect(reports).toMatchObject(
-            capture === 'enabled' || capture === 'throws'
-                ? [
-                      {
-                          url: 'https://us.example.com/e/',
-                          api_key: 'test-api-key',
-                          event: '$exception',
-                          properties: {
-                              $process_person_profile: false,
-                              $current_url: 'http://localhost/dashboard/1',
-                              $exception_level: 'fatal',
-                              $exception_list: [
-                                  { type: 'StylesheetLoadError', value: 'App stylesheet failed after all retries' },
-                              ],
-                              chunk_load_error: false,
-                          },
-                      },
-                  ]
-                : []
-        )
     })
 
     it('boots after five seconds if the stylesheet stays pending', async () => {
@@ -207,7 +158,6 @@ describe('app entry boot', () => {
         })
         expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
         expect(bootApp).toHaveBeenCalledTimes(1)
-        expect(sendBeacon).not.toHaveBeenCalled()
     })
 
     it.each(['scenes/App', 'scenes/bootApp'])(

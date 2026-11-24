@@ -52,7 +52,7 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                 console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
                 try {
                     var apiKey = window.JS_POSTHOG_API_KEY;
-                    if (!apiKey) { return; }
+                    if (!apiKey || window.IMPERSONATED_SESSION) { return; }
                     var host = window.JS_POSTHOG_HOST || window.location.origin;
                     var distinctId;
                     try {
@@ -84,7 +84,11 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     });
                     // A string body goes out as text/plain: CORS-safelisted and accepted by capture.
                     var url = host + '/e/';
-                    if (!(typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload))) {
+                    var sent = false;
+                    try {
+                        sent = typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(url, payload);
+                    } catch (e) {}
+                    if (!sent) {
                         fetch(url, { method: 'POST', body: payload, keepalive: true }).catch(function () {});
                     }
                 } catch (e) {
