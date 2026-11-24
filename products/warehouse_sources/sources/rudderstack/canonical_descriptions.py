@@ -106,4 +106,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metrics": "Counts of changed, succeeded, and failed records.",
         },
     },
+    "tracking_plan_events": {
+        "description": "Events in each tracking plan, with the rules that validate them.",
+        "docs_url": "https://www.rudderstack.com/docs/api/data-catalog-api/tracking-plans/",
+        "columns": {
+            "id": "Catalog event identifier.",
+            "tracking_plan_id": "Tracking plan identifier.",
+            "eventType": "Event type.",
+            "additionalProperties": "Whether the plan accepts properties that its rules do not define.",
+        },
+    },
+    "custom_types": {
+        "description": "Reusable custom data types that catalog properties can reference.",
+        "docs_url": "https://www.rudderstack.com/docs/api/data-catalog-api/data-catalog/",
+        "columns": {
+            "id": "Custom type identifier.",
+            "name": "Custom type name.",
+            "type": "Data type of the custom type.",
+            "config": "Validation rules of the custom type.",
+            "version": "Custom type version.",
+        },
+    },
+    "regulations": {
+        "description": "User suppression and deletion requests.",
+        "docs_url": "https://www.rudderstack.com/docs/api/user-suppression-api/",
+        "columns": {
+            "id": "Regulation identifier.",
+            "regulationType": "Regulation type, suppress or suppress_with_delete.",
+            "canceled": "Whether the regulation is canceled.",
+            "attributes": "User identifiers that the regulation applies to.",
+        },
+    },
+    "event_metrics_usage": {
+        "description": "Daily event counts for each source in the organization. "
+        "Requires an organization Service Access Token.",
+        "docs_url": "https://www.rudderstack.com/docs/api/organization-usage-api/",
+        "columns": {
+            "workspaceId": "Workspace that owns the source.",
+            "sourceId": "Source identifier.",
+            "sourceCategory": "Source category, such as eventStream, reverseEtl, or etl.",
+            "bucket": "UTC start date of the daily bucket.",
+            "count": "Number of events in the bucket.",
+            "deleted": "Whether the source was deleted after it sent events in the bucket.",
+        },
+    },
 }

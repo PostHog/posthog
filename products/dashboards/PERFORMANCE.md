@@ -221,7 +221,7 @@ Both carry `grid_engine`, which names the grid implementation, so a flag rollout
 - `dashboard tile repositioned` covers one tile move or resize. It reports frame gaps during the gesture (`frame_gap_p95_ms`, `frame_gap_max_ms`, `slow_frame_count` for gaps over 33 ms) and `release_to_paint_ms`, the time from release until the new layout paints.
 
 Compare frame gaps and release time, not `gesture_duration_ms`.
-A tile released mid-drag or mid-resize keeps following the pointer until the next click, so the duration includes the time the user carries the tile.
+A tile picked up with a click, or a resize handle clicked in place, keeps following the pointer until the next click, so the duration includes the time the user carries the tile.
 Split the results by `input`, because a click gesture and a held drag have different durations.
 Compare dashboards with a similar tile count, because large dashboards set the slow tail.
 

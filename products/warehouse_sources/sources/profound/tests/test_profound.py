@@ -160,23 +160,60 @@ class TestReferenceEndpoints:
 
         assert [row["id"] for row in result.rows] == ["1"]
 
-    @parameterized.expand([("CitationCategories", "citation-categories"), ("CitationTags", "citation-tags")])
-    def test_per_category_endpoints_fan_out_and_stamp_the_category(self, endpoint: str, path_segment: str) -> None:
-        # The rows carry only `value` and `name`, which repeat across categories, so `category_id`
-        # has to come from the request for the primary key to be unique.
+    @parameterized.expand(
+        [
+            ("CitationCategories", "citation-categories", "value", True),
+            ("CitationTags", "citation-tags", "value", True),
+            # Topics and tags return a bare array where the citation lists wrap theirs in `data`.
+            ("Topics", "topics", "id", False),
+            ("Tags", "tags", "id", False),
+        ]
+    )
+    def test_per_category_endpoints_fan_out_and_stamp_the_category(
+        self, endpoint: str, path_segment: str, key: str, wrapped: bool
+    ) -> None:
+        # The rows do not echo their category, and their keys can repeat across categories, so
+        # `category_id` has to come from the request for the primary key to be unique.
+        rows = [{key: "owned", "name": "Owned"}]
+        body: Any = {"data": rows} if wrapped else rows
         result = _driver().run(
             endpoint,
             [
                 _json_response([{"id": "c1"}, {"id": "c2"}]),
-                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
-                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
+                _json_response(body),
+                _json_response(body),
             ],
         )
 
         assert result.paths[1].endswith(f"/v1/org/categories/c1/{path_segment}")
         assert result.paths[2].endswith(f"/v1/org/categories/c2/{path_segment}")
-        assert [(row["category_id"], row["value"]) for row in result.rows] == [("c1", "owned"), ("c2", "owned")]
+        assert [(row["category_id"], row[key]) for row in result.rows] == [("c1", "owned"), ("c2", "owned")]
         assert all("_Categories_id" not in row for row in result.rows)
+
+    def test_prompts_walk_every_cursor_page_of_every_category(self) -> None:
+        result = _driver().run(
+            "Prompts",
+            route(
+                {
+                    CATEGORIES_PATH: _categories("c1", "c2"),
+                    "/v1/org/categories/c1/prompts": [
+                        _report_response([{"id": "p1"}], next_cursor="cur1"),
+                        _report_response([{"id": "p2"}]),
+                    ],
+                    "/v1/org/categories/c2/prompts": [_report_response([{"id": "p3"}])],
+                }
+            ),
+        )
+
+        assert [(row["category_id"], row["id"]) for row in result.rows] == [("c1", "p1"), ("c1", "p2"), ("c2", "p3")]
+        prompt_requests = [request for request in result.requests if request.path.endswith("/prompts")]
+        assert [request.param("cursor") for request in prompt_requests] == [None, "cur1", None]
+        # The API returns only active prompts unless both statuses are asked for.
+        assert all(request.query["status"] == ("active", "disabled") for request in prompt_requests)
+        assert all(
+            (request.param("order_by"), request.param("order_dir")) == ("created_at", "asc")
+            for request in prompt_requests
+        )
 
 
 class TestSourceResponseShape:
@@ -185,6 +222,7 @@ class TestSourceResponseShape:
             ("Visibility", ["category_id", "date", "asset_name"]),
             ("Citations", ["category_id", "date", "domain"]),
             ("Categories", ["id"]),
+            ("Prompts", ["category_id", "id"]),
         ]
     )
     def test_primary_keys(self, endpoint: str, expected: list[str]) -> None:

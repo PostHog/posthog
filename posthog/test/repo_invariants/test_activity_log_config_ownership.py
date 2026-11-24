@@ -1,13 +1,8 @@
 """A scope's activity-log tuning is registered once, and owned by the team that owns its model.
 
 Tuning lives next to the model in a data-only module (`activity_log_config.py`) which
-`posthog/models/activity_logging/activity_log.py` merges. That placement is what gives the owning
-product team review rights over its own diff config, so a module dropped into another team's tree
-would silently hand those rights to the wrong people.
-
-Registering a module in `activity_log_config_registry.py` is mechanical, so that file is deliberately
-unowned and a product adding one needs no review from the activity log's owners. This guard is what
-makes that safe.
+`posthog/models/activity_logging/activity_log.py` merges. The guard catches misplaced or unloaded
+configs because they can silently change reviews or activity-log output.
 """
 
 import os
@@ -22,6 +17,7 @@ from django.test import SimpleTestCase
 from owners_yaml import OwnersResolver
 
 from posthog.models.activity_logging import activity_log_config_registry
+from posthog.models.activity_logging.activity_log import _SCOPE_CONFIG_MODULES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_ATTRIBUTES = (
@@ -83,10 +79,10 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
 
         assert assignments == 1, f"{registry_path}: expected exactly one MODULES assignment, found {assignments}."
 
-    def test_every_config_module_in_the_tree_is_registered(self) -> None:
-        registered = {_repo_path(module) for module in activity_log_config_registry.MODULES}
+    def test_every_config_module_in_the_tree_is_loaded(self) -> None:
+        loaded = {_repo_path(module) for module in _SCOPE_CONFIG_MODULES}
         in_tree = _tuning_modules_in_tree()
-        for config_path in sorted(registered | in_tree):
+        for config_path in sorted(loaded | in_tree):
             parts = Path(config_path).parts
             if parts[0] == "products":
                 assert len(parts) == 4 and parts[2:] == ("backend", "activity_log_config.py"), (
@@ -94,14 +90,15 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
                     'so load_product_modules("activity_log_config") can discover them.'
                 )
 
-        assert registered == in_tree, (
-            f"A tuning module is not registered: {sorted(in_tree - registered)}. Import it in "
-            "posthog/models/activity_logging/activity_log_config_registry.py and add it to MODULES. "
-            f"Registered modules outside the scanned config paths: {sorted(registered - in_tree)}."
+        assert loaded == in_tree, (
+            f"Unloaded tuning modules: {sorted(in_tree - loaded)}. "
+            "Product configs load from installed apps. Add core configs to "
+            "MODULES in posthog/models/activity_logging/activity_log_config_registry.py. "
+            f"Loaded modules outside the scanned config paths: {sorted(loaded - in_tree)}."
         )
 
     def test_config_modules_only_define_known_settings(self) -> None:
-        for module in activity_log_config_registry.MODULES:
+        for module in _SCOPE_CONFIG_MODULES:
             unknown = {name for name in vars(module) if name.isupper()} - set(CONFIG_ATTRIBUTES)
             assert not unknown, (
                 f"{_repo_path(module)}: unknown activity-log settings {sorted(unknown)}. "
@@ -113,7 +110,7 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
         resolution = OwnersResolver(repo_root=REPO_ROOT).resolve(registry_path)
         assert resolution.unowned_by_design, (
             f"{registry_path} resolves to {resolution.owners}. Mark it `owners: null` in "
-            "posthog/models/owners.yaml: a product registering its own tuning must not need that team's review."
+            "posthog/models/owners.yaml: a model team registering its own tuning must not need that team's review."
         )
 
     def test_a_scope_is_tuned_by_the_team_that_owns_its_model(self) -> None:
@@ -121,7 +118,7 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
         model_by_scope = {model.__name__: model for model in apps.get_models()}
         checked = 0
 
-        for module in activity_log_config_registry.MODULES:
+        for module in _SCOPE_CONFIG_MODULES:
             config_path = _repo_path(module)
             config_owners = set(resolver.resolve(config_path).owners or [])
             assert config_owners, f"{config_path} has no owner, so nobody reviews its tuning"
