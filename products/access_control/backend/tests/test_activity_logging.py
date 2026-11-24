@@ -1,11 +1,22 @@
 from uuid import UUID
 
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.access_control.backend.activity_logging import AccessRuleNames, AccessRuleObject, access_rule_display_name
+from posthog.models.scoping import team_scope
+
+from products.access_control.backend.activity_logging import (
+    AccessRuleNames,
+    AccessRuleObject,
+    access_rule_display_name,
+    resolve_access_rule_names,
+)
 from products.access_control.backend.models.access_control import AccessControl
+from products.canvas.backend.models import Canvas
+from products.tasks.backend.models import Channel
 
 SUBJECT_ID = UUID("01900000-0000-0000-0000-000000000001")
 
@@ -40,3 +51,15 @@ class TestAccessRuleDisplayName(SimpleTestCase):
     ) -> None:
         names = AccessRuleNames(objects=objects, roles={}, members={})
         assert access_rule_display_name(rule, names) == expected
+
+
+class TestResolveAccessRuleNames(BaseTest):
+    def test_leaves_out_names_the_product_hides_from_some_members(self) -> None:
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(team=self.team, name="general")
+            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Private plans", created_by=self.user)
+        rule = AccessControl(team=self.team, resource="canvas", resource_id=str(canvas.id), access_level="viewer")
+
+        names = resolve_access_rule_names(team=self.team, rules=[rule])
+
+        assert access_rule_display_name(rule, names) == f"default access rule on canvas {canvas.id}"

@@ -294,6 +294,21 @@ class TestReplaceObjectAccessRules(_DashboardRulesTest):
 
         assert self._rules() == {}
 
+    def test_replacement_looks_up_the_object_name_once(self) -> None:
+        Dashboard.objects.filter(pk=self.dashboard.pk).update(name="Revenue")
+        roles = Role.objects.bulk_create([Role(name=f"Role {i}", organization=self.organization) for i in range(3)])
+
+        with CaptureQueriesContext(connection) as queries:
+            self._replace(*[contracts.ObjectAccessRuleInput(access_level="viewer", role_id=role.id) for role in roles])
+
+        dashboard_reads = [query for query in queries.captured_queries if 'FROM "posthog_dashboard"' in query["sql"]]
+        assert len(dashboard_reads) == 1
+        assert sorted(
+            ActivityLog.objects.filter(
+                scope="AccessControl", detail__context__resource_id=str(self.dashboard.id)
+            ).values_list("detail__name", flat=True)
+        ) == [f'access rule for role "Role {i}" on dashboard "Revenue"' for i in range(3)]
+
     @parameterized.expand([("unknown_level",), ("foreign_member",), ("foreign_role",), ("same_subject_twice",)])
     def test_rejects_invalid_rules_before_writing(self, case: str) -> None:
         other_org = Organization.objects.create(name="Other")

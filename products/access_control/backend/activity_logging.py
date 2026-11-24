@@ -6,7 +6,9 @@ persists who granted, changed, or removed access. Registered from ``apps.ready()
 
 import dataclasses
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -23,7 +25,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.scopes.catalog import APIScopeObject
 
-from products.access_control.backend.facade.object_names import resolve_object_names
+from products.access_control.backend.facade.object_names import has_own_object_visibility, resolve_object_names
 from products.access_control.backend.facade.user_access_control import resource_to_display_name
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
@@ -60,6 +62,10 @@ def _resolve_object_names(*, team: Team, object_ids: dict[str, set[str]]) -> dic
             # A project rule points at the team that owns the rule
             if str(team.pk) in ids:
                 objects[AccessRuleObject(resource=resource, resource_id=str(team.pk))] = team.name
+            continue
+        if has_own_object_visibility(resource):
+            # Every reader of the activity log sees access rule rows, so a name the product hides from some
+            # members stays out of them
             continue
         for resource_id, resolved in resolve_object_names(resource, sorted(ids), team.pk).items():
             if resolved.name:
@@ -100,6 +106,23 @@ def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> 
     return AccessRuleNames(objects=objects, roles=roles, members=members)
 
 
+_batch_names: ContextVar[AccessRuleNames | None] = ContextVar("access_rule_batch_names", default=None)
+
+
+@contextmanager
+def access_rule_names_for_batch(*, team: Team, rules: Iterable[AccessControl]) -> Iterator[None]:
+    """Resolve names once for rules that are saved or deleted one at a time inside the block.
+
+    Each save sends its own activity signal, so without this every rule looks up its names again.
+    Pass every rule the block writes: a rule that is missing gets ids in its entry.
+    """
+    token = _batch_names.set(resolve_access_rule_names(team=team, rules=rules))
+    try:
+        yield
+    finally:
+        _batch_names.reset(token)
+
+
 def access_rule_display_name(rule: AccessControl, names: AccessRuleNames) -> str:
     resource_label = rule.resource.replace("_", " ")
     if rule.resource_id is None:
@@ -131,6 +154,8 @@ def get_access_control_log_entry(
     rule = after_update or before_update
     if rule is None:
         return None
+    if names is None:
+        names = _batch_names.get()
     if names is None:
         names = resolve_access_rule_names(team=rule.team, rules=[rule])
 

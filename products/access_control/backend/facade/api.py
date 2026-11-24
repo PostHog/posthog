@@ -43,7 +43,11 @@ from posthog.models.user import User
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
-from products.access_control.backend.activity_logging import get_access_control_log_entry, resolve_access_rule_names
+from products.access_control.backend.activity_logging import (
+    access_rule_names_for_batch,
+    get_access_control_log_entry,
+    resolve_access_rule_names,
+)
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
@@ -627,6 +631,7 @@ def replace_object_access_rules(
 
     with transaction.atomic():
         kept: set[tuple[UUID | None, UUID | None]] = set()
+        to_delete: list[AccessControl] = []
         for existing in AccessControl.objects.select_for_update().filter(
             team_id=team_id, resource=resource, resource_id=resource_id
         ):
@@ -634,17 +639,24 @@ def replace_object_access_rules(
             if key not in kept and wanted.get(key) == existing.access_level:
                 kept.add(key)
             else:
-                existing.delete()
-        for (member_id, role_id), access_level in wanted.items():
-            if (member_id, role_id) not in kept:
-                AccessControl.objects.create(
-                    team_id=team_id,
-                    resource=resource,
-                    resource_id=resource_id,
-                    access_level=access_level,
-                    organization_member_id=member_id,
-                    role_id=role_id,
-                )
+                to_delete.append(existing)
+        to_create = [
+            AccessControl(
+                team=team,
+                resource=resource,
+                resource_id=resource_id,
+                access_level=access_level,
+                organization_member_id=member_id,
+                role_id=role_id,
+            )
+            for (member_id, role_id), access_level in wanted.items()
+            if (member_id, role_id) not in kept
+        ]
+        with access_rule_names_for_batch(team=team, rules=[*to_delete, *to_create]):
+            for stale_rule in to_delete:
+                stale_rule.delete()
+            for new_rule in to_create:
+                new_rule.save(force_insert=True)
 
 
 def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
