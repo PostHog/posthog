@@ -55,6 +55,7 @@ from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
+    ToolbarOAuthStateReplayError,
     build_authorization_url,
     build_toolbar_oauth_state,
     get_or_create_toolbar_oauth_application,
@@ -1929,17 +1930,11 @@ def toolbar_oauth_authorize(request):
         )
     except ToolbarOAuthError as exc:
         if exc.code == "forbidden_app_url":
-            parsed_redirect = urllib.parse.urlparse(redirect_url)
-            hostname = parsed_redirect.hostname or redirect_url
             return redirect_to_toolbar_oauth_error(
                 request,
                 title="Domain not authorized",
                 message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                detail=(
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                links_to_authorized_urls=True,
+                unauthorized_url=redirect_url,
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -2000,10 +1995,12 @@ def toolbar_oauth_callback(request):
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
-        # The code is never sent to the toolbar after a refused state, so remove the grant before anyone can redeem it.
-        OAuthGrant.objects.filter(
-            code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME
-        ).delete()
+        # A refused state never sends the code to the toolbar, so remove the grant before anyone can redeem it. A
+        # replayed state is the exception: the callback that claimed it first may have sent the code already.
+        if not isinstance(exc, ToolbarOAuthStateReplayError):
+            OAuthGrant.objects.filter(
+                code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME
+            ).delete()
         if exc.code == "invalid_state":
             # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
             return redirect_to_toolbar_oauth_error(
@@ -2278,12 +2275,6 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        try:
-            hostname = urllib.parse.urlparse(app_url).hostname or app_url
-        except ValueError:
-            # A URL too malformed to parse is still a rejection, so report it back as typed
-            # rather than failing the request with a 500.
-            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -2294,11 +2285,7 @@ def redirect_to_site(request):
             request,
             title="Domain not authorized",
             message="The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
-            detail=(
-                f"The hostname {hostname} needs to be added to your project's "
-                "authorized URLs before the toolbar can be used on this site."
-            ),
-            links_to_authorized_urls=True,
+            unauthorized_url=app_url,
             status_code=403,
         )
 

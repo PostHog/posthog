@@ -93,6 +93,10 @@ class ToolbarOAuthError(Exception):
         super().__init__(detail)
 
 
+class ToolbarOAuthStateReplayError(ToolbarOAuthError):
+    """An earlier callback already claimed this state, so it may have handed the code to the toolbar."""
+
+
 @dataclass
 class ToolbarOAuthState:
     nonce: str
@@ -272,7 +276,8 @@ def validate_and_consume_toolbar_oauth_state(
         toolbar_oauth_state_cache.claim_or_raise(nonce)
     except ToolbarOAuthError as exc:
         logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
-        raise ToolbarOAuthError("invalid_state", "OAuth state is invalid", 400) from exc
+        error_class = ToolbarOAuthStateReplayError if exc.code == "state_replay" else ToolbarOAuthError
+        raise error_class("invalid_state", "OAuth state is invalid", 400) from exc
 
     if payload.get("user_id") != request_user.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_user_mismatch")

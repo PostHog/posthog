@@ -2506,6 +2506,7 @@ class TestUserAPI(APIBaseTest):
         [
             ("unterminated_ipv6_literal", "https://[::1"),
             ("nfkc_unstable_host", "https://exa℀mple.com/"),
+            ("free_text", "Your session expired. Sign in again at signin.example.net"),
         ]
     )
     def test_redirect_to_site_rejects_an_unparseable_app_url(self, _name: str, app_url: str) -> None:
@@ -2516,6 +2517,7 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"]["detail"] is None
 
     @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
     def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:

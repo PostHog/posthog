@@ -498,27 +498,32 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
         assert response.status_code >= 400
 
-    def test_callback_state_replay_returns_error(self):
-        state = self._authorize_and_get_state()
-        first = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert first.status_code == 302
-        second = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
-        assert second.status_code == 302
-        assert second["Location"] == "/toolbar_oauth/error"
-
-    @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
-    def test_callback_expired_state_shows_the_error_away_from_the_code_and_revokes_it(self):
-        state = self._authorize_and_get_state()
+    def _create_toolbar_grant(self, code: str) -> None:
         OAuthGrant.objects.create(
             user=self.user,
             application=get_or_create_toolbar_oauth_application(user=self.user),
-            code="unredeemed_code",
+            code=code,
             expires=timezone.now() + timedelta(minutes=5),
             redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
             scope="openid",
             code_challenge="test_challenge_value",
             code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
         )
+
+    def test_callback_state_replay_returns_error_and_keeps_the_handed_off_code(self):
+        state = self._authorize_and_get_state()
+        self._create_toolbar_grant("handed_off_code")
+        first = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
+        assert first.status_code == 302
+        second = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
+        assert second.status_code == 302
+        assert second["Location"] == "/toolbar_oauth/error"
+        assert OAuthGrant.objects.filter(code="handed_off_code").exists()
+
+    @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
+    def test_callback_expired_state_shows_the_error_away_from_the_code_and_revokes_it(self):
+        state = self._authorize_and_get_state()
+        self._create_toolbar_grant("unredeemed_code")
 
         response = self.client.get(f"/toolbar_oauth/callback?code=unredeemed_code&state={state}", follow=True)
 
