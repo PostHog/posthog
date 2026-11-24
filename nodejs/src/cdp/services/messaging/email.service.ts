@@ -275,7 +275,7 @@ const markTheAttemptOnceItsConnectionOpens = ({ request }: { request: ClientRequ
         return
     }
     request.once('socket', (socket: Socket) => {
-        if (request.reusedSocket) {
+        if (!socket.connecting) {
             attempt.connectionOpened = true
             return
         }
@@ -290,15 +290,16 @@ diagnosticsChannel.subscribe('http.client.request.created', (message) =>
 )
 
 class SesMayHaveSentError extends Error {
-    constructor(earlierAttemptError: unknown) {
+    constructor(readonly earlierAttemptError: unknown) {
         const reason = earlierAttemptError instanceof Error ? ` (${earlierAttemptError.message})` : ''
         super(
-            `An earlier attempt reached SES and did not get its answer${reason}. SES may have sent the email, so it is not sent again.`,
-            { cause: earlierAttemptError }
+            `An earlier attempt reached SES and did not get its answer${reason}. SES may have sent the email, so it is not sent again.`
         )
         this.name = 'SesMayHaveSentError'
     }
 }
+
+const ABOVE_THE_DESERIALIZER = 'high'
 
 function trackAttemptsSesMayHaveAccepted(
     command: SendEmailCommand,
@@ -316,15 +317,28 @@ function trackAttemptsSesMayHaveAccepted(
             const attempt: SendAttempt = { connectionOpened: false, sesRefused: false }
             attempts.push(attempt)
             try {
-                const httpAnswer = await currentSendAttempt.run(attempt, () => next(args))
-                attempt.sesRefused = sesRefused(httpAnswer.response)
-                return httpAnswer
+                return await currentSendAttempt.run(attempt, () => next(args))
             } catch (error) {
                 attempt.error = error
                 throw error
             }
         },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: ABOVE_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+    )
+    command.middlewareStack.add(
+        (next) => async (args) => {
+            const httpAnswer = await next(args)
+            const attempt = currentSendAttempt.getStore()
+            if (attempt) {
+                attempt.sesRefused = sesRefused(httpAnswer.response)
+            }
+            return httpAnswer
+        },
+        {
+            step: FIRST_STEP_AFTER_SIGNING,
+            priority: BENEATH_THE_DESERIALIZER,
+            name: 'recordWhetherSesRefusedTheAttempt',
+        }
     )
     return () => attemptSesMayHaveAccepted() !== undefined
 }

@@ -4,9 +4,13 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
+import { AsyncResource } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
+import diagnosticsChannel from 'node:diagnostics_channel'
 import http, { createServer, request as httpRequest } from 'node:http'
+import https from 'node:https'
 import net, { AddressInfo, LookupFunction } from 'node:net'
+import tls from 'node:tls'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import { v5 as uuidv5 } from 'uuid'
@@ -3081,25 +3085,90 @@ describe('EmailService', () => {
                     }
                 }
 
-            const proxyThatDropsTheConnectionOnceSesAnswers = async (
-                ses: { hostname: string; port: number },
-                request: any,
-                options: any
-            ): Promise<unknown> => {
-                const proxy = net.createServer((client) => {
-                    const upstream = net.connect(ses.port, ses.hostname)
-                    client.pipe(upstream)
-                    upstream.once('data', () => {
-                        client.resetAndDestroy()
-                        upstream.destroy()
+            const SES_SEND_PATH = '/v2/email/outbound-emails'
+            const PRE_SHARED_KEY = Buffer.from('fake-ses-pre-shared-key')
+            const TLS_WITHOUT_A_CERTIFICATE = { ciphers: 'PSK-AES128-GCM-SHA256', maxVersion: 'TLSv1.2' as const }
+
+            const proxyThatDropsTheConnectionOnceSesTakesTheEmail = ({
+                overTls = false,
+                behindAnEarlierRequest = false,
+            } = {}) => {
+                const outsideTheSend = new AsyncResource('earlier-request')
+                return async (
+                    ses: { hostname: string; port: number },
+                    request: any,
+                    options: any
+                ): Promise<unknown> => {
+                    const theSendWaitsForTheConnection = new Promise<void>((resolve) => {
+                        const onRequestCreated = (message: unknown): void => {
+                            if ((message as { request: http.ClientRequest }).request.path.includes(SES_SEND_PATH)) {
+                                diagnosticsChannel.unsubscribe('http.client.request.created', onRequestCreated)
+                                resolve()
+                            }
+                        }
+                        diagnosticsChannel.subscribe('http.client.request.created', onRequestCreated)
                     })
-                })
-                const port = await listeningOnLoopback(proxy)
-                try {
-                    return await new NodeHttpHandler().handle({ ...request, hostname: '127.0.0.1', port }, options)
-                } finally {
-                    await new Promise((resolve) => proxy.close(resolve))
+                    const forward = (client: net.Socket): void => {
+                        const upstream = net.connect(ses.port, ses.hostname)
+                        let theSendWentOut = false
+                        client.on('data', (chunk: Buffer) => {
+                            theSendWentOut ||= chunk.includes(SES_SEND_PATH)
+                            upstream.write(chunk)
+                        })
+                        upstream.on('data', (chunk: Buffer) => {
+                            if (theSendWentOut) {
+                                client.destroy()
+                                upstream.destroy()
+                            } else {
+                                void theSendWaitsForTheConnection.then(() => client.write(chunk))
+                            }
+                        })
+                    }
+                    const proxy = overTls
+                        ? tls.createServer({ ...TLS_WITHOUT_A_CERTIFICATE, pskCallback: () => PRE_SHARED_KEY }, forward)
+                        : net.createServer(forward)
+                    const port = await listeningOnLoopback(proxy)
+                    const agent = overTls
+                        ? new https.Agent({
+                              ...TLS_WITHOUT_A_CERTIFICATE,
+                              keepAlive: true,
+                              pskCallback: () => ({ psk: PRE_SHARED_KEY, identity: 'fake-ses' }),
+                              checkServerIdentity: () => undefined,
+                          })
+                        : new http.Agent({ keepAlive: true, maxSockets: 1 })
+                    const earlierRequest = behindAnEarlierRequest
+                        ? new Promise<void>((resolve, reject) =>
+                              outsideTheSend.runInAsyncScope(() =>
+                                  http
+                                      .request({ agent, host: '127.0.0.1', port, path: '/earlier' }, (answer) =>
+                                          answer.resume().on('end', resolve)
+                                      )
+                                      .on('error', reject)
+                                      .end()
+                              )
+                          )
+                        : Promise.resolve()
+                    try {
+                        const handler = new NodeHttpHandler(overTls ? { httpsAgent: agent } : { httpAgent: agent })
+                        const [, answer] = await Promise.all([
+                            earlierRequest,
+                            handler.handle(
+                                { ...request, protocol: overTls ? 'https:' : 'http:', hostname: '127.0.0.1', port },
+                                options
+                            ),
+                        ])
+                        return answer
+                    } finally {
+                        agent.destroy()
+                        await new Promise((resolve) => proxy.close(resolve))
+                    }
                 }
+            }
+
+            const failedOnceDelivered = {
+                finished: true,
+                error: expect.stringMatching(/^Failed to send email via SES: An earlier attempt reached SES/),
+                delivered: 1,
             }
 
             const deliveredOnceWithoutAnError = { finished: true, error: undefined, delivered: 1 }
@@ -3128,12 +3197,18 @@ describe('EmailService', () => {
                 ],
                 [
                     'SES takes the email and the connection drops before its answer arrives',
-                    proxyThatDropsTheConnectionOnceSesAnswers,
-                    {
-                        finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: An earlier attempt reached SES/),
-                        delivered: 1,
-                    },
+                    proxyThatDropsTheConnectionOnceSesTakesTheEmail(),
+                    failedOnceDelivered,
+                ],
+                [
+                    'SES takes the email over TLS and the connection drops before its answer arrives',
+                    proxyThatDropsTheConnectionOnceSesTakesTheEmail({ overTls: true }),
+                    failedOnceDelivered,
+                ],
+                [
+                    'SES takes the email on a connection an earlier request left open, and it drops before the answer',
+                    proxyThatDropsTheConnectionOnceSesTakesTheEmail({ behindAnEarlierRequest: true }),
+                    failedOnceDelivered,
                 ],
             ])(
                 'when %s on the first attempt of a send with files, delivers the email once',
@@ -3143,7 +3218,6 @@ describe('EmailService', () => {
                     const transport = sesClientFor(ses).config.requestHandler
                     let attempts = 0
                     emailService.sesV2Client = sesClientFor(ses, {
-                        maxAttempts: 2,
                         requestHandler: {
                             handle: (request: any, options: any) =>
                                 ++attempts === 1
