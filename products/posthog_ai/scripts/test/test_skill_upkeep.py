@@ -102,6 +102,27 @@ def test_report_measures_growth_against_an_older_checkout(tmp_path: Path) -> Non
     assert "| new |" in upkeep.render_markdown(report)
 
 
+@pytest.mark.parametrize(
+    "body_chars,row",
+    [
+        (1_000, None),
+        (30_000, "the full text"),
+        (50_000, "an outline only"),
+    ],
+    ids=["short", "over-the-recommendation", "over-the-learn-limit"],
+)
+def test_report_lists_skills_with_a_long_entry_file(tmp_path: Path, body_chars: int, row: str | None) -> None:
+    _write_repo(tmp_path, {"served-skill": {}})
+    _write_skill(tmp_path, "served-skill", "x" * body_chars)
+
+    report = _report(tmp_path)
+    markdown = upkeep.render_markdown(report)
+
+    assert ("| `served-skill` | team-alpha |" in markdown.split("## Largest served skills")[0]) is (row is not None)
+    assert row is None or f"| {row} |" in markdown
+    assert upkeep.summary(report)["outline_only"] == (1 if row == "an outline only" else 0)
+
+
 def test_report_counts_commits_by_bot_accounts(tmp_path: Path) -> None:
     def git(*args: str) -> None:
         subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=tmp_path, check=True, capture_output=True)
