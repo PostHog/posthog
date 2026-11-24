@@ -120,7 +120,7 @@ export function OfflineItemInspector({
                                             label: 'Pretty',
                                             'data-attr': 'offline-item-payload-pretty',
                                         },
-                                        { value: 'json', label: 'JSON', 'data-attr': 'offline-item-payload-json' },
+                                        { value: 'raw', label: 'Raw', 'data-attr': 'offline-item-payload-raw' },
                                     ]}
                                 />
                             </div>

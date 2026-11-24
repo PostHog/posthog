@@ -1,9 +1,9 @@
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineItemPayloadReadApi, OfflineResultPayloadReadApi } from '../generated/api.schemas'
-import { toDisplayText } from '../redesign/trace/components/jsonText'
 import { JsonValue } from '../redesign/trace/components/JsonValue'
 import type { OfflinePayloadFormat } from './offlineItemInspectorLogic'
 
@@ -50,12 +50,24 @@ export function OfflinePayload({
                         <div className="min-w-0">
                             {!present ? (
                                 <span className="text-muted">Not provided</span>
-                            ) : format === 'pretty' ? (
-                                <JsonValue value={value} />
                             ) : (
-                                <pre className="m-0 whitespace-pre-wrap break-words text-xs" translate="no">
-                                    {toDisplayText(value)}
-                                </pre>
+                                <div className="min-w-0" translate="no">
+                                    {format === 'pretty' ? (
+                                        <JsonValue value={value} collapseStringsAfterLength={300} />
+                                    ) : typeof value === 'object' && value !== null ? (
+                                        <HighlightedJSONViewer
+                                            src={value}
+                                            collapsed={2}
+                                            collapseStringsAfterLength={300}
+                                            groupArraysAfterLength={20}
+                                            name={null}
+                                        />
+                                    ) : (
+                                        <pre className="m-0 whitespace-pre-wrap break-words text-xs">
+                                            {JSON.stringify(value, null, 2) ?? String(value)}
+                                        </pre>
+                                    )}
+                                </div>
                             )}
                         </div>
                     )

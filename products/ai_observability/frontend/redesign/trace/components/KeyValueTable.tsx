@@ -7,9 +7,15 @@ export interface KeyValueTableProps {
     entries: [string, unknown][]
     className?: string
     highlightQuery?: string | null
+    collapseStringsAfterLength?: number
 }
 
-export function KeyValueTable({ entries, className, highlightQuery = null }: KeyValueTableProps): JSX.Element {
+export function KeyValueTable({
+    entries,
+    className,
+    highlightQuery = null,
+    collapseStringsAfterLength,
+}: KeyValueTableProps): JSX.Element {
     return (
         <dl className={cn('m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm', className)}>
             {entries.map(([key, value]) => (
@@ -17,9 +23,22 @@ export function KeyValueTable({ entries, className, highlightQuery = null }: Key
                     <dt className="font-mono text-xs text-[var(--data-color-1)]">{key}</dt>
                     <dd className="m-0 min-w-0">
                         {isFilledContainer(value) ? (
-                            <JsonTree src={value} highlightQuery={highlightQuery} />
+                            <JsonTree
+                                src={value}
+                                highlightQuery={highlightQuery}
+                                collapseStringsAfterLength={collapseStringsAfterLength}
+                            />
                         ) : typeof value === 'string' ? (
-                            <span className="whitespace-pre-wrap break-words">{value}</span>
+                            collapseStringsAfterLength && value.length > collapseStringsAfterLength ? (
+                                <details className="whitespace-pre-wrap break-words">
+                                    <summary className="cursor-pointer">
+                                        {value.slice(0, collapseStringsAfterLength)}…
+                                    </summary>
+                                    <span>{value.slice(collapseStringsAfterLength)}</span>
+                                </details>
+                            ) : (
+                                <span className="whitespace-pre-wrap break-words">{value}</span>
+                            )
                         ) : (
                             <pre className="m-0 whitespace-pre-wrap break-words text-xs">{toDisplayText(value)}</pre>
                         )}
