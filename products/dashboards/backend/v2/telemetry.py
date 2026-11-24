@@ -26,6 +26,7 @@ from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG, SnuffleNotConfig
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import get_app_telemetry_queries_rate_limiter
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
@@ -203,8 +204,18 @@ def _decode(raw: bytes) -> Any:
         return None
 
 
+def _assert_budget_left(team: Team) -> None:
+    """The Loki API refuses a read once the read-byte budget is spent, so a LogQL panel does too."""
+    if not api_queries_budget_enforcement_enabled(team):
+        return
+    budget_status = get_api_queries_budget_status(team)
+    if budget_status is not None and budget_status.remaining_bytes <= 0:
+        raise TelemetryTargetError("This project has used its query budget for now. Try again later.")
+
+
 def _query_range(team: Team, data: dict[str, str]) -> Any:
     """The body is read inside the telemetry slot, so a slow or large response keeps holding it."""
+    _assert_budget_left(team)
     with get_app_telemetry_queries_rate_limiter().run(org_id=team.organization_id, team_id=team.pk, is_api=False):
         deadline = monotonic() + settings.SNUFFLE_APM_TIMEOUT_SECONDS
         try:
