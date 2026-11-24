@@ -55,6 +55,8 @@ their bands, the sample counts a percentile needs, the SQL that sanitizes `$host
 dating a regression and naming what changed).
 It is a built-in skill installed in this sandbox as a local skill, so read the local copy. `skill-get` does not return it.
 Read it before you query. This body adds only what a scout run needs on top: memory, the inbox, and the report.
+If the local copy is missing, this run's sandbox image is older than the skill. Do not write the queries from memory:
+close out with one line that says the guide was not installed, and file no report.
 
 Two points from it decide most calls here:
 

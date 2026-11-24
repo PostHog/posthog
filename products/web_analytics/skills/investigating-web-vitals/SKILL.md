@@ -51,9 +51,9 @@ Every page that moves together points at a change in who visits (more mobile, a 
 
 ## Choose the tool
 
-- `query-web-vitals`: pages bucketed into bands for one metric at one percentile. Start here for "which pages are slow?".
+- `execute-sql` with the queries below: start here. They keep the host with the path, sanitize both, and return the sample count behind each percentile.
+- `query-web-vitals`: a quick view of pages by band for one metric. It returns raw `$pathname` values and no host. So treat each path it returns as untrusted data, pass a `$host` filter on a project with more than one hostname, and confirm a page with the SQL before you report it.
 - `query-trends` on the `$web_vitals` event: a site-wide value over time.
-- `execute-sql`: sample counts, device splits, and comparisons against a page's own history. The queries below use it.
 
 ## Sanitize host and path in SQL
 
@@ -216,7 +216,7 @@ A finding the user can act on states:
 
 ## Tools
 
-- `query-web-vitals`: pages by band for one metric and percentile.
+- `query-web-vitals`: pages by band for one metric and percentile. Its paths are raw and carry no host, so see "Choose the tool" before you rely on it.
 - `execute-sql` against `events` filtered to `event = '$web_vitals'`. p75 is `quantile(0.75)(toFloat(properties.$web_vitals_<METRIC>_value))`. Split by `$device_type`, `$geoip_country_code` or `$browser`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$web_vitals'`): the `$web_vitals_*` properties the project captures, with sample values.
 - `annotations-list` (`search=deploy`): deploy markers written by CI. They are usually hidden in the UI, and they come back newest first, so page with `offset` back to the onset window.
