@@ -1,6 +1,9 @@
 import asyncio
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -13,7 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from temporalio.common import WorkflowIDConflictPolicy
@@ -69,6 +72,19 @@ def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
         },
         groups=groups(organization),
     )
+
+
+@contextmanager
+def _lock_proxy_for_write(organization: Organization, record_id: UUID) -> Iterator[None]:
+    lock = cloudflare_proxy_lock(record_id)
+    if not lock.acquire(blocking=False):
+        if not organization.proxy_records.filter(id=record_id).exists():
+            raise NotFound()
+        raise Throttled(wait=5, detail="This proxy is being updated.")
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 class ProxyRecordSerializer(serializers.ModelSerializer):
@@ -330,7 +346,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
         pk = serializers.UUIDField().run_validation(pk)
-        with cloudflare_proxy_lock(pk):
+        with _lock_proxy_for_write(self.organization, pk):
             reconciliation_required = False
             try:
                 with transaction.atomic():
@@ -548,7 +564,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     def destroy(self, request, *args, pk=None, **kwargs):
         pk = serializers.UUIDField().run_validation(pk)
-        with cloudflare_proxy_lock(pk):
+        with _lock_proxy_for_write(self.organization, pk):
             try:
                 record = self.organization.proxy_records.get(id=pk)
             except ProxyRecord.DoesNotExist:

@@ -19,6 +19,7 @@ from posthog.models.organization import Organization
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import schedule_exists
+from posthog.temporal.common.utils import close_stale_db_connections
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)
@@ -90,6 +91,7 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
 
 @sync_to_async
 def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
+    close_stale_db_connections()
     connection.ensure_connection()
     prs = ProxyRecord.objects.filter(id=proxy_record_id)
     updates: dict[str, t.Any] = {"updated_at": timezone.now()}
@@ -212,26 +214,23 @@ def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
     """Send an email notification when a reverse proxy has been successfully provisioned."""
     from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 
+    if not is_email_available():
+        return
+
+    close_stale_db_connections()
+    record = ProxyRecord.objects.select_related("created_by", "organization").filter(id=inputs.proxy_record_id).first()
+    if record is None or record.created_by is None or not record.created_by.email:
+        return
+
+    campaign_key = f"proxy_provisioned_{inputs.proxy_record_id}"
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        return
+
+    # A monitor schedule is created after the first successful provisioning, even if email was unavailable.
+    if schedule_exists(sync_connect(), f"monitor-proxy-{inputs.proxy_record_id}"):
+        return
+
     try:
-        connection.connect()
-
-        if not is_email_available():
-            return
-
-        record = (
-            ProxyRecord.objects.select_related("created_by", "organization").filter(id=inputs.proxy_record_id).first()
-        )
-        if record is None or record.created_by is None or not record.created_by.email:
-            return
-
-        campaign_key = f"proxy_provisioned_{inputs.proxy_record_id}"
-        if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
-            return
-
-        # A monitor schedule is created after the first successful provisioning, even if email was unavailable.
-        if schedule_exists(sync_connect(), f"monitor-proxy-{inputs.proxy_record_id}"):
-            return
-
         user = record.created_by
         message = EmailMessage(
             campaign_key=campaign_key,
