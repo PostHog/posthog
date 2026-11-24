@@ -82,9 +82,9 @@ UNRELATED_PICTURES = {
     frozenset({"A", "B"}): "b3",
 }
 
-# Event names: "run X" is CI finishing on the current head of X. "push X", "rebase X" and "update X" move X
-# to a new commit, on its old head, on the default branch, or as a merge of the default branch into it, and
-# CI finishes on it. "approve X" approves the newest run of X when it asks for a review. "queue X Y" is the
+# Event names: "run X" is CI finishing on the current head of X. "push X", "restack X" and "update X" move X
+# to a new commit, on its old head, on the current head of the layer below (the default branch once that
+# layer landed), or as a merge of the default branch into it, and CI finishes on it. "approve X" approves the newest run of X when it asks for a review. "queue X Y" is the
 # merge queue testing X and Y in one batch, and "land X Y" is the queue merging them, each as its own commit
 # on the default branch. The queue tests a batch again when the default branch moved since its last test.
 SCENARIOS = (
@@ -131,7 +131,7 @@ SCENARIOS = (
         },
     ),
     Scenario(
-        key="stack_parent_lands_first_child_rebases",
+        key="stack_parent_lands_first_child_restacks",
         layers=(PARENT, CHILD),
         pictures=STACK_PICTURES,
         after={
@@ -141,8 +141,8 @@ SCENARIOS = (
             "approve C": ("run C",),
             "queue P": ("approve P",),
             "land P": ("queue P",),
-            "rebase C": ("land P", "run C"),
-            "approve C again": ("rebase C", "approve C"),
+            "restack C": ("land P", "run C"),
+            "approve C again": ("restack C", "approve C"),
             "queue C": ("approve C again",),
             "land C": ("queue C",),
         },
@@ -167,6 +167,7 @@ SCENARIOS = (
         layers=THREE_LAYERS,
         pictures=THREE_LAYER_PICTURES,
         # Each layer runs after the layer below it was approved, so every approval is made over the picture below.
+        # Once G landed alone, `gh stack sync` restacks P and C, and both run again before the queue.
         after={
             "run G": (),
             "approve G": ("run G",),
@@ -176,7 +177,10 @@ SCENARIOS = (
             "approve C": ("run C",),
             "queue G": ("approve G",),
             "land G": ("queue G",),
-            "queue P C": ("land G", "approve C"),
+            "restack P": ("land G", "run P"),
+            "restack C": ("restack P", "run C"),
+            "approve C again": ("restack C", "approve C"),
+            "queue P C": ("approve P", "approve C again"),
             "land P C": ("queue P C",),
         },
     ),

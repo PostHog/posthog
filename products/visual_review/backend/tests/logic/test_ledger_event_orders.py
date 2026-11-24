@@ -32,6 +32,9 @@ GUARANTEE_QUEUE = (
 )
 GUARANTEE_LEDGER_MATCHES_MASTER = "After the landings, the ledger holds the picture the default branch renders"
 GUARANTEE_ONLY_RENDERED_PICTURES = "No approval is promoted for a picture that no landed queue run rendered"
+CHECK_RESTACK = (
+    "A restacked layer keeps its approval only when the approval was made over the picture the ledger now holds"
+)
 GUARANTEE_UNRELATED_NOT_BOTH = (
     "Two unrelated pull requests with different pictures never both land unless the second approved again "
     "after the first landed, and one left behind shows a failing gate"
@@ -40,9 +43,22 @@ GUARANTEE_UNRELATED_NOT_BOTH = (
 REASON_APPROVED = "every picture it renders was approved"
 REASON_NOBODY_APPROVED = "it renders a picture that no pull request in the batch approved"
 REASON_LAYER_NOT_APPROVED = "a pull request in the batch has no approval, so its gate fails"
-REASON_CHILD_APPROVED_UNDER_OLD_BASELINE = (
-    "the parent landed alone, and the child's approved run resolved before the parent was approved, so the "
-    "baseline moved under the child's approval and the child has to approve again"
+REASON_APPROVED_UNDER_OLD_BASELINE = (
+    "the layer below landed alone, and this layer's approval was made over a picture the ledger does not hold, "
+    "so the baseline moved under the approval and the layer has to approve again"
+)
+
+REASON_RESTACK_NOT_APPROVED_YET = "the layer has no approval yet, so its restacked run asks for one"
+REASON_RESTACK_APPROVED_OVER_LEDGER = (
+    "the approval was made over the picture the ledger now holds, so it still applies after the restack"
+)
+REASON_RESTACK_APPROVED_OVER_UNLANDED_LAYER = (
+    "the approval was made over the picture of a layer below that has not landed, which the ledger does not "
+    "hold yet, so the restacked run asks for a new approval"
+)
+REASON_RESTACK_APPROVED_OVER_OLD_BASELINE = (
+    "the approval was made over the baseline from before the layer below landed, so the restacked run asks for "
+    "a new approval"
 )
 
 
@@ -50,6 +66,15 @@ REASON_CHILD_APPROVED_UNDER_OLD_BASELINE = (
 class Expectation:
     gets_through: bool
     reason: str
+
+
+@frozen
+class RestackCheck:
+    name: str
+    gate_passes: bool
+    expected_to_pass: bool
+    reason: str
+    outcome: str
 
 
 @frozen
@@ -83,10 +108,11 @@ class OrderPlayer:
         self.master_changes: frozenset[str] = frozenset()
         self.heads: dict[str, str] = {}
         self.runs: dict[str, Run] = {}
-        self.base_approved_at_run: dict[str, bool] = {}
+        self.picture_below_at_run: dict[str, str] = {}
         self.approved_pictures: dict[str, set[str]] = {layer.name: set() for layer in scenario.layers}
         self.approved_after_a_landing: dict[str, set[str]] = {layer.name: set() for layer in scenario.layers}
-        self.approval_over_base_approval: dict[str, bool] = {}
+        self.approved_over: dict[str, str] = {}
+        self.restacks: list[RestackCheck] = []
         self.attempts: list[QueueAttempt] = []
         self.landed: list[str] = []
         self.landed_pictures: dict[str, str] = {}
@@ -114,6 +140,25 @@ class OrderPlayer:
     def _renders(self, sha: str) -> dict[str, str]:
         return {"Button": self._picture(self.changes[sha]), "Card": "c0"}
 
+    def _chain(self, name: str) -> frozenset[str]:
+        names: set[str] = set()
+        below: str | None = name
+        while below is not None:
+            names.add(below)
+            below = self.scenario.layer(below).stacked_on
+        return frozenset(names)
+
+    # The baseline a reviewer sees under a layer: the picture up to the highest layer below it that has an
+    # approval or has landed, otherwise what the default branch held at the branch's merge base.
+    def _picture_below(self, layer: Layer, sha: str) -> str:
+        landed_in_tree = self.changes[sha] & self.master_changes
+        below = layer.stacked_on
+        while below is not None:
+            if self.approved_pictures[below] or below in self.landed:
+                return self._picture(self._chain(below) | landed_in_tree)
+            below = self.scenario.layer(below).stacked_on
+        return self._picture(landed_in_tree)
+
     def gate(self, sha: str) -> tuple[str, str]:
         posts = [
             call.kwargs
@@ -130,9 +175,7 @@ class OrderPlayer:
         with self.capture(using=WRITER_DB, execute=True):
             run = self.flow.run(sha, self._renders(sha), branch=name, pr_number=layer.pr_number)
         self.runs[name] = run
-        self.base_approved_at_run[name] = layer.stacked_on is not None and bool(
-            self.approved_pictures[layer.stacked_on]
-        )
+        self.picture_below_at_run[name] = self._picture_below(layer, sha)
         button = run.snapshots.get(identifier="Button")
         return f"{sha} Button {button.result} {button.baseline_hash} -> {button.current_hash}, gate {self.gate(sha)}"
 
@@ -141,10 +184,31 @@ class OrderPlayer:
         self._move_head(self.scenario.layer(name), (old_head,), self.changes[old_head])
         return self.run(name)
 
-    def rebase(self, name: str) -> str:
-        old_head = self.heads[name]
-        self._move_head(self.scenario.layer(name), (self.git.head,), self.changes[old_head] | self.master_changes)
-        return self.run(name)
+    def _expect_after_restack(self, layer: Layer) -> tuple[bool, str]:
+        if layer.name not in self.approved_over:
+            return False, REASON_RESTACK_NOT_APPROVED_YET
+        approved_over = self.approved_over[layer.name]
+        if approved_over == self._picture(self.master_changes):
+            return True, REASON_RESTACK_APPROVED_OVER_LEDGER
+        unlanded_below = [name for name in self._chain(layer.name) - {layer.name} if name not in self.landed]
+        if any(approved_over == self._picture(self._chain(name)) for name in unlanded_below):
+            return False, REASON_RESTACK_APPROVED_OVER_UNLANDED_LAYER
+        return False, REASON_RESTACK_APPROVED_OVER_OLD_BASELINE
+
+    def restack(self, name: str) -> str:
+        layer = self.scenario.layer(name)
+        below = layer.stacked_on
+        parent = self.heads[below] if below is not None and below not in self.landed else self.git.head
+        self._move_head(layer, (parent,), self.changes[parent] | {name})
+        outcome = self.run(name)
+        expected_to_pass, reason = self._expect_after_restack(layer)
+        gate_passes = self.gate(self.heads[name])[0] == "success"
+        self.restacks.append(
+            RestackCheck(
+                name=name, gate_passes=gate_passes, expected_to_pass=expected_to_pass, reason=reason, outcome=outcome
+            )
+        )
+        return f"{outcome}; expected gate to pass={expected_to_pass}"
 
     def update(self, name: str) -> str:
         old_head = self.heads[name]
@@ -162,7 +226,7 @@ class OrderPlayer:
             approvals.finalize_run(run_id=run.id, user_id=self.user.id, approve_all=True)
         picture = self._renders(run.commit_sha)["Button"]
         self.approved_pictures[name].add(picture)
-        self.approval_over_base_approval[name] = self.base_approved_at_run[name]
+        self.approved_over[name] = self.picture_below_at_run[name]
         if self.landed:
             self.approved_after_a_landing[name].add(picture)
         return f"{run.commit_sha} approved, gate {self.gate(run.commit_sha)}"
@@ -174,8 +238,9 @@ class OrderPlayer:
         if not owners:
             return Expectation(gets_through=False, reason=REASON_NOBODY_APPROVED)
         owner = owners[-1]
-        if owner.stacked_on in self.landed and not self.approval_over_base_approval[owner.name]:
-            return Expectation(gets_through=False, reason=REASON_CHILD_APPROVED_UNDER_OLD_BASELINE)
+        under_old_baseline = self.approved_over[owner.name] != self._picture(self.master_changes)
+        if owner.stacked_on in self.landed and under_old_baseline:
+            return Expectation(gets_through=False, reason=REASON_APPROVED_UNDER_OLD_BASELINE)
         return Expectation(gets_through=True, reason=REASON_APPROVED)
 
     def _test_in_queue(self, group: tuple[str, ...]) -> QueueAttempt:
@@ -243,8 +308,8 @@ class OrderPlayer:
             outcome = self.run(names[0])
         elif verb == "push":
             outcome = self.push(names[0])
-        elif verb == "rebase":
-            outcome = self.rebase(names[0])
+        elif verb == "restack":
+            outcome = self.restack(names[0])
         elif verb == "update":
             outcome = self.update(names[0])
         elif verb == "approve":
@@ -265,6 +330,13 @@ def broken_guarantees(player: OrderPlayer) -> list[str]:
             broken.append(
                 f"{GUARANTEE_QUEUE}: queue {' '.join(attempt.group)} {attempt.outcome}, "
                 f"expected through={attempt.expected.gets_through} because {attempt.expected.reason}"
+            )
+
+    for restack in player.restacks:
+        if restack.gate_passes != restack.expected_to_pass:
+            broken.append(
+                f"{CHECK_RESTACK}: restack {restack.name} {restack.outcome}, expected gate to pass="
+                f"{restack.expected_to_pass} because {restack.reason}"
             )
 
     master_picture = player.scenario.pictures[player.master_changes]
