@@ -5333,7 +5333,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                     source_columns=("email",),
                 ),
                 True,
-                True,
+                False,
             ),
             ("add_the_main_table", _OutputTablesCase(mode="both", initial_mode="cdc_only"), True, False),
             ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False, False),

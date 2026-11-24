@@ -325,6 +325,20 @@ class TestHistoryLaneWrites(BaseTest):
         self.job.refresh_from_db()
         assert self.job.rows_synced == 2
 
+    def test_a_pending_reset_holds_the_seed_back(self) -> None:
+        self.schema.sync_type_config.update(
+            {HISTORY_SEED_PENDING_KEY: "2026-10-05T00:00:00+00:00", "reset_pipeline": True}
+        )
+        self.schema.save()
+        self._write_main([(1, "a", _JAN)], run_uuid="earlier-run")
+        self._stage([(2, "b", _FEB)], batch_index=0)
+
+        self._finalize(0)
+
+        assert self._history_rows() == [(2, "b", _FEB, None, "current")]
+        self.schema.refresh_from_db()
+        assert HISTORY_SEED_PENDING_KEY in self.schema.sync_type_config
+
     def test_a_seed_copies_nothing_from_a_main_table_this_run_created(self) -> None:
         self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-05T00:00:00+00:00"
         self.schema.save()

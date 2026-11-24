@@ -257,7 +257,10 @@ async def finalize_history_lane(
     When history was turned on for a table that already holds rows, the main table's rows are staged
     too and become the first versions. The request stays until the finalize completes.
     """
-    seed_requested_at = schema.sync_type_config.get(HISTORY_SEED_PENDING_KEY)
+    # A reset still to run reads every row again and cancels the request when it does.
+    seed_requested_at = (
+        None if schema.sync_type_config.get("reset_pipeline") else schema.sync_type_config.get(HISTORY_SEED_PENDING_KEY)
+    )
     seed_rows = 0
     if isinstance(seed_requested_at, str):
         staged_rows = await _staged_seed_rows(_staging_ref(table), _seed_tag(seed_requested_at))
