@@ -1288,11 +1288,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
-      const lostEventCount = this.eventStreamSender?.pendingEventCount ?? 0;
-      if (cleanup.result === "timeout" && lostEventCount > 0) {
+      const unacknowledgedEventCount =
+        this.eventStreamSender?.pendingEventCount ?? 0;
+      if (cleanup.result === "timeout" && unacknowledgedEventCount > 0) {
         this.logger.error(
-          "Agent server stop timed out with undelivered task run events",
-          { lostEventCount },
+          "Agent server stop timed out with unacknowledged task run events",
+          { unacknowledgedEventCount },
         );
       }
       // An abort during initialization leaves the root span open with no session

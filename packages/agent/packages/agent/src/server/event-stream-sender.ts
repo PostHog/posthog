@@ -153,6 +153,7 @@ export class TaskRunEventStreamSender {
   private sequenceInitialized = false;
   private transportCompleted = false;
   private droppedEventCount = 0;
+  private backpressureDropCount = 0;
   private bufferRevision = 0;
   private consecutiveFailures = 0;
 
@@ -625,19 +626,19 @@ export class TaskRunEventStreamSender {
   }
 
   private reportStopDeadlineReached(startedAtMs: number): void {
-    const lostEventCount = this.bufferedEvents.length;
+    const unacknowledgedEventCount = this.bufferedEvents.length;
     this.config.logger.error(
       "Task run event ingest stop deadline reached before fully completing transport",
       {
-        lostEventCount,
+        unacknowledgedEventCount,
         stopTimeoutMs: this.stopTimeoutMs,
         elapsedMs: Date.now() - startedAtMs,
       },
     );
-    if (lostEventCount > 0) {
+    if (unacknowledgedEventCount > 0) {
       this.config.onEventLoss?.({
         reason: "stop_timeout",
-        count: lostEventCount,
+        count: unacknowledgedEventCount,
       });
     }
   }
@@ -846,11 +847,15 @@ export class TaskRunEventStreamSender {
 
   private recordBackpressureDrop(): void {
     this.droppedEventCount += 1;
-    if (this.droppedEventCount === 1 || this.droppedEventCount % 100 === 0) {
+    this.backpressureDropCount += 1;
+    if (
+      this.backpressureDropCount === 1 ||
+      this.backpressureDropCount % 100 === 0
+    ) {
       this.config.logger.warn(
         "Dropped task run event before assigning sequence due to backpressure",
         {
-          dropped: this.droppedEventCount,
+          dropped: this.backpressureDropCount,
           maxBufferedEvents: this.maxBufferedEvents,
         },
       );
@@ -864,6 +869,7 @@ export class TaskRunEventStreamSender {
     }
 
     this.droppedEventCount = 0;
+    this.backpressureDropCount = 0;
     this.config.logger.warn("Task run event ingest emitting gap after drops", {
       dropped: droppedCount,
     });
