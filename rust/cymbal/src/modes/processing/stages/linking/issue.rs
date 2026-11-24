@@ -376,7 +376,6 @@ async fn resolve_issue(
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        context.team_issues_created.record(team_id);
         if process_event_severity(
             &mut txn,
             &context.team_manager,
@@ -421,6 +420,7 @@ async fn resolve_issue(
         .await?;
 
         txn.commit().await?;
+        context.team_issues_created.record(team_id);
         drop(conn);
 
         send_issue_created_notification(
