@@ -9,6 +9,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
+import { TodaySeasonalChecklist } from 'products/today/frontend/seasonal/TodaySeasonalChecklist'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
@@ -51,6 +52,7 @@ export function TodayHomePage(): JSX.Element {
         frequentObjectsLoading,
         returnFocusReportId,
         useSampleData,
+        seasonalChecklist,
     } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
     const { homeEditing } = useValues(todayHomeEditLogic)
@@ -119,6 +121,9 @@ export function TodayHomePage(): JSX.Element {
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
             <TodayPromoBanner />
+            {seasonalChecklist ? (
+                <TodaySeasonalChecklist key={seasonalChecklist.campaign} checklist={seasonalChecklist} />
+            ) : null}
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">

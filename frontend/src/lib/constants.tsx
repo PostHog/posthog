@@ -577,6 +577,7 @@ export const FEATURE_FLAGS = {
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_RAIL_NAV_SWITCH: 'today-rail-nav-switch', // owner: #team-surfaces, shows the controls that switch between old and new navigation. Off for experiment cohorts so neither arm sees the other experience advertised.
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
+    TODAY_SEASONAL_CHECKLIST: 'today-seasonal-checklist',
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_AI_EVENTS: 'tracing-ai-events', // owner: #team-apm — shows a trace's LLM analytics events inline in the trace drawer waterfall
