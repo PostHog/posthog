@@ -293,13 +293,13 @@ class TestScoreInsight(SimpleTestCase):
         if waves == 1:
             assert limits[0] == 150
 
-    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets. With the AI
-    # judge, the history of a train step instead, so the judge sees the same history in both steps.
+    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets. The AI judge
+    # does not change the fetch, because its history is fetched only when it is asked.
     @parameterized.expand(
         [
             ("no_smoothing", None, "-6d", NO_AI_JUDGE),
             ("smoothing", 7, "-12d", NO_AI_JUDGE),
-            ("ai_judge", None, "-62d", AIJudgeConfig(team_ids=(7,))),
+            ("ai_judge", None, "-6d", AIJudgeConfig(team_ids=(7,))),
         ]
     )
     def test_a_score_step_fetches_only_the_context_and_new_buckets(

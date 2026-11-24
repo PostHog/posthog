@@ -15,6 +15,10 @@ At least one merged PR completes implementation: applicable follow-up checks ent
 
 PR-driven resolutions emit `signal_report_status_changed` with `resolution_reason=pr_merged`, including when attaching an already-merged PR completes a report. `dismissal_reason` remains reserved for feedback supplied with the transition. Outcome queries should prefer `resolution_reason` and fall back to `dismissal_reason`; a missing reason alone does not imply that no PR merged.
 
+A PR-driven transition keeps `actor_kind=system` and credits one person in `actor_user_uuid` and `actor_distinct_id`: the person who claimed the report, else the person who attached the PR, else the org member whose linked GitHub account merged the PR, else the creator of the PR's task. `actor_user_source` names which one applied, and the event is sent with that person's `distinct_id`. The merger is credited only when the login maps to an active member of the organization whose linked GitHub account has the merger's GitHub id. A link that carries no id, such as the login of the person who connected the team's GitHub integration, does not count. A `task_creator` credit can name the reviewer an auto-started task ran as, so a count of people who acted should leave that source out.
+
+A Monitoring attempt saves the person who completed the implementation. When verification moves the report to Resolved or Closed, that transition keeps `actor_kind=system` and credits the saved person. A restarted attempt keeps the person of the attempt it replaces.
+
 PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all linked implementation PRs are closed without a merge. This also covers reconciliation after attaching an already-closed PR. Dismissal queries should prefer `dismissal_cause` and fall back to `dismissal_reason`, which remains the caller's feedback. The cause identifies automatic reconciliation, not who closed the PR or why they closed it.
 
 Web and Desktop use the same report action and run-state rules from `@posthog/agent-contracts/signal-report-state`.

@@ -72,7 +72,7 @@ describe('todayTourLogic', () => {
                 [FEATURE_FLAGS.MONITOR_AREA]: true,
                 [FEATURE_FLAGS.DATA_AREA]: true,
             },
-            panes: ['home', 'analytics', 'people', 'release', 'monitor', 'data', 'products', 'settings'],
+            panes: ['home', 'analytics', 'people', 'release', 'monitor', 'automate', 'data', 'products', 'settings'],
         },
     ])('the tour visits only the panes the flags show: $panes', ({ flags, panes }) => {
         expect(tourStepsForFlags(flags).map((step) => step.pane)).toEqual(panes)
