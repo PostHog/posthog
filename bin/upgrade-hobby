@@ -178,9 +178,8 @@ for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
     fi
 done
 # A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
-# The value the shell and compose would read, so quoting, line breaks and repeated lines count as they do there.
-if [ -z "$(set -a; . ./.env >/dev/null 2>&1; printf '%s' "${CDP_SEALED_STATE_KEYS:-}")" ]; then
-    sed -i '/^CDP_SEALED_STATE_KEYS=/d' .env
+# Only the last line counts, as in compose, and only its exit status is read so a trace never prints the key.
+if ! grep '^CDP_SEALED_STATE_KEYS=' .env | tail -n 1 | grep -Eq "=[[:space:]]*[\"']?[[:space:]]*[^\"'[:space:]]"; then
     # Exported too, because an empty value sourced from .env earlier would override the file for compose.
     export CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)
     echo "CDP_SEALED_STATE_KEYS=$CDP_SEALED_STATE_KEYS" >> .env
