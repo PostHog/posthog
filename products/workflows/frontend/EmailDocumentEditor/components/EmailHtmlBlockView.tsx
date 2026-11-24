@@ -130,6 +130,8 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
                         ref={iframeRef}
                         title="Custom HTML block"
                         sandbox="allow-same-origin"
+                        // Its scrollbar would take width while the frame is measured small.
+                        scrolling="no"
                         srcDoc={srcDoc}
                         onLoad={measure}
                         className="w-full border-0 pointer-events-none block"
