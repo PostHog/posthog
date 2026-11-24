@@ -560,10 +560,10 @@ test('an isolated product skips Django only when the diff leaves its watched set
             { affectedProducts: [], changedFiles: ['products/canvas/backend/logic/seed.json'] },
             { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
         ],
-        // A fixture under the product's tests is no backend data file.
+        // A fixture under the product's tests is no backend data file: the product's own suite reads it.
         [
             { affectedProducts: [], changedFiles: ['products/canvas/backend/tests/fixture.json'] },
-            { products: [], runLegacy: false, runLegacyReason: '' },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
         ],
         // No base to diff against: nothing says the watched set was left alone.
         [
@@ -651,6 +651,40 @@ test('the package __init__.py files above a reached product file run Django, and
         assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, runLegacy, file)
     }
     fs.rmSync(root, { recursive: true, force: true })
+})
+
+// Turbo's affected query sees only a product's declared backend:test inputs, and a product's own
+// turbo.json can narrow those, so a product file it reports no product for still reaches its product.
+test('a changed product file reaches its product whatever Turbo reports, and frontend or test files skip Django', () => {
+    const root = treeWith('product-root-', ['products/canvas/__init__.py', 'products/canvas/backend/facade/api.py'])
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), {}, root)
+    fs.rmSync(root, { recursive: true, force: true })
+    const cases = [
+        // The product's root package runs before any of its modules.
+        [
+            { watched: closed, changedFiles: ['products/canvas/__init__.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A product turbo.json narrowed to its tests, with a watched edit Turbo no longer sees.
+        [
+            { changedFiles: ['products/canvas/turbo.json', 'products/canvas/backend/facade/api.py'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        [{ changedFiles: ['products/canvas/frontend/Canvas.tsx'] }, { products: [], runLegacy: false, runLegacyReason: '' }],
+        [{ changedFiles: ['products/canvas/backend/AGENTS.md'] }, { products: [], runLegacy: false, runLegacyReason: '' }],
+        [
+            { changedFiles: ['products/canvas/backend/tests/test_layout.py'] },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
+        ],
+        [
+            { changedFiles: ['products/canvas/backend/tests/__snapshots__/test_layout.ambr'] },
+            { products: ['canvas'], runLegacy: false, runLegacyReason: '' },
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], ...overrides })
+        assert.deepEqual({ products, runLegacy, runLegacyReason }, expected, JSON.stringify(overrides.changedFiles))
+    }
 })
 
 // Celery loads a product's task modules by name, so no import edge reaches them.

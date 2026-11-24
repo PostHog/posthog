@@ -791,17 +791,37 @@ function watchedPolicyChanges(changedFiles) {
     )
 }
 
-// A non-Python file under a product's backend, outside its tests: a seed or a template that core
-// tests can read. hoglint watches Python modules, and Turbo's backend:test inputs are Python only.
-const PRODUCT_BACKEND = /^products\/[^/]+\/backend\//
-const NOT_BACKEND_DATA_DIRS = ['tests', 'test', '__pycache__']
+// A file under a product that the product's code, or core's, can run or read: anything outside
+// its frontend and test directories, other than Markdown.
+const NOT_PRODUCT_INPUT_DIRS = ['frontend', 'tests', 'test', '__pycache__']
 
-function isBackendDataFile(file) {
-    if (!PRODUCT_BACKEND.test(file) || file.endsWith('.py') || file.endsWith('.md')) {
+function isProductInputFile(file) {
+    if (productOfFile(file) === null || file.endsWith('.md')) {
         return false
     }
-    const directories = file.split('/').slice(3, -1)
-    return !directories.some((directory) => NOT_BACKEND_DATA_DIRS.includes(directory))
+    const directories = file.split('/').slice(2, -1)
+    return !directories.some((directory) => NOT_PRODUCT_INPUT_DIRS.includes(directory))
+}
+
+// A non-Python input under a product's backend: a seed or a template that core tests can read.
+// hoglint watches Python modules, and Turbo's backend:test inputs are Python only.
+const PRODUCT_BACKEND = /^products\/[^/]+\/backend\//
+
+function isBackendDataFile(file) {
+    return PRODUCT_BACKEND.test(file) && !file.endsWith('.py') && isProductInputFile(file)
+}
+
+// The products (dashed names, among allProducts) that a product input or a product test input of
+// the diff sits in. Turbo's affected query sees only a product's declared backend:test inputs,
+// and a product's own turbo.json can narrow those, so it can report none of these.
+function productsReachedByFiles(changedFiles, allProducts) {
+    const allProductSet = new Set(allProducts)
+    const inputProducts = (changedFiles ?? [])
+        .filter(isProductInputFile)
+        .map((file) => moduleToProduct(productOfFile(file)))
+        .filter((product) => allProductSet.has(product))
+    const testInputProducts = productsWithUndeclaredInputChanges(changedFiles ?? [], allProductSet)
+    return [...new Set([...inputProducts, ...testInputProducts])].sort()
 }
 
 // The products among `products` (dashed names) whose watched set the diff touched: a
@@ -824,9 +844,10 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
         .sort()
 }
 
-// What a diff with no legacy edit runs for the products Turbo's affected query reached.
+// What a diff with no legacy edit runs for the products it reached: the ones Turbo's affected
+// query reports, and every product a changed product file sits in.
 // Pure: hoglint's answer, the diff and the dependent cascade come in as arguments.
-//   affectedProducts  the products the diff reached, dashed names
+//   affectedProducts  the products Turbo's affected query reports, dashed names
 //   allProducts       every product
 //   watched           parseWatchedAnswer's result
 //   changedFiles      the diff's files, or null when there is no base to diff against
@@ -847,12 +868,7 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
         )
         return everything('watched_policy')
     }
-    // Turbo's affected query cannot see a backend data file, so its product is added here.
-    const dataProducts = (changedFiles ?? [])
-        .filter(isBackendDataFile)
-        .map((file) => moduleToProduct(productOfFile(file)))
-        .filter((product) => allProducts.includes(product))
-    const reached = [...new Set([...affectedProducts, ...dataProducts])].sort()
+    const reached = [...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts)])].sort()
     if (reached.length === 0) {
         console.error('No product changes detected')
         return { ...none, products: [], runLegacy: false }
@@ -2147,7 +2163,7 @@ if (legacyChanged) {
 
     // hoglint runs only when a product changed, or below when a lib change reaches one.
     const watched =
-        affectedProducts.length > 0 || (changedFiles ?? []).some(isBackendDataFile) ? loadWatchedSets() : null
+        affectedProducts.length > 0 || productsReachedByFiles(changedFiles, allProducts).length > 0 ? loadWatchedSets() : null
     if (watched !== null) {
         const isolated = [...watched.isolated].map(moduleToProduct).sort()
         console.error(`Isolated products (hoglint watched, ${watched.status}): ${JSON.stringify(isolated)}`)
