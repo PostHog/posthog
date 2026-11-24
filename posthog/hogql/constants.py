@@ -1,7 +1,7 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -208,6 +208,16 @@ def cap_flag_call_max_memory_usage(max_memory_usage: int | None) -> int:
         max_memory_usage or FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
         FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES,
     )
+
+
+def cap_flag_call_memory_settings(settings: dict[str, object]) -> None:
+    """Cap `max_memory_usage` in printed top-level settings, and lower each spill threshold to half the cap."""
+    max_memory_usage = cap_flag_call_max_memory_usage(cast(int | None, settings.get("max_memory_usage")))
+    settings["max_memory_usage"] = max_memory_usage
+    # A spill threshold above the memory limit never fires, so the query fails before it spills to disk.
+    for key in ("max_bytes_before_external_sort", "max_bytes_before_external_group_by"):
+        if cast(int, settings.get(key) or 0) > max_memory_usage // 2:
+            settings[key] = max_memory_usage // 2
 
 
 # Settings applied on top of all HogQL queries.

@@ -1330,10 +1330,21 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
 
     @parameterized.expand(
-        [("no_limit", None, UNKEYED_READ_MEMORY_CAP), ("lower_limit", 1024**3, "max_memory_usage=1073741824")]
+        [
+            (
+                "spill_threshold_above_the_cap",
+                HogQLGlobalSettings(max_bytes_before_external_group_by=20 * 1024**3),
+                [UNKEYED_READ_MEMORY_CAP, "max_bytes_before_external_group_by=4294967296"],
+            ),
+            (
+                "lower_memory_limit",
+                HogQLGlobalSettings(max_memory_usage=1024**3),
+                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=0"],
+            ),
+        ]
     )
     def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
-        self, _name: str, max_memory_usage: int | None, expected: str
+        self, _name: str, settings: HogQLGlobalSettings, expected: list[str]
     ):
         _set_mode(self.organization, ONLY)
         with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
@@ -1341,10 +1352,10 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 parse_select(UNKEYED_FEATURE_PROPERTY),
                 context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
-                settings=HogQLGlobalSettings(max_memory_usage=max_memory_usage),
+                settings=settings,
             )
 
-        assert expected in sql
+        assert [setting for setting in expected if setting not in sql] == []
 
     @parameterized.expand(
         [
