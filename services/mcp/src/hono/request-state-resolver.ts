@@ -41,6 +41,7 @@ import type { RedisLike } from './cache/RedisCache'
 import {
     MCP_CURSOR_EXEC_MODE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_SKILLS_EXTENSION_FLAG,
     MCP_INBOX_FIRST_FLAG,
     MCP_TIME_SERIES_CHARTS_FLAG,
 } from './constants'
@@ -239,13 +240,15 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_SKILLS_EXTENSION_FLAG the same skills
+        // served through the skills protocol extension, MCP_INBOX_FIRST_FLAG a prompt section,
         // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_SKILLS_EXTENSION_FLAG,
                 MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
