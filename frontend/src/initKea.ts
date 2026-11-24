@@ -219,6 +219,7 @@ const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The workflow scene and the notebook node views that show the workflow render NotFound
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
     loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
+    loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
