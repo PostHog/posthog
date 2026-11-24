@@ -35,9 +35,7 @@ class TeamOverviewPanel(Panel):
             .first()
         )
         return [
-            Fact(
-                label="Owner", value=owner.user.email, href=reverse("admin_console_user", kwargs={"pk": owner.user_id})
-            )
+            Fact(label="Owner", value=str(owner.user), href=reverse("admin_console_user", kwargs={"pk": owner.user_id}))
             if owner
             else Fact(label="Owner", value="No owner"),
             Fact(label="Members", value=str(obj.organization.members.count())),

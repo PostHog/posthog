@@ -28,10 +28,9 @@ export function SandboxTestRecipientSelect({
             className="mt-1"
             value={value}
             onChange={(email) => email && onChange(email)}
-            options={members.map(({ user }) => ({
-                value: user.email,
-                label: user.first_name ? `${user.first_name} (${user.email})` : user.email,
-            }))}
+            options={members.flatMap(({ user: { email, first_name } }) =>
+                email ? [{ value: email, label: first_name ? `${first_name} (${email})` : email }] : []
+            )}
             loading={loading}
             placeholder="Choose a verified member"
             data-attr="workflow-sandbox-test-recipient"

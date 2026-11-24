@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -24,7 +24,7 @@ export type ExperimentPickerSelectProps = {
 
 function ExperimentOptionLabel({ experiment }: { experiment: ExperimentBasicApi }): JSX.Element {
     const creator = experiment.created_by
-    const creatorName = creator ? fullName(creator) || creator.email : null
+    const creatorName = creator ? fullNameOrEmail(creator) || null : null
     return (
         <span className="flex w-full items-center justify-between gap-2">
             <span className="min-w-0 flex-1 truncate">{experiment.name}</span>

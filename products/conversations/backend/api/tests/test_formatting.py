@@ -892,4 +892,4 @@ class TestSlackMentionScoping(BaseTest):
         )
 
         assert rendered == "@Insider and @teammate"
-        assert outsider.email not in rendered
+        assert outsider.require_email() not in rendered

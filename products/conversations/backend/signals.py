@@ -570,7 +570,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
 
             author_name = ""
             if created_by:
-                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email or "Support"
             else:
                 author_name = _unattributed_author_name(item_context)
 
@@ -658,7 +658,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
 
             author_name = ""
             if created_by:
-                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email or "Support"
             else:
                 author_name = _unattributed_author_name(item_context)
 

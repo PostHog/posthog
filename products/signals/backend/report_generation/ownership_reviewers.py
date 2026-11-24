@@ -114,7 +114,7 @@ def suggest_repository_owners(
                 for member in team.all_users_with_access()
                 .annotate(normalized_email=Lower("email"))
                 .filter(normalized_email__in=email_owners)
-                if (login := member.get_github_login())
+                if member.email and (login := member.get_github_login())
             }
         except Exception:
             logger.exception("Could not match code owner emails for %s", repository)

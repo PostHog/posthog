@@ -173,10 +173,14 @@ def deliver_first_report_email(team_id: int) -> None:
         return
     assert notification.activated_by is not None
     record = SignalFirstReportNotification.objects.for_team(team_id).filter(pk=notification.pk)
+    recipient_email = notification.activated_by.email
+    if not recipient_email:
+        record.update(send_started_at=None, cancelled_at=timezone.now())
+        return
     try:
         message_id = send_transactional_email(
             SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID,
-            to=notification.activated_by.email,
+            to=recipient_email,
             distinct_id=str(notification.activated_by.distinct_id),
             message_data=notification.message_data,
         )

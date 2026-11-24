@@ -17,6 +17,9 @@ import { TodayListItemDetail, TodayListItemField, listItemDetails } from './toda
 
 export type TodayWorkItemKind = 'session' | 'chat'
 
+/** A chat author is any user, so the email is null for a service account. */
+export type TodayWorkItemAuthor = Omit<TaskUserBasicInfoApi, 'email'> & { email: string | null }
+
 export interface TodayWorkItem {
     kind: TodayWorkItemKind
     id: string
@@ -26,7 +29,7 @@ export interface TodayWorkItem {
     status: string | null
     channel: string | null
     createdById: number | null
-    author: TaskUserBasicInfoApi | null
+    author: TodayWorkItemAuthor | null
     latestRunId: string | null
     runtime?: string | null
     runEnvironment: string | null
@@ -50,7 +53,7 @@ export interface TodayWorkGroup {
 }
 
 export type TodaySessionBadge =
-    | { kind: 'author'; author: TaskUserBasicInfoApi; live: boolean }
+    | { kind: 'author'; author: TodayWorkItemAuthor; live: boolean }
     | { kind: 'source'; source: string }
     | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
     | { kind: 'local' }

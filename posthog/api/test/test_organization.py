@@ -648,7 +648,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verifying the admin's own domain unblocks it, which also covers the empty allow-list case.
         OrganizationDomain.objects.create(
-            domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
+            domain=self.user.require_email().split("@")[1], organization=self.organization, verified_at=timezone.now()
         )
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)

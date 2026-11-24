@@ -15,7 +15,7 @@ class TestInsightShortIdsSubscribedBy(BaseTest):
     def test_lists_active_insight_subscriptions_the_user_receives(self) -> None:
         now = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
-        me = self.user.email
+        me = self.user.require_email()
         rows: dict[str, dict[str, Any]] = {
             "mine": {"created_by": self.user, "target_value": me},
             "sent_to_me": {"created_by": other, "target_value": f"other@example.com, {me.upper()}"},

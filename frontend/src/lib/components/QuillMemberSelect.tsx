@@ -30,7 +30,7 @@ export interface QuillMemberSelectProps {
     searchValue: string
     onSearchChange: (query: string) => void
     members: OrganizationMemberType[]
-    options?: { uuid: string; name: string; email: string; trailing?: string | number }[]
+    options?: { uuid: string; name: string; email?: string | null; trailing?: string | number }[]
     optionsLoading?: boolean
     membersLoading: boolean
     extraOptions: { label: string; onClick: () => void }[]
@@ -116,7 +116,7 @@ export function QuillMemberSelect({
         const option = optionsByKey.get(key)
         if (option) {
             onClose()
-            onSelectOption?.(option.uuid, option.name || option.email)
+            onSelectOption?.(option.uuid, option.name || option.email || '')
             return
         }
 
@@ -195,7 +195,7 @@ export function QuillMemberSelect({
                                 <ComboboxItem key={key} value={key}>
                                     <span className="ph-no-capture flex min-w-0 flex-1 items-center gap-2">
                                         <QuillPersonAvatar
-                                            name={option.name || option.email}
+                                            name={option.name || option.email || ''}
                                             email={option.email}
                                             size="xs"
                                         />

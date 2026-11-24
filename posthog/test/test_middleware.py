@@ -2017,8 +2017,10 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         self.login_as_other_user()
         response = self.client.get("/admin/")
         assert response.status_code == 200
-        assert self.other_user.email.encode() in response.content, "impersonated customer email missing from banner"
-        assert self.user.email.encode() in response.content, (
+        assert self.other_user.require_email().encode() in response.content, (
+            "impersonated customer email missing from banner"
+        )
+        assert self.user.require_email().encode() in response.content, (
             "staff user email missing from banner — request.user not swapped at template render"
         )
 

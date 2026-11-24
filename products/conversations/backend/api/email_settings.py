@@ -865,6 +865,9 @@ class EmailSendTestView(APIView):
             return Response({"error": "Email config not found"}, status=404)
         if not config.domain_verified:
             return Response({"error": "Domain not yet verified. Please verify DNS records first."}, status=400)
+        recipient = user.email
+        if not recipient:
+            return Response({"error": "Your account has no email address to send a test email to."}, status=400)
 
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or config.domain
         message_id = make_msgid(domain=inbound_domain)
@@ -874,7 +877,7 @@ class EmailSendTestView(APIView):
             subject="Test email from PostHog Support",
             body="This is a test email to confirm your outbound email is working correctly.",
             from_email=from_addr,
-            to=[user.email],
+            to=[recipient],
             headers={"Message-ID": message_id},
         )
         html_body = (
@@ -886,7 +889,7 @@ class EmailSendTestView(APIView):
         mime_bytes = mime_bytes_with_crlf(email_message)
 
         try:
-            send_mime(config.domain, mime_bytes, recipients=[user.email])
+            send_mime(config.domain, mime_bytes, recipients=[recipient])
         except MailgunNotConfigured:
             logger.exception("email_send_test_not_configured", team_id=team.id, config_id=config.id)
             return Response(
@@ -909,9 +912,9 @@ class EmailSendTestView(APIView):
             logger.exception("email_send_test_failed", team_id=team.id, config_id=config.id)
             return Response({"error": "Failed to send test email"}, status=502)
 
-        logger.info("email_test_sent", team_id=team.id, to=user.email, config_id=config.id, user_id=user.id)
+        logger.info("email_test_sent", team_id=team.id, to=recipient, config_id=config.id, user_id=user.id)
 
-        return Response({"ok": True, "sent_to": user.email})
+        return Response({"ok": True, "sent_to": recipient})
 
 
 class EmailSetDefaultView(APIView):

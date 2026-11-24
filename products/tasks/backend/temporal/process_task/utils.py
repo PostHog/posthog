@@ -2089,7 +2089,8 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
         return {}
 
     name = user.get_full_name() or user.first_name or "PostHog User"
-    email = user.email
+    # Git needs an author address. A user without an email gets a stable address that receives no mail.
+    email = user.email or f"{user.distinct_id or user.uuid}@users.noreply.posthog.com"
 
     return {
         "GIT_AUTHOR_NAME": name,

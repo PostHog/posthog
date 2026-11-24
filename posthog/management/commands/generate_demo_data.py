@@ -258,11 +258,11 @@ class Command(BaseCommand):
                     if existing_team_id is not None
                     else f"\nDemo data ready for {(user.email if user is not None else 'unknown user')}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
+                    f"http://localhost:8010/login?email={quote(user.require_email() if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
                     f"The project API token is:\n{team.api_token if team is not None else 'unknown'}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
+                    f"http://localhost:8010/signup?email={quote(user.require_email() if user is not None else '')}\n"
                 )
             )
 

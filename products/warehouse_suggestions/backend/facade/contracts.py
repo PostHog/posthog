@@ -143,7 +143,7 @@ class SuggestionDraft:
 class SuggestionReviewer:
     id: int
     first_name: str
-    email: str
+    email: str | None
 
 
 @frozen

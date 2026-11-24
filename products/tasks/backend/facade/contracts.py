@@ -1041,7 +1041,7 @@ class TaskUserBasicInfo:
     distinct_id: str
     first_name: str
     last_name: str
-    email: str
+    email: str | None
     is_email_verified: bool | None = None
     hedgehog_config: dict | None = None
     role_at_organization: str | None = None

@@ -117,7 +117,7 @@ class SkillAuthor:
     """
 
     name: str
-    email: str
+    email: str | None
     role: Literal["owner", "creator", "editor"]
     last_authored_at: datetime
     # The routing identity itself: a scout passes this straight to `suggested_reviewers`, so an
@@ -250,7 +250,7 @@ def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
         name = " ".join(f"{row['user__first_name']} {row['user__last_name']}".split())
         authors.append(
             SkillAuthor(
-                name=name or row["user__email"],
+                name=name or row["user__email"] or "Unnamed member",
                 email=row["user__email"],
                 role="owner",
                 last_authored_at=row["created_at"],
@@ -309,7 +309,7 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
         # one-line list-item structure.
         name = " ".join(f"{person['created_by__first_name']} {person['created_by__last_name']}".split())
         return SkillAuthor(
-            name=name or person["created_by__email"],
+            name=name or person["created_by__email"] or "Unnamed member",
             email=person["created_by__email"],
             role=role,
             last_authored_at=person["last_authored_at"],

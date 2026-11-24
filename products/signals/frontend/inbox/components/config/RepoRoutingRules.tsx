@@ -136,7 +136,7 @@ function RuleRow({ rule }: { rule: RepoRoutingRuleApi }): JSX.Element {
             <span className="text-xs text-muted shrink-0">{rule.repository}</span>
             {rule.created_by && (
                 <Tooltip
-                    title={`Added by ${rule.created_by.first_name || rule.created_by.email}${rule.created_by.first_name ? ` (${rule.created_by.email})` : ''}`}
+                    title={`Added by ${rule.created_by.first_name || rule.created_by.email}${rule.created_by.first_name && rule.created_by.email ? ` (${rule.created_by.email})` : ''}`}
                 >
                     <ProfilePicture
                         user={{

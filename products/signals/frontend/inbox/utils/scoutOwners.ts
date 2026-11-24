@@ -1,4 +1,4 @@
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -14,14 +14,20 @@ export function showsScoutOwnership(config: Pick<SignalScoutConfigApi, 'scout_or
 }
 
 export function scoutOwnerName(owner: UserBasicApi): string {
-    return fullName(owner) || owner.email
+    return fullNameOrEmail(owner)
 }
 
 /** `ProfileBubbles` people. The email rides in the per-avatar title so a hover names the person. */
-export function scoutOwnerBubbles(owners: readonly UserBasicApi[]): { email: string; name: string; title: string }[] {
+export function scoutOwnerBubbles(
+    owners: readonly UserBasicApi[]
+): { email: string | null; name: string; title: string }[] {
     return owners.map((owner) => {
         const name = scoutOwnerName(owner)
-        return { email: owner.email, name, title: name === owner.email ? name : `${name} (${owner.email})` }
+        return {
+            email: owner.email ?? null,
+            name,
+            title: !owner.email || name === owner.email ? name : `${name} (${owner.email})`,
+        }
     })
 }
 
@@ -32,7 +38,7 @@ export function scoutOwnersLabel(owners: readonly UserBasicApi[]): string {
 export interface ScoutOwnerOption {
     uuid: string
     name: string
-    email: string
+    email: string | null
     count: number
 }
 
@@ -55,7 +61,7 @@ export function listScoutOwnerOptions(configs: SignalScoutConfigApi[]): ScoutOwn
             options.set(owner.uuid, {
                 uuid: owner.uuid,
                 name: scoutOwnerName(owner),
-                email: owner.email,
+                email: owner.email ?? null,
                 count: 1,
             })
         }

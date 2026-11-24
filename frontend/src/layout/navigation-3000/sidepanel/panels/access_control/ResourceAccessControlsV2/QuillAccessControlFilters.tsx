@@ -12,7 +12,7 @@ import {
     InputGroupText,
 } from '@posthog/quill'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { AccessControlLevel, APIScopeObject } from '~/types'
 
@@ -64,7 +64,7 @@ export function QuillAccessControlFilters(props: AccessControlFiltersProps): JSX
                             pluralNoun="members"
                             options={props.members.map((member) => ({
                                 value: member.id,
-                                label: fullName(member.user) || member.user.email,
+                                label: fullNameOrEmail(member.user),
                             }))}
                             selected={memberIds}
                             onChange={(values) => props.setFilters({ memberIds: values })}

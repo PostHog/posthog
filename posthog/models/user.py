@@ -336,7 +336,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     kind = models.CharField(max_length=32, choices=UserKind.choices, default=UserKind.HUMAN, db_default=UserKind.HUMAN)
     # A service account has no email unless an admin sets a contact address. Postgres treats each
     # NULL as distinct, so the unique index still allows many accounts without an email.
-    email = models.EmailField(_("email address"), unique=True, null=True, blank=True)
+    email = models.EmailField(_("email address"), unique=True, null=True, blank=True)  # type: ignore[assignment]
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
@@ -495,6 +495,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     @property
     def is_service_account(self) -> bool:
         return self.kind == UserKind.SERVICE_ACCOUNT
+
+    def require_email(self) -> str:
+        """Return the email on a path that only a person reaches, such as login, signup or SSO."""
+        if not self.email:
+            raise ValueError(f"User {self.pk} has no email.")
+        return self.email
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]

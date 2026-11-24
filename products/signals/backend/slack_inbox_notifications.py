@@ -1014,7 +1014,7 @@ def _note_mention_destination(
     """
     if own_config is not None and own_config.channel:
         return _Destination(integration=own_config.integration, channel=own_config.channel, is_team_channel=False)
-    if team_integration is None:
+    if team_integration is None or not user.email:
         return None
     member_id = lookup_slack_user_id_by_email(SlackIntegration(team_integration, source="signals_inbox"), user.email)
     if member_id is None:

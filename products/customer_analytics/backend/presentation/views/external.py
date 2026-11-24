@@ -204,7 +204,10 @@ def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team
 
 class ExternalAccountAssignmentSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
-    email = serializers.CharField(help_text="Email address of the assigned user.")
+    email = serializers.CharField(
+        allow_null=True,
+        help_text="Email address of the assigned user. Null for a service account without a contact email.",
+    )
 
 
 class ExternalAccountSerializer(serializers.Serializer):

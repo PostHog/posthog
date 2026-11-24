@@ -256,7 +256,7 @@ class ChartExplanationAuthor:
     id: int
     first_name: str
     last_name: str
-    email: str
+    email: str | None
 
 
 @dataclass(frozen=True)

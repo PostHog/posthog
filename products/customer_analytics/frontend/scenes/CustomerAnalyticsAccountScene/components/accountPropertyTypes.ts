@@ -15,7 +15,7 @@ export type AccountCustomPropertyProvenance = 'manual' | 'workflow' | 'warehouse
 
 export interface AccountRelationshipMember {
     id: number
-    email: string
+    email: string | null
     name?: string
 }
 

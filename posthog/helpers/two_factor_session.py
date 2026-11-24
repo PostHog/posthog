@@ -485,7 +485,7 @@ class CodeBasedVerifier:
             return False
 
         # An exempting rule drops only the emailed code. TOTP and passkey 2FA are gated earlier in the login flow.
-        if is_email_code_exempt(user.email):
+        if is_email_code_exempt(user.require_email()):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return False
 

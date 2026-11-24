@@ -152,7 +152,7 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             )
 
         rendered = str(self.admin.ai_gateway_credit_history(self.team))
-        assert self.user.email in rendered
+        assert self.user.require_email() in rendered
         assert "25.000000" in rendered
         assert "goodwill" in rendered
         assert marker in rendered

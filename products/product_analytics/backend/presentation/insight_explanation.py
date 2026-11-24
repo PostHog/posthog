@@ -310,7 +310,7 @@ class ChartExplanationAuthorSerializer(DataclassSerializer):
             "id": {"help_text": "The user's id."},
             "first_name": {"help_text": "The user's first name."},
             "last_name": {"help_text": "The user's last name."},
-            "email": {"help_text": "The user's email address."},
+            "email": {"help_text": "The user's email address. Null for a service account without a contact email."},
         }
 
 

@@ -147,7 +147,7 @@ export function QuillRoleDetails({ roleId }: { roleId: string }): JSX.Element | 
             id: 'user_email',
             header: 'Email',
             accessorFn: (member) => member.user.email,
-            sortingFn: (a, b) => a.original.user.email.localeCompare(b.original.user.email),
+            sortingFn: (a, b) => (a.original.user.email ?? '').localeCompare(b.original.user.email ?? ''),
             cell: ({ row }) => (
                 <Text size="xs" render={<span />} className="m-0 ph-no-capture">
                     {row.original.user.email}

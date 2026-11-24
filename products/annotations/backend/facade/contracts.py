@@ -36,7 +36,7 @@ class AnnotationCreator:
     distinct_id: str | None
     first_name: str
     last_name: str
-    email: str
+    email: str | None
     is_email_verified: bool | None
     hedgehog_config: dict[str, Any] | None
     role_at_organization: str | None

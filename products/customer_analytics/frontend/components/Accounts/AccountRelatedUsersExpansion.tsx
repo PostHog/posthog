@@ -9,7 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { getUserAdminUrl } from 'lib/utils/userAdmin'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -49,7 +49,7 @@ export function AccountRelatedUsersExpansion({
             title: 'User',
             key: 'user',
             render: (_, member) => {
-                const name = fullName(member.user) || member.user.email
+                const name = fullNameOrEmail(member.user)
                 return member.user.distinct_id ? (
                     <Link
                         to={urls.personByDistinctId(member.user.distinct_id)}
@@ -156,7 +156,7 @@ export function AccountRelatedUsersExpansion({
                     onBackward: () => setPage(page - 1),
                 }}
                 bulkSelection={{
-                    getKey: (member) => member.user.email,
+                    getKey: (member) => member.user.email || member.id,
                     isRowSelectable: (member) =>
                         member.user.email ? true : { disabledReason: 'This user has no email address' },
                     noun: ['user', 'users'],

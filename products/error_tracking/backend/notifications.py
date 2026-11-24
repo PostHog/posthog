@@ -45,7 +45,7 @@ class AssignmentActor:
 
     @classmethod
     def from_user(cls, user: User) -> "AssignmentActor":
-        return cls(label=user.first_name or user.email, user_id=user.id)
+        return cls(label=user.first_name or user.email or "A team member", user_id=user.id)
 
     @classmethod
     def automatic(cls, label: str) -> "AssignmentActor":

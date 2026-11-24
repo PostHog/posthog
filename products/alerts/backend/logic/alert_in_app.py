@@ -21,7 +21,7 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 
 def insight_in_app_groups(
-    alert: AlertConfiguration, *, event_ids: Collection[str], recipients_with_access: Collection[tuple[int, str]]
+    alert: AlertConfiguration, *, event_ids: Collection[str], recipients_with_access: Collection[tuple[int, str | None]]
 ) -> list[AlertDestinationGroup]:
     user_ids = [user_id for user_id, _ in recipients_with_access]
     if not user_ids:

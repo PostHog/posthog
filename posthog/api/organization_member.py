@@ -36,7 +36,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
-from posthog.models.user import User
+from posthog.models.user import User, UserKind
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.organization_offboarding import OrganizationOffboarding
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
@@ -307,7 +307,7 @@ class OrganizationMemberViewSet(
             if params.get("outside_verified_domains") == "true":
                 admitted = verified_domain_email_q(organization)
                 if admitted is not None:
-                    queryset = queryset.exclude(admitted)
+                    queryset = queryset.exclude(admitted).exclude(user__kind=UserKind.SERVICE_ACCOUNT)
 
             if "levels" in params:
                 try:

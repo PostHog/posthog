@@ -11,7 +11,7 @@ export interface QuillAnnotationCardProps {
     emoji?: string | null
     content: string
     isSystemAnnotation: boolean
-    author: { name: string; email?: string; label: string }
+    author: { name: string; email?: string | null; label: string }
     createdAt: string
     onEdit?: () => void
     onDelete?: () => void

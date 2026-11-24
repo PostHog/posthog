@@ -89,7 +89,7 @@ class AccountContext:
 
     def _roles_section(self, account: AccountContextData) -> str:
         lines = [
-            f"- {relationship.definition.name}: {relationship.user.email} (user {relationship.user.id})"
+            f"- {relationship.definition.name}: {relationship.user} (user {relationship.user.id})"
             for relationship in account.relationships
             if relationship.user is not None
         ]

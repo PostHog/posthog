@@ -37,7 +37,7 @@ class WizardTaskDTO:
 class WizardSessionUserDTO:
     id: int
     first_name: str
-    email: str
+    email: str | None
 
 
 @dataclass(frozen=True)
@@ -168,7 +168,7 @@ class WizardRunCreatorDTO:
     id: int
     first_name: str
     last_name: str
-    email: str
+    email: str | None
 
 
 @frozen

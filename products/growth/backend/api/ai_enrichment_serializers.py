@@ -134,7 +134,8 @@ class ConfigVersionSerializer(serializers.Serializer):
     output_fields = OutputFieldSerializer(many=True, help_text=_OUTPUT_FIELDS_HELP)
     is_active = serializers.BooleanField(help_text="Whether the batch runner currently computes this version.")
     created_by_email = serializers.SerializerMethodField(
-        help_text="Email of the staff user who created this version, or null for system-seeded rows."
+        help_text="Email of the staff user who created this version. Null for system-seeded rows and for a "
+        "service account without a contact email."
     )
     created_at = serializers.DateTimeField(help_text="When this version was created.")
     has_results = serializers.SerializerMethodField(

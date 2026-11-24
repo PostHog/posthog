@@ -203,6 +203,7 @@ def _organization_member_emails(integration: IntegrationRecord) -> set[str]:
             organization_id=Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id),
             user__is_active=True,
         ).values_list("user__email", flat=True)
+        if email
     }
 
 

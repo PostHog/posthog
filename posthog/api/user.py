@@ -848,9 +848,10 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Fold both sides: `validate_email` hands back the stored address for an edit of the case
         # alone, and a legacy row can hold that address in any case.
-        changes_email = "email" in validated_data and EmailNormalizer.normalize(
-            validated_data["email"]
-        ) != EmailNormalizer.normalize(instance.email)
+        changes_email = "email" in validated_data and not (
+            instance.email
+            and EmailNormalizer.normalize(validated_data["email"]) == EmailNormalizer.normalize(instance.email)
+        )
 
         if changes_email and is_email_available():
             new_email = validated_data["email"]
@@ -1276,9 +1277,11 @@ class UserViewSet(
             return
 
         email = data.get("email")
+        current_email = self.get_object().email
         changes_email = "email" in data and not (
             isinstance(email, str)
-            and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
+            and current_email is not None
+            and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(current_email)
         )
 
         # The login email and the password decide who can sign in, so a leaked personal API key or

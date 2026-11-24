@@ -119,8 +119,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         options = generate_passkey_registration_options(
             user_id=user_handle,
-            user_name=user.email,
-            user_display_name=user.get_full_name() or user.email,
+            user_name=user.require_email(),
+            user_display_name=user.get_full_name() or user.require_email(),
             exclude_credentials=exclude_credentials,
         )
 
@@ -396,7 +396,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         """
         evaluate_auth_attempt(
             request=request._request,
-            email=verified_user.email,
+            email=verified_user.require_email(),
             action=RadarAction.SIGNIN,
             auth_method=RadarAuthMethod.PASSKEY,
             user_id=str(verified_user.distinct_id),

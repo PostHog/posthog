@@ -403,7 +403,7 @@ class TestGetContextForTemplate(APIBaseTest):
         assert ("js_posthog_identity_claims" in context) is expects_claim
         if expects_claim:
             claims = context["js_posthog_identity_claims"]
-            assert claims["email"]["value"] == self.user.email.lower()
+            assert claims["email"]["value"] == self.user.require_email().lower()
             current_time = int(time.time())
             assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS
 

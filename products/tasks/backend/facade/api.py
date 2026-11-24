@@ -9321,7 +9321,7 @@ def handoff_task(
         target = locked.team.all_users_with_access().filter(id=target_user_id).first()
         if target is None:
             raise TaskHandoffError("Tasks can only be handed off to someone with access to this project.")
-        target_name = target.first_name.strip() or target.email
+        target_name = target.first_name.strip() or target.email or "a teammate"
         if (
             TaskRun.objects.filter(task_id=locked.id, team_id=team_id)
             .exclude(status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
@@ -12230,11 +12230,15 @@ def desktop_users_in_team(team: Team, exclude_user_id: int) -> list[str]:
         .select_related("created_by")
         .order_by("created_at")[:4]
     )
-    return [
-        channel.created_by.first_name or channel.created_by.email.split("@")[0]
-        for channel in channels
-        if channel.created_by
-    ]
+    names: list[str] = []
+    for channel in channels:
+        creator = channel.created_by
+        if creator is None:
+            continue
+        name = creator.first_name or (creator.email.split("@")[0] if creator.email else None)
+        if name:
+            names.append(name)
+    return names
 
 
 def organization_has_context(organization_id: UUID | str) -> bool:
@@ -13183,7 +13187,7 @@ def forward_thread_message(
             return "no_run", None
 
         author = message.author
-        author_name = (author.get_full_name() or author.email) if author else "A teammate"
+        author_name = (author.get_full_name() or author.email if author else None) or "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
         try:
             signal_result = signal_task_run_user_message(

@@ -74,7 +74,11 @@ class CrossProjectDashboardTileUpdateSerializer(serializers.Serializer):
 class CrossProjectDashboardCreatorSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="Id of the user who created the dashboard.")
     first_name = serializers.CharField(read_only=True, help_text="First name of the user who created the dashboard.")
-    email = serializers.EmailField(read_only=True, help_text="Email of the user who created the dashboard.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email of the user who created the dashboard. Null for a service account without a contact email.",
+    )
 
 
 class CrossProjectDashboardListItemSerializer(serializers.Serializer):

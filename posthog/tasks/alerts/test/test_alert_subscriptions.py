@@ -196,7 +196,7 @@ class TestAlertEmailNotifications(APIBaseTest):
     def test_send_disabled_email(self, mock_send_alert_email: MagicMock) -> None:
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
 
-        send_notifications_for_disabled(alert, "Insight query is invalid", [self.user.email])
+        send_notifications_for_disabled(alert, "Insight query is invalid", [self.user.require_email()])
 
         mock_send_alert_email.assert_called_once()
         kwargs = mock_send_alert_email.call_args.kwargs

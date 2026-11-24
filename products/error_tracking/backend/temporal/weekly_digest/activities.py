@@ -246,6 +246,8 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
 
     for membership, enabled_team_ids, disabled_team_names in recipients:
         user = membership.user
+        if not user.email:
+            continue
 
         user_team_sections = [team_digest_data[team_id] for team_id in enabled_team_ids if team_id in team_digest_data]
         if not user_team_sections:

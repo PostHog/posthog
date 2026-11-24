@@ -113,6 +113,13 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         invite_email: Optional[str] = None,
         request_path: Optional[str] = None,
     ) -> None:
+        # Without this, the recipient check below is skipped and any invite validates for the account.
+        if user is not None and not user.email:
+            raise exceptions.ValidationError(
+                "An account without an email address cannot accept an invite.",
+                code="invalid_recipient",
+            )
+
         _email = email or getattr(user, "email", None)
 
         if (

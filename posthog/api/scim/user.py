@@ -12,6 +12,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.user import UserKind
 
 from products.access_control.backend.models.role import RoleMembership
 
@@ -438,4 +439,8 @@ class PostHogSCIMUser(SCIMUser):
 
     @classmethod
     def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[User]:
-        return User.objects.filter(organization_membership__organization=config.organization).order_by("id")
+        return (
+            User.objects.filter(organization_membership__organization=config.organization)
+            .exclude(kind=UserKind.SERVICE_ACCOUNT)
+            .order_by("id")
+        )

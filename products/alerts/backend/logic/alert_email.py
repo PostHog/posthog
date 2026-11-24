@@ -41,10 +41,12 @@ def insight_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
 def alert_email_recipients(*, team_id: int, alert_id: UUID) -> list[tuple[int, str]]:
     """Subscribed users who can still view the project and the alert's insight."""
     alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team", "insight").first()
-    return recipients_with_access(alert) if alert is not None else []
+    if alert is None:
+        return []
+    return [(user_id, email) for user_id, email in recipients_with_access(alert) if email]
 
 
-def recipients_with_access(alert: AlertConfiguration) -> list[tuple[int, str]]:
+def recipients_with_access(alert: AlertConfiguration) -> list[tuple[int, str | None]]:
     candidates = (
         alert.team.all_users_with_access()
         .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
@@ -57,11 +59,11 @@ def can_view_insight(user: User, alert: AlertConfiguration) -> bool:
     return UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
 
 
-def insight_email_groups(recipients: Collection[tuple[int, str]]) -> list[AlertDestinationGroup]:
+def insight_email_groups(recipients: Collection[tuple[int, str | None]]) -> list[AlertDestinationGroup]:
     return email_groups(email for _, email in recipients)
 
 
-def email_groups(addresses: Iterable[str]) -> list[AlertDestinationGroup]:
+def email_groups(addresses: Iterable[str | None]) -> list[AlertDestinationGroup]:
     # Sorted and deduplicated, because delivery tells destinations apart by their data. The same
     # people in another order would read as a second destination.
     unique = sorted({address for address in addresses if address})

@@ -26,7 +26,7 @@ class TileNotFoundError(Exception):
 class DashboardCreator:
     id: int
     first_name: str
-    email: str
+    email: str | None
 
 
 @dataclass(frozen=True)

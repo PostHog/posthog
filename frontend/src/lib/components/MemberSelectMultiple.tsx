@@ -13,7 +13,7 @@ import { UserBasicType } from '~/types'
 type UserIdType = string | number
 
 export type MemberSelectMultipleProps = {
-    idKey: 'email' | 'uuid' | 'id'
+    idKey: 'uuid' | 'id'
     value: UserIdType[]
     onChange: (values: UserBasicType[]) => void
 }

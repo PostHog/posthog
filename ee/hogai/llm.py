@@ -82,7 +82,7 @@ AI_GATEWAY_BILLABLE_PRODUCTS = frozenset(
 
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
-The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
+The user's name appears to be {{{user_full_name}}}{{#user_email}} ({{{user_email}}}){{/user_email}}. Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
 All PostHog app URLs must use root-relative paths starting with `/`, without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs. Never use relative paths like `../` or `./` — always start with `/`.
 Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
 

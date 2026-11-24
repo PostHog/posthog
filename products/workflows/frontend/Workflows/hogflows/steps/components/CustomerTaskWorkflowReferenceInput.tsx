@@ -6,7 +6,7 @@ import { LemonButton, LemonInputSelect, LemonLabel, LemonSegmentedButton } from 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { membersLogic } from '~/models/membersLogic'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
@@ -118,7 +118,7 @@ export function CustomerTaskWorkflowReferenceInput({
                             {() => (
                                 <LemonButton type="secondary" size="small">
                                     {savedMember
-                                        ? fullName(savedMember) || savedMember.email
+                                        ? fullNameOrEmail(savedMember)
                                         : memberId === null
                                           ? 'Unassigned'
                                           : `User ${memberId}`}

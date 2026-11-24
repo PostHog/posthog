@@ -3,7 +3,7 @@ import { AvatarGroup, Text, Tooltip, TooltipContent, TooltipTrigger } from '@pos
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 
 interface QuillPeopleAvatarsProps {
-    people: { name: string; email: string }[]
+    people: { name: string; email?: string | null }[]
     limit?: number
 }
 
@@ -20,8 +20,13 @@ export function QuillPeopleAvatars({ people, limit = 3 }: QuillPeopleAvatarsProp
                 render={<span className="ph-no-capture inline-flex items-center gap-1" tabIndex={0} />}
             >
                 <AvatarGroup stacked size="xs">
-                    {people.slice(0, limit).map((person) => (
-                        <QuillPersonAvatar key={person.email} name={person.name} email={person.email} size="xs" />
+                    {people.slice(0, limit).map((person, index) => (
+                        <QuillPersonAvatar
+                            key={person.email ?? `${person.name}-${index}`}
+                            name={person.name}
+                            email={person.email}
+                            size="xs"
+                        />
                     ))}
                 </AvatarGroup>
                 {overflow > 0 && (

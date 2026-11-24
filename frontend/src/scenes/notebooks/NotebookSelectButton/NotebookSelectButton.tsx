@@ -108,7 +108,7 @@ function NotebooksChoiceList(props: {
                                     <ProfilePicture
                                         user={notebook.created_by}
                                         size="md"
-                                        title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
+                                        title={`Created by ${notebook.created_by?.first_name}${notebook.created_by?.email ? ` <${notebook.created_by.email}>` : ''}`}
                                     />
                                 ) : null
                             }

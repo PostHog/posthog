@@ -687,7 +687,7 @@ class SignalReviewerUserInfo(ContractModel):
     uuid: str
     first_name: str
     last_name: str
-    email: str
+    email: str | None
 
 
 class EnrichedReviewer(ContractModel):

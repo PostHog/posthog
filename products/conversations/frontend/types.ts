@@ -222,7 +222,7 @@ export interface MessageAuthor {
     id?: number
     first_name?: string
     last_name?: string
-    email?: string
+    email?: string | null
 }
 
 /** Delivery state of an outbound email reply, denormalized from the backend outbox. */

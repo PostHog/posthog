@@ -392,7 +392,7 @@ def content_to_slack_mrkdwn(
 
             user = User.objects.filter(uuid=uuid_str, organization_membership__organization_id=organization_id).first()
             if user:
-                name = f"{user.first_name} {user.last_name}".strip() or user.email
+                name = f"{user.first_name} {user.last_name}".strip() or str(user)
                 return f"@{name}"
         except Exception:
             pass

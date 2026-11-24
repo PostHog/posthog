@@ -1089,7 +1089,7 @@ def forward_posthog_code_followup_activity(
         # to the user's PostHog email rather than interpolating literal "None: "
         # into the LLM-forwarded prefix when both name and slack_email are absent.
         actor_user = resolved.user
-        actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
+        actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email or "A teammate"
         followup_user_text_prefix = f"{actor_name}: "
         logger.info(
             "posthog_code_followup_cross_user_authorized",

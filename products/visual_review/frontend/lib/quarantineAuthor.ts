@@ -21,7 +21,8 @@ export function quarantineAuthor(
     automaticLabel: string = QUARANTINED_AUTOMATICALLY
 ): string | null {
     if (quarantine.created_by) {
-        return formatUser(quarantine.created_by.first_name || quarantine.created_by.email)
+        const name = quarantine.created_by.first_name || quarantine.created_by.email
+        return name ? formatUser(name) : null
     }
     return automaticQuarantineLabel(quarantine, automaticLabel)
 }

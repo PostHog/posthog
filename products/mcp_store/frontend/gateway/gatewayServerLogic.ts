@@ -840,7 +840,9 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                             label:
                                 [matchingMember.user.first_name, matchingMember.user.last_name]
                                     .filter(Boolean)
-                                    .join(' ') || matchingMember.user.email,
+                                    .join(' ') ||
+                                matchingMember.user.email ||
+                                '',
                         })
                     }
                 }

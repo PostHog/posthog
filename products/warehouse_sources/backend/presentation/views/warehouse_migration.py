@@ -198,7 +198,10 @@ class WarehouseMigrationSerializer(serializers.Serializer):
 
 class WarehouseMigrationCreatorSerializer(serializers.Serializer):
     first_name = serializers.CharField(help_text="First name of the person who prepared the migration.")
-    email = serializers.EmailField(help_text="Email of the person who prepared the migration.")
+    email = serializers.EmailField(
+        allow_null=True,
+        help_text="Email of the person who prepared the migration. Null for a service account without a contact email.",
+    )
 
 
 class WarehouseMigrationItemSerializer(serializers.Serializer):

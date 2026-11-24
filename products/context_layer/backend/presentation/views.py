@@ -256,6 +256,12 @@ def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: boo
     return Response(ChannelWikiPageSerializer({"path": path}).data)
 
 
+def _commit_author(user: User) -> facade.CommitAuthor:
+    # Git needs an author address. A user without an email gets a stable address that receives no mail.
+    email = user.email or f"{user.distinct_id or user.uuid}@users.noreply.posthog.com"
+    return facade.CommitAuthor(name=user.first_name or user.email or "PostHog user", email=email)
+
+
 def _write_page(organization_id, request: Request, *, team_id=None) -> Response:  # noqa: ANN001
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -268,11 +274,7 @@ def _write_page(organization_id, request: Request, *, team_id=None) -> Response:
     )
     _assert_run_commit_cap(request)
     user = request.user
-    author = (
-        facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
-        if user and user.is_authenticated
-        else None
-    )
+    author = _commit_author(user) if user and user.is_authenticated else None
     content = serializer.validated_data["content"]
     channel_id = facade.page_frontmatter_channel_id(content)
     is_first_version = False
@@ -512,7 +514,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.organization.id,
                 user_id,
                 proposal_uuid,
-                author=facade.CommitAuthor(name=user.first_name or user.email, email=user.email),
+                author=_commit_author(user),
             )
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)

@@ -41,7 +41,7 @@ class PersonalAPIKeyAdmin(admin.ModelAdmin):
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_user_change", args=[key.user.pk]),
-            key.user.email,
+            str(key.user),
         )
 
     @admin.display(description="Roll key")

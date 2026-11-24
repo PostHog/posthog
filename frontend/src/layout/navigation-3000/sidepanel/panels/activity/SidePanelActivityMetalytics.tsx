@@ -63,7 +63,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                                 people={recentUserMembers.map((member) => ({
                                     email: member.user.email,
                                     name: member.user.first_name,
-                                    title: member.user.email,
+                                    title: member.user.email ?? undefined,
                                 }))}
                                 limit={3}
                             />

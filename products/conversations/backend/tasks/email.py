@@ -164,7 +164,9 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     author_name = ""
     if comment.created_by:
         author_name = (
-            f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
+            f"{comment.created_by.first_name} {comment.created_by.last_name}".strip()
+            or comment.created_by.email
+            or "Support"
         )
 
     # Build threading headers from the latest inbound message on this ticket

@@ -61,7 +61,7 @@ def score_display_value(
     return _boolean_value(config, boolean_value)
 
 
-def reviewer_name(first_name: str, email: str, distinct_id: str | None) -> str | None:
+def reviewer_name(first_name: str, email: str | None, distinct_id: str | None) -> str | None:
     return first_name or email or distinct_id or None
 
 

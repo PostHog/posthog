@@ -21,7 +21,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -119,7 +119,7 @@ function buildSkillColumns(
                     <ProfileBubbles
                         people={skill.owners.map((owner) => ({
                             email: owner.email,
-                            name: fullName(owner) || owner.email,
+                            name: fullNameOrEmail(owner),
                         }))}
                         limit={4}
                     />
@@ -133,11 +133,7 @@ function buildSkillColumns(
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
-                return (
-                    <span className="text-muted text-sm">
-                        {created_by ? fullName(created_by) || created_by.email : <i>-</i>}
-                    </span>
-                )
+                return <span className="text-muted text-sm">{created_by ? fullNameOrEmail(created_by) : <i>-</i>}</span>
             },
         },
         {

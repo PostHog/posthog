@@ -19,7 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
@@ -168,7 +168,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                 <LemonMenuOverlay
                     items={suggestedUsers.map((user) => ({
                         icon: <ProfilePicture user={user} size="md" />,
-                        label: `${user.first_name} ${user.last_name} (${user.email})`,
+                        label: user.email ? `${fullName(user)} (${user.email})` : fullName(user),
                         tooltip: `Log in as ${user.first_name}`,
                         sideIcon: user.id === successfulUserId ? <IconCheckCircle /> : <IconArrowRight />,
                         onClick: () => {

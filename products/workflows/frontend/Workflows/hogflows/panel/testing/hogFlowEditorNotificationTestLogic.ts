@@ -468,7 +468,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 members: OrganizationMemberType[]
             ): OrganizationMemberType[] | null =>
                 workflow.actions.some((action) => action.id === selectedNodeId && action.type === 'email_sandbox')
-                    ? members.filter((member) => member.user.is_email_verified)
+                    ? members.filter((member) => member.user.is_email_verified && member.user.email)
                     : null,
         ],
         testRecipient: [

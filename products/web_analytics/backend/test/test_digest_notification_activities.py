@@ -477,7 +477,7 @@ class TestGetOrgBatchPage(_DigestNotificationTestBase):
 
 class TestSendTestDigestNotification(_DigestNotificationTestBase):
     def test_single_team_mode_sends_to_user_with_access(self):
-        _send_test_digest_notification(email=self.user.email, team_id=self.team.id)
+        _send_test_digest_notification(email=self.user.require_email(), team_id=self.team.id)
 
         self.mock_create_notification.assert_called_once()
         data = self.mock_create_notification.call_args.args[0]
@@ -485,12 +485,12 @@ class TestSendTestDigestNotification(_DigestNotificationTestBase):
         assert data.team_id == self.team.id
 
     def test_single_team_mode_bypasses_holdout_flag(self):
-        _send_test_digest_notification(email=self.user.email, team_id=self.team.id)
+        _send_test_digest_notification(email=self.user.require_email(), team_id=self.team.id)
 
         self.mock_get_flag.assert_not_called()
 
     def test_single_team_email_lookup_is_case_insensitive(self):
-        _send_test_digest_notification(email=self.user.email.upper(), team_id=self.team.id)
+        _send_test_digest_notification(email=self.user.require_email().upper(), team_id=self.team.id)
 
         self.mock_create_notification.assert_called_once()
 
@@ -502,7 +502,7 @@ class TestSendTestDigestNotification(_DigestNotificationTestBase):
 
     def test_raises_when_team_not_found(self):
         with self.assertRaises(ValueError) as cm:
-            _send_test_digest_notification(email=self.user.email, team_id=999_999)
+            _send_test_digest_notification(email=self.user.require_email(), team_id=999_999)
         assert "Team 999999 not found" in str(cm.exception)
         self.mock_create_notification.assert_not_called()
 
@@ -510,14 +510,14 @@ class TestSendTestDigestNotification(_DigestNotificationTestBase):
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
         with self.assertRaises(PermissionError) as cm:
-            _send_test_digest_notification(email=self.user.email, team_id=other_team.id)
+            _send_test_digest_notification(email=self.user.require_email(), team_id=other_team.id)
         assert "is not a member of the organization" in str(cm.exception)
         self.mock_create_notification.assert_not_called()
 
     def test_raises_when_delivery_not_completed(self):
         self.mock_create_notification.return_value = None
         with self.assertRaises(RuntimeError) as cm:
-            _send_test_digest_notification(email=self.user.email, team_id=self.team.id)
+            _send_test_digest_notification(email=self.user.require_email(), team_id=self.team.id)
         assert "not delivered" in str(cm.exception)
 
     def test_full_user_mode_sends_one_notification_per_org(self):
@@ -529,19 +529,19 @@ class TestSendTestDigestNotification(_DigestNotificationTestBase):
 
         self.mock_create_notification.side_effect = lambda data: _make_notification_event()
 
-        _send_test_digest_notification(email=self.user.email)
+        _send_test_digest_notification(email=self.user.require_email())
 
         assert self.mock_create_notification.call_count == 2
 
     def test_full_user_mode_raises_when_no_memberships(self):
         self.organization_membership.delete()
         with self.assertRaises(ValueError) as cm:
-            _send_test_digest_notification(email=self.user.email)
+            _send_test_digest_notification(email=self.user.require_email())
         assert "no organization memberships" in str(cm.exception)
         self.mock_create_notification.assert_not_called()
 
     def test_full_user_mode_raises_when_nothing_delivered(self):
         self.mock_create_notification.return_value = None
         with self.assertRaises(RuntimeError) as cm:
-            _send_test_digest_notification(email=self.user.email)
+            _send_test_digest_notification(email=self.user.require_email())
         assert "No test digest notifications delivered" in str(cm.exception)

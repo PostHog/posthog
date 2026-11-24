@@ -117,7 +117,7 @@ def enable_backfill(request: HttpRequest, obj: Model, form: forms.Form | None) -
         obj.pk,
         form.cleaned_data["team_id"],
         form.cleaned_data["schema_name"].strip(),
-        actor_email=user.email,
+        actor_email=user.require_email(),
         actor_distinct_id=str(user.distinct_id),
     )
     return _report(request, outcome)
@@ -160,7 +160,7 @@ def provision(request: HttpRequest, obj: Model, form: forms.Form | None) -> Http
         data["database_name"],
         data["schema_name"],
         internal_only=data["internal_only"],
-        actor_email=user.email,
+        actor_email=user.require_email(),
         actor_distinct_id=str(user.distinct_id),
     )
     if outcome.login is None:
@@ -267,7 +267,7 @@ def _view_translation_operations(translation: ViewTranslationSummary | None) -> 
 
 def deprovision(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     user = cast(User, request.user)
-    outcome = deprovision_for_staff(obj.pk, actor_email=user.email, actor_distinct_id=str(user.distinct_id))
+    outcome = deprovision_for_staff(obj.pk, actor_email=user.require_email(), actor_distinct_id=str(user.distinct_id))
     return _report(request, outcome)
 
 

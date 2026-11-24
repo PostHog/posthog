@@ -55,7 +55,7 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
                   distinct_id: evaluation.created_by.distinct_id ?? '',
                   first_name: evaluation.created_by.first_name ?? '',
                   last_name: evaluation.created_by.last_name,
-                  email: evaluation.created_by.email,
+                  email: evaluation.created_by.email ?? null,
                   is_email_verified: evaluation.created_by.is_email_verified,
                   role_at_organization: evaluation.created_by.role_at_organization,
               }

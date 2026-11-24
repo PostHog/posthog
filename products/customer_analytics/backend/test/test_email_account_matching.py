@@ -131,7 +131,7 @@ class TestEmailAccountMatching(BaseTest):
             for index in range(domain_account_count)
         ]
 
-        matches = match_accounts_for_gmail_emails(self.team, [member.email])
+        matches = match_accounts_for_gmail_emails(self.team, [member.require_email()])
 
         if expected_source is None:
             assert matches == {}
@@ -145,17 +145,19 @@ class TestEmailAccountMatching(BaseTest):
         member = self._create_account_member(email="member@gmail.com")
         self._create_account(name="Customer", external_id=str(self.organization.id))
 
-        matches = match_email_accounts(self.team.id, [member.email])
+        matches = match_email_accounts(self.team.id, [member.require_email()])
 
         assert matches == []
-        assert match_accounts_for_account_properties(self.team, [member.email]) == {}
+        assert match_accounts_for_account_properties(self.team, [member.require_email()]) == {}
 
     def test_gmail_membership_skips_only_posthog_domain(self) -> None:
         posthog_member = self._create_account_member(email="Member@PostHog.com")
         subdomain_member = self._create_account_member(email="member@eu.posthog.com")
         account = self._create_account(name="Customer", external_id=str(self.organization.id))
 
-        matches = match_accounts_for_gmail_emails(self.team, [posthog_member.email, subdomain_member.email])
+        matches = match_accounts_for_gmail_emails(
+            self.team, [posthog_member.require_email(), subdomain_member.require_email()]
+        )
 
         assert [(email, str(match.account.id), match.source) for email, match in matches.items()] == [
             (subdomain_member.email, str(account.id), "organization_member")
@@ -189,7 +191,7 @@ class TestEmailAccountMatching(BaseTest):
         self._create_account(name="First customer", external_id=str(self.organization.id))
         self._create_account(name="Second customer", external_id=str(other_organization.id))
 
-        matches = match_accounts_for_gmail_emails(self.team, [member.email])
+        matches = match_accounts_for_gmail_emails(self.team, [member.require_email()])
 
         assert matches == {}
 
@@ -386,22 +388,22 @@ class TestEmailAccountMatching(BaseTest):
         mock_list_threads.return_value = [
             EmailThreadForAccountMatching(
                 id="enabled-thread",
-                participant_emails=[member.email],
+                participant_emails=[member.require_email()],
                 gmail_owner_id=self.user.id,
             ),
             EmailThreadForAccountMatching(
                 id="disabled-thread",
-                participant_emails=[member.email],
+                participant_emails=[member.require_email()],
                 gmail_owner_id=disabled_owner.id,
             ),
             EmailThreadForAccountMatching(
                 id="nonstaff-thread",
-                participant_emails=[member.email],
+                participant_emails=[member.require_email()],
                 gmail_owner_id=nonstaff_owner.id,
             ),
             EmailThreadForAccountMatching(
                 id="inactive-thread",
-                participant_emails=[member.email],
+                participant_emails=[member.require_email()],
                 gmail_owner_id=inactive_owner.id,
             ),
         ]

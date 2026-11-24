@@ -48,7 +48,7 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
     const searchText = new Map<string, string>([
         ...meFirstMembers.map((member): [string, string] => [
             String(member.user.id),
-            `${fullNameOrEmail(member.user)} ${member.user.email}`.toLowerCase(),
+            `${fullNameOrEmail(member.user)} ${member.user.email ?? ''}`.toLowerCase(),
         ]),
         [NO_OWNER, 'no owner'],
     ])

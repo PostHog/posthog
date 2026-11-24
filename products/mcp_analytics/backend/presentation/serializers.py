@@ -932,7 +932,11 @@ class MCPIntentClusterSnapshotSerializer(serializers.Serializer):
     last_computed_by_email = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="Email of the user who triggered the latest recompute, empty for system-triggered runs.",
+        allow_null=True,
+        help_text=(
+            "Email of the user who triggered the latest recompute, empty for system-triggered runs."
+            " Null for a service account without a contact email."
+        ),
     )
     clusters = MCPIntentClusterSerializer(
         many=True,

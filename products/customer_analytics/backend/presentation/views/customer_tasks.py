@@ -56,7 +56,11 @@ _ORDERING_CHOICES = [
 
 class CustomerTaskUserSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="PostHog user ID.")
-    email = serializers.EmailField(read_only=True, help_text="Email address of the user.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email address of the user. Null for a service account without a contact email.",
+    )
     first_name = serializers.CharField(read_only=True, help_text="First name of the user.")
     last_name = serializers.CharField(read_only=True, help_text="Last name of the user.")
 

@@ -1072,7 +1072,7 @@ class WorkflowsWebhookError(Exception):
 
 def _workflows_distinct_id(user: User) -> str:
     # The webhook refuses a post without a distinct id. The other transactional emails fall back to the email too.
-    return user.distinct_id or user.email
+    return user.distinct_id or user.email or str(user.uuid)
 
 
 def _wait_for_workflows_post(r: redis.Redis, digest_key: str) -> None:

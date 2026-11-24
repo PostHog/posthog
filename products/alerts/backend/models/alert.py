@@ -343,11 +343,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         )
 
     def get_subscribed_users_emails(self) -> list[str]:
-        return list(
-            self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
-                "email", flat=True
-            )
+        emails = self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
+            "email", flat=True
         )
+        return [email for email in emails if email]
 
     def _get_event_properties(self) -> dict:
         detector_config = self.detector_config or {}
@@ -655,7 +654,7 @@ class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     subscribed = models.BooleanField(default=True)
 
     def __str__(self) -> str:
-        return f"AlertSubscription for {self.alert_configuration.name} by {self.user.email}"
+        return f"AlertSubscription for {self.alert_configuration.name} by {self.user.email or self.user.first_name}"
 
     class Meta:
         unique_together = ["user", "alert_configuration"]

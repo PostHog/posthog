@@ -108,7 +108,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
             "",
         )
 
-    domain = company_domain_from(user.email)
+    domain = company_domain_from(user.email) if user.email else None
     research = research_domain(domain) if domain else None
     facts = OnboardingFacts(
         org_has_context=False,

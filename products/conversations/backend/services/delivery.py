@@ -191,7 +191,7 @@ def _increment_delivery_attempt(part_key: str, result: str) -> None:
 def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
     created_by = comment.created_by
     if created_by:
-        name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+        name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email or "Support"
         return CommentAuthor(name=name, email=created_by.email or "")
     settings_dict = team.conversations_settings or {}
     bot_name = settings_dict.get("slack_bot_display_name")

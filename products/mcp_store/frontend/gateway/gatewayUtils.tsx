@@ -3,20 +3,20 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconShieldLock, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDialog, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { MCPAgentGrantScopeEnumApi, MCPToolApprovalStateEnumApi, UserBasicApi } from '../generated/api.schemas'
 import { AgentServerShare, agentServerAccessKey, mcpGatewayLogic } from './mcpGatewayLogic'
 
 /** ProfilePicture wants a UserBasicType-ish shape; the generated UserBasicApi's
  * `hedgehog_config` type isn't assignable, so pass the fields it actually reads. */
-export function toProfileUser(user: UserBasicApi): { first_name?: string; last_name?: string; email: string } {
+export function toProfileUser(user: UserBasicApi): { first_name?: string; last_name?: string; email?: string | null } {
     return { first_name: user.first_name, last_name: user.last_name, email: user.email }
 }
 
 function memberNames(users: UserBasicApi[]): string {
     const [first, ...rest] = users
-    const name = fullName(first) || first.email
+    const name = fullNameOrEmail(first)
     if (rest.length === 0) {
         return name
     }
@@ -38,7 +38,7 @@ export function sharedByOthersLabel(share: AgentServerShare): string | null {
 
 /** Whose connection an agent call rode, for audit rows. */
 export function credentialOwnerLabel(owner: UserBasicApi, grantScope: string): string {
-    const name = fullName(owner) || owner.email
+    const name = fullNameOrEmail(owner)
     return grantScope === 'team' ? `via ${name}'s connection (team share)` : `via ${name}'s connection`
 }
 

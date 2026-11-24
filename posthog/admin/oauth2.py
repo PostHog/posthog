@@ -160,7 +160,7 @@ def admin_oauth2_callback(request: HttpRequest) -> HttpResponse:
         token_data = _exchange_code_for_token(request, code)
         id_token = token_data.get("id_token", "")
         oauth_email, token_payload = _get_email_from_id_token(id_token)
-        user_email = cast(User, request.user).email.lower()
+        user_email = cast(User, request.user).require_email().lower()
 
         if not oauth_email or not user_email:
             logger.error(

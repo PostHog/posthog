@@ -46,7 +46,9 @@ class PosthogMembershipRequestSerializer(serializers.Serializer):
 
 class ResolvedUserSerializer(serializers.Serializer):
     uuid = serializers.CharField(help_text="The user's UUID.")
-    email = serializers.CharField(help_text="The user's email address.")
+    email = serializers.CharField(
+        allow_null=True, help_text="The user's email address. Null for a service account without a contact email."
+    )
     is_active = serializers.BooleanField(help_text="Whether the account can still sign in.")
 
 

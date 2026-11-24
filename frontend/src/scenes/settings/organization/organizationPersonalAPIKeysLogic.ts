@@ -237,7 +237,7 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
             (keys: OrganizationPersonalAPIKeyApi[], user: UserType | null): BulkKeySummary => ({
                 total: keys.length,
                 alsoInOtherOrganizations: keys.filter((key) => key.reaches_other_organizations).length,
-                ownedByMe: user ? keys.filter((key) => key.owner.email === user.email).length : 0,
+                ownedByMe: user ? keys.filter((key) => !!key.owner.email && key.owner.email === user.email).length : 0,
             }),
         ],
     }),

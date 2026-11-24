@@ -696,7 +696,7 @@ class WidgetMessagesView(APIView):
 
             # Get author name
             if m.created_by:
-                author_name = m.created_by.first_name or m.created_by.email
+                author_name = m.created_by.first_name or m.created_by.email or "Support"
             elif author_type == "customer":
                 author_name = ticket.anonymous_traits.get("name") or ticket.anonymous_traits.get("email") or "You"
             elif author_type == "AI":

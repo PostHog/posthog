@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { membersLogic } from '~/models/membersLogic'
 
@@ -18,7 +18,7 @@ export function AccountNotesViewSummary({ state, scope }: AccountNotesViewSummar
         state,
         (userId) => {
             const member = meFirstMembers.find((candidate) => candidate.user.id === userId)
-            return member ? fullName(member.user) || member.user.email : `user ${userId}`
+            return (member && fullNameOrEmail(member.user)) || `user ${userId}`
         },
         scope
     )

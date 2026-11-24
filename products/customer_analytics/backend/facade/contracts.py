@@ -97,7 +97,7 @@ class AccountAssignment:
     """A user assigned to an account relationship (CSM, account executive, ...)."""
 
     id: int
-    email: str
+    email: str | None
 
 
 @stdlib_dataclass(frozen=True)
@@ -780,7 +780,7 @@ class ExternalAccountAssignment:
     """
 
     user_id: int
-    email: str
+    email: str | None
     name: str | None = None
 
 
@@ -859,7 +859,7 @@ class UserBasicInfo:
     distinct_id: str | None
     first_name: str
     last_name: str
-    email: str
+    email: str | None
     is_email_verified: bool | None
     hedgehog_config: Any
     role_at_organization: str | None
@@ -1530,7 +1530,7 @@ class CustomerTaskBulkUpdateConflict(Exception):
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
-    email: str
+    email: str | None
     first_name: str
     last_name: str
 

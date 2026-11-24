@@ -2432,7 +2432,11 @@ class AccountAssignmentSerializer(DataclassSerializer):
     """A user assigned to an account relationship (read shape)."""
 
     id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assignee.")
-    email = serializers.EmailField(read_only=True, help_text="Email of the assignee.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email of the assignee. Null for a service account without a contact email.",
+    )
 
     class Meta:
         dataclass = AccountAssignment

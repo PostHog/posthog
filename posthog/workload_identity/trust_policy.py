@@ -814,7 +814,7 @@ class WorkloadTrustPolicyRequestViewSet(
             visible_membership_ids = restricted_visible_membership_ids(self.organization, cast(User, self.request.user))
             if visible_membership_ids is not None:
                 memberships = memberships.filter(id__in=visible_membership_ids)
-            return [membership.user.get_full_name() or membership.user.email for membership in memberships]
+            return [membership.user.get_full_name() or str(membership.user) for membership in memberships]
 
         context["approvers"] = approvers
         return context

@@ -46,7 +46,7 @@ class RecommendationResolver:
     distinct_id: str | None
     first_name: str
     last_name: str
-    email: str
+    email: str | None
 
 
 @frozen

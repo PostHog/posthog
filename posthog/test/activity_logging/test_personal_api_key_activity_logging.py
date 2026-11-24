@@ -754,7 +754,7 @@ class TestPersonalAPIKeyOrganizationAdminActionLogging(BaseTest):
         serialized_detail = json.dumps(other_row.detail)
         assert self.admin.distinct_id
         for acting_value in (
-            self.admin.email,
+            self.admin.require_email(),
             str(self.admin.uuid),
             self.admin.distinct_id,
             self.acting_org.name,

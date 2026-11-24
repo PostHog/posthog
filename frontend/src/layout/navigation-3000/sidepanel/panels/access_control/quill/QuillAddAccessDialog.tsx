@@ -45,8 +45,8 @@ export interface AddAccessOption {
     /** What the search matches against. */
     searchLabel: string
     name: string
-    /** Set for members, so their row shows an avatar and email. */
-    email?: string
+    /** Set for members, so their row shows an avatar and email. Null for a member without an email. */
+    email?: string | null
 }
 
 interface QuillAddAccessDialogProps {

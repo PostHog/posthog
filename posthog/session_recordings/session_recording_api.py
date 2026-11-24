@@ -1385,7 +1385,7 @@ class SessionRecordingViewSet(
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
-        deleted_by = cast(User, request.user).email
+        deleted_by = self._deleted_by(cast(User, request.user))
         failed_ids = self._delete_via_recording_api([recording.session_id], deleted_by=deleted_by)
         if failed_ids:
             logger.warning(
@@ -1465,7 +1465,7 @@ class SessionRecordingViewSet(
         ]
 
         session_ids = [r.session_id for r in accessible_recordings]
-        deleted_by = cast(User, request.user).email
+        deleted_by = self._deleted_by(cast(User, request.user))
         failed_ids = self._delete_via_recording_api(session_ids, deleted_by=deleted_by) if session_ids else []
         deleted_count = len(session_ids) - len(failed_ids)
 
@@ -1875,6 +1875,10 @@ class SessionRecordingViewSet(
             raise exceptions.NotFound("Block index out of range")
 
         return blocks
+
+    @staticmethod
+    def _deleted_by(user: User) -> str:
+        return user.email or str(user.uuid)
 
     def _delete_via_recording_api(self, session_ids: builtins.list[str], deleted_by: str) -> builtins.list[str]:
         """Delete recordings via recording-api.

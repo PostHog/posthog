@@ -404,7 +404,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return None
 
     def _audit_principal(self, request: Request) -> str:
-        return f"api:{cast(User, request.user).email}"
+        user = cast(User, request.user)
+        return f"api:{user.email or user.uuid}"
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:

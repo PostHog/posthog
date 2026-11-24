@@ -269,7 +269,7 @@ class TestChangeMemberEmails(BaseTest):
         assert response.status_code == 200
         for member in (self.member, grace):
             member.refresh_from_db()
-            assert member.email.endswith("@new.example.com")
+            assert member.require_email().endswith("@new.example.com")
             assert LogEntry.objects.filter(object_id=str(member.pk)).exists()
 
     @parameterized.expand(

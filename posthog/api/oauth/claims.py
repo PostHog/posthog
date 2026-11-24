@@ -25,7 +25,7 @@ OIDC_CLAIMS: dict[str, Callable[[ClaimRequest], str | bool]] = {
     "sub": lambda request: str(request.user.uuid),
     "given_name": lambda request: request.user.first_name,
     "family_name": lambda request: request.user.last_name,
-    "email": lambda request: request.user.email,
+    "email": lambda request: request.user.require_email(),
     # A null `is_email_verified` means the account predates email verification, not that the
     # address was checked, so only an explicit True can be reported as verified.
     "email_verified": lambda request: request.user.is_email_verified is True,

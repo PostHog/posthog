@@ -26,7 +26,7 @@ def get_user_display_name(user: User | None, fallback: str = "A team member") ->
     """Get display name for a user, falling back to email or default."""
     if not user:
         return fallback
-    return user.get_full_name() or user.email
+    return user.get_full_name() or user.email or fallback
 
 
 def _build_change_request_url(change_request: "ChangeRequest") -> str:

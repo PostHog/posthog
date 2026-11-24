@@ -97,7 +97,7 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
                 {job.created_by ? (
-                    <Tooltip title={`Triggered by ${job.created_by.email}`}>
+                    <Tooltip title={`Triggered by ${job.created_by.email || job.created_by.first_name}`}>
                         <div>
                             <ProfilePicture user={{ email: job.created_by.email }} showName size="sm" />
                         </div>

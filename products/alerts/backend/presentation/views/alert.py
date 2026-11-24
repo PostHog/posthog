@@ -2046,11 +2046,10 @@ def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
         configuration_id=alert.id,
         user_ids=platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ()),
     )
-    return list(
-        User.objects.filter(
-            id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
-        ).values_list("email", flat=True)
-    )
+    emails = User.objects.filter(
+        id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
+    ).values_list("email", flat=True)
+    return [email for email in emails if email]
 
 
 def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:

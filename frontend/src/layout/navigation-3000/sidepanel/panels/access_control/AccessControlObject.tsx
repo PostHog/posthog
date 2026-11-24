@@ -261,7 +261,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 }}
                 options={addableMembers.map((member: OrganizationMemberType) => ({
                     key: member.id,
-                    label: `${fullName(member.user)} ${member.user.email}`,
+                    label: `${fullName(member.user)} ${member.user.email ?? ''}`.trim(),
                     labelComponent: <UserSelectItem user={member.user} />,
                 }))}
             />
@@ -307,7 +307,9 @@ function AccessControlObjectRoles(): JSX.Element | null {
                             rolesById[role]?.members?.map((member: RoleMemberType) => ({
                                 email: member.user.email,
                                 name: fullName(member.user),
-                                title: `${fullName(member.user)} <${member.user.email}>`,
+                                title: member.user.email
+                                    ? `${fullName(member.user)} <${member.user.email}>`
+                                    : fullName(member.user),
                             })) ?? []
                         }
                     />

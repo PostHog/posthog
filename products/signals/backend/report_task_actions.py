@@ -405,7 +405,7 @@ def implementation_claim_disabled_reason(context: ReportTaskActionContext, repor
         return IMPLEMENT_CLAIMED_DISABLED_REASON
     if holder.id == context.user.id:
         return None
-    name = holder.first_name or holder.email
+    name = holder.first_name or holder.email or "Another member"
     return f"{name} is working on this report. Take the claim over with `inbox-reports-claim` before you implement it."
 
 

@@ -1370,6 +1370,12 @@ def _render_tail(sections: list[str], *, schema_json: str) -> str:
     return "\n\n".join(rendered)
 
 
+def _skill_author_identity(author: SkillAuthor) -> str:
+    """The author's name and identifiers, with the parenthesis left open for the caller to extend."""
+    email = f"{author.email}, " if author.email else ""
+    return f"{author.name} ({email}user_uuid `{author.user_uuid}`"
+
+
 def _skill_authors_line(authors: list[SkillAuthor]) -> str:
     """Run-identity line naming the humans who own the skill, or empty.
 
@@ -1385,7 +1391,7 @@ def _skill_authors_line(authors: list[SkillAuthor]) -> str:
         return ""
     owners = [a for a in authors if a.role == "owner"]
     if owners:
-        owned = ", ".join(f"{a.name} ({a.email}, user_uuid `{a.user_uuid}`)" for a in owners)
+        owned = ", ".join(f"{_skill_author_identity(a)})" for a in owners)
         return (
             f"\n- **skill owners**: {owned}, the humans who own your skill body. "
             "When a report needs someone who owns this scout (a self-improvement report especially), "
@@ -1395,12 +1401,11 @@ def _skill_authors_line(authors: list[SkillAuthor]) -> str:
     parts = []
     creator = next((a for a in authors if a.role == "creator"), None)
     if creator is not None:
-        parts.append(f"created by {creator.name} ({creator.email}, user_uuid `{creator.user_uuid}`)")
+        parts.append(f"created by {_skill_author_identity(creator)})")
     editors = [a for a in authors if a.role == "editor"]
     if editors:
         edited = ", ".join(
-            f"{a.name} ({a.email}, user_uuid `{a.user_uuid}`, last edit {a.last_authored_at.date().isoformat()})"
-            for a in editors
+            f"{_skill_author_identity(a)}, last edit {a.last_authored_at.date().isoformat()})" for a in editors
         )
         parts.append(f"since edited by {edited}")
     return (

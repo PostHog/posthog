@@ -3017,7 +3017,7 @@ class FeatureFlagSerializer(
                     )
                     if len(conflicting_changes) > 0:
                         raise Conflict(
-                            f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                            f"The feature flag was updated by {(locked_instance.last_modified_by.email if locked_instance.last_modified_by else None) or 'another user'} since you started editing it. Please refresh and try again."
                         )
                     validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 

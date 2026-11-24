@@ -23,10 +23,18 @@ export function usersLemonSelectOptions(
     users: (UserBasicType | UserType)[],
     key: 'email' | 'uuid' = 'email'
 ): LemonInputSelectOption[] {
-    return users.map((user) => ({
-        // An account without an email has no email key, so fall back to the uuid to keep options distinct.
-        key: user[key] ?? user.uuid,
-        label: `${fullName(user)} ${user.email ?? ''}`.trim(),
-        labelComponent: <UserSelectItem user={user} />,
-    }))
+    return users.flatMap((user) => {
+        // An email key is used as an email address, so a user without an email has no option.
+        const optionKey = user[key]
+        if (!optionKey) {
+            return []
+        }
+        return [
+            {
+                key: optionKey,
+                label: `${fullName(user)} ${user.email ?? ''}`.trim(),
+                labelComponent: <UserSelectItem user={user} />,
+            },
+        ]
+    })
 }

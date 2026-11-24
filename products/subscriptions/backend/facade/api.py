@@ -158,11 +158,14 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return queries.subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids)
 
 
-def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, email: str, now: datetime, limit: int) -> list[str]:
+def insight_short_ids_subscribed_by(
+    *, team_id: int, user_id: int, email: str | None, now: datetime, limit: int
+) -> list[str]:
     """Short ids of insights in active subscriptions the user receives, newest subscription first.
 
-    Email subscriptions match the user's address among the recipients. Slack and Teams
-    subscriptions have no person recipient, so they match the user who created them.
+    Email subscriptions match the user's address among the recipients, so a user without an email
+    matches none. Slack and Teams subscriptions have no person recipient, so they match the user
+    who created them.
     """
     return queries.insight_short_ids_subscribed_by(team_id=team_id, user_id=user_id, email=email, now=now, limit=limit)
 

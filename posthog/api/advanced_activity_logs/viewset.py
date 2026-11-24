@@ -619,7 +619,12 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
     project_id = serializers.CharField(source="team_id")
     user_first_name = serializers.CharField(source="user.first_name", default="")
     user_last_name = serializers.CharField(source="user.last_name", default="")
-    user_email = serializers.CharField(source="user.email", default="")
+    user_email = serializers.CharField(
+        source="user.email",
+        default="",
+        allow_null=True,
+        help_text="Email address of the acting user. Null for a service account without a contact email.",
+    )
     detail = serializers.SerializerMethodField()
     credential_type = credential_type_field()
     credential_id = credential_id_field()

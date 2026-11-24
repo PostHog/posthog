@@ -102,14 +102,15 @@ def _match_accounts_by_organization_membership(
         .filter(normalized_email__in=emails, is_active=True)
         .only("id", "email")
     ):
-        users_by_email.setdefault(user.email.lower(), []).append(user)
+        if user.email:
+            users_by_email.setdefault(user.email.lower(), []).append(user)
 
     ambiguous = {email for email, users in users_by_email.items() if len(users) > 1}
-    users_by_id = {users[0].id: users[0] for email, users in users_by_email.items() if email not in ambiguous}
-    if not users_by_id:
+    email_by_user_id = {users[0].id: email for email, users in users_by_email.items() if email not in ambiguous}
+    if not email_by_user_id:
         return {}, ambiguous
 
-    memberships = list(OrganizationMembership.objects.filter(user_id__in=users_by_id))
+    memberships = list(OrganizationMembership.objects.filter(user_id__in=email_by_user_id))
     accounts_by_organization_id = {
         account.external_id: account
         for account in Account.objects.for_team(team.id).filter(
@@ -123,7 +124,7 @@ def _match_accounts_by_organization_membership(
         account = accounts_by_organization_id.get(str(membership.organization_id))
         if account is None:
             continue
-        email = users_by_id[membership.user_id].email.lower()
+        email = email_by_user_id[membership.user_id]
         candidates_by_email.setdefault(email, {})[str(account.id)] = account
 
     matches: dict[str, MatchedAccount] = {}

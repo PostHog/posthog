@@ -6,12 +6,13 @@ import { gravatarUrl } from 'lib/utils/gravatar'
 
 import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export type TaskAvatarUser = Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name' | 'email'> & {
+export type TaskAvatarUser = Pick<TaskUserBasicInfoApi, 'first_name' | 'last_name'> & {
+    email?: string | null
     uuid?: string | null
 }
 
 export function taskUserName(user: TaskAvatarUser): string {
-    return [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+    return [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || ''
 }
 
 function initials(name: string): string {

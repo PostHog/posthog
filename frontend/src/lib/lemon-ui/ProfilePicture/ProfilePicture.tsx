@@ -55,7 +55,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         email = user.email
     }
 
-    const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
+    const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email || undefined
 
     const hedgehogProfile = !!user?.hedgehog_config?.use_as_profile
 
@@ -92,7 +92,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         }
     }, [gravatarUrl])
 
-    const displayName = currentUser?.email === email ? 'you' : name || email || 'an unknown user'
+    const displayName = email && currentUser?.email === email ? 'you' : name || email || 'an unknown user'
 
     if (quillSurface) {
         return (

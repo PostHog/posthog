@@ -17,7 +17,7 @@ import {
 } from '@posthog/quill'
 
 import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
@@ -125,7 +125,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         pluralNoun="people"
                         options={meFirstMembers.map((member) => ({
                             value: member.user.uuid,
-                            label: fullName(member.user) || member.user.email,
+                            label: fullNameOrEmail(member.user),
                             icon: <AnalyticsOwnerAvatar owner={member.user} />,
                             hint: member.user.uuid === user?.uuid ? '(you)' : undefined,
                         }))}

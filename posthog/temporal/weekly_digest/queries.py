@@ -69,7 +69,7 @@ def query_teams_for_organizations(organization_ids: Collection[UUID]) -> QuerySe
 
 def query_org_members(organization: Organization) -> QuerySet:
     return (
-        OrganizationMembership.objects.filter(organization_id=organization.id)
+        OrganizationMembership.objects.filter(organization_id=organization.id, user__email__isnull=False)
         .select_related("user")
         .only("id", "user__distinct_id", "user__first_name", "user__email", "user__uuid")
     ).order_by("id")

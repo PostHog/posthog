@@ -55,6 +55,7 @@ from posthog.models.organization_external_project_link import OrganizationExtern
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.user import UserKind
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
@@ -145,6 +146,7 @@ def _fetch_member_count(organization: Organization) -> int:
     # ORG_SERIALIZER_CACHE_TTL_SECONDS (1h) as the staleness bound.
     return (
         OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .exclude(user__kind=UserKind.SERVICE_ACCOUNT)
         .filter(user__is_active=True, organization=organization)
         .count()
     )

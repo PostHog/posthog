@@ -719,7 +719,9 @@ class TestWarehouseAlerts(APIBaseTest):
         person = self._person(who)
         grouping_key = "source_id" if kind == SourceKind.WAREHOUSE_SOURCE else "destination_id"
         configuration_id = self._alert(kind, {"email_project_members": email_project_members}, grouping_key)
-        expected = sorted([self.user.email, person.email] if reached else [self.user.email])
+        expected = sorted(
+            [self.user.require_email(), person.require_email()] if reached else [self.user.require_email()]
+        )
 
         assert project_member_emails(team_id=self.team.id, configuration_id=configuration_id) == (
             expected if email_project_members else []
@@ -745,7 +747,7 @@ class TestWarehouseAlerts(APIBaseTest):
         assert delivery.configuration_id == str(configuration_id)
         assert all("Sync failures" in message.subject for message in mail.outbox)
         assert sorted(address for message in mail.outbox for address in message.to) == sorted(
-            [self.user.email, "member@example.com"]
+            [self.user.require_email(), "member@example.com"]
         )
 
     def _source_alerts(self) -> list[tuple[str, dict[str, Any]]]:

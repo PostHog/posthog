@@ -4,13 +4,13 @@ import { Avatar, AvatarFallback, AvatarGroup, Tooltip, TooltipContent, TooltipTr
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+import { PrStateEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { pullRequestLinkLabel, pullRequestStateMeta } from './TaskPullRequestChip'
 import { TaskPullRequest } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 import { recentSourceLabel } from './todayRecentFilters'
-import { TodaySessionBadge } from './todayWorkItems'
+import { TodaySessionBadge, TodayWorkItemAuthor } from './todayWorkItems'
 
 // The ring keeps two overlapping badges apart, so they do not read as one glyph.
 const BADGE_CLASS = 'ring-1 ring-border'
@@ -35,7 +35,7 @@ export function TodaySessionBadges({ badges, pullRequestState, pinned }: TodaySe
     )
 }
 
-function AuthorBadge({ author, live }: { author: TaskUserBasicInfoApi; live: boolean }): JSX.Element {
+function AuthorBadge({ author, live }: { author: TodayWorkItemAuthor; live: boolean }): JSX.Element {
     const name = taskUserName(author)
     const label = live ? `${name} is working on this` : `${name} was here recently`
     return (

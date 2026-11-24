@@ -65,7 +65,7 @@ const memberMatchesSearch = (member: AccountOrganizationMember, searchTerm: stri
         return true
     }
     const { first_name, last_name, email } = member.user
-    return `${first_name} ${last_name} ${email}`.toLowerCase().includes(normalizedSearch)
+    return `${first_name} ${last_name} ${email ?? ''}`.toLowerCase().includes(normalizedSearch)
 }
 
 const compareMembers = (a: AccountOrganizationMember, b: AccountOrganizationMember, sorting: Sorting): number => {

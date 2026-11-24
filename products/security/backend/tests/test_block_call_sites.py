@@ -133,7 +133,7 @@ class TestBlockCallSites(APIBaseTest):
     def test_blocked_session(
         self, _name: str, enforced: list[str], impersonated: bool, status: int, would_block: int
     ) -> None:
-        seed_rules(block_rule(targetType="email", targetValue=self.user.email.lower()))
+        seed_rules(block_rule(targetType="email", targetValue=self.user.require_email().lower()))
         before = _count("app", "session", "email")
         with (
             enforcing(*enforced),
@@ -184,7 +184,7 @@ class TestBlockCallSites(APIBaseTest):
     ) -> None:
         # DRF stops at the first authenticator that succeeds, and the bearer ones run before the
         # session one, so a check on the session alone leaves an existing key or token working.
-        seed_rules(block_rule(targetType="email", targetValue=self.user.email.lower()))
+        seed_rules(block_rule(targetType="email", targetValue=self.user.require_email().lower()))
         token = self._bearer(kind)
         self.client.logout()
         before = _count("app", kind, "email")

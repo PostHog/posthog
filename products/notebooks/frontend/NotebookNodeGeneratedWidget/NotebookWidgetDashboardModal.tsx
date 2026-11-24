@@ -61,7 +61,7 @@ export function NotebookWidgetDashboardModal(props: NotebookWidgetDashboardProps
                             label: dashboard.name || 'Untitled',
                             description: dashboard.description,
                             creator: dashboard.created_by
-                                ? `${fullName(dashboard.created_by)} ${dashboard.created_by.email}`
+                                ? `${fullName(dashboard.created_by)} ${dashboard.created_by.email ?? ''}`.trim()
                                 : '',
                             labelInMenu: (
                                 <span className="flex min-w-0 flex-1 flex-col gap-1 text-left">

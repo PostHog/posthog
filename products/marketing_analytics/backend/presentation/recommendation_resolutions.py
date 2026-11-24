@@ -71,7 +71,9 @@ class RecommendationResolverSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(allow_null=True, help_text="The user's distinct id.")
     first_name = serializers.CharField(help_text="The user's first name.")
     last_name = serializers.CharField(help_text="The user's last name.")
-    email = serializers.EmailField(help_text="The user's email address.")
+    email = serializers.EmailField(
+        allow_null=True, help_text="The user's email address. Null for a service account without a contact email."
+    )
 
 
 class RecommendationResolutionSerializer(serializers.Serializer):

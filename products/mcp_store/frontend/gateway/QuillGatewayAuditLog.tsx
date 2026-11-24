@@ -27,7 +27,7 @@ import {
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { TZLabel } from 'lib/components/TZLabel'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { MCPAuditEventApi } from '../generated/api.schemas'
 import { FILTERS, auditCallerName } from './GatewayAuditLog'
@@ -62,12 +62,12 @@ const columns: DataTableProps<MCPAuditEventApi, unknown>['columns'] = [
                         ) : event.actor_user ? (
                             <span className="flex min-w-0 items-center gap-1">
                                 <QuillPersonAvatar
-                                    name={fullName(event.actor_user) || event.actor_user.email}
+                                    name={fullNameOrEmail(event.actor_user)}
                                     email={event.actor_user.email}
                                     size="xs"
                                 />
                                 <Text size="xs" className="m-0 truncate" render={<span />}>
-                                    {fullName(event.actor_user) || event.actor_user.email}
+                                    {fullNameOrEmail(event.actor_user)}
                                 </Text>
                             </span>
                         ) : (

@@ -110,7 +110,7 @@ def _review_cards(cards: QuerySet[EvalSuggestion]) -> list[ReviewCard]:
             review_verdict=card.review_verdict,
             review_note=card.review_note,
             reviewed_at=card.reviewed_at,
-            reviewer=card.reviewed_by.email if card.reviewed_by else "",
+            reviewer=(card.reviewed_by.email or card.reviewed_by.first_name) if card.reviewed_by else "",
         )
         for card in rows
     ]

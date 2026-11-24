@@ -17,7 +17,7 @@ export type MemberSelectProps = {
     defaultLabel?: string
     allowNone?: boolean
     extraOptions?: { label: string; onClick: () => void }[]
-    options?: { uuid: string; name: string; email: string; trailing?: string | number }[]
+    options?: { uuid: string; name: string; email?: string | null; trailing?: string | number }[]
     optionsLoading?: boolean
     onSearch?: (query: string) => void
     onSelectOption?: (uuid: string, name: string) => void

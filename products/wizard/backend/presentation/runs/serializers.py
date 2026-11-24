@@ -201,7 +201,11 @@ class WizardRunCreatorSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="Unique ID of the user who created the Wizard run.")
     first_name = serializers.CharField(read_only=True, help_text="First name of the user who created the Wizard run.")
     last_name = serializers.CharField(read_only=True, help_text="Last name of the user who created the Wizard run.")
-    email = serializers.EmailField(read_only=True, help_text="Email address of the user who created the Wizard run.")
+    email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email address of the user who created the Wizard run. Null for a service account without a contact email.",
+    )
 
 
 class UpdateWizardRunTaskSerializer(serializers.Serializer):

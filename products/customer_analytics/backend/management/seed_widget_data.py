@@ -248,14 +248,14 @@ def _seed_meetings(*, team: Team, account: Account, manager: User | None, index:
                 "description": "Customer analytics development fixture",
                 "start_time": start_time,
                 "end_time": start_time + timedelta(minutes=45),
-                "organizer_email": manager.email if manager else "account-manager@example.com",
+                "organizer_email": manager.require_email() if manager else "account-manager@example.com",
                 "status": status,
             },
         )
         participants = [
             (f"champion@customer-{index}.example.com", "Customer champion", MeetingResponseStatus.ACCEPTED, False),
             (
-                manager.email if manager else "account-manager@example.com",
+                manager.require_email() if manager else "account-manager@example.com",
                 manager.first_name if manager else "Account manager",
                 MeetingResponseStatus.ACCEPTED,
                 True,
@@ -297,7 +297,7 @@ def _seed_email_thread(*, team: Team, account: Account, manager: User | None, in
     participants = [
         (f"champion@customer-{index}.example.com", "Customer champion", EmailThreadParticipantKind.CUSTOMER),
         (
-            manager.email if manager else "account-manager@example.com",
+            manager.require_email() if manager else "account-manager@example.com",
             manager.first_name if manager else "Account manager",
             EmailThreadParticipantKind.INTERNAL,
         ),
@@ -322,7 +322,7 @@ def _seed_email_thread(*, team: Team, account: Account, manager: User | None, in
             "manager",
             "Yes. I added a review meeting and a usage summary for the team.",
             now - timedelta(days=1),
-            manager.email if manager else "account-manager@example.com",
+            manager.require_email() if manager else "account-manager@example.com",
             manager.first_name if manager else "Account manager",
             EmailThreadMessageDirection.OUTBOUND,
         ),

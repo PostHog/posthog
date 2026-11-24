@@ -90,7 +90,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
-            self.user.email,
+            self.user.require_email(),
             self.subscription,
             [self.asset],
             invite_message="My invite message",
@@ -107,7 +107,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
         send_email_subscription_report(
-            self.user.email,
+            self.user.require_email(),
             subscription,
             [self.asset],
             invite_message="My invite message",
@@ -125,7 +125,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
 
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
-        send_email_subscription_report(self.user.email, subscription, [self.asset], total_asset_count=1)
+        send_email_subscription_report(self.user.require_email(), subscription, [self.asset], total_asset_count=1)
 
         assert (
             f"Email subscriptions are limited to at most {MAX_INSIGHTS} insights." in mocked_email_messages[0].html_body

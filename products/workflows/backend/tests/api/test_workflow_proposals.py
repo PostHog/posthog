@@ -1153,7 +1153,7 @@ class TestWorkflowProposals(APIBaseTest):
         member = self._member_who_opts_in(flow_id)
         proposal = self._propose(flow_id, source_id="run:1:finding:retry-identity")
         MessagingRecord.objects.create(
-            email_hash=get_email_hash(member.email),
+            email_hash=get_email_hash(member.require_email()),
             campaign_key=f"workflow_suggestion_{proposal['id']}",
             sent_at=timezone.now(),
         )

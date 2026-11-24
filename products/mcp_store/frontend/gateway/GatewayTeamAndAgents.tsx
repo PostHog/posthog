@@ -13,7 +13,7 @@ import { mcpGatewayLogic } from './mcpGatewayLogic'
 export const MEMBER_PREVIEW_LIMIT = 10
 
 export function memberDisplayName(member: GatewayMemberSummaryApi): string {
-    return [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email
+    return [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email || ''
 }
 
 export function agentToolCount(account: MCPServiceAccountApi, servers: MCPGatewayServerApi[]): number {
@@ -31,7 +31,7 @@ export function filterGatewayMembers(
               const name = memberDisplayName(member).toLowerCase()
               return (
                   name.includes(normalizedMemberSearch) ||
-                  member.user.email.toLowerCase().includes(normalizedMemberSearch)
+                  (member.user.email ?? '').toLowerCase().includes(normalizedMemberSearch)
               )
           })
         : members

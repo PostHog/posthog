@@ -79,8 +79,10 @@ def resolve_signup_identity(organization_id: str) -> SignupIdentity | SignupIden
     if membership.joined_at - membership.organization.created_at > SIGNUP_MEMBERSHIP_WINDOW:
         return SignupIdentitySkip(reason="signup_user_left")
     user = membership.user
-    domain = domain_from_email(user.email) if user and user.email else None
-    if user is None or not user.distinct_id or not domain:
+    if user is None or not user.distinct_id or not user.email:
+        return SignupIdentitySkip(reason="no_usable_member")
+    domain = domain_from_email(user.email)
+    if not domain:
         return SignupIdentitySkip(reason="no_usable_member")
     # The signup user's email can have changed since signup, so re-check it's a work email.
     if not is_work_email(user.email):

@@ -70,7 +70,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert welcome.delay.call_args[0][2] == "Stripe"
 
     def test_only_the_organization_created_for_a_new_user_is_recorded_as_stripe_created(self):
-        self._post_signed(URL, data=_account_request(self.user.email))
+        self._post_signed(URL, data=_account_request(self.user.require_email()))
         self._post_signed(URL, data=_account_request("brand-new@example.com"))
 
         new_organization = User.objects.get(email="brand-new@example.com").organization
@@ -118,7 +118,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
             res = self._post_signed(
                 URL,
                 data=_account_request(
-                    self.user.email, configuration={"region": "US", "team_id": self.team.id}, **kyc_fields
+                    self.user.require_email(), configuration={"region": "US", "team_id": self.team.id}, **kyc_fields
                 ),
             )
         assert res.status_code == 200
@@ -206,7 +206,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
             patch("ee.partners.stripe.api.provisioning.core.cache") as auth_code_cache,
             patch(CAPTURE) as capture,
         ):
-            res = self._post_signed(URL, data=_account_request(self.user.email, kyc=kyc))
+            res = self._post_signed(URL, data=_account_request(self.user.require_email(), kyc=kyc))
 
         assert res.status_code == 403
         assert res.json() == {"id": "acctreq_test", "type": "error", "error": {"code": error_code, "message": message}}
@@ -219,7 +219,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
         res = self._post_signed(
             URL,
             data=_account_request(
-                self.user.email,
+                self.user.require_email(),
                 id=None,
                 scopes=None,
                 confirmation_secret=None,

@@ -147,8 +147,14 @@ export function generateAccessControlHCL(input: AccessControlExportInput): Acces
             warnings.push(`Organization member ${memberId} was not found. Their rules use the raw member ID.`)
             continue
         }
-        const name = names.claim(`user_${member.user.email}`, 'user')
-        sections.push(userDataBlock(name, member.user.email))
+        const { email } = member.user
+        if (!email) {
+            // The posthog_user data source looks a user up by email.
+            warnings.push(`Organization member ${memberId} has no email address. Their rules use the raw member ID.`)
+            continue
+        }
+        const name = names.claim(`user_${email}`, 'user')
+        sections.push(userDataBlock(name, email))
         memberRefs.set(memberId, `data.posthog_user.${name}.organization_member_id`)
     }
 

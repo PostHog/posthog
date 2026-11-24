@@ -1,11 +1,11 @@
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 export function CanvasOptionLabel({ canvas }: { canvas: CanvasApi }): JSX.Element {
     const creator = canvas.created_by
-    const creatorName = creator ? fullName(creator) || creator.email : null
+    const creatorName = creator ? fullNameOrEmail(creator) || null : null
     return (
         <span className="flex w-full items-center justify-between gap-2">
             <span className="min-w-0 flex-1 truncate">{canvas.name}</span>

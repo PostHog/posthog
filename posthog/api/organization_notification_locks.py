@@ -45,7 +45,10 @@ class OrganizationNotificationMemberSerializer(serializers.Serializer):
     uuid = serializers.UUIDField(help_text="Stable public identifier of the member.")
     first_name = serializers.CharField(help_text="Member's first name, for display.")
     last_name = serializers.CharField(help_text="Member's last name, for display.")
-    email = serializers.EmailField(help_text="Member's email address, which is where these notifications go.")
+    email = serializers.EmailField(
+        allow_null=True,
+        help_text="Member's email address, which is where these notifications go. Null for a service account without a contact email.",
+    )
     organization_membership_level = serializers.IntegerField(
         help_text="Member's organization membership level: 1 for member, 8 for admin, 15 for owner."
     )
@@ -149,7 +152,7 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                     )
                 if membership.effective_level > actor_level:
                     raise PermissionDenied(
-                        f"Your organization access level is insufficient to change settings for {membership.user.email}"
+                        f"Your organization access level is insufficient to change settings for {membership.user}"
                     )
                 self._validate_scope(change)
                 changes_per_user[membership.user_id] += 1

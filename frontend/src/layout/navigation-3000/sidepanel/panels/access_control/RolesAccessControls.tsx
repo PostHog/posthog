@@ -87,7 +87,9 @@ export function RolesAccessControls(): JSX.Element {
                                 role?.members?.map((member) => ({
                                     email: member.user.email,
                                     name: fullName(member.user),
-                                    title: `${fullName(member.user)} <${member.user.email}>`,
+                                    title: member.user.email
+                                        ? `${fullName(member.user)} <${member.user.email}>`
+                                        : fullName(member.user),
                                 })) ?? []
                             }
                             onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}

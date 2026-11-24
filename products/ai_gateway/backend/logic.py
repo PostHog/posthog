@@ -284,7 +284,7 @@ def _log(actor: User | None, owner: User, row: DevGatewayToken, activity: str, c
         item_id=row.id,
         scope="DevGatewayToken",
         activity=activity,
-        detail=Detail(name=f"Developer mode token for {owner.email}", changes=changes),
+        detail=Detail(name=f"Developer mode token for {owner.email or owner.first_name}", changes=changes),
     )
 
 

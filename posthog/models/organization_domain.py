@@ -57,7 +57,7 @@ class OrganizationDomainManager(models.Manager):
         Validates SSO providers are properly configured and all the proper licenses exist.
         """
         domain = email_domain(email)
-        if domain is None:
+        if email is None or domain is None:
             return None
         queryset = self.verified_domains().filter(domain__iexact=domain).exclude(sso_enforcement="")
 

@@ -60,7 +60,7 @@ def resolve(
 
 def _users_with_access(
     source: SourceKind, *, team: Team, configuration_id: UUID, user_ids: list[int]
-) -> list[tuple[int, str]]:
+) -> list[tuple[int, str | None]]:
     access = _access.get(source)
     if access is None or not user_ids:
         return []

@@ -611,7 +611,7 @@ class WarehouseMigration:
 @dataclass(frozen=True)
 class WarehouseMigrationCreator:
     first_name: str
-    email: str
+    email: str | None
 
 
 @dataclass(frozen=True)

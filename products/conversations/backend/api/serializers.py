@@ -34,7 +34,7 @@ class TicketAssignmentSerializer(serializers.ModelSerializer):
     def get_type(self, obj):
         return "role" if obj.role_id else "user"
 
-    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(allow_null=True), allow_null=True))
     def get_user(self, obj):
         if obj.user_id and obj.user:
             return {"email": obj.user.email}

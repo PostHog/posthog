@@ -182,7 +182,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         # `group_properties` carries the organization id so an org-level rollout still resolves locally.
         team_id = str(self.team.pk)
         person_properties = {"team_id": team_id, "region": get_instance_region() or "DEV"}
-        if self.user:
+        if self.user and self.user.email:
             person_properties["email"] = self.user.email
         return bool(
             posthoganalytics.feature_enabled(

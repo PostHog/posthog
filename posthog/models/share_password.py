@@ -39,7 +39,7 @@ class SharePassword(models.Model):
 
     def __str__(self) -> str:
         note_part = f" ({self.note})" if self.note else ""
-        creator = self.created_by.email if self.created_by else "deleted user"
+        creator = str(self.created_by) if self.created_by else "deleted user"
         return f"Password by {creator}{note_part} - {self.created_at.strftime('%Y-%m-%d')}"
 
     def set_password(self, raw_password: str) -> None:

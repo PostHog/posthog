@@ -36,7 +36,7 @@ class TestSubscriptionOffboarding(APIBaseTest):
         own = self.subscription(creator=self.departing, recipients="other@example.com")
         others = self.subscription(creator=self.user, recipients="other@example.com")
         recipient = self.subscription(creator=self.user, recipients="DEPARTING@example.com,other@example.com")
-        only_recipient = self.subscription(creator=self.user, recipients=self.departing.email)
+        only_recipient = self.subscription(creator=self.user, recipients=self.departing.require_email())
         response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [f"subscription:{own.pk}"]
@@ -120,7 +120,7 @@ class TestSubscriptionOffboarding(APIBaseTest):
 
     def test_offboarding_does_not_change_subscriptions_in_another_organization(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
-        subscription = self.subscription(creator=self.departing, recipients=self.departing.email)
+        subscription = self.subscription(creator=self.departing, recipients=self.departing.require_email())
         subscription.team = other_team
         subscription.save(update_fields=["team"])
         assert self.client.get(self.url + "offboarding_preview/").json() == []

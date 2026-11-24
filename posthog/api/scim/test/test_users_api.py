@@ -250,7 +250,7 @@ class TestSCIMUsersAPI(APILicensedTest):
             SCIMProvisionedUser.objects.create(
                 user=user,
                 identity_provider_config=self.config,
-                username=user.email,
+                username=user.require_email(),
                 identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
                 active=False,
             )

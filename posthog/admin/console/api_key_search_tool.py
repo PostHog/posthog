@@ -35,7 +35,7 @@ def _when(value: object) -> Cell:
 def _user_cell(user: User | None) -> Cell:
     if user is None:
         return Cell(text="-", muted=True)
-    return Cell(text=user.email, href=f"/admin/posthog/user/{user.pk}/change/")
+    return Cell(text=str(user), href=f"/admin/posthog/user/{user.pk}/change/")
 
 
 def _team_cell(team: Team) -> Cell:

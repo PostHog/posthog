@@ -3749,7 +3749,7 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
         )
 
     def test_precheck_does_not_return_pending_invite_when_account_exists(self):
-        self._create_invite(self.user.email)
+        self._create_invite(self.user.require_email())
         response = self.client.post("/api/signup/precheck", {"email": self.user.email})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertNotIn("pending_invite", response.json())
@@ -3939,4 +3939,4 @@ class TestSAMLInviteLookup(APIBaseTest):
             invite.created_at = timezone.now() - timedelta(days=days_old)
             invite.save(update_fields=["created_at"])
 
-        assert lookup_invite_for_saml(member.email, identifier) is None
+        assert lookup_invite_for_saml(member.require_email(), identifier) is None

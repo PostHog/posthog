@@ -406,7 +406,7 @@ class TestSendWorkloadTrustPolicyChangedEmail(APIBaseTest):
 
         assert len(sent) == 1
         assert sorted(recipient["raw_email"] for recipient in sent[0].to) == sorted(
-            [self.user.email, "admin@example.com"]
+            [self.user.require_email(), "admin@example.com"]
         )
         assert "Production deploys" in sent[0].html_body
         assert sent[0].use_http is True

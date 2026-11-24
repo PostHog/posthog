@@ -13,7 +13,7 @@ from uuid import UUID
 @dataclass(frozen=True)
 class LegalDocumentCreator:
     first_name: str
-    email: str
+    email: str | None
 
 
 @dataclass(frozen=True)

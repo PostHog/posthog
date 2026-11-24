@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
 import { ScopeGroupSummary } from 'scenes/settings/user/scopes/ScopeGroupSummary'
 
@@ -33,7 +33,7 @@ function AccessScope({ accessScope }: { accessScope: OrganizationPersonalAPIKeyA
 }
 
 function ownerLabel(owner: OrganizationPersonalAPIKeyApi['owner']): string {
-    return fullName(owner) || owner.email
+    return fullNameOrEmail(owner)
 }
 
 export function OrganizationPersonalAPIKeysTable(): JSX.Element {

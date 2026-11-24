@@ -162,7 +162,9 @@ def _free_trial_active(customer: CustomerInfo) -> bool:
     return expires > timezone.now()
 
 
-def _is_valid_email(email: str) -> bool:
+def _is_valid_email(email: str | None) -> bool:
+    if email is None:
+        return False
     try:
         validate_email(email)
     except ValidationError:
@@ -234,7 +236,8 @@ def build_billing_token(
         payload["distinct_id"] = str(user.distinct_id)
         # Billing's startup program checks read an email domain as evidence of who an applicant
         # works for, and this is the only address it gets from us.
-        payload["email"] = user.email
+        if user.email:
+            payload["email"] = user.email
         authorizer_role = _get_user_organization_role(authorizer_actor, organization)
 
         if authorizer_role:

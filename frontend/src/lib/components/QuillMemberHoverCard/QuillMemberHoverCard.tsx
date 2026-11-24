@@ -18,7 +18,7 @@ export function QuillMemberHoverCard({ user, children }: QuillMemberHoverCardPro
         return <>{children}</>
     }
 
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || ''
 
     return (
         <QuillHoverCard
@@ -28,7 +28,7 @@ export function QuillMemberHoverCard({ user, children }: QuillMemberHoverCardPro
                 <>
                     <Avatar size="lg">
                         {user.email && <AvatarImage src={gravatarUrl(user.email)} alt="" />}
-                        <AvatarFallback>{name.slice(0, 1)}</AvatarFallback>
+                        <AvatarFallback>{name.slice(0, 1) || '?'}</AvatarFallback>
                     </Avatar>
                     <div className="ph-no-capture flex min-w-0 flex-col">
                         <Text weight="semibold" className="truncate">

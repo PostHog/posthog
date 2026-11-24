@@ -5179,7 +5179,13 @@ class ScoutMemberSerializer(serializers.Serializer):
             "entities they own. A durable handle for this person across runs."
         )
     )
-    email = serializers.EmailField(help_text="The member's email — use to match a finding's owner by name/email.")
+    email = serializers.EmailField(
+        allow_null=True,
+        help_text=(
+            "The member's email — use to match a finding's owner by name/email."
+            " Null for a service account without a contact email."
+        ),
+    )
     first_name = serializers.CharField(help_text="The member's first name (may be empty).")
     last_name = serializers.CharField(help_text="The member's last name (may be empty).")
     github_login = serializers.CharField(

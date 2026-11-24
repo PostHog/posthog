@@ -40,7 +40,10 @@ export function MetricOwnerCombobox({
     const triggerRef = useRef<HTMLButtonElement>(null)
     const optionLabels = new Map<string, string>([
         [UNASSIGNED, 'Unassigned'],
-        ...meFirstMembers.map((member): [string, string] => [member.user.email, fullNameOrEmail(member.user)]),
+        // The owner is stored as an email, so a member without one cannot own a metric.
+        ...meFirstMembers.flatMap((member): [string, string][] =>
+            member.user.email ? [[member.user.email, fullNameOrEmail(member.user)]] : []
+        ),
     ])
 
     return (

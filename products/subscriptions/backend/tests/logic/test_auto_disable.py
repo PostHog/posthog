@@ -185,8 +185,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("products.subscriptions.backend.logic.auto_disable.EmailMessage") as email_cls:
-            send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
-            send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
+            send_notifications_for_disabled_subscription(
+                sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.require_email()]
+            )
+            send_notifications_for_disabled_subscription(
+                sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.require_email()]
+            )
 
         first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
         second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
@@ -201,7 +205,9 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("products.subscriptions.backend.logic.auto_disable.EmailMessage") as email_cls:
-            send_notifications_for_disabled_subscription(sub, AI_PROMPT_INVALID_DISABLE_REASON, [self.user.email])
+            send_notifications_for_disabled_subscription(
+                sub, AI_PROMPT_INVALID_DISABLE_REASON, [self.user.require_email()]
+            )
 
         ctx = email_cls.call_args.kwargs["template_context"]
         assert ctx["reason"] == AI_PROMPT_INVALID_DISABLE_REASON.description

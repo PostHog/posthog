@@ -672,7 +672,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             AccountsTableQuery(
                 columns=[],
                 filters=[
-                    AccountsTableSearchFilter(query=self.user.email.upper()),
+                    AccountsTableSearchFilter(query=self.user.require_email().upper()),
                     AccountsTableAssignedFilter(),
                 ],
             )

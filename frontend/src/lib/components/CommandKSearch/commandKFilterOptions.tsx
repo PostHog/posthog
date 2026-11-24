@@ -100,19 +100,25 @@ const typeOptions = (): ValueOption[] => {
     return cachedTypeOptions
 }
 
-const memberOption = (member: OrganizationMemberType): ValueOption => {
+/** The filter value is the member's email, so a member without one has no option. */
+const memberOptions = (member: OrganizationMemberType): ValueOption[] => {
     const { first_name, last_name, email } = member.user
-    return {
-        value: email,
-        label: [first_name, last_name].filter(Boolean).join(' ') || email,
-        aliases: [first_name, last_name, email].filter((alias): alias is string => !!alias),
+    if (!email) {
+        return []
     }
+    return [
+        {
+            value: email,
+            label: [first_name, last_name].filter(Boolean).join(' ') || email,
+            aliases: [first_name, last_name, email].filter((alias): alias is string => !!alias),
+        },
+    ]
 }
 
 /** `me` first, then everyone else in the organization. */
 const userOptions = (members: OrganizationMemberType[], user: UserType | null): ValueOption[] => [
     { value: 'me', label: 'Me', aliases: user ? [user.first_name, user.email].filter(Boolean) : [] },
-    ...members.filter((member) => member.user.uuid !== user?.uuid).map(memberOption),
+    ...members.filter((member) => member.user.uuid !== user?.uuid).flatMap(memberOptions),
 ]
 
 export function buildFilterOptions(

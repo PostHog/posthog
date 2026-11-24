@@ -90,7 +90,7 @@ class MemberEmailMigration:
     def emails_on_domain(organization: Organization, domain: str, limit: int) -> tuple[list[str], int]:
         """The first `limit` emails of members on the domain, in email order, and how many there are in all."""
         members = organization.members.filter(email__iendswith=f"@{domain}", is_staff=False).order_by("email")
-        emails = list(members.values_list("email", flat=True)[: limit + 1])
+        emails = [email for email in members.values_list("email", flat=True)[: limit + 1] if email]
         total = len(emails) if len(emails) <= limit else members.count()
         return emails[:limit], total
 
@@ -105,7 +105,7 @@ class MemberEmailMigration:
             Q(lower_email__in={email.lower() for email in typed}) | Q(email__in=typed)
         )
         for member in listed:
-            members.setdefault(member.email.lower(), []).append(member)
+            members.setdefault(member.require_email().lower(), []).append(member)
         seen_users: set[int] = set()
         seen_targets: set[str] = set()
         changes = []
@@ -114,6 +114,7 @@ class MemberEmailMigration:
             exact = [member for member in matches if member.email == request.current_email]
             candidates = exact or matches
             user = candidates[0] if len(candidates) == 1 else None
+            current_email = user.require_email() if user is not None else request.current_email
             new_email = self._new_email(request, user)
             if len(candidates) > 1:
                 skip_reason: str | None = AMBIGUOUS_MEMBER
@@ -121,15 +122,15 @@ class MemberEmailMigration:
                 skip_reason = self._skip_reason(user, new_email, verified, seen_users, seen_targets)
             # The change removes the member's SSO links. With automatic provisioning on, the next SSO
             # sign-in with the old email finds no account and creates a new one for the same person.
-            if skip_reason is None and user is not None and _domain(user.email) in provisioning:
-                skip_reason = f"Automatic provisioning is on for {_domain(user.email)}. Turn it off first"
+            if skip_reason is None and user is not None and _domain(current_email) in provisioning:
+                skip_reason = f"Automatic provisioning is on for {_domain(current_email)}. Turn it off first"
             if user is not None:
                 seen_users.add(user.pk)
             if skip_reason is None and new_email is not None:
                 seen_targets.add(new_email.lower())
             changes.append(
                 MemberEmailChange(
-                    current_email=user.email if user is not None else request.current_email,
+                    current_email=current_email,
                     new_email=new_email,
                     user=user,
                     skip_reason=skip_reason,
@@ -209,7 +210,7 @@ class MemberEmailMigration:
             return EmailNormalizer.normalize(request.new_email)
         if user is None or not self.new_domain:
             return None
-        local_part = user.email.rsplit("@", 1)[0]
+        local_part = user.require_email().rsplit("@", 1)[0]
         return EmailNormalizer.normalize(f"{local_part}@{self.new_domain}")
 
     def _skip_reason(
@@ -223,8 +224,9 @@ class MemberEmailMigration:
             return "PostHog staff account"
         if new_email is None:
             return "No new email given"
-        if _domain(user.email) not in verified:
-            return f"The organization has not verified the current domain {_domain(user.email)}"
+        current_email = user.require_email()
+        if _domain(current_email) not in verified:
+            return f"The organization has not verified the current domain {_domain(current_email)}"
         try:
             validate_email(new_email)
             reject_plus_addressed_email(new_email)
@@ -237,7 +239,7 @@ class MemberEmailMigration:
             return f"The organization has not verified the new domain {_domain(new_email)}"
         # A stored address that differs only by case is the same login. Changing it would sign the
         # member out and remove their SSO links for nothing.
-        if new_email == EmailNormalizer.normalize(user.email):
+        if new_email == EmailNormalizer.normalize(current_email):
             return "Already uses this email"
         if new_email.lower() in seen_targets or self._is_taken(new_email, user):
             return "Another account already uses this email"

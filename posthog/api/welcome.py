@@ -80,7 +80,10 @@ _MAX_ENTITY_NAME_LENGTH = 200
 
 class _WelcomeInviterSerializer(serializers.Serializer):
     name = serializers.CharField()
-    email = serializers.EmailField()
+    email = serializers.EmailField(
+        allow_null=True,
+        help_text="Email address of the inviter. Null when the inviter is a service account without a contact email.",
+    )
 
 
 class _WelcomeTeamMemberSerializer(serializers.Serializer):
@@ -334,7 +337,7 @@ def _is_organization_first_user(user: User, organization: Organization) -> bool:
     return membership.invited_by_id is None
 
 
-def _get_inviter(user: User, organization: Organization) -> dict[str, str] | None:
+def _get_inviter(user: User, organization: Organization) -> dict[str, str | None] | None:
     """Return the inviter recorded on the membership, falling back to an outstanding invite row."""
     if not user.email:
         return None

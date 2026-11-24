@@ -1000,7 +1000,9 @@ class AEOPromptAuthorSerializer(DataclassSerializer):
         dataclass = PromptAuthor
         ref_name = "AEOPromptAuthor"
         extra_kwargs = {
-            "email": {"help_text": "Email of the person who made the change."},
+            "email": {
+                "help_text": "Email of the person who made the change. Null for a service account without a contact email."
+            },
             "name": {"help_text": "First name of the person who made the change. Empty when they have none."},
         }
 

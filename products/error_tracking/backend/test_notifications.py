@@ -166,7 +166,7 @@ class TestSendIssueAssignedEmail(_AssignmentTestBase):
 
         assert len(mocked_email_messages) == 1
         message = mocked_email_messages[0]
-        emails = {"assignee": self.assignee.email, "assigner": self.assigner.email}
+        emails = {"assignee": self.assignee.require_email(), "assigner": self.assigner.require_email()}
         assert sorted(to["raw_email"] for to in message.to) == sorted(emails[key] for key in expected_recipients)
         if automatic:
             assert "An assignment rule assigned you" in message.html_body

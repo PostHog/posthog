@@ -5,13 +5,13 @@ import { SidebarProductMeta, sidebarProductMeta } from '~/layout/panel-layout/si
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
-import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+import { PrStateEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { TaskPullRequest } from './taskPullRequests'
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
 import type { TodayRailPane } from './todayShellLogic'
-import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
+import { TodaySessionMenuTarget, TodayWorkItem, TodayWorkItemAuthor, sessionMenuTarget } from './todayWorkItems'
 
 /** What a session row's hover card says, built once per row so the shared card gets a stable payload. */
 export interface TodaySessionPreview {
@@ -28,7 +28,7 @@ export interface TodaySessionPreview {
     source: string | null
     /** The source product's icon, for the origins that have one. */
     sourceIcon: JSX.Element | null
-    author: TaskUserBasicInfoApi | null
+    author: TodayWorkItemAuthor | null
     timestamp: string | null
     message: string | null
     menu: TodaySessionMenuTarget

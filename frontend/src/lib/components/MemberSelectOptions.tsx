@@ -86,7 +86,7 @@ export function MemberSelectOptions({
                         icon={<ProfilePicture size="md" user={{ first_name: option.name, email: option.email }} />}
                         onClick={() => {
                             onClose()
-                            onSelectOption?.(option.uuid, option.name || option.email)
+                            onSelectOption?.(option.uuid, option.name || option.email || '')
                         }}
                     >
                         <span className="flex min-w-0 flex-1 items-center justify-between gap-2">

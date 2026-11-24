@@ -13,7 +13,7 @@ import {
 } from '@posthog/quill'
 
 import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { AnalyticsOwnerAvatar } from 'scenes/analytics/AnalyticsOwner'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,7 +74,7 @@ export function QuillSavedInsightsFilterMenu({
                     pluralNoun="people"
                     options={meFirstMembers.map((member) => ({
                         value: String(member.user.id),
-                        label: fullName(member.user) || member.user.email,
+                        label: fullNameOrEmail(member.user),
                         icon: <AnalyticsOwnerAvatar owner={member.user} />,
                         hint: member.user.uuid === user?.uuid ? '(you)' : undefined,
                     }))}

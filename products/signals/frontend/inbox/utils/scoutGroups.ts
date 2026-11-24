@@ -1,6 +1,6 @@
 import { describeCron, nextCronOccurrence } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
@@ -77,7 +77,7 @@ export function scoutPausedByLine(config: SignalScoutConfig): string | null {
     }
     if (config.status === 'paused_by_user' || !config.enabled) {
         const actor = config.status_changed_by
-        const name = actor ? fullName(actor) || actor.email : null
+        const name = actor ? fullNameOrEmail(actor) || null : null
         if (name) {
             return on ? `Turned off by ${name} · ${on}` : `Turned off by ${name}`
         }

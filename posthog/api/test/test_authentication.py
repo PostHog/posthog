@@ -366,7 +366,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         with self.settings(E2E_TESTING=False):
             for i in range(35):
-                response = self.client.post("/api/login/precheck", {"email": self.user.email.upper()})
+                response = self.client.post("/api/login/precheck", {"email": self.user.require_email().upper()})
                 self.assertEqual(response.status_code, status.HTTP_200_OK, f"request {i} was throttled")
 
     def test_login_precheck_is_rate_limited_for_an_authenticated_caller_probing_other_emails(self):

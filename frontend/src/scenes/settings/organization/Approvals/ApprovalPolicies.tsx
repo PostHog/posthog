@@ -302,7 +302,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const userOptions =
         members?.map((member) => ({
             key: member.user.id.toString(),
-            label: `${member.user.first_name} (${member.user.email})`,
+            label: member.user.email ? `${member.user.first_name} (${member.user.email})` : member.user.first_name,
             labelComponent: (
                 <div className="flex items-center gap-2">
                     <span>{member.user.first_name}</span>

@@ -25,7 +25,7 @@ CountableType = Literal["email", "email_root", "email_domain", "email_pattern"]
 @frozen
 class ResolvedUser:
     uuid: str
-    email: str
+    email: str | None
     is_active: bool
 
 

@@ -30,7 +30,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1177,7 +1177,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     const resolved = resolveAssignee(assignee)
                     const label =
                         resolved?.type === 'user'
-                            ? fullName(resolved.user) || resolved.user.email
+                            ? fullNameOrEmail(resolved.user)
                             : resolved?.type === 'role'
                               ? resolved.role.name
                               : assignee

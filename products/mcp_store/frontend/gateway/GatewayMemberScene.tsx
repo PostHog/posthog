@@ -188,7 +188,7 @@ export function GatewayMemberScene({
 
 export function gatewayMemberNames(member: GatewayMemberSummaryApi): { memberName: string; firstName: string } {
     const memberName =
-        [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email
+        [member.user.first_name, member.user.last_name].filter(Boolean).join(' ').trim() || member.user.email || ''
     const firstName = member.user.first_name?.trim() || memberName.split(' ')[0]
     return { memberName, firstName }
 }

@@ -223,7 +223,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     is_ai_data_processing_approved: true,
 }
 
-export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
+export const MOCK_DEFAULT_BASIC_USER: UserBasicType & { email: string } = {
     id: 178,
     uuid: MOCK_USER_UUID,
     distinct_id: 'mock-user-178-distinct-id',
@@ -304,7 +304,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     last_login: '2020-09-24T15:05:26.758796Z',
 }
 
-export const MOCK_SECOND_BASIC_USER: UserBasicType = {
+export const MOCK_SECOND_BASIC_USER: UserBasicType & { email: string } = {
     id: 202,
     uuid: 'bf313676-e728-4221-a975-d8e90b9d168c',
     distinct_id: 'mock-user-202-distinct-id',

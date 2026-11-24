@@ -114,7 +114,7 @@ class TestGmailSync(BaseTest):
         assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
 
     def test_attachment_backed_body_is_imported(self) -> None:
-        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
         message["payload"]["body"] = {"attachmentId": "body-attachment"}
         attachment_body = base64.urlsafe_b64encode(b"Attachment-backed message body").decode().rstrip("=")
 
@@ -134,7 +134,7 @@ class TestGmailSync(BaseTest):
         assert imported.comment.content == "Attachment-backed message body"
 
     def test_html_only_body_keeps_paragraphs_and_links(self) -> None:
-        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
         html = (
             b"<html><head><style>p { margin: 0 }</style></head><body>"
             b"<p>Hey team,</p>\n<p>It goes quickly, so start early.</p>"
@@ -166,7 +166,7 @@ class TestGmailSync(BaseTest):
         )
 
     def test_message_with_too_many_attachment_backed_bodies_is_skipped(self) -> None:
-        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
         message["payload"]["mimeType"] = "multipart/alternative"
         message["payload"]["body"] = {}
         message["payload"]["parts"] = [
@@ -196,10 +196,10 @@ class TestGmailSync(BaseTest):
         start_at = datetime(2026, 7, 1, tzinfo=UTC)
         end_at = datetime(2026, 8, 1, tzinfo=UTC)
         first_message = _gmail_message(
-            label="INBOX", sender="first@example.com", recipient=self.user.email, message_id="gmail-1"
+            label="INBOX", sender="first@example.com", recipient=self.user.require_email(), message_id="gmail-1"
         )
         second_message = _gmail_message(
-            label="SENT", sender=self.user.email, recipient="second@example.com", message_id="gmail-2"
+            label="SENT", sender=self.user.require_email(), recipient="second@example.com", message_id="gmail-2"
         )
 
         with patch.object(
@@ -257,10 +257,10 @@ class TestGmailSync(BaseTest):
             "historyId": "101",
         }
         first_message = _gmail_message(
-            label="INBOX", sender="first@example.com", recipient=self.user.email, message_id="gmail-1"
+            label="INBOX", sender="first@example.com", recipient=self.user.require_email(), message_id="gmail-1"
         )
         second_message = _gmail_message(
-            label="INBOX", sender="second@example.com", recipient=self.user.email, message_id="gmail-2"
+            label="INBOX", sender="second@example.com", recipient=self.user.require_email(), message_id="gmail-2"
         )
 
         with (
@@ -305,7 +305,7 @@ class TestGmailSync(BaseTest):
             "historyId": "101",
         }
         second_message = _gmail_message(
-            label="INBOX", sender="second@example.com", recipient=self.user.email, message_id="gmail-2"
+            label="INBOX", sender="second@example.com", recipient=self.user.require_email(), message_id="gmail-2"
         )
 
         with patch.object(
@@ -326,7 +326,7 @@ class TestGmailSync(BaseTest):
         assert message.comment.content == "Customer message body"
 
     def test_deleted_attachment_is_skipped(self) -> None:
-        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
         message["payload"]["body"] = {"attachmentId": "body-attachment"}
 
         with patch.object(
@@ -363,9 +363,13 @@ class TestGmailSync(BaseTest):
         }
         responses = [
             _response(history),
-            _response(_gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)),
+            _response(
+                _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
+            ),
             _response(history),
-            _response(_gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)),
+            _response(
+                _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.require_email())
+            ),
         ]
 
         with patch.object(gmail_sync, "google_workspace_request", side_effect=responses):
@@ -426,7 +430,9 @@ class TestGmailSync(BaseTest):
             side_effect=[
                 _response({"emailAddress": self.user.email, "historyId": "100"}),
                 _response({"messages": [{"id": "gmail-1"}]}),
-                _response(_gmail_message(label="INBOX", sender=self.user.email, recipient=self.user.email)),
+                _response(
+                    _gmail_message(label="INBOX", sender=self.user.require_email(), recipient=self.user.require_email())
+                ),
             ],
         ):
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)

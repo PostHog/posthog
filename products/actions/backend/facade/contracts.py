@@ -72,7 +72,7 @@ class ActionCreator:
     distinct_id: Optional[str]
     first_name: str
     last_name: str
-    email: str
+    email: Optional[str]
     is_email_verified: Optional[bool]
     hedgehog_config: Optional[dict[str, Any]]
     role_at_organization: Optional[str]

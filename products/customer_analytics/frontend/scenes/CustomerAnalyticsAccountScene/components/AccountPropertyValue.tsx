@@ -23,7 +23,7 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
                 {property.members.map((member) => (
                     <span key={member.id} className="inline-flex items-center gap-2 min-w-0">
                         <ProfilePicture user={{ email: member.email }} size="sm" />
-                        <span className="text-sm font-medium truncate select-all" title={member.email}>
+                        <span className="text-sm font-medium truncate select-all" title={member.email ?? undefined}>
                             {member.name || member.email}
                         </span>
                     </span>

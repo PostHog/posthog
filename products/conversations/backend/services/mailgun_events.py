@@ -884,9 +884,10 @@ def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool
             user__email__in=recipient_emails,
             user__is_active=True,
         ).values_list("user__email", flat=True)
+        if member_email
     }
     internal_emails.add(config.from_email.lower())
-    if config.owner is not None:
+    if config.owner is not None and config.owner.email:
         internal_emails.add(config.owner.email.lower())
     return bool(recipient_emails - internal_emails)
 

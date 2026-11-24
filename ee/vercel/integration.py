@@ -980,7 +980,7 @@ class VercelIntegration:
             return "inactive_user"
         if claims.user_email_verified is not True:
             return "email_unverified"
-        if not VercelIntegration._claims_prove_email(claims, user.email):
+        if not VercelIntegration._claims_prove_email(claims, user.require_email()):
             return "email_mismatch"
         normal_login_reason = normal_login_required_reason(user)
         if normal_login_reason is not None:
@@ -994,7 +994,7 @@ class VercelIntegration:
         user = VercelIntegration._find_sso_user(claims)
         if account_refused(request, user, call_site="vercel_sso", impersonated=False):
             raise SSOLoginRefused()
-        if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.email):
+        if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.require_email()):
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
@@ -1294,7 +1294,7 @@ class VercelIntegration:
                     email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
                 )
             user = existing_user
-            intended_level = VercelIntegration._determine_membership_level(user.email, installation)
+            intended_level = VercelIntegration._determine_membership_level(user.require_email(), installation)
             VercelIntegration._add_user_to_organization(user, installation.organization, intended_level)
             user.current_organization = installation.organization
             user.save(update_fields=["current_organization"])

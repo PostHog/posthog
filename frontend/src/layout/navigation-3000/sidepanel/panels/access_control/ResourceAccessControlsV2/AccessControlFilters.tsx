@@ -1,7 +1,7 @@
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { AccessControlLevel, APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 
@@ -121,7 +121,7 @@ function MembersFilter(props: {
                     setValues={props.setSelectedMemberIds}
                     options={props.members.map((member) => ({
                         key: member.id,
-                        label: fullName(member.user) || member.user.email,
+                        label: fullNameOrEmail(member.user),
                     }))}
                 />
             }

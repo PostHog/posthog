@@ -591,7 +591,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             # Generate tracking parameters for PostHog analytics
             trace_id = str(uuid.uuid4())
-            distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
+            distinct_id = ""
+            if request.user and request.user.is_authenticated:
+                distinct_id = getattr(request.user, "email", None) or getattr(request.user, "distinct_id", None) or ""
             properties = {"ai_product": "playground"}
             group_properties = groups(team=getattr(request.user, "current_team", None))
 

@@ -618,7 +618,7 @@ class OrganizationInviteViewSet(
 
         # Self-delegation guard. `user.email == target_email` is sufficient: `target_email`
         # has been normalized and the comparison is case-insensitive via the normalizer.
-        if bool(user.email) and EmailNormalizer.normalize(user.email) == target_email:
+        if user.email and EmailNormalizer.normalize(user.email) == target_email:
             raise exceptions.ValidationError("You cannot delegate setup to yourself.", code="self_delegation")
 
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.

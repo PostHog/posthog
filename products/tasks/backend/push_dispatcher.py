@@ -177,7 +177,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
 
     mentioned = set(mentioned_user_ids)
     author = message.author
-    author_name = (author.first_name.strip() or author.email) if author else "PostHog"
+    author_name = (author.first_name.strip() or author.email or "A colleague") if author else "PostHog"
     task_title = (message.task.title or "").strip() or "Untitled task"
     data: dict[str, str | int] = {
         "taskId": str(message.task_id),

@@ -115,7 +115,7 @@ class NotebookUserInfo:
     distinct_id: str | None
     first_name: str
     last_name: str
-    email: str
+    email: str | None
     is_email_verified: bool | None
     hedgehog_config: Any
     role_at_organization: str | None

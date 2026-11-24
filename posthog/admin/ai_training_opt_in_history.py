@@ -73,8 +73,8 @@ def _was_system(entry: ActivityLog) -> bool:
 def _describe_actor(entry: ActivityLog) -> str:
     if entry.user is not None:
         if entry.was_impersonated:
-            return f"{entry.user.email} (acting-as, PostHog staff member not recorded)"
-        return entry.user.email
+            return f"{entry.user} (acting-as, PostHog staff member not recorded)"
+        return str(entry.user)
     return "system" if _was_system(entry) else "user since deleted"
 
 

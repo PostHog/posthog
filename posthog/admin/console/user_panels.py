@@ -149,7 +149,7 @@ def send_verification_email(request: HttpRequest, obj: Model, form: forms.Form |
         messages.error(request, f"Failed to send verification email: {error}")
         return HttpResponse(status=500)
     _log_change(request, obj, "Sent verification email.")
-    messages.success(request, f"Verification email sent to {obj.email}")
+    messages.success(request, f"Verification email sent to {obj}")
     return None
 
 
@@ -166,7 +166,7 @@ def send_password_reset_email(request: HttpRequest, obj: Model, form: forms.Form
         messages.error(request, f"Failed to send password reset email: {error}")
         return HttpResponse(status=500)
     _log_change(request, obj, "Sent password reset email.")
-    messages.success(request, f"Password reset email sent to {obj.email}")
+    messages.success(request, f"Password reset email sent to {obj}")
     return None
 
 
@@ -181,7 +181,7 @@ def send_two_factor_reset(request: HttpRequest, obj: Model, form: forms.Form | N
         messages.error(request, f"Failed to send 2FA reset email: {error}")
         return HttpResponse(status=500)
     _log_change(request, obj, "Sent 2FA reset email.")
-    messages.success(request, f"2FA reset email sent to {obj.email}")
+    messages.success(request, f"2FA reset email sent to {obj}")
     return None
 
 
@@ -380,7 +380,7 @@ class UserDeletionActivityContext(ActivityContextBase):
     reason: str
     # The item_id of the log entry points at a row that no longer exists, so the address the
     # account was deleted under is the only thing that identifies it afterwards.
-    email: str
+    email: str | None
 
 
 class DeleteUserForm(forms.Form):
@@ -402,7 +402,7 @@ def preview_user_deletion(request: HttpRequest, obj: Model, form: forms.Form) ->
         blocks=(
             Notice(
                 text=(
-                    f"Deleting {obj.email} removes their account, their personal API keys, their two-factor "
+                    f"Deleting {obj} removes their account, their personal API keys, their two-factor "
                     "devices, and their membership of every organization they belong to. Insights, dashboards, "
                     "and anything else they created stays, with no creator on it."
                 )
@@ -440,7 +440,7 @@ def delete_user(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
     # The cascade takes the memberships that scope the log entries, and the delete blanks the primary key.
     organization_ids = list(obj.organization_memberships.values_list("organization_id", flat=True))
     deleted_user_id = obj.pk
-    name = f"{obj.first_name} {obj.last_name}".strip() or obj.email
+    name = f"{obj.first_name} {obj.last_name}".strip() or str(obj)
     email = obj.email
     with transaction.atomic():
         # An account in no organization has nowhere to scope an ActivityLog row, so the admin log takes the reason.

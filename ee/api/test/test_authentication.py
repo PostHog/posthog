@@ -2114,7 +2114,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         elif provider == "chatgpt":
             response = self._complete_chatgpt_login(email=self.user.email, email_verified=provider_verified)
         else:
-            response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
+            response = self._complete_google_login(email=self.user.require_email(), email_verified=provider_verified)
 
         self.user.refresh_from_db()
         is_linked = UserSocialAuth.objects.filter(user=self.user, provider=provider).exists()
@@ -2207,7 +2207,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 login_query=login_query,
             )
         else:
-            response = self._complete_google_login(email=self.user.email, email_verified=False, login_query=login_query)
+            response = self._complete_google_login(
+                email=self.user.require_email(), email_verified=False, login_query=login_query
+            )
 
         self.assertIn("error_code=social_login_failure", response["Location"])
         self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)

@@ -72,7 +72,7 @@ class TestApiKeySearchTool(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Searched Key", response.content)
-        self.assertIn(self.user.email.encode(), response.content)
+        self.assertIn(self.user.require_email().encode(), response.content)
 
     def test_strips_whitespace_from_query(self):
         token = generate_random_token_personal()

@@ -418,7 +418,7 @@ def require_verified_email_for_login(user: User) -> None:
         email_verification_code_verifier.send_code(user)
         return
 
-    inbox_lookup = InboxProviderLookup.start(user.email)
+    inbox_lookup = InboxProviderLookup.start(user.require_email())
     email_verification_code_verifier.send_code(user)
     raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
@@ -608,7 +608,7 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    inbox_lookup = InboxProviderLookup.start(user.email)
+                    inbox_lookup = InboxProviderLookup.start(user.require_email())
                     code_based_verification_sent = _send_login_code(request, user)
                     if code_based_verification_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
@@ -1677,7 +1677,7 @@ def social_identity_matches_session(
         return
 
     identity_email = ((details or {}).get("email") or "").lower()
-    if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
+    if user is None or user.pk != request.user.pk or identity_email != request.user.require_email().lower():
         logger.warning(
             "SSO identity mismatch for authenticated session",
             backend=getattr(backend, "name", ""),
@@ -1760,7 +1760,9 @@ def social_reauth(
     # an email check `associate_user` would silently link a stranger's IdP account to this account.
     identity_email = ((details or {}).get("email") or "").lower()
     identity_is_signed_in_user = (
-        user is not None and user.pk == request.user.pk and (social is not None or identity_email == user.email.lower())
+        user is not None
+        and user.pk == request.user.pk
+        and (social is not None or identity_email == user.require_email().lower())
     )
 
     if not identity_is_signed_in_user:
@@ -1962,7 +1964,7 @@ def social_grant_staff_to_google_workspace_members(
         and backend.name == "google-oauth2"
         and user is not None
         and not user.is_staff
-        and user.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
+        and user.require_email().endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
         and response.get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
     ):
         user.is_staff = True

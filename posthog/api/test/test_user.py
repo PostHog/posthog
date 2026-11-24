@@ -244,7 +244,7 @@ class TestUserAPI(APIBaseTest):
         other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
         OrganizationInvite.objects.create(
             organization=other_org,
-            target_email=self.user.email.upper(),
+            target_email=self.user.require_email().upper(),
             created_by=self.user,
         )
 

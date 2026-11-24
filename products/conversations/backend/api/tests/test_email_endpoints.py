@@ -191,7 +191,7 @@ class TestEmailChannelPermissions(BaseTest):
                 kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
                 owner=owner,
                 inbound_token=token,
-                from_email=owner.email,
+                from_email=owner.require_email(),
                 from_name="Customer success",
                 domain="example.com",
             )
@@ -249,8 +249,8 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="pending-token",
-            from_email=self.user.email,
-            from_name=self.user.email,
+            from_email=self.user.require_email(),
+            from_name=self.user.require_email(),
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
         )
@@ -332,7 +332,7 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="missing-smtp-token",
-            from_email=self.user.email,
+            from_email=self.user.require_email(),
             from_name="Customer success",
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
@@ -372,7 +372,7 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="enqueue-failure-token",
-            from_email=self.user.email,
+            from_email=self.user.require_email(),
             from_name="Customer success",
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
@@ -410,7 +410,7 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="cooldown-token",
-            from_email=self.user.email,
+            from_email=self.user.require_email(),
             from_name="Customer success",
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
@@ -453,7 +453,7 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="attempt-limit-token",
-            from_email=self.user.email,
+            from_email=self.user.require_email(),
             from_name="Customer success",
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
@@ -488,8 +488,8 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=owner,
             inbound_token="other-pending-token",
-            from_email=owner.email,
-            from_name=owner.email,
+            from_email=owner.require_email(),
+            from_name=owner.require_email(),
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
         )
@@ -518,8 +518,8 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
             inbound_token="expired-token",
-            from_email=self.user.email,
-            from_name=self.user.email,
+            from_email=self.user.require_email(),
+            from_name=self.user.require_email(),
             domain="example.com",
             connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
         )
@@ -706,8 +706,8 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=other_owner,
             inbound_token="other-owner-token",
-            from_email=other_owner.email,
-            from_name=other_owner.email,
+            from_email=other_owner.require_email(),
+            from_name=other_owner.require_email(),
             domain="example.com",
         )
 
@@ -733,7 +733,7 @@ class TestEmailChannelPermissions(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=other_owner,
             inbound_token="other-token",
-            from_email=other_owner.email,
+            from_email=other_owner.require_email(),
             from_name="Customer success",
             domain="example.com",
             domain_verified=True,
@@ -1232,7 +1232,7 @@ class TestEmailMultiConfig(BaseTest):
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=other_owner,
             inbound_token="other-customer-token",
-            from_email=other_owner.email,
+            from_email=other_owner.require_email(),
             from_name="Other owner",
             domain="gmail.com",
         )
@@ -2614,7 +2614,7 @@ class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
             {
                 "from": "Relay <relay@posthog.com>",
                 "sender": "relay@posthog.com",
-                "X-PostHog-Requester": self.user.email,
+                "X-PostHog-Requester": self.user.require_email(),
             },
         )
 
@@ -2749,7 +2749,7 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
-                "sender": self.user.email,
+                "sender": self.user.require_email(),
                 "from": f"{self.user.first_name} <{self.user.email}>",
                 "Message-Id": "<reply@team.com>",
                 "In-Reply-To": "<init@external.com>",
@@ -2785,7 +2785,7 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
-                "sender": self.user.email,
+                "sender": self.user.require_email(),
                 "from": f"{self.user.first_name} <{self.user.email}>",
                 "Message-Id": "<echo-reply@team.com>",
                 "In-Reply-To": "<echo-init@external.com>",
@@ -2858,7 +2858,7 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
-                "sender": self.user.email,
+                "sender": self.user.require_email(),
                 "from": f"Forged <{self.user.email}>",
                 "Message-Id": "<nospf-reply@external.com>",
                 "In-Reply-To": "<nospf-init@external.com>",

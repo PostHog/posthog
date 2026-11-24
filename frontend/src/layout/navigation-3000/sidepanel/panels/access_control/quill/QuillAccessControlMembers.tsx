@@ -120,7 +120,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
             onAdd={(keys, level) => updateAccessControlMembers(keys.map((member) => ({ member, level })))}
             options={addableMembers.map((member: OrganizationMemberType) => ({
                 key: member.id,
-                searchLabel: `${fullName(member.user)} ${member.user.email}`,
+                searchLabel: `${fullName(member.user)} ${member.user.email ?? ''}`.trim(),
                 name: fullName(member.user),
                 email: member.user.email,
             }))}

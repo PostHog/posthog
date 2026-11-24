@@ -159,8 +159,9 @@ def _upsert_participants(
 
     addresses = [email.sender, *email.to_recipients, *email.cc_recipients]
     addresses.append(EmailAddress(name=channel.from_name, email=channel.from_email.lower()))
-    if owner.email.lower() != channel.from_email.lower():
-        addresses.append(EmailAddress(name="", email=owner.email.lower()))
+    owner_email = owner.email.lower() if owner.email else None
+    if owner_email and owner_email != channel.from_email.lower():
+        addresses.append(EmailAddress(name="", email=owner_email))
 
     addresses_by_email: dict[str, EmailAddress] = {}
     capture_address = email.capture_address.lower()
@@ -181,7 +182,9 @@ def _upsert_participants(
         .filter(normalized_member_email__in=list(addresses_by_email))
         .values_list("normalized_member_email", flat=True)
     )
-    organization_member_emails.update({channel.from_email.lower(), owner.email.lower()})
+    organization_member_emails.add(channel.from_email.lower())
+    if owner_email:
+        organization_member_emails.add(owner_email)
 
     for address in addresses_by_email.values():
         kind = (

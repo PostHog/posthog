@@ -737,7 +737,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         MessagingRecord.objects.create(
             campaign_key=f"wizard_pr_ready_{task.id}",
-            email_hash=get_email_hashes(user.email)[0],
+            email_hash=get_email_hashes(user.require_email())[0],
             sent_at=timezone.now(),
         )
 

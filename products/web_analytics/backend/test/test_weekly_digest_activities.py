@@ -288,13 +288,13 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         super().tearDown()
 
     def test_sends_to_user_with_team_access(self):
-        _send_test_digest(email=self.user.email, team_id=self.team.id)
+        _send_test_digest(email=self.user.require_email(), team_id=self.team.id)
         self.mock_email_class.assert_called_once()
         self.mock_message.add_user_recipient.assert_called_once_with(self.user)
 
     def test_raises_when_team_not_found(self):
         with self.assertRaises(ValueError) as cm:
-            _send_test_digest(email=self.user.email, team_id=999_999)
+            _send_test_digest(email=self.user.require_email(), team_id=999_999)
         assert "Team 999999 not found" in str(cm.exception)
         self.mock_email_class.assert_not_called()
 
@@ -308,7 +308,7 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
         with self.assertRaises(PermissionError) as cm:
-            _send_test_digest(email=self.user.email, team_id=other_team.id)
+            _send_test_digest(email=self.user.require_email(), team_id=other_team.id)
         assert "is not a member of the organization that owns team" in str(cm.exception)
         self.mock_email_class.assert_not_called()
 
@@ -316,11 +316,11 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         self.user.is_active = False
         self.user.save()
         with self.assertRaises(ValueError):
-            _send_test_digest(email=self.user.email, team_id=self.team.id)
+            _send_test_digest(email=self.user.require_email(), team_id=self.team.id)
         self.mock_email_class.assert_not_called()
 
     def test_email_lookup_is_case_insensitive(self):
-        _send_test_digest(email=self.user.email.upper(), team_id=self.team.id)
+        _send_test_digest(email=self.user.require_email().upper(), team_id=self.team.id)
         self.mock_email_class.assert_called_once()
         self.mock_message.add_user_recipient.assert_called_once_with(self.user)
 
@@ -347,7 +347,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
             level=OrganizationMembership.Level.MEMBER,
         )
 
-        _send_test_digest(email=self.user.email)
+        _send_test_digest(email=self.user.require_email())
 
         assert self.mock_email_class.call_count == 2
         org_names = {
@@ -357,7 +357,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
 
     def test_includes_all_teams_in_an_org(self):
         Team.objects.create(organization=self.organization, name="Team B")
-        _send_test_digest(email=self.user.email)
+        _send_test_digest(email=self.user.require_email())
         self.mock_email_class.assert_called_once()
         sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
         assert len(sections) == 2
@@ -365,7 +365,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
     def test_raises_when_user_has_no_memberships(self):
         self.organization_membership.delete()
         with self.assertRaises(ValueError) as cm:
-            _send_test_digest(email=self.user.email)
+            _send_test_digest(email=self.user.require_email())
         assert "has no organization memberships" in str(cm.exception)
         self.mock_email_class.assert_not_called()
 

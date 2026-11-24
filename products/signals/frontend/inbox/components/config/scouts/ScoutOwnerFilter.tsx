@@ -36,7 +36,9 @@ export function ScoutOwnerFilter({
     const people = options
         .filter(
             (option) =>
-                !query || option.name.toLowerCase().includes(query) || option.email.toLowerCase().includes(query)
+                !query ||
+                option.name.toLowerCase().includes(query) ||
+                (option.email ?? '').toLowerCase().includes(query)
         )
         .map((option) => ({ uuid: option.uuid, name: nameOf(option), email: option.email, trailing: option.count }))
 

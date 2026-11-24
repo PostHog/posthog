@@ -914,7 +914,7 @@ class TestAdminConsoleViews(BaseTest):
         elif record == "organization":
             query, expected = str(self.organization.pk), f"/admin/console/organizations/{self.organization.pk}/"
         else:
-            query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
+            query, expected = self.user.require_email().upper(), f"/admin/console/users/{self.user.pk}/"
         params = {"q": query, **({"ticket": ticket} if ticket else {})}
         kept = f"?{urlencode({'ticket': ticket})}" if ticket else ""
 

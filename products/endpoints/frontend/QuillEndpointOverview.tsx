@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, Badge, Button, Text, Tooltip, TooltipContent, T
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { endpointLogic } from './endpointLogic'
@@ -65,7 +65,7 @@ export function QuillEndpointOverview(): JSX.Element {
 
     const isViewingOldVersion = viewingVersion && viewingVersion.version !== endpoint.current_version
     const versionUrl = isViewingOldVersion ? `${endpoint.endpoint_path}?version=${viewingVersion.version}` : null
-    const creator = endpoint.created_by ? fullName(endpoint.created_by) || endpoint.created_by.email : null
+    const creator = endpoint.created_by ? fullNameOrEmail(endpoint.created_by) || null : null
 
     return (
         <div className="flex flex-col gap-4" data-quill>

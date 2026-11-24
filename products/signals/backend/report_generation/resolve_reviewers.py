@@ -1022,7 +1022,7 @@ class ProjectMemberIdentity:
     """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
 
     user_uuid: str
-    email: str
+    email: str | None
     first_name: str
     last_name: str
     github_login: str | None

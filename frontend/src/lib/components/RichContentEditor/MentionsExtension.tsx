@@ -157,7 +157,11 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                         active={index === selectedIndex}
                         onClick={() => void execute(option)}
                     >
-                        <span className="ph-no-capture">{`${option.member.user.first_name} <${option.member.user.email}>`}</span>
+                        <span className="ph-no-capture">
+                            {option.member.user.email
+                                ? `${option.member.user.first_name} <${option.member.user.email}>`
+                                : option.member.user.first_name}
+                        </span>
                     </LemonButton>
                 ) : (
                     <LemonButton

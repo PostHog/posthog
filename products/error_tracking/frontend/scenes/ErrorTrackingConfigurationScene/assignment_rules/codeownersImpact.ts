@@ -18,7 +18,7 @@ function assigneeLabel(assignee: Assignee): string {
     if (!assignee) {
         return 'Assign…'
     }
-    return assignee.type === 'role' ? assignee.role.name : assignee.user.first_name || assignee.user.email
+    return assignee.type === 'role' ? assignee.role.name : assignee.user.first_name || assignee.user.email || ''
 }
 
 export function buildImpactRows(

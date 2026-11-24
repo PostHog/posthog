@@ -68,8 +68,9 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
         .filter(user_id=user_id, user__is_active=True)
         .first()
     )
-    if config is None or not task_digest_enabled(config):
+    if config is None or not config.user.email or not task_digest_enabled(config):
         return
+    recipient_email = config.user.email
     preferences = read_task_digest(config)
     scheduled_at = task_digest_scheduled_at(preferences, config.team.timezone, now)
     local_date = now.astimezone(ZoneInfo(config.team.timezone)).date()
@@ -87,7 +88,7 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
     with transaction.atomic():
         record = MessagingRecord.objects.filter(campaign_key=campaign_key).first()
         if record is None:
-            record, _ = MessagingRecord.objects.get_or_create(raw_email=config.user.email, campaign_key=campaign_key)
+            record, _ = MessagingRecord.objects.get_or_create(raw_email=recipient_email, campaign_key=campaign_key)
         record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
         if (record.campaign_count or 0) >= MAX_SEND_ATTEMPTS or MessagingRecord.objects.filter(
             campaign_key=campaign_key, sent_at__isnull=False
@@ -103,7 +104,7 @@ def deliver_task_digest(team_id: int, user_id: int, digest_date: str) -> None:
         message = build_customer_task_digest_email(digest=digest, user=config.user, campaign_key=campaign_key)
         try:
             message.send(send_async=False, retry=False)
-            raise_if_delivery_rejected(campaign_key, config.user.email)
+            raise_if_delivery_rejected(campaign_key, recipient_email)
         except EmailDeliveryError:
             pass
         except (ConnectionError, TimeoutError, OSError, WorkflowsEmailError):

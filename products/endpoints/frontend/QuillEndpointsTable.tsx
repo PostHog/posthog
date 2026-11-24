@@ -51,7 +51,7 @@ function creatorName(user: UserBasicType | null | undefined): string {
         return ''
     }
     const name = fullName(user)
-    return name && name !== 'Unknown User' ? name : user.email
+    return name && name !== 'Unknown User' ? name : (user.email ?? '')
 }
 
 function initials(name: string): string {

@@ -320,7 +320,7 @@ class SharePasswordSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_created_by_email(self, obj):
-        return obj.created_by.email if obj.created_by else "deleted user"
+        return str(obj.created_by) if obj.created_by else "deleted user"
 
     class Meta:
         model = SharePassword
@@ -757,7 +757,7 @@ class SharingConfigurationViewSet(
                 "password": raw_password,  # Only returned once on creation
                 "note": share_password.note,
                 "created_at": share_password.created_at,
-                "created_by_email": share_password.created_by.email if share_password.created_by else "deleted user",
+                "created_by_email": str(share_password.created_by) if share_password.created_by else "deleted user",
             },
             status=status.HTTP_201_CREATED,
         )

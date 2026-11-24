@@ -6,7 +6,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link, ProfilePi
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
@@ -113,7 +113,7 @@ export function AccountNotesExpansion({
                 if (!user) {
                     return <span className="text-muted italic">Unknown</span>
                 }
-                const name = fullName(user) || user.email
+                const name = fullNameOrEmail(user)
                 return (
                     <div className="flex items-center gap-2">
                         <ProfilePicture

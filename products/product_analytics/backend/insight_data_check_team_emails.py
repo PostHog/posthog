@@ -40,7 +40,7 @@ def _visible_member_emails(team: Team, user: User) -> list[str]:
     visible_membership_ids = restricted_visible_membership_ids(team.organization, user)
     if visible_membership_ids is not None:
         memberships = memberships.filter(id__in=visible_membership_ids)
-    return list(memberships.values_list("user__email", flat=True))
+    return [email for email in memberships.values_list("user__email", flat=True) if email]
 
 
 def _verified_domains(team: Team) -> list[str]:

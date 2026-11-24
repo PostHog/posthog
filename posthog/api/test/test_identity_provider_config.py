@@ -524,7 +524,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             identity_provider_config=config,
             organization_domain=domain,
             identity_provider="okta",
-            username=self.user.email,
+            username=self.user.require_email(),
             active=True,
         )
 
@@ -546,7 +546,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             identity_provider_config=config,
             organization_domain=domain,
             identity_provider="okta",
-            username=self.user.email,
+            username=self.user.require_email(),
             active=True,
         )
 

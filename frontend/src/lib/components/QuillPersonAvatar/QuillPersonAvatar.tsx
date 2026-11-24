@@ -5,7 +5,7 @@ import { gravatarUrl } from 'lib/utils/gravatar'
 
 interface QuillPersonAvatarProps {
     name: string
-    email?: string
+    email?: string | null
     size?: 'xs' | 'sm' | 'default'
     /** PostHog itself, or staff acting as the user, rather than a person. */
     system?: boolean

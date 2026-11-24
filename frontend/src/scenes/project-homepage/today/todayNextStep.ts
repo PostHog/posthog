@@ -1,6 +1,6 @@
 import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
 
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { buildReportImplementationPrompt } from 'products/signals/frontend/inbox/components/detail/buildReportImplementationPrompt'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
@@ -46,7 +46,7 @@ function pickedUpOn(date: string | null | undefined): string {
 }
 
 function claimant(assignee: NonNullable<SignalReport['assignee']>): string {
-    const name = assignee.user ? fullName(assignee.user) || assignee.user.email : null
+    const name = assignee.user ? fullNameOrEmail(assignee.user) || null : null
     return name ?? assignee.agent ?? 'An agent'
 }
 

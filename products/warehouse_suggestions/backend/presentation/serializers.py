@@ -49,7 +49,7 @@ class WarehouseSuggestionReviewerSerializer(DataclassSerializer):
         extra_kwargs = {
             "id": {"help_text": "User id."},
             "first_name": {"help_text": "User first name."},
-            "email": {"help_text": "User email."},
+            "email": {"help_text": "User email. Null for a service account without a contact email."},
         }
 
 

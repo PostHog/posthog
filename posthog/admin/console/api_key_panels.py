@@ -255,7 +255,7 @@ class OrganizationPersonalApiKeys:
                     cells=(
                         Cell(text=key.label or "No label"),
                         Cell(text=key.mask_value or "", mono=True),
-                        Cell(text=key.user.email, href=user_record.url(key.user)),
+                        Cell(text=str(key.user), href=user_record.url(key.user)),
                         Cell(text="Other organizations too" if key.pk in reaching else "This organization only"),
                         Cell(
                             text=key.last_used_at.strftime("%b %-d, %Y") if key.last_used_at else "Never",
@@ -375,7 +375,7 @@ def roll_organization_personal_api_keys(
         except OperationalError as error:
             # The key already has its new value, so a broker outage must not stop the roll of the other keys.
             capture_exception(error)
-            not_notified.add(key.user.email)
+            not_notified.add(str(key.user))
     if keys and not not_notified:
         messages.success(request, f"Rolled {pluralize(len(keys), 'personal API key')} and notified the owners.")
     elif keys:

@@ -252,7 +252,11 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
         ownerNameByEmail: [
             (s) => [s.meFirstMembers],
             (meFirstMembers: OrganizationMemberType[]): Record<string, string> =>
-                Object.fromEntries(meFirstMembers.map((member) => [member.user.email, fullNameOrEmail(member.user)])),
+                Object.fromEntries(
+                    meFirstMembers.flatMap((member) =>
+                        member.user.email ? [[member.user.email, fullNameOrEmail(member.user)]] : []
+                    )
+                ),
         ],
         checkGroupByMetricId: [
             (s) => [s.checks, s.healthBySubjectKey],

@@ -264,7 +264,7 @@ class IntentClusterSnapshot:
     status: str
     error_message: str
     last_computed_at: datetime | None
-    last_computed_by_email: str
+    last_computed_by_email: str | None
     clusters: list[IntentCluster] = field(default_factory=list)
     computed_with: IntentClusterSnapshotMeta | None = None
     tools: list[ToolPivot] = field(default_factory=list)

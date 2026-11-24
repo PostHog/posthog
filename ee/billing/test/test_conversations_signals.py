@@ -484,7 +484,7 @@ class TestConversationsSlackSignalsDatabase(BaseTest):
             widget_session_id=f"session-{uuid.uuid4()}",
             distinct_id="",
             channel_source=Channel.EMAIL,
-            email_from=self.user.email.upper(),
+            email_from=self.user.require_email().upper(),
             organization_id=self.org_id,
             last_message_at=dt.datetime(2026, 6, 30, 10, 0, tzinfo=dt.UTC),
             identity_verified=True,

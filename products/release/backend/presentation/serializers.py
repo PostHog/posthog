@@ -35,7 +35,9 @@ class CatalogUserSerializer(serializers.Serializer):
     uuid = serializers.UUIDField(help_text="UUID of the user.")
     first_name = serializers.CharField(help_text="First name of the user.")
     last_name = serializers.CharField(help_text="Last name of the user.")
-    email = serializers.EmailField(help_text="Email address of the user.")
+    email = serializers.EmailField(
+        allow_null=True, help_text="Email address of the user. Null for a service account without a contact email."
+    )
 
 
 def _user_ids(value: str) -> list[int]:

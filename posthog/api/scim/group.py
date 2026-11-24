@@ -53,7 +53,7 @@ class PostHogSCIMGroup(SCIMGroup):
             {
                 "value": str(rm.user.id),
                 "$ref": f"/scim/v2/{self._config.scim_slug}/Users/{rm.user.id}",
-                "display": rm.user.email,
+                "display": str(rm.user),
             }
             for rm in role_memberships
         ]

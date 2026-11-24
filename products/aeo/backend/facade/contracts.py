@@ -401,7 +401,7 @@ class PromptUpdate:
 
 @frozen
 class PromptAuthor:
-    email: str
+    email: str | None
     name: str
 
 

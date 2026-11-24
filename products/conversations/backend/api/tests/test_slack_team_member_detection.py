@@ -83,7 +83,7 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
         mock_resolve,
         mock_client,
     ):
-        user_info = _team_member_user_info(self.user.email) if is_team else _customer_user_info()
+        user_info = _team_member_user_info(self.user.require_email()) if is_team else _customer_user_info()
         mock_resolve.return_value = user_info
         mock_client.return_value = MagicMock()
 
@@ -124,7 +124,9 @@ class TestCreateOrUpdateSlackTicketTeamMemberDetection(BaseTest):
         mock_resolve,
         mock_client,
     ):
-        mock_resolve.return_value = _team_member_user_info(self.user.email) if is_team else _customer_user_info()
+        mock_resolve.return_value = (
+            _team_member_user_info(self.user.require_email()) if is_team else _customer_user_info()
+        )
         mock_client.return_value = MagicMock()
 
         ticket = Ticket.objects.create_with_number(
@@ -207,7 +209,7 @@ class TestBackfillTeamMemberDetection(BaseTest):
     ):
         def resolve_side_effect(client, slack_user_id, *, workspace=""):
             if slack_user_id == "U_TEAM":
-                return _team_member_user_info(self.user.email)
+                return _team_member_user_info(self.user.require_email())
             return _customer_user_info()
 
         mock_resolve.side_effect = resolve_side_effect

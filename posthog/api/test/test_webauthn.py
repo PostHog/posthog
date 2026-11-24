@@ -30,7 +30,7 @@ from posthog.session.models import Session
 
 
 def _enforce_sso(user: User, organization: Organization) -> None:
-    email_domain = user.email.split("@", 1)[1]
+    email_domain = user.require_email().split("@", 1)[1]
     organization.available_product_features = [
         {"key": "sso_enforcement", "name": "sso_enforcement"},
         {"key": "saml", "name": "saml"},
@@ -550,7 +550,7 @@ class TestWebAuthnLogin(APIBaseTest):
         non_sso_user = User.objects.create_and_join(other_org, "nosso@other.com", "password123")
 
         # Enforce SSO for the credential owner's domain
-        email_domain = self.user.email.split("@", 1)[1]
+        email_domain = self.user.require_email().split("@", 1)[1]
         self.organization.available_product_features = [
             {"key": "sso_enforcement", "name": "sso_enforcement"},
             {"key": "saml", "name": "saml"},

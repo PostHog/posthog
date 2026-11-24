@@ -189,7 +189,7 @@ def log_login_activity(
         scope="User",
         activity="logged_in",
         detail=Detail(
-            name=user.email,
+            name=str(user),
             changes=[],
             context=UserLoginContext(
                 login_method=login_method,
@@ -246,7 +246,7 @@ def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # n
             scope="User",
             activity="logged_out",
             detail=Detail(
-                name=user.email,
+                name=str(user),
                 changes=[],
                 context=UserLogoutContext(
                     ip_address=ip_address,
@@ -294,7 +294,7 @@ def log_user_change_activity(
             return
 
         changes = changes_between(scope, previous=before_update, current=after_update)
-        user_name = f"{target_user.first_name} {target_user.last_name}".strip() or target_user.email
+        user_name = f"{target_user.first_name} {target_user.last_name}".strip() or str(target_user)
 
         log_entries: list[LogActivityEntry] = []
         for membership in memberships:
@@ -862,7 +862,10 @@ def handle_organization_invite_change(
 
     if activity == "created":
         if inviter_user:
-            detail_name = f"User {inviter_name} ({inviter_user.email}) invited user {invite.target_email} into organization {invite.organization.name}"
+            inviter_label = f"{inviter_name} ({inviter_user.email})" if inviter_user.email else inviter_name
+            detail_name = (
+                f"User {inviter_label} invited user {invite.target_email} into organization {invite.organization.name}"
+            )
         else:
             detail_name = f"User {invite.target_email} was invited to organization {invite.organization.name}"
     elif activity == "deleted":

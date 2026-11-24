@@ -445,14 +445,14 @@ class SignupSerializer(serializers.Serializer):
         start_signup_enrichment_workflow(
             organization_id=str(self._organization.id),
             distinct_id=user.distinct_id,
-            email=user.email,
+            email=user.require_email(),
             role_at_organization=role_at_organization,
             # Trusted-proxy-validated: a spoofed X-Forwarded-For must not pick the scored country.
             ip_address=get_trusted_client_ip(request),
         )
 
         if not (self.is_social_signup and self.context["social_backend"] in IDP_SSO_BACKENDS):
-            inbox_lookup = InboxProviderLookup.start(user.email)
+            inbox_lookup = InboxProviderLookup.start(user.require_email())
             if verify_email_or_login(request, user):
                 self._inbox_provider = inbox_lookup.result()
 
@@ -1398,9 +1398,13 @@ def social_create_user(
             clear_unverified_local_credentials(user)
 
         if invite_id:
-            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)
+            process_social_invite_signup(
+                strategy, invite_id, user.require_email(), user.first_name, user, backend=backend
+            )
         else:
-            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
+            process_social_domain_jit_provisioning_signup(
+                strategy, user.require_email(), user.first_name, user, backend=backend
+            )
 
         return {"is_new": False, "user": user}
 

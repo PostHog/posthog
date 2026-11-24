@@ -166,7 +166,7 @@ class UserRecord(RecordType):
 
     def title(self, obj: Model) -> str:
         assert isinstance(obj, User)
-        return obj.email
+        return str(obj)
 
     def subtitle(self, obj: Model) -> str:
         assert isinstance(obj, User)

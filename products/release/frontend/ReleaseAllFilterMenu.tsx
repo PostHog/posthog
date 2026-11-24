@@ -14,7 +14,7 @@ import {
 } from '@posthog/quill'
 
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
@@ -74,10 +74,10 @@ export function ReleaseAllFilterMenu(): JSX.Element {
                     pluralNoun="people"
                     options={meFirstMembers.map((member) => ({
                         value: String(member.user.id),
-                        label: fullName(member.user) || member.user.email,
+                        label: fullNameOrEmail(member.user),
                         icon: (
                             <QuillPersonAvatar
-                                name={member.user.first_name || member.user.email}
+                                name={member.user.first_name || member.user.email || ''}
                                 email={member.user.email}
                                 size="xs"
                             />

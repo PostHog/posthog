@@ -52,7 +52,10 @@ export function AccountRelationshipEditor({
                 options={availableMembers.map((member) => ({
                     key: String(member.id),
                     value: member.id,
-                    label: member.name ? `${member.name} (${member.email})` : member.email,
+                    label:
+                        member.name && member.email
+                            ? `${member.name} (${member.email})`
+                            : member.name || member.email || '',
                 }))}
                 placeholder="Select a team member"
                 size="small"

@@ -421,7 +421,7 @@ export function artefactLocationLabel(artefact: SignalReportArtefact): string | 
 /** The human responsible for an activity, when there is one. */
 export function artefactAttributionLabel(artefact: SignalReportArtefact): string | null {
     if (artefact.created_by) {
-        return artefact.created_by.first_name?.trim() || artefact.created_by.email
+        return artefact.created_by.first_name?.trim() || artefact.created_by.email || null
     }
     return null
 }

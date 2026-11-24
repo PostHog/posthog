@@ -357,7 +357,7 @@ def display_names(user_ids: set[int]) -> dict[int, str]:
     if not user_ids:
         return {}
     return {
-        user.id: user.first_name or user.email
+        user.id: user.first_name or user.email or "A team member"
         for user in User.objects.filter(id__in=user_ids).only("id", "first_name", "email")
     }
 
