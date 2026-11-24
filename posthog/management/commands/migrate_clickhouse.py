@@ -122,7 +122,10 @@ class Command(BaseCommand):
                 )
             print("Migrations done")
         else:
-            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=True)
+            pending = [name for name, _ in self.get_migrations(database, options["upto"])]
+            if pending:
+                # infi checks `up_to` only after applying a migration, so it gets the last one to apply.
+                database.migrate(MIGRATIONS_PACKAGE_NAME, int(pending[-1][:4]), replicated=True)
             print("✅ Migration successful")
 
     def get_migrations(self, database, upto):
@@ -131,14 +134,14 @@ class Command(BaseCommand):
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
-            yield migration_name, modules[migration_name].operations
-
-            if int(migration_name[:4]) >= upto:
+            if int(migration_name[:4]) > upto:
                 break
+            yield migration_name, modules[migration_name].operations
 
     @cached(cache={})
     def get_applied_migrations(self, database) -> set[str]:
-        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
+        # The apply path reads this before infi's migrate runs, so on a fresh database the tracking tables don't exist yet.
+        return database._get_applied_migrations_and_create_tables(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str, creds: ClickHouseCredentials) -> None:
         # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed
