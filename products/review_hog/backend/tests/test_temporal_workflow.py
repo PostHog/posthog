@@ -78,7 +78,6 @@ from products.review_hog.backend.temporal.resolution import (
     ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
-    HUMAN_REVIEW_VERDICT,
     FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
@@ -135,14 +134,12 @@ def _stage_kwargs() -> dict:
 async def _run_full_review_pr_workflow(
     *,
     publish: bool,
-    fetched_head_sha: str = "sha1",
     already_published: bool = False,
     acting_user_id: int | None = 3,
     owner_user_id: int | None = 3,
     review_inbox_prs: bool = False,
     input_acting_user_id: int | None = None,
     trigger_source: str = "manual",
-    trigger_action: str | None = None,
     signal_report_id: str | None = None,
     input_pr_number: int | None = 7,
     input_head_branch: str | None = None,
@@ -242,8 +239,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("fetch", input.review_mode)
         return ReviewMeta(
             report_id="rep-1",
-            head_sha=fetched_head_sha,
-            skip_verdict_review=input.refused_head_sha is not None and input.refused_head_sha != fetched_head_sha,
+            head_sha="sha1",
             branch="feat",
             repository="o/r",
             run_index=run_index,
@@ -580,7 +576,6 @@ async def _run_full_review_pr_workflow(
                         publish=publish,
                         acting_user_id=input_acting_user_id,
                         trigger_source=trigger_source,
-                        trigger_action=trigger_action,
                         signal_report_id=signal_report_id,
                         head_branch=input_head_branch,
                         resolve_comments=input_resolve_comments,
@@ -648,25 +643,6 @@ async def _run_full_review_pr_workflow(
         "finished_turns": finished_turns,
         "silent_stamphog": silent_stamphog_calls,
     }
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("fetched_head_sha, reviews", [("sha1", True), ("newer", False)])
-async def test_a_human_verdict_reviews_only_the_refused_head_with_push_reviews_off(
-    fetched_head_sha: str, reviews: bool
-) -> None:
-    recorded = await _run_full_review_pr_workflow(
-        publish=True,
-        fetched_head_sha=fetched_head_sha,
-        trigger_source="automatic",
-        trigger_action=HUMAN_REVIEW_VERDICT,
-        review_mode="full",
-        review_authored_prs=True,
-        automatic_reviewed_head_sha="sha1",
-        gate_skips=True,
-    )
-    assert not recorded["gate"]
-    assert bool(recorded["review"]) is reviews
 
 
 @pytest.mark.asyncio
@@ -793,6 +769,7 @@ _FINISHED_TURN = FinishedStandardAutomaticTurn(
     lens_chunks_capped=True,
     delta_review=False,
     marks_ready=False,
+    user_id=2,
 )
 _SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 

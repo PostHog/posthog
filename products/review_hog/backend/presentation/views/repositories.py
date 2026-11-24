@@ -173,7 +173,9 @@ class ReviewRepositorySerializer(serializers.Serializer):
     )
     deep_review_gated_prs = serializers.BooleanField(
         read_only=True,
-        help_text="Whether auto-approval requiring a human review triggers one automatic Deep review per ready pull request.",
+        help_text="Whether a pull request gets one Deep automatic review: instead of the Standard review when "
+        "auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds "
+        "a must-fix issue.",
     )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
@@ -216,9 +218,11 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
     )
     deep_review_gated_prs = serializers.BooleanField(
         required=False,
-        help_text="True runs one automatic Deep review per eligible, ready pull request when an auto-approval rule "
-        "requires a person or when auto-approval publishes a verdict requiring human review. "
-        "False keeps automatic reviews Standard. Omit to keep the current value.",
+        help_text="True gives a pull request one Deep automatic review: instead of the Standard review when "
+        "auto-approval's size, restricted-path or tier rules send it to a person, or after a Standard review that finds "
+        "a must-fix issue. The first case works only when the repository is also added to auto-approval. Drafts keep "
+        "the Standard review. False keeps every automatic "
+        "review Standard. Omit it to keep the current value.",
     )
 
     review_pushes = serializers.BooleanField(

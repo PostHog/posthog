@@ -83,7 +83,7 @@ def connect() -> None:
 
 def queue_stamphog_handoff(finished: FinishedReviewRun) -> None:
     """Queue the review Stamphog asks for, off Stamphog's activity."""
-    if not (finished.request_external_review or finished.published_human_verdict):
+    if not finished.request_external_review:
         return
     from products.review_hog.backend.tasks import process_stamphog_handoff  # noqa: PLC0415
 
@@ -93,8 +93,6 @@ def queue_stamphog_handoff(finished: FinishedReviewRun) -> None:
         head_sha=finished.head_sha,
         author_login=finished.author_login,
         head_branch=finished.head_branch,
-        verdict_team_id=finished.team_id if finished.published_human_verdict else None,
-        inbox_handoff=finished.request_external_review,
     )
 
 

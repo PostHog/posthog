@@ -14,7 +14,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
-    HUMAN_REVIEW_VERDICT,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     SilentStamphogRequest,
@@ -200,55 +199,6 @@ async def test_the_queue_asks_stamphog_about_a_ready_head_once_its_turn_ends(
 
 
 @pytest.mark.asyncio
-async def test_automatic_deep_retries_after_its_marker_and_skips_a_separate_request() -> None:
-    attempts: list[str | None] = []
-    request = ReviewPRWorkflowInputs(
-        team_id=1,
-        user_id=1,
-        owner="o",
-        repo="r",
-        pr_number=7,
-        review_mode="full",
-        trigger_source="automatic",
-        trigger_action=HUMAN_REVIEW_VERDICT,
-        requested_head_sha="a",
-    )
-
-    @activity.defn(name="prior_deep_review_activity")
-    async def prior_review(inputs: ReviewPRWorkflowInputs) -> str | None:
-        return "report" if attempts else None
-
-    @activity.defn(name="review_resolution_running_activity")
-    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
-        return False
-
-    @activity.defn(name="record_scheduled_review")
-    async def publish(inputs: ReviewPRWorkflowInputs) -> str:
-        attempts.append(inputs.requested_head_sha)
-        if len(attempts) == 1:
-            raise ApplicationError("Publication failed after the Deep turn started")
-        return "report"
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        queue = str(uuid.uuid4())
-        async with Worker(
-            env.client,
-            task_queue=queue,
-            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
-            activities=[prior_review, resolution_running, publish],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                ReviewPRQueueWorkflow.run,
-                ReviewPRQueueInputs(requests=[request, replace(request, requested_head_sha="b")]),
-                id=queue,
-                task_queue=queue,
-            )
-    assert result == "report"
-    assert attempts == ["a", "a"]
-
-
-@pytest.mark.asyncio
 async def test_automatic_review_waits_for_resolution_before_starting() -> None:
     probes = 0
     reviewed = False
@@ -331,22 +281,3 @@ def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
     queue.add(same_head_push)
 
     assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}
-
-
-def test_repeated_human_verdict_survives_a_push_while_standard_finishes() -> None:
-    standard = ReviewPRWorkflowInputs(
-        team_id=1, user_id=1, pr_number=7, review_mode="flash", trigger_source="automatic", requested_head_sha="a"
-    )
-    verdict = replace(standard, review_mode="full", trigger_action=HUMAN_REVIEW_VERDICT)
-    push = replace(standard, requested_head_sha="b", trigger_action="synchronize")
-    queue = ReviewRequestQueue(active=standard)
-    queue.add(verdict)
-    queue.add(push)
-    older_verdict = replace(verdict, requested_head_sha="older")
-    queue.add(older_verdict)
-    queue.add(verdict)
-
-    assert queue.take() == verdict
-    assert queue.take() == older_verdict
-    assert queue.take() == push
-    assert not queue.pending

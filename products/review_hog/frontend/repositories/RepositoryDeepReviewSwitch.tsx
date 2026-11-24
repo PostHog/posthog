@@ -7,6 +7,7 @@ import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/front
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
+/** Whether a risky pull request gets one Deep automatic review. */
 export function RepositoryDeepReviewSwitch({ entry }: { entry: ReviewRepositoryOverviewEntryApi }): JSX.Element | null {
     const { canEdit } = useValues(reviewHogProjectSettingsLogic)
     const { busyRepositories } = useValues(reviewHogRepositoriesLogic)
@@ -26,12 +27,12 @@ export function RepositoryDeepReviewSwitch({ entry }: { entry: ReviewRepositoryO
 
     return (
         <span className="flex items-center gap-1.5">
-            <span className="text-xs text-secondary">Deep review when human review is required</span>
+            <span className="text-xs whitespace-nowrap text-secondary">Deep review for risky PRs</span>
             <LemonSwitch
-                aria-label={`Deep review when human review is required in ${entry.full_name}`}
+                aria-label={`Deep review for risky pull requests in ${entry.full_name}`}
                 checked={entry.deep_review_gated_prs}
                 onChange={(checked) => setRepositoryDeepReviews(entry, checked)}
-                tooltip="Run Deep once per ready pull request when an auto-approval rule requires a person or Stamphog asks for human review after Standard."
+                tooltip="A pull request gets one Deep automatic review. It replaces the Standard review when the pull request breaks this repository's auto-approval rules for size, restricted paths or tier. It follows the Standard review when that review finds a must-fix issue."
                 disabledReason={disabledReason}
                 data-attr="review-hog-repository-deep-review"
             />

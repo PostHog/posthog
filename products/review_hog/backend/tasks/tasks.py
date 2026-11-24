@@ -62,8 +62,6 @@ def process_stamphog_handoff(
     head_sha: str,
     author_login: str,
     head_branch: str,
-    verdict_team_id: int | None = None,
-    inbox_handoff: bool = True,
 ) -> None:
     StamphogHandoff(
         repository=repository,
@@ -71,7 +69,7 @@ def process_stamphog_handoff(
         head_sha=head_sha,
         author_login=author_login,
         head_branch=head_branch,
-    ).start(verdict_team_id=verdict_team_id, inbox_handoff=inbox_handoff)
+    ).start()
 
 
 @shared_task(
