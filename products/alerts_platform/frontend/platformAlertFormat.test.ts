@@ -6,6 +6,8 @@ import {
 } from './generated/api.schemas'
 import {
     PlatformAlertConfigurationStatus,
+    PlatformAlertStateCount,
+    configurationStateCounts,
     configurationStatus,
     describeCondition,
     describeOverflow,
@@ -89,6 +91,33 @@ describe('platformAlertFormat', () => {
         ],
     ])('configurationStatus: %s', (_, overrides, expected) => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([
+        ['no groups yet', {}, [{ status: 'not_checked', count: 0 }]],
+        [
+            'disabled hides group states',
+            { enabled: false, alerts: [makeAlert(PlatformAlertStateApi.Firing)] },
+            [{ status: 'disabled', count: 1 }],
+        ],
+        [
+            'groups in the same state add up, most urgent state first',
+            {
+                alerts: [
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Firing),
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Errored),
+                ],
+            },
+            [
+                { status: 'errored', count: 1 },
+                { status: 'firing', count: 1 },
+                { status: 'not_firing', count: 2 },
+            ],
+        ],
+    ])('configurationStateCounts: %s', (_, overrides, expected) => {
+        expect(configurationStateCounts(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, string]>([
