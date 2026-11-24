@@ -650,7 +650,6 @@ ISSUE_SUMMARY_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
 
 def _call_model(team_id: int, issue_id: UUID | str, prompt: str) -> str:
     client: OpenAI = build_openai_client(
-        "django",
         ai_product=ISSUE_SUMMARY_AI_PRODUCT,
         properties={"team_id": str(team_id), "issue_id": str(issue_id)},
         distinct_id=team_distinct_id(team_id),

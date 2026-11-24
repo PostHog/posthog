@@ -54,7 +54,6 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
         result = await _call()
 
     assert result is parsed
-    assert mock_get.call_args.kwargs["product"] == "review_hog"
     assert mock_get.call_args.kwargs["ai_product"] == "review_hog"
     assert mock_get.call_args.kwargs["team_id"] == 1
     kwargs = client.messages.stream.call_args.kwargs

@@ -320,7 +320,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
         stack.enter_context(patch("posthog.slack.channels.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
-                "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+                "products.stamphog.backend.logic.digest.build_anthropic_client",
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )

@@ -249,7 +249,6 @@ def _require_ai_gateway_config() -> AIGatewayConfig:
 
 
 def build_openai_client(
-    product: Product,
     ai_product: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
@@ -260,8 +259,8 @@ def build_openai_client(
     """Return a raw OpenAI client routed through the internal Go ai-gateway.
 
     Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. The slugless
-    Go gateway derives the team from its ``phs_`` bearer and ignores ``product``. ``ai_product`` tags
-    the captured generation through both the typed product header and the legacy property.
+    Go gateway derives the team from its ``phs_`` bearer. ``ai_product`` tags the captured generation
+    through both the typed product header and the legacy property.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = _require_ai_gateway_config()
@@ -281,7 +280,6 @@ def build_openai_client(
 
 
 def build_async_openai_client(
-    product: Product,
     ai_product: str | None = None,
     trace_id: str | None = None,
     session_id: str | None = None,
@@ -337,7 +335,6 @@ def build_ai_gateway_openai_client(
 
 
 def build_async_anthropic_client(
-    product: Product,
     ai_product: str | None = None,
     ai_stage: str | None = None,
     team_id: int | None = None,
@@ -405,7 +402,7 @@ def _ai_gateway_anthropic_client(
     )
 
 
-def build_ai_gateway_anthropic_client(
+def build_anthropic_client(
     ai_product: str | None = None,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
@@ -413,31 +410,14 @@ def build_ai_gateway_anthropic_client(
     team_id: int | None = None,
     privacy_mode: bool = False,
 ) -> Anthropic:
-    """:func:`build_anthropic_client` without a ``product`` route, plus ``privacy_mode``.
+    """Build a native Anthropic client for synchronous Django worker code.
 
     Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
-    the request and response out of the generation the gateway captures.
+    the request and response out of the generation the gateway captures. The Anthropic SDK appends
+    ``/v1/messages``, so the client removes the OpenAI ``/v1`` suffix.
     """
     gateway = _require_ai_gateway_config()
     return _ai_gateway_anthropic_client(gateway, ai_product, trace_id, properties, distinct_id, team_id, privacy_mode)
-
-
-def build_anthropic_client(
-    product: Product,
-    ai_product: str | None = None,
-    trace_id: str | None = None,
-    properties: Mapping[str, str] | None = None,
-    distinct_id: str | None = None,
-    team_id: int | None = None,
-) -> Anthropic:
-    """Build a native Anthropic client for synchronous Django worker code.
-
-    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. The Anthropic
-    SDK appends ``/v1/messages``, so the client removes the OpenAI ``/v1`` suffix.
-    """
-    return build_ai_gateway_anthropic_client(
-        ai_product=ai_product, trace_id=trace_id, properties=properties, distinct_id=distinct_id, team_id=team_id
-    )
 
 
 class AIGatewayHostError(RuntimeError):

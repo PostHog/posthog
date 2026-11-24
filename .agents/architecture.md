@@ -67,7 +67,7 @@ Each rule is tagged with what catches a violation.
   Read that repo when the change is the gateway itself.
   This monorepo only calls the gateway.
 - **A monorepo caller builds its client with a helper in `posthog/llm/gateway_client.py`.** `[review]`
-  Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, `build_ai_gateway_openai_client`, or `build_ai_gateway_anthropic_client`.
+  Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, or `build_ai_gateway_openai_client`.
   Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
   Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
 - **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
