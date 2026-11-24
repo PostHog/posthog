@@ -459,8 +459,11 @@ export const LaunchReview: Story = {
             ['Entry event', launchEvents[0]],
             ['Adoption event', launchEvents[1]],
         ]) {
-            await userEvent.click(body.getByRole('button', { name: field }))
-            await userEvent.click(await body.findByText(value, { exact: true }))
+            await userEvent.click(dialog.getByRole('button', { name: field }))
+            const option = await body.findByRole('option', { name: (name) => name.includes(value) })
+            await userEvent.click(option)
+            await waitFor(() => expect(option).not.toBeInTheDocument())
+            expect(dialog.getByRole('button', { name: field })).toHaveTextContent(value)
         }
         expect(saved.app_draft).toBeNull()
         failNextDraftSave = true
