@@ -508,9 +508,6 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
                 ),
                 GroupOutcome(grouping_key="web", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False),
-                GroupOutcome(
-                    grouping_key="gone", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False, seen=False
-                ),
             )
         )
         due = self._next_due()
@@ -530,11 +527,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "web": ("not_firing", due + timedelta(hours=2)),
             "new": ("not_firing", muted_until),
         }
-        assert (
-            check.instance("api").firing_started_at,
-            check.instance("web").last_seen_at,
-            check.instance("gone").last_seen_at,
-        ) == (self.cutoff, self.cutoff, None)
+        assert (check.instance("api").firing_started_at, check.instance("web").last_seen_at) == (
+            self.cutoff,
+            self.cutoff,
+        )
 
     @parameterized.expand([("group_snooze", True), ("alert_snooze", False)])
     def test_a_snooze_set_while_a_check_runs_holds_what_the_check_announces(

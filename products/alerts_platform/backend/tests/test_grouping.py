@@ -112,15 +112,15 @@ def _decided(
 @pytest.mark.parametrize(
     "on_missing_data, instances, expected",
     [
-        (OnMissingData.RESOLVE, (_FIRING,), {"": (AlertEventKind.RESOLVED, "not_firing", True)}),
+        (OnMissingData.RESOLVE, (_FIRING,), {"": (AlertEventKind.RESOLVED, "not_firing")}),
         (OnMissingData.KEEP_LAST_STATE, (_FIRING,), {}),
-        (OnMissingData.BREACHING, (_FIRING,), {"": (AlertEventKind.CHECK, "firing", False)}),
-        (OnMissingData.BREACHING, (), {"": (AlertEventKind.FIRING, "firing", False)}),
+        (OnMissingData.BREACHING, (_FIRING,), {"": (AlertEventKind.CHECK, "firing")}),
+        (OnMissingData.BREACHING, (), {"": (AlertEventKind.FIRING, "firing")}),
         (OnMissingData.RESOLVE, (), {}),
-        (OnMissingData.NO_DATA, (_FIRING,), {"": (AlertEventKind.CHECK, "no_data", True)}),
-        (OnMissingData.NOTIFY_NO_DATA, (_FIRING,), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
-        (OnMissingData.NOTIFY_NO_DATA, (_RESTING,), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
-        (OnMissingData.NOTIFY_NO_DATA, (), {"": (AlertEventKind.NO_DATA, "no_data", True)}),
+        (OnMissingData.NO_DATA, (_FIRING,), {"": (AlertEventKind.CHECK, "no_data")}),
+        (OnMissingData.NOTIFY_NO_DATA, (_FIRING,), {"": (AlertEventKind.NO_DATA, "no_data")}),
+        (OnMissingData.NOTIFY_NO_DATA, (_RESTING,), {"": (AlertEventKind.NO_DATA, "no_data")}),
+        (OnMissingData.NOTIFY_NO_DATA, (), {"": (AlertEventKind.NO_DATA, "no_data")}),
         (OnMissingData.RESOLVE, (_RESTING,), {}),
     ],
     ids=[
@@ -139,11 +139,11 @@ def _decided(
 def test_a_group_the_source_is_sure_is_missing_is_judged_by_the_alerts_choice(
     on_missing_data: OnMissingData,
     instances: tuple[InstanceCheckState, ...],
-    expected: dict[str, tuple[AlertEventKind, str, bool]],
+    expected: dict[str, tuple[AlertEventKind, str]],
 ) -> None:
     decided = _decided(_check(on_missing_data, instances=instances))
 
-    assert {key: (group.kind, group.new_state, group.seen) for key, group in decided.items()} == expected
+    assert {key: (group.kind, group.new_state) for key, group in decided.items()} == expected
 
 
 @pytest.mark.parametrize("on_missing_data", list(OnMissingData))
@@ -151,16 +151,51 @@ def test_a_group_the_source_cannot_judge_yet_holds_whatever_the_alerts_choice(on
     assert _decided(_check(on_missing_data, instances=(_FIRING,)), absent=lambda key: None) == {}
 
 
-@pytest.mark.parametrize(
-    "last_seen_minutes_ago, fires",
-    [(None, True), (1, False), (2, False), (3, True), (10, True)],
-    ids=["never_seen", "first_missing_check", "second_missing_check", "third_missing_check", "long_gone"],
-)
-def test_breaching_counts_the_earlier_missing_checks_toward_n_of_m(
-    last_seen_minutes_ago: int | None, fires: bool
-) -> None:
-    last_seen_at = None if last_seen_minutes_ago is None else _NOW - timedelta(minutes=last_seen_minutes_ago)
-    resting = InstanceCheckState(grouping_key="", state=PlatformAlertState.NOT_FIRING.value, last_seen_at=last_seen_at)
-    check = _check(OnMissingData.BREACHING, instances=(resting,), evaluation_periods=5, datapoints_to_alarm=3)
+_HEALTHY = (False, False, False, False)
 
-    assert _decided(check)[""].new_state == ("firing" if fires else "not_firing")
+
+@pytest.mark.parametrize(
+    "current, prior_missing, fires",
+    [
+        (None, (True, True, True, True), True),
+        (None, (True, False, False, False), False),
+        (None, (True, True, False, False), True),
+        (None, _HEALTHY, False),
+        (True, (True, True, True, True), True),
+        (False, (True, True, False, False), False),
+    ],
+    ids=[
+        "missing_for_the_whole_window",
+        "first_missing_check",
+        "third_missing_check",
+        "healthy_history",
+        "back_and_breaching",
+        "back_and_clear_after_two_missing",
+    ],
+)
+def test_breaching_counts_every_earlier_missing_check_toward_n_of_m(
+    current: bool | None, prior_missing: tuple[bool, ...], fires: bool
+) -> None:
+    check = _check(OnMissingData.BREACHING, evaluation_periods=5, datapoints_to_alarm=3)
+    observed = GroupObservation(
+        grouping_key="", current_breached=bool(current), prior_breached=_HEALTHY, prior_missing=prior_missing
+    )
+    decision = decide_groups(
+        check,
+        [] if current is None else [observed],
+        snapshot_of=lambda instance, prior: AlertSnapshot(
+            state=AlertState(instance.state),
+            cooldown=timedelta(0),
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+            evaluation_periods=5,
+            datapoints_to_alarm=3,
+            recent_events_breached=prior,
+        ),
+        policy=LOGS_ALERT_POLICY,
+        now=_NOW,
+        absent=lambda key: observed,
+    )
+
+    assert [verdict.group.new_state for verdict in decision.verdicts] == (["firing"] if fires else [])

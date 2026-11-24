@@ -838,9 +838,6 @@ class GroupOutcome:
     # What the source's own stack sent beside this verdict, which the platform stores and returns
     # without reading, so a delivery on the HogFunction path can send what the source sent.
     source_detail: dict[str, Any] = field(default_factory=dict)
-    # False keeps the instance's `last_seen_at`, so a group judged through its absence under
-    # Breaching can count how many checks in a row it has been missing.
-    seen: bool = True
 
 
 @frozen

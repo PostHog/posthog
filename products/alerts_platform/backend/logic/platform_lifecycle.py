@@ -669,8 +669,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                     continue
                 group = _held_by_mute(configuration, alert, reported, now)
                 touched.append(alert)
-                if reported.seen:
-                    alert.last_seen_at = now
+                alert.last_seen_at = now
                 # A hashed key's group that a check did not return arrives without labels, and its
                 # labels have not changed, so the stored ones stay.
                 if group.labels:
