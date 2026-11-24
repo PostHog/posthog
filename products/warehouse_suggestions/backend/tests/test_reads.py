@@ -15,6 +15,7 @@ from products.warehouse_suggestions.backend.logic.reads import (
     SubjectReads,
     read_rollup_days,
     read_team_reads,
+    read_teams_reads,
 )
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
@@ -69,11 +70,14 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         classified = {name: _classification(reads.subjects, subjects[name]) for name, *_ in TAG_CASES}
         assert classified == {name: (human, surface) for name, _, human, surface in TAG_CASES}
 
-    def test_counts_reads_people_days_costs_and_refreshes_inside_the_window(self) -> None:
+    def test_counts_reads_people_days_costs_and_refreshes_of_each_team_inside_the_window(self) -> None:
         view = uuid4()
         unread_view = uuid4()
+        other_team_id = self.team.pk + 1
+        team_without_reads_id = self.team.pk + 2
+        other_team_view = uuid4()
         seed_reads(
-            self.team.pk + 1, [RollupRead(subject_id=uuid4(), day=TODAY - timedelta(days=3), request_id="other")]
+            other_team_id, [RollupRead(subject_id=other_team_view, day=TODAY - timedelta(days=3), request_id="other")]
         )
         seed_reads(
             self.team.pk,
@@ -156,10 +160,18 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         )
 
         rollup_days = read_rollup_days(WINDOW)
-        reads = read_team_reads(self.team.pk, WINDOW, RULES, rollup_days)
+        reads_by_team = read_teams_reads(
+            [self.team.pk, other_team_id, team_without_reads_id], WINDOW, RULES, rollup_days
+        )
+        reads = reads_by_team[self.team.pk]
         view_reads = reads.subjects[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=view)]
+        other_team_reads = reads_by_team[other_team_id]
+        team_without_reads = reads_by_team[team_without_reads_id]
 
         assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
+        assert (other_team_reads.readers, other_team_reads.view_reads) == (1, 1)
+        assert {subject.id for subject in other_team_reads.subjects} == {other_team_view}
+        assert (team_without_reads.readers, team_without_reads.subjects, team_without_reads.refreshes) == (0, {}, {})
         assert (reads.readers, reads.view_readers, reads.view_reads) == (3, 2, 2)
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
         assert (view_reads.background_reads, view_reads.background_duration_ms) == (4, 76050)
