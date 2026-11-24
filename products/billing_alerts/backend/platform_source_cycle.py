@@ -149,7 +149,6 @@ def _decide(
             configuration_id=str(check.id),
             fields=[".".join(map(str, e["loc"])) for e in error.errors()],
         )
-        # The row itself is wrong, not billing's response, so this counts toward breaking the alert.
         unreadable = CheckInput(threshold_breached=False, error_message="Billing alert settings are invalid.")
         return _verdict(check, snapshot, unreadable, now=now, skip=SkipReason.BROKEN_CONFIG)
 
@@ -180,8 +179,7 @@ def _decide(
 
 
 def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
-    # A billing alert does not group, so its state is the one instance on the empty key, and that
-    # instance carries the platform's mute.
+    # A billing alert does not group, so its state is the one instance on the empty key.
     instance = check.instance()
     return AlertSnapshot(
         state=AlertState(instance.state),
