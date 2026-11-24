@@ -12,7 +12,9 @@ T0 = dt.datetime(2026, 11, 4, 12, 0, tzinfo=dt.UTC)
 
 
 class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
-    def _bucket(self, at: dt.datetime, pattern: str, severity: str = "error", environment: str = "prod") -> dict:
+    def _bucket(
+        self, at: dt.datetime, pattern: str, severity: str = "error", environment: str = "prod", version: int = 5
+    ) -> dict:
         return {
             "team_id": self.team.id,
             "time_bucket": at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -20,7 +22,7 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
             "namespace": "",
             "environment": environment,
             "severity_text": severity,
-            "pattern_version": 5,
+            "pattern_version": version,
             "pattern": pattern,
             "log_count": 1,
         }
@@ -31,6 +33,10 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
             self._bucket(T0 + dt.timedelta(minutes=10), "Retry <N> timed out", environment="staging"),
             self._bucket(T0, "Retry <N> timed out"),
             self._bucket(T0 + dt.timedelta(minutes=5), "Retry <N> timed out", severity="warn"),
+            # A new masker that leaves the text alone keeps the identity.
+            self._bucket(T0 + dt.timedelta(minutes=10), "Retry <N> timed out", version=6),
+            self._bucket(T0 + dt.timedelta(minutes=15), ""),
+            self._bucket(T0 + dt.timedelta(minutes=15), "   "),
             self._bucket(T0 + dt.timedelta(minutes=30), "After the window"),
         ]
         sync_execute("INSERT INTO logs_pattern_buckets FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
@@ -51,7 +57,6 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
 def test_the_message_links_to_the_announced_pattern_from_before_its_first_sighting() -> None:
     url = _logs_url(
         2,
-        {"service_name": "api…", "severity_text": "error"},
         {
             "pattern": "Retry <N> timed out",
             "pattern_complete": True,
@@ -65,7 +70,7 @@ def test_the_message_links_to_the_announced_pattern_from_before_its_first_sighti
     query = parse_qs(urlparse(url).query)
     assert json.loads(query["filterGroup"][0])["values"][0]["values"][0]["value"] == ["Retry <N> timed out"]
     assert json.loads(query["dateRange"][0])["date_from"] == (T0 - dt.timedelta(minutes=10)).isoformat()
-    # The full service name from the detail, not the label cut for display.
+    # The full service name from the detail, not a label cut for display.
     assert json.loads(query["serviceNames"][0]) == ["api"]
 
 
@@ -73,7 +78,6 @@ def test_a_pattern_too_long_for_a_message_link_falls_back_to_service_and_severit
     pattern = "x" * 1700
     url = _logs_url(
         2,
-        {},
         {"pattern": pattern, "pattern_complete": True, "pattern_version": 5, "service_name": "api"},
     )
 

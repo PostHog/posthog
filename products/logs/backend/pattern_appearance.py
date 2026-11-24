@@ -1,8 +1,9 @@
 """New log patterns, as appearance alerts on the alerts platform.
 
 Logs feeds the platform's registry with every pattern the pattern rollup holds, and the registry
-decides which ones are new. A pattern's identity is its masker version, service, severity and masked
-text, so a known pattern at a new severity is a new identity.
+decides which ones are new. A pattern's identity is its service, severity and masked text, so a known
+pattern at a new severity is a new identity. The masker version is left out, so a new masker makes new
+identities only of the patterns whose masked text it changes.
 """
 
 import json
@@ -65,7 +66,7 @@ def _identity(
     first_bucket: dt.datetime,
     last_bucket: dt.datetime,
 ) -> SeenIdentity:
-    digest = hashlib.sha256(json.dumps([version, service, severity, pattern]).encode()).hexdigest()[:32]
+    digest = hashlib.sha256(json.dumps([service, severity, pattern]).encode()).hexdigest()[:32]
     return SeenIdentity(
         identity_key=f"pattern:{digest}",
         seen_at=_utc(first_bucket) + BUCKET,
@@ -119,11 +120,11 @@ def describe_logs_pattern(*, project_id: int, transition: AnnouncedTransition) -
     return SourceDescription(
         headline=f"{'Resolved log pattern is back' if back else 'New log pattern'} in {service}",
         details=tuple(details),
-        data_link=MessageLink(label="View logs", url=_logs_url(project_id, labels, transition.source_detail)),
+        data_link=MessageLink(label="View logs", url=_logs_url(project_id, transition.source_detail)),
     )
 
 
-def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -> str:
+def _logs_url(project_id: int, detail: dict[str, Any]) -> str:
     """The announced pattern's logs, from just before its first sighting."""
     service = detail.get("service_name")
     severity = detail.get("severity_text")
@@ -133,21 +134,13 @@ def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -
     }
     pattern = detail.get("pattern")
     # A pattern cut to fit the detail would match nothing, so the link then filters by service and severity only.
-    if isinstance(pattern, str) and detail.get("pattern_complete") and detail.get("pattern_version"):
+    if isinstance(pattern, str) and detail.get("pattern_complete"):
         filters["filterGroup"] = {
             "type": "AND",
             "values": [
                 {
                     "type": "AND",
-                    "values": [
-                        {"key": "pattern", "value": [pattern], "operator": "exact", "type": "log"},
-                        {
-                            "key": "pattern_version",
-                            "value": detail["pattern_version"],
-                            "operator": "exact",
-                            "type": "log",
-                        },
-                    ],
+                    "values": [{"key": "pattern", "value": [pattern], "operator": "exact", "type": "log"}],
                 }
             ],
         }
