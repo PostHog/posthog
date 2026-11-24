@@ -17,7 +17,7 @@ import structlog
 from rest_framework import exceptions
 from two_factor.utils import default_device
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import email_verification_code_verifier, email_verification_pending
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
@@ -1015,7 +1015,7 @@ class VercelIntegration:
         if resource_id:
             VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
 
-        if user.is_email_verified is not True:
+        if email_verification_pending(user):
             # Only a new account gets here, because the other branches require the claim to prove the email.
             raise RequiresEmailVerification(
                 user, installation_id=claims.installation_id, email_verified=claims.user_email_verified

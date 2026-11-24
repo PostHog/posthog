@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.api.email_verification import VERIFICATION_DISABLED_FLAG
 from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -531,21 +532,42 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            ("verified_claim", True, False, None),
-            ("unverified_claim", False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
-            ("missing_claim", None, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
-            ("unverified_claim_and_send_fails", False, True, f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false"),
+            ("verified_claim", True, True, False, False, None),
+            ("unverified_claim", False, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            ("missing_claim", None, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            (
+                "unverified_claim_and_send_fails",
+                False,
+                True,
+                False,
+                True,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            ("unverified_claim_and_email_unavailable", False, False, False, False, None),
+            ("unverified_claim_and_verification_disabled_for_org", False, True, True, False, None),
         ]
     )
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag")
+    @patch("posthog.api.email_verification.is_email_available")
     @patch("posthog.api.email_verification.send_email_verification_code")
     def test_sso_logs_in_a_new_user_only_from_a_verified_claim(
         self,
         _name: str,
         claim_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled_for_org: bool,
         send_fails: bool,
         verify_email_query: str | None,
         mock_send_email: Mock,
+        mock_is_email_available: Mock,
+        mock_get_feature_flag: Mock,
     ) -> None:
+        mock_is_email_available.return_value = email_available
+        mock_get_feature_flag.side_effect = lambda key, distinct_id, **_: (
+            verification_disabled_for_org
+            and key == VERIFICATION_DISABLED_FLAG
+            and distinct_id == str(self.organization.id)
+        )
         if send_fails:
             mock_send_email.side_effect = Exception("email provider unavailable")
         claims = self._create_user_claims("vercel_new_user")
@@ -566,14 +588,13 @@ class TestVercelIntegration(TestCase):
         assert self.installation.config["user_mappings"]["vercel_new_user"] == user.pk
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
         assert user.current_team == team
+        assert user.is_email_verified is (claim_email_verified is True)
         if verify_email_query is None:
             assert redirect_url == VercelIntegration.SSO_PATH_REDIRECT_MAP["billing"]
             assert request.session.get(SESSION_KEY) == str(user.pk)
-            assert user.is_email_verified is True
         else:
             assert redirect_url == f"/verify_email/{user.uuid}?{verify_email_query}"
             assert SESSION_KEY not in request.session
-            assert user.is_email_verified is False
             assert mock_send_email.call_args.args[0] == user.pk
 
     @parameterized.expand(
