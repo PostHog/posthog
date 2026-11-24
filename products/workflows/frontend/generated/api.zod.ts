@@ -3583,8 +3583,6 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
  * @summary Import Customer.io automations as draft workflows
  */
 export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
-export const workflowImportsCreateBodySegmentsItemIdMax = 200
-
 export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
@@ -3633,7 +3631,9 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     sender_identities: zod
         .array(
             zod.object({
-                id: zod.string().describe("The sender identity's id, which templates name in `from_identity_id`."),
+                id: zod
+                    .union([zod.string(), zod.number()])
+                    .describe("The sender identity's id, which templates name in `from_identity_id`."),
                 email: zod.email().describe('The address the sender sends from.'),
                 name: zod
                     .string()
@@ -3648,7 +3648,7 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
     segments: zod
         .array(
             zod.object({
-                id: zod.string().max(workflowImportsCreateBodySegmentsItemIdMax).describe("The segment's id."),
+                id: zod.union([zod.string(), zod.number()]).describe("The segment's id."),
                 name: zod.string().describe("The segment's name."),
                 type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
                 conditions: zod

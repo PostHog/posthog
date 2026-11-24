@@ -4,7 +4,7 @@ import json
 from typing import Any, cast
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -30,6 +30,12 @@ from products.workflows.backend.presentation.views.workflow_import_drafts import
 MAX_CAMPAIGNS_PER_IMPORT = 50
 MAX_SOURCE_ID_LENGTH = 200
 MAX_SEGMENT_CONDITIONS_BYTES = 100_000
+
+
+# Customer.io returns these ids as numbers, and callers pass its objects unchanged.
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "integer"}]})
+class CustomerioIdField(serializers.CharField):
+    pass
 
 
 class CustomerioCampaignSerializer(serializers.Serializer):
@@ -70,13 +76,13 @@ class CustomerioCampaignSerializer(serializers.Serializer):
 
 
 class CustomerioSenderIdentitySerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="The sender identity's id, which templates name in `from_identity_id`.")
+    id = CustomerioIdField(help_text="The sender identity's id, which templates name in `from_identity_id`.")
     email = serializers.EmailField(help_text="The address the sender sends from.")
     name = serializers.CharField(required=False, allow_blank=True, default="", help_text="The sender's display name.")
 
 
 class CustomerioSegmentSerializer(serializers.Serializer):
-    id = serializers.CharField(max_length=MAX_SOURCE_ID_LENGTH, help_text="The segment's id.")
+    id = CustomerioIdField(max_length=MAX_SOURCE_ID_LENGTH, help_text="The segment's id.")
     name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
     type = serializers.CharField(help_text="The segment's type: `dynamic`, or `static` for a hand-made list.")
     conditions = serializers.JSONField(
