@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from . import discovery, linting, skill_audience, skill_manifest, skill_size, tool_references
+from . import discovery, linting, skill_audience, skill_manifest, skill_size, source_files, tool_references
 
 # Scout and ReviewHog skills are copied into each project's skill store, where an agent reads them
 # with `skill-get`. A served skill that names one is not sending the agent to `learn`. The harnesses
@@ -29,6 +29,10 @@ FLAG_MISMATCH_MIN_SHARE = 0.5
 # `learn` returns a heading outline, not the text, for a file above LEARN_OUTPUT_CHAR_LIMIT in
 # services/mcp/src/skills/skill-catalog.ts.
 LEARN_OUTPUT_CHAR_LIMIT = 44_000
+# Before it applies that limit, `learn` drops the frontmatter and adds the description, the file
+# list and a usage line. This is a ceiling on what it adds, so a file within this margin of the
+# limit may or may not come back in full.
+LEARN_OUTPUT_OVERHEAD = 3_000
 _NAME_BOUNDARY = r"(?<![A-Za-z0-9_/-])({})(?![A-Za-z0-9_-])"
 _TOOL_MENTION = r"(?:`|posthog:)({})(?![A-Za-z0-9_-])"
 
@@ -121,8 +125,23 @@ def _load_served(repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) 
     return served, unserved
 
 
+def _repository_only_skill_names(repo_root: Path) -> set[str]:
+    """The skills under .agents/skills/, which need a PostHog checkout and are never served.
+
+    A one-word name such as `hogli` is also a command or an ordinary word, so only names
+    with a hyphen count as a pointer.
+    """
+    skills_dir = repo_root / ".agents" / "skills"
+    if not skills_dir.is_dir():
+        return set()
+    return {entry.name for entry in skills_dir.iterdir() if entry.is_dir() and "-" in entry.name}
+
+
 def _find_pointers(repo_root: Path, served: list[ServedSkill], unserved: set[str]) -> list[Pointer]:
-    pattern = _name_pattern(_NAME_BOUNDARY, {name for name in unserved if not name.startswith(STORE_SKILL_PREFIXES)})
+    served_names = {entry.name for entry in served}
+    targets = {name for name in unserved if not name.startswith(STORE_SKILL_PREFIXES)}
+    targets |= _repository_only_skill_names(repo_root) - served_names
+    pattern = _name_pattern(_NAME_BOUNDARY, targets)
     if pattern is None:
         return []
     pointers: list[Pointer] = []
@@ -171,20 +190,22 @@ def _find_flag_mismatches(
     return mismatches
 
 
-def _tree_size(root: Path) -> int | None:
+def _bundle_size(root: Path) -> int | None:
+    """The size of what the build ships for a skill: the entry file, references/ and scripts/."""
     if root.is_file():
         return root.stat().st_size
     if not root.is_dir():
         return None
-    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+    entry_files = [root / name for name in ("SKILL.md.j2", "SKILL.md") if (root / name).is_file()][:1]
+    return sum(path.stat().st_size for path in [*entry_files, *source_files._bundle_files(root)])
 
 
 def _measure_sizes(repo_root: Path, served: list[ServedSkill], before_root: Path | None) -> list[SkillSize]:
     sizes: list[SkillSize] = []
     for entry in served:
-        before = _tree_size(before_root / entry.root.relative_to(repo_root)) if before_root else None
+        before = _bundle_size(before_root / entry.root.relative_to(repo_root)) if before_root else None
         sizes.append(
-            SkillSize(entry, _tree_size(entry.root) or 0, before, skill_size.measure_entry(entry.skill.source_file))
+            SkillSize(entry, _bundle_size(entry.root) or 0, before, skill_size.measure_entry(entry.skill.source_file))
         )
     return sizes
 
@@ -248,6 +269,17 @@ def _owner_label(entry: ServedSkill) -> str:
 
 def _kb(size: int) -> str:
     return f"{size / 1024:.1f} KB"
+
+
+LEARN_FULL_TEXT = "the full text"
+
+
+def _learn_result(entry: skill_size.EntrySize) -> str:
+    if entry.chars > LEARN_OUTPUT_CHAR_LIMIT + LEARN_OUTPUT_OVERHEAD:
+        return "an outline only"
+    if entry.chars > LEARN_OUTPUT_CHAR_LIMIT - LEARN_OUTPUT_OVERHEAD:
+        return "an outline, or close to it"
+    return LEARN_FULL_TEXT
 
 
 def _size_change(size: SkillSize, measured_before: bool) -> str:
@@ -322,7 +354,7 @@ def render_markdown(report: UpkeepReport) -> str:
                     _owner_label(s.skill),
                     str(s.entry.lines),
                     f"{s.entry.tokens:,}",
-                    "an outline only" if s.entry.chars > LEARN_OUTPUT_CHAR_LIMIT else "the full text",
+                    _learn_result(s.entry),
                 ]
                 for s in long_entries
             ],
@@ -374,5 +406,5 @@ def summary(report: UpkeepReport) -> dict[str, int]:
         "pointers": len(report.pointers),
         "flag_mismatches": len(report.flag_mismatches),
         "over_recommended_size": sum(1 for size in report.sizes if size.entry.over_recommendation),
-        "outline_only": sum(1 for size in report.sizes if size.entry.chars > LEARN_OUTPUT_CHAR_LIMIT),
+        "outline_only": sum(1 for size in report.sizes if _learn_result(size.entry) != LEARN_FULL_TEXT),
     }
