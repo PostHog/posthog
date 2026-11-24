@@ -726,7 +726,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(response.json()["code"], "behavioral_cohort_found")
-        self.assertIn("Behavioral filters cannot be added to cohorts used in feature flags", response.json()["detail"])
+        self.assertIn("used in 1 active feature flag(s): Cohort-based flag.", response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
@@ -4255,7 +4255,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
+                "Its criteria include events, so they can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": "filters",
             }.items(),
             response.json().items(),
@@ -4290,7 +4292,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
+                "It includes cohort 'cohort XX', which has event criteria, so this cohort's criteria can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": "filters",
             }.items(),
             response.json().items(),
@@ -4580,7 +4584,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a static cohort-based flag. "
+                "Its criteria include events, so they can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": "filters" if include_filters else None,
             }.items(),
             response.json().items(),
@@ -4629,7 +4635,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a static cohort-based flag. "
+                "Its criteria include events, so they can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": None,
             }.items(),
             response.json().items(),

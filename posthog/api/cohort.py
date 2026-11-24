@@ -2178,28 +2178,35 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if _save_keeps_realtime_criteria(instance, request_filters, cohort_will_be_static):
             return
 
-        cohort_id = instance.pk
-
-        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = any(
-            cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True)
-            for flag in _flags_with_readable_config(flags)
+        flags = _filter_flags_referencing_cohort(
+            _flags_with_cohort_filters(instance).filter(active=True).order_by("key"),
+            instance,
+            stop_traversal_at_static=True,
         )
-
-        if not cohort_used_in_flags:
+        if not flags:
             return
 
         for prop in parsed_filter.flat:
             if prop.type == "behavioral":
-                raise serializers.ValidationError(
-                    detail="Behavioral filters cannot be added to cohorts used in feature flags.",
-                    code="behavioral_cohort_found",
+                raise self._flag_lock_error(
+                    flags, "Its criteria include events, so they can't change while these flags use it."
                 )
 
             if prop.type == "cohort":
-                self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
+                self._validate_nested_cohort_behavioral_filters(prop, flags)
 
-    def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
+    def _flag_lock_error(self, flags: list[FeatureFlag], blocked: str) -> serializers.ValidationError:
+        instance = cast(Cohort, self.instance)
+        visible = _visible_flags(self.context["request"], self._user_access_control(), instance.team.project_id, flags)
+        names = _names_suffix([flag.name or flag.key for flag in visible], len(flags))
+        return serializers.ValidationError(
+            detail=f"This cohort is used in {len(flags)} active feature flag(s){names}. {blocked} "
+            "Remove this cohort, or the cohort that includes it, from these flags, then save again. "
+            "You can add it back once feature flags can target it.",
+            code="behavioral_cohort_found",
+        )
+
+    def _validate_nested_cohort_behavioral_filters(self, prop: Any, flags: list[FeatureFlag]):
         try:
             nested_cohort = Cohort.objects.get(
                 pk=prop.value, team__project_id=self.context["project_id"], deleted=False
@@ -2214,10 +2221,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # filters are display-only and never evaluated, so skip them.
             if dependency_cohort.is_static:
                 continue
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
-                raise serializers.ValidationError(
-                    detail=f"A cohort dependency ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
-                    code="behavioral_cohort_found",
+            if any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
+                raise self._flag_lock_error(
+                    flags,
+                    f"It includes cohort '{dependency_cohort.name}', which has event criteria, "
+                    "so this cohort's criteria can't change while these flags use it.",
                 )
 
     def _reject_delete(self, cohort: Cohort, blocked_by: str, message: str, code: str | None = None) -> NoReturn:
