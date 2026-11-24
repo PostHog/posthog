@@ -1074,20 +1074,21 @@ TRANSACTIONAL_EMAIL_SEND_FLOOR = Budget(burst=600, per_hour=20_000)
 
 
 def transactional_email_send_budget(team_id: int) -> Budget:
-    # The tier lookup reads Postgres, so cache it rather than repeat it on every send.
+    key = f"transactional_email_send_daily_cap:{team_id}"
     try:
-        daily_cap: int = (
-            cache.get_or_set(
-                f"transactional_email_send_daily_cap:{team_id}",
-                lambda: get_enforced_email_sending_daily_cap(team_id) or 0,
-                60,
-            )
-            or 0
-        )
+        daily_cap = cache.get(key)
     except Exception as e:
-        # A cache outage must not tighten the limit, so read the tier directly until it recovers.
         capture_exception(e)
-        daily_cap = get_enforced_email_sending_daily_cap(team_id) or 0
+        daily_cap = None
+    if daily_cap is None:
+        daily_cap = get_enforced_email_sending_daily_cap(team_id)
+        # Only a successful lookup is cached, so a failed one applies the floor to this send alone.
+        if daily_cap is not None:
+            try:
+                cache.set(key, daily_cap, 60)
+            except Exception as e:
+                capture_exception(e)
+    daily_cap = daily_cap or 0
     return Budget(
         burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
         per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),

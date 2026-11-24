@@ -860,15 +860,23 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("lowest_tier", 0, False, False, "secret_key", status.HTTP_429_TOO_MANY_REQUESTS),
-            ("top_tier", 7, False, False, "secret_key", status.HTTP_202_ACCEPTED),
-            ("lowest_tier_on_the_bypass_list", 0, True, False, "secret_key", status.HTTP_202_ACCEPTED),
-            ("top_tier_while_the_cache_is_down", 7, False, True, "secret_key", status.HTTP_202_ACCEPTED),
-            ("lowest_tier_signed_in_to_the_app", 0, False, False, "session", status.HTTP_202_ACCEPTED),
+            ("lowest_tier", 0, False, None, "secret_key", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("top_tier", 7, False, None, "secret_key", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_on_the_bypass_list", 0, True, None, "secret_key", status.HTTP_202_ACCEPTED),
+            ("top_tier_while_the_cache_is_down", 7, False, "cache_down", "secret_key", status.HTTP_202_ACCEPTED),
+            (
+                "top_tier_while_the_tier_lookup_fails",
+                7,
+                False,
+                "lookup_fails",
+                "secret_key",
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+            ("lowest_tier_signed_in_to_the_app", 0, False, None, "session", status.HTTP_202_ACCEPTED),
         ]
     )
     def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
-        self, mock_post, _flag, _capture, _name, tier, bypass, cache_down, credential, third_status
+        self, mock_post, _flag, _capture, _name, tier, bypass, fault, credential, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self.client if credential == "session" else self._sender_client(credential)
@@ -881,8 +889,14 @@ class TestTransactionalEmail(APIBaseTest):
             override_instance_config("RATE_LIMIT_ENABLED", True),
             override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", str(self.team.id) if bypass else ""),
             patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=2, per_hour=2)),
-            patch.object(message_templates.cache, "get_or_set", side_effect=ConnectionError)
-            if cache_down
+            patch.object(message_templates.cache, "get", side_effect=ConnectionError)
+            if fault == "cache_down"
+            else nullcontext(),
+            patch(
+                "products.workflows.backend.utils.email_sending_tiers._resolve_team_email_sending_tier",
+                side_effect=OperationalError,
+            )
+            if fault == "lookup_fails"
             else nullcontext(),
         ):
             is_rate_limit_enabled.cache_clear()

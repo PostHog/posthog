@@ -448,11 +448,11 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
 
 
 def get_enforced_email_sending_daily_cap(team_id: int) -> int | None:
-    """The team's daily email cap from its trust tier, or None while tiers are not enforced."""
+    """The team's daily email cap from its trust tier, 0 while tiers are not enforced, or None when the lookup failed."""
     if not is_tier_enforced():
-        return None
-    # A failed lookup resolves to the top tier, so a database blip never tightens the limit.
-    return resolve_team_email_sending_tier(team_id).limits.per_day
+        return 0
+    resolved = resolve_team_email_sending_tier(team_id)
+    return resolved.limits.per_day if resolved.enforced else None
 
 
 def recompute_email_sending_tier(
