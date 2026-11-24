@@ -192,6 +192,14 @@ class TestSandboxProductRouted:
         assert sandbox_product_routed("signals_custom_agent", "custom_agent", " , signals_custom_agent , ")
 
 
+@pytest.fixture(autouse=True)
+def run_tokens_are_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "products.tasks.backend.temporal.process_task.ai_gateway_token._remember_run_token",
+        lambda run_id, token: True,
+    )
+
+
 @pytest.fixture
 def mint_settings(settings):
     settings.AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev/v1"

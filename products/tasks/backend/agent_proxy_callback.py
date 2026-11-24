@@ -20,7 +20,7 @@ from products.tasks.backend.logic.services.process_killed import (
 )
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.event_ingest import _parse_budget_steer_properties
-from products.tasks.backend.metrics import observe_sandbox_process_killed
+from products.tasks.backend.metrics import observe_ended_run_credential_used, observe_sandbox_process_killed
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
@@ -172,10 +172,13 @@ class AgentProxyCallbackDispatcher:
     def _load_run(self, *related: str) -> TaskRun | None:
         queryset = TaskRun.objects.select_related(*related) if related else TaskRun.objects.all()
         try:
-            return queryset.get(id=self.run_id, task_id=self.task_id, team_id=self.team_id)
+            run = queryset.get(id=self.run_id, task_id=self.task_id, team_id=self.team_id)
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": self.run_id})
             return None
+        if run.is_terminal:
+            observe_ended_run_credential_used(surface="agent_proxy_callback")
+        return run
 
     def _heartbeat(self) -> CallbackOutcome:
         if not self.callback.data["agent_active"]:
