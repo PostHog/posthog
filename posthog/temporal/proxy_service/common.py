@@ -96,8 +96,8 @@ def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None
         updates["status"] = status
     # A failed deletion and late provisioning updates must not erase deletion intent.
     # Keep this conditional in SQL so an API deletion cannot race a stale record save.
-    if not prs.exclude(status=ProxyRecord.Status.DELETING).update(**updates) and not prs.exists():
-        raise RecordDeletedException("proxy record was deleted before workflow completed")
+    if not prs.exclude(status=ProxyRecord.Status.DELETING).update(**updates):
+        raise RecordDeletedException("proxy record was deleted or marked for deletion before workflow completed")
 
 
 @dataclass
