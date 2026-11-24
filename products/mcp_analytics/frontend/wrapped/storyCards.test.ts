@@ -10,7 +10,6 @@ import {
     formatPercent,
     reliabilityLine,
     speedLine,
-    personalityStats,
     peakMultiple,
     rushHourLine,
 } from './storyCards'
@@ -160,13 +159,5 @@ describe('storyCards', () => {
         [7100, 'Some calls kept agents waiting.'],
     ])('describes a p95 of %d ms', (p95, expected) => {
         expect(speedLine(p95)).toBe(expected)
-    })
-
-    it('explains the personality with calls and reliability, and speed only when it was measured', () => {
-        expect(personalityStats(BASE).map((stat) => stat.value)).toEqual(['4.8M', '98%', '410 ms'])
-        expect(personalityStats({ ...BASE, speed: null }).map((stat) => stat.label)).toEqual([
-            'tool calls',
-            'error-free',
-        ])
     })
 })

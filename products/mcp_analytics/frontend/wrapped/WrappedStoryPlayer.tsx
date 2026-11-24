@@ -72,7 +72,7 @@ function CurrentCard({ cardKey }: { cardKey: WrappedCardKey }): JSX.Element | nu
         case 'speed':
             return cards.speed ? <SpeedCard card={cards.speed} /> : null
         case 'archetype':
-            return <ArchetypeCard cards={cards} />
+            return <ArchetypeCard card={cards.archetype} />
         case 'share':
             return <ShareCard cards={cards} projectName={projectName} year={year} />
     }

@@ -117,7 +117,7 @@ function AllCards(): JSX.Element {
             {CARDS.rush_hour && <RushHourCard card={CARDS.rush_hour} />}
             <ReliabilityCard card={CARDS.reliability} />
             {CARDS.speed && <SpeedCard card={CARDS.speed} />}
-            <ArchetypeCard cards={CARDS} />
+            <ArchetypeCard card={CARDS.archetype} />
             <ShareCard cards={CARDS} projectName="Weather Co" year={2026} />
         </div>
     )
