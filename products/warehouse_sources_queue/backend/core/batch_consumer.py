@@ -264,6 +264,17 @@ def _is_connection_refused_error(error: BaseException) -> bool:
     return _CONNECTION_REFUSED_ERROR_MARKER in str(error).lower()
 
 
+# SQLSTATE 25006: a managed-Postgres failover promotes a standby and demotes the old
+# primary to read-only before DNS or the pooler cut the client over to the new primary, so
+# the socket stays open and accepts reads while every write is rejected. Unlike the
+# connection-drop shapes above, the session itself is fine — redialing is still the fix,
+# because the fresh connection resolves to the new primary once the cutover lands. Mirrors
+# the app-DB handling of the same failover shape in
+# products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py.
+def _is_read_only_transaction_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.ReadOnlySqlTransaction)
+
+
 def _is_transient_queue_db_error(error: BaseException) -> bool:
     """Whether `error` is the queue DB being briefly unavailable rather than a bug.
 
@@ -279,6 +290,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_pooler_query_wait_timeout_error(error)
         or _is_pooler_login_retry_cached_error(error)
         or _is_connection_refused_error(error)
+        or _is_read_only_transaction_error(error)
     )
 
 
@@ -923,6 +935,16 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_admin_shutdown"), error=str(e))
                     else:
                         self._report_queue_failure(self._event("poll_failed_queue_db_unreachable"), e)
+                    self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
+                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    continue
+                except Exception as e:
+                    # Mirrors the trailing fallback in _recovery_loop and the startup sweep: not
+                    # every queue-DB failure (e.g. ReadOnlySqlTransaction from a failover) is an
+                    # OperationalError, so a bare except on that class alone would let it escape
+                    # this loop uncaught and crash the whole consumer instead of waiting out the
+                    # blip like every other transient shape here does.
+                    self._report_queue_failure(self._event("poll_failed_queue_db_unreachable"), e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
@@ -2339,6 +2361,11 @@ class BatchConsumer:
                     # being wrong — nothing to retry with here, so the lease just expires
                     # per the comment above.
                     logger.warning(self._event("release_all_owned_connection_dropped"), error=str(e))
+                elif _is_read_only_transaction_error(e):
+                    # A failover mid-teardown rejects the DELETE the same way it would any
+                    # other write; nothing to retry with here either, so the lease just
+                    # expires per the comment above.
+                    logger.warning(self._event("release_all_owned_read_only_transaction"), error=str(e))
                 else:
                     logger.exception(self._event("release_all_owned_failed_on_shutdown"))
                     capture_exception(e)

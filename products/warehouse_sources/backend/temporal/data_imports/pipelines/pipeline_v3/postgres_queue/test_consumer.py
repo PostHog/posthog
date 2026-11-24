@@ -1399,6 +1399,60 @@ class TestAdminShutdownErrorClassification:
         mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_poll_failure_does_not_report_read_only_transaction_error(self):
+        # Reproduces the reported issue: a failover leaves the queue DB's connection open
+        # but rejects the claim upsert with ReadOnlySqlTransaction (SQLSTATE 25006) instead
+        # of dropping it. That isn't a psycopg.OperationalError, so it used to fall through
+        # every branch above once the internal retry in _with_queue_conn exhausted its
+        # attempts, escape the poll loop uncaught, and crash the whole consumer.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def flaky_fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            # Exhausts _with_queue_conn's own retry budget so the error actually reaches
+            # the poll loop's exception handling, rather than resolving internally.
+            if fetch_calls <= QUEUE_RETRY_MAX_ATTEMPTS:
+                raise psycopg.errors.ReadOnlySqlTransaction("cannot execute DELETE in a read-only transaction")
+            second_poll_started.set()
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=flaky_fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        assert fetch_calls == QUEUE_RETRY_MAX_ATTEMPTS + 1
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_queue_gauges_are_probed_before_the_first_poll(self):
         consumer = _make_consumer()
         calls: list[str] = []
