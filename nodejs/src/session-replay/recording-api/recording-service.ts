@@ -11,13 +11,7 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { blockRefEncoder, decodeBlockRef } from './block-refs'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import {
-    KeyStore,
-    RecordingBlock,
-    RecordingDecryptor,
-    SessionKey,
-    SessionKeyDeletedError,
-} from './types'
+import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKey, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -203,6 +197,9 @@ export class RecordingService {
         }
     }
 
+    // Reports a deletion the key store recorded before ClickHouse learns of it through Kafka, and names each block of an
+    // encrypted session with a ref the browser can fetch and cache. Cleartext sessions have no key to derive refs from.
+    // Call it only for a session that has blocks; a session without any has no key worth reading yet.
     async annotateBlocks(
         sessionId: string,
         teamId: number,
