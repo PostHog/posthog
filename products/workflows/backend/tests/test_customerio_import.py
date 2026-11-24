@@ -40,9 +40,10 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.presentation.views.workflow_imports import CustomerioSegmentSerializer
 from products.workflows.backend.services.customerio_import import conditions, liquid
-from products.workflows.backend.services.customerio_import.images import _file_name
+from products.workflows.backend.services.customerio_import.images import CUSTOMERIO_IMAGES
 from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
 from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
+from products.workflows.backend.services.email_images import file_name
 
 
 def _encode(condition: list[dict[str, Any]]) -> str:
@@ -1237,7 +1238,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.email_images.requests.get")
     def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
         png = io.BytesIO()
         Image.new("RGB", (3, 2)).save(png, "PNG")
@@ -1284,7 +1285,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             team=self.team,
             created_by=User.objects.create_and_join(self.organization, "other@example.com", None),
             purpose="email",
-            file_name=_file_name(hero),
+            file_name=file_name(hero, CUSTOMERIO_IMAGES),
             media_location="planted/hero.png",
         )
         first = self._import(campaigns=campaigns)
@@ -1332,7 +1333,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.email_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
@@ -1351,7 +1352,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without media access", ["*"], False),
         ]
     )
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.email_images.requests.get")
     def test_no_images_are_copied_without_media_access(
         self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
     ) -> None:
