@@ -14,10 +14,7 @@ INTERNAL_AUDIENCE = "internal"
 
 
 def _load_served_skill_names(repo_root: Path) -> set[str] | None:
-    """Return the listed names that this repo must provide.
-
-    Returns None if the list is absent, so the lint stays runnable in checkouts without the MCP service.
-    """
+    """Return the listed names that this repo must provide, or None if the list is absent."""
     served_file = repo_root / SERVED_SKILLS_FILE
     if not served_file.is_file():
         return None
@@ -42,7 +39,8 @@ def _check_skill_audience(repo_root: Path, skills: list[skill_manifest.Discovere
     """Return one error for each skill with no audience, or with two, and for each listed name with no skill."""
     served_names = _load_served_skill_names(repo_root)
     if served_names is None:
-        return []
+        # A pass here would switch the check off for any job that does not check out the list.
+        return [f"{SERVED_SKILLS_FILE} is missing, so the lint cannot check who each product skill is for."]
 
     errors: list[str] = []
     product_skill_names: set[str] = set()
