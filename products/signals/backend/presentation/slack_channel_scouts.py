@@ -127,10 +127,9 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"], required_scopes=["external_data_source:read"])
     def channels(self, request: Request, **kwargs: Any) -> Response:
         team = self._canonical_team()
-        access = self._source_access(team)
-        return Response(
-            SlackScoutChannelSourcesSerializer({"sources": list_slack_channel_sources(team.id, access)}).data
-        )
+        self._source_access(team)
+        sources = list_slack_channel_sources(team, cast(User, request.user))
+        return Response(SlackScoutChannelSourcesSerializer({"sources": sources}).data)
 
     @validated_request(
         SlackChannelScoutCreateSerializer,
@@ -151,13 +150,13 @@ class SlackChannelScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         team = self._canonical_team()
         user = cast(User, request.user)
-        access = self._source_access(team)
+        self._source_access(team)
         validated = request.validated_data
         source_id = str(validated["source_id"])
         try:
             definition = plan_slack_channel_scout(
-                team_id=team.id,
-                user_access_control=access,
+                team=team,
+                user=user,
                 source_id=source_id,
                 channel_ids=validated["channel_ids"],
                 steer=validated.get("steer", ""),

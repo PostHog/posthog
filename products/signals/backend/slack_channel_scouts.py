@@ -16,9 +16,9 @@ from products.signals.backend.models import SignalScoutConfig
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-SLACK_SCOUT_SOURCE_PRODUCT = SignalSourceProduct.SLACK.value
+SLACK_SCOUT_SOURCE_PRODUCT: str = SignalSourceProduct.SLACK.value
 MAX_SLACK_SCOUT_CHANNELS = 20
-SLACK_SCOUT_NAME_MAX_LENGTH = SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH
+SLACK_SCOUT_NAME_MAX_LENGTH: int = SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH
 # Tables every Slack source syncs. They are not channels.
 _FIXED_SLACK_TABLES = frozenset({"$channels", "$users"})
 
