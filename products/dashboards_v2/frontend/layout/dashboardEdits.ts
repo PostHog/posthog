@@ -1,5 +1,5 @@
 import {
-    type ContentWidget,
+    type ContentWidgetParts,
     type Dashboard,
     GRID,
     type SectionTile,
@@ -18,10 +18,12 @@ export type DashboardEdit =
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
-    | { edit: 'setTileParts'; id: string; parts: ContentWidget['parts'] }
+    | { edit: 'setTileParts'; id: string; parts: ContentWidgetParts }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
+    /** `before` is the tab it lands in front of; null puts it last. */
+    | { edit: 'moveTab'; id: string; before: string | null }
 
 function minWidthOf(tile: Tile): number {
     if (!isSection(tile)) {
@@ -70,7 +72,6 @@ function settleGrid(tiles: Tile[], cols: number): Tile[] {
     return withPlaces(sized, placeTiles(toPlacedItems(sized), cols))
 }
 
-/** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
 /** Every tile full width, one under another in reading order: top to bottom, then left to right. */
 export function stackTiles(tiles: Tile[], cols: number): Tile[] {
     const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
@@ -84,14 +85,12 @@ export function stackTiles(tiles: Tile[], cols: number): Tile[] {
     })
 }
 
-/** A chart sized for a wide screen would fill a phone, so stacked charts stay between these heights. */
-const STACKED_CHART_ROWS = { min: 5, max: 8 }
-
 function stackedRows(tile: Tile): number {
-    if (tile.widget.type !== 'line' && tile.widget.type !== 'bar') {
+    const range = widgetSize(tile.widget).stackedRows
+    if (!range) {
         return tile.place.h
     }
-    return Math.min(STACKED_CHART_ROWS.max, Math.max(STACKED_CHART_ROWS.min, tile.place.h))
+    return Math.min(range.max, Math.max(range.min, tile.place.h))
 }
 
 function stackSection(tile: SectionTile, cols: number, y: number): Tile {
@@ -195,17 +194,26 @@ export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number,
     return withPlaces(next, placed)
 }
 
-function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'moveTile' }>): Dashboard {
+function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'moveTile' }>, view: View): Dashboard {
     const tile = findTile(dashboard, edit.id)
     // A section cannot go inside itself, so the target is looked up once the tile is out of the tree.
     // Settled first, so a section the tile left already has its new height when the drop cell is used.
     const without = settleDashboard(changeTileEverywhere(dashboard, edit.id, () => null))
-    const target = findGrid(without, edit.grid)
-    if (!tile || !target) {
+    // The drop cell is in the grid as the person saw it, folded and fitted, so the tile lands where its preview showed.
+    const shown = findGrid(view(without), edit.grid)
+    if (!tile || !shown) {
         return dashboard
     }
-    const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
-    return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, tile, edit.x ?? 0, y))
+    const y = edit.y ?? bottomOf(shown.tiles.map((other) => other.place))
+    const landed = dropIntoGrid(shown.tiles, shown.cols, tile, edit.x ?? 0, y)
+    const places = new Map(landed.map((placed) => [placed.id, placed.place]))
+    // Only where each tile sits is saved. Heights stay as saved, and settling makes room for a folded section.
+    return changeGrid(without, edit.grid, (tiles) =>
+        [...tiles, tile].map((placed) => {
+            const place = places.get(placed.id)
+            return place ? { ...placed, place: { ...place, h: placed.place.h } } : placed
+        })
+    )
 }
 
 function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>): Dashboard {
@@ -228,14 +236,14 @@ function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'add
     return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
 }
 
-function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
+function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View): Dashboard {
     switch (edit.edit) {
         case 'placeTiles':
             return changeGrid(dashboard, edit.grid, (tiles) =>
                 tiles.map((tile) => (edit.places[tile.id] ? { ...tile, place: edit.places[tile.id] } : tile))
             )
         case 'moveTile':
-            return moveTile(dashboard, edit)
+            return moveTile(dashboard, edit, view)
         case 'addTile':
             return addTile(dashboard, edit)
         case 'removeTile':
@@ -263,9 +271,24 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
                 return dashboard
             }
             return { ...dashboard, tabs: dashboard.tabs.filter((tab) => tab.id !== edit.id) }
+        case 'moveTab': {
+            const tab = dashboard.tabs.find((candidate) => candidate.id === edit.id)
+            if (!tab) {
+                return dashboard
+            }
+            const rest = dashboard.tabs.filter((candidate) => candidate.id !== edit.id)
+            const index = edit.before === null ? rest.length : rest.findIndex((other) => other.id === edit.before)
+            if (index === -1) {
+                return dashboard
+            }
+            return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
+        }
     }
 }
 
-export function applyEdit(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
-    return settleDashboard(applyOnce(dashboard, edit))
+/** How the person sees a dashboard, such as `withFolds`. An edit made on screen is placed against that view. */
+type View = (dashboard: Dashboard) => Dashboard
+
+export function applyEdit(dashboard: Dashboard, edit: DashboardEdit, view: View = (shown) => shown): Dashboard {
+    return settleDashboard(applyOnce(dashboard, edit, view))
 }

@@ -1,4 +1,4 @@
-import { isDevEnv } from '~/common/utils/env-utils'
+import { isCloud, isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
@@ -28,7 +28,10 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
-    cdpCyclotronV2Janitor: isDevEnv(),
+    // PostHog Cloud runs the janitor as its own deployment. A self-hosted install has only this
+    // process, and without a janitor nothing deletes finished jobs or recovers jobs that a crash
+    // left running, so the Cyclotron database grows without limit.
+    cdpCyclotronV2Janitor: isDevEnv() || (isProdEnv() && !isCloud()),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
     cdpCohortMembershipTriggers: true,

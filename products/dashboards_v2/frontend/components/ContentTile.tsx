@@ -3,7 +3,8 @@ import clsx from 'clsx'
 import { IconTrash } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
-import { type ContentWidget, showsPart } from '../layout/dashboardTypes'
+import { type ContentWidget, isPartShown } from '../layout/dashboardTypes'
+import { WidgetFooter } from '../widgets/WidgetFooter'
 import { WidgetView } from '../widgets/WidgetView'
 import { ContentTileFooter } from './ContentTileFooter'
 import { TileContextMenu, useContentTileActions } from './TileContextMenu'
@@ -32,9 +33,9 @@ export function ContentTile({
         </Button>
     )
 
-    const showHeader = !!widget.title && showsPart(widget, 'header')
-    const showDescription = !!widget.description && showsPart(widget, 'description')
-    const footer = showsPart(widget, 'footer') ? widget.footer : undefined
+    const showHeader = isPartShown(widget, 'header')
+    const showDescription = isPartShown(widget, 'description')
+    const showFooter = isPartShown(widget, 'footer')
 
     return (
         <TileContextMenu actions={actions}>
@@ -58,7 +59,11 @@ export function ContentTile({
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} />
                 </CardContent>
-                {footer?.length ? <ContentTileFooter items={footer} refreshedAt={widget.refreshedAt} /> : null}
+                {showFooter && (
+                    <ContentTileFooter>
+                        <WidgetFooter widget={widget} />
+                    </ContentTileFooter>
+                )}
             </Card>
         </TileContextMenu>
     )
