@@ -65,6 +65,7 @@ describe('AccountViewRenderer', () => {
 
     it.each([
         ['automations', FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET],
+        ['context', FEATURE_FLAGS.CUSTOMER_ANALYTICS_CONTEXT_PANE],
         ['dot_matrix', FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX],
     ] as const)('renders a saved %s widget only when its flag is enabled', (kind, flag) => {
         const view = {

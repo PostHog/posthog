@@ -38,11 +38,7 @@ export {
   type SignedCommitToolResult,
 } from "./signed-commit-shared";
 export { TaskToolsApiClient, TaskToolsApiError } from "./task-tools-client";
-export {
-  buildFinishRunUpdate,
-  FINISH_TOOL_NAME,
-  isFinishReportRequired,
-} from "./tools/finish";
+export { buildFinishRunUpdate, FINISH_TOOL_NAME } from "./tools/finish";
 export { GH_STACK_QUALIFIED_TOOL_NAME } from "./tools/gh-stack";
 export {
   GITLAB_MERGE_REQUEST_QUALIFIED_TOOL_NAME,

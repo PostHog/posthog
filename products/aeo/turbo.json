@@ -11,7 +11,8 @@
                 "backend/routes.py",
                 "backend/presentation/**",
                 "backend/apps.py",
-                "backend/signals.py"
+                "backend/signals.py",
+                "backend/test/factories.py"
             ],
             "outputs": [],
             "cache": true

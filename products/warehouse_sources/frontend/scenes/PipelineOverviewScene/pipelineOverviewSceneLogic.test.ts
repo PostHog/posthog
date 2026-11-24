@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 
@@ -345,5 +348,48 @@ describe('pipelineOverviewSceneLogic', () => {
         const byLabel = Object.fromEntries(logic.values.rowsByDestination.map((s: any) => [s.label, s.data]))
         expect(byLabel['PostHog warehouse']).toEqual([80, 80])
         expect(byLabel['Analytics Postgres']).toEqual([20, 20])
+    })
+
+    it.each([
+        // The body is empty on the denied sessions we see, so the error has a status and no code.
+        { refused: 'the warehouse', status: 403, denied: true },
+        { refused: 'the warehouse', status: 500, denied: false },
+        // A user can lack access to sources alone, and the rest of the scene still works for them.
+        { refused: 'the sources list', status: 403, denied: false },
+    ])('when $refused answers $status, denies the scene: $denied', async ({ refused, status, denied }) => {
+        logic.unmount()
+        const refusal = new ApiError(`Non-OK response (status ${status}: )`, status)
+        const requests =
+            refused === 'the warehouse'
+                ? [
+                      api.dataWarehouseJobStatsRetrieve,
+                      api.dataWarehouseTotalRowsStatsRetrieve,
+                      api.dataWarehouseDataHealthIssuesRetrieve,
+                      api.dataWarehouseCompletedActivityRetrieve,
+                      api.dataWarehouseRunningActivityRetrieve,
+                  ]
+                : [wsApi.externalDataSourcesList]
+        for (const request of requests) {
+            request.mockRejectedValue(refusal)
+        }
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        // Only the poll is faked. `toFinishAllListeners` waits on real timeouts.
+        jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'] })
+        try {
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accessDenied).toBe(denied)
+            // The scene renders a warehouse refusal itself, so only the other failures are reported.
+            expect(captureException.mock.calls.length > 0).toBe(!denied)
+
+            api.dataWarehouseJobStatsRetrieve.mockClear()
+            jest.advanceTimersByTime(3 * 30_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.dataWarehouseJobStatsRetrieve).toHaveBeenCalledTimes(denied ? 0 : 3)
+        } finally {
+            jest.useRealTimers()
+            captureException.mockRestore()
+        }
     })
 })

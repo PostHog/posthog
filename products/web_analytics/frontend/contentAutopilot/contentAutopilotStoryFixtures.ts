@@ -8,6 +8,7 @@ import type {
     AEOPromptCheckApi,
     AEOPromptCitationApi,
     AEOPromptSetCountsApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -682,6 +683,25 @@ const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ 
     })
 ).flat()
 
+// Answered checks per engine and topic. One engine has no answer about experiments, and no engine has one about
+// surveys, so the grid shows empty cells next to a rate of zero.
+const OVERVIEW_ENGINE_TOPICS: [engine: string, topic: string, answers: number, mentioned: number][] = [
+    ['claude-web-search', '', 20, 6],
+    ['claude-web-search', 'Experiments', 180, 104],
+    ['claude-web-search', 'Feature flags', 170, 140],
+    ['claude-web-search', 'Product analytics', 320, 283],
+    ['claude-web-search', 'Session replay', 200, 90],
+    ['exa-answer', '', 20, 0],
+    ['exa-answer', 'Feature flags', 130, 49],
+    ['exa-answer', 'Product analytics', 250, 151],
+    ['exa-answer', 'Session replay', 300, 80],
+    ['openai-web-search', '', 20, 6],
+    ['openai-web-search', 'Experiments', 170, 36],
+    ['openai-web-search', 'Feature flags', 170, 140],
+    ['openai-web-search', 'Product analytics', 310, 270],
+    ['openai-web-search', 'Session replay', 200, 121],
+]
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -743,6 +763,13 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
         },
     ],
+    engine_topics: OVERVIEW_ENGINE_TOPICS.map(([engine, topic, answers, mentioned]) => ({
+        engine,
+        topic,
+        answers,
+        mentioned,
+        mention_rate: mentioned / answers,
+    })),
     top_domains: [
         { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
         { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
@@ -893,6 +920,94 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
             is_target: false,
         },
         { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
+    ],
+}
+
+export const EXAMPLE_PROMPT_SET_MOVERS: AEOPromptSetMoversApi = {
+    days: 30,
+    window_from: RANKED_DAYS[0],
+    window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    branded: 'non_branded',
+    engine: null,
+    topic: null,
+    answers: 2468,
+    previous_answers: 2390,
+    min_answers: 3,
+    prompt_gainers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[0].id,
+            prompt: EXAMPLE_PROMPTS[0].prompt,
+            topic: EXAMPLE_PROMPTS[0].topic,
+            answers: 28,
+            mentioned: 21,
+            mention_rate: 0.75,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.45,
+        },
+        {
+            prompt_id: '00000000-0000-4000-8000-000000000311',
+            prompt: 'Which product analytics tools have a free plan?',
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 12,
+            mention_rate: 0.4,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.1,
+        },
+    ],
+    prompt_losers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[1].id,
+            prompt: EXAMPLE_PROMPTS[1].prompt,
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 6,
+            mention_rate: 0.2,
+            previous_answers: 29,
+            previous_mentioned: 16,
+            previous_mention_rate: 0.552,
+            change: -0.352,
+        },
+    ],
+    page_gainers: [
+        {
+            url: 'https://example.com/docs/session-replay/installation',
+            answers_citing: 74,
+            citation_rate: 0.03,
+            previous_answers_citing: 31,
+            previous_citation_rate: 0.013,
+            change: 0.017,
+        },
+        {
+            url: 'https://example.com/pricing',
+            answers_citing: 47,
+            citation_rate: 0.019,
+            previous_answers_citing: 45,
+            previous_citation_rate: 0.0188,
+            change: 0.0002,
+        },
+    ],
+    page_losers: [
+        {
+            url: 'https://example.com/blog/best-open-source-analytics-tools',
+            answers_citing: 0,
+            citation_rate: 0,
+            previous_answers_citing: 52,
+            previous_citation_rate: 0.022,
+            change: -0.022,
+        },
+        {
+            url: 'https://example.com/',
+            answers_citing: 106,
+            citation_rate: 0.043,
+            previous_answers_citing: 122,
+            previous_citation_rate: 0.051,
+            change: -0.008,
+        },
     ],
 }
 

@@ -64,6 +64,8 @@ interface FakeDomain {
     preexisting: Set<RecordKind>
     confirmed: Set<RecordKind>
     awaitingRecord: boolean
+    sendingStopped: boolean
+    sesMailFromSubdomain?: string
 }
 
 interface Hold {
@@ -219,6 +221,7 @@ export class FakeEmailDomainBackend {
                 preexisting: new Set(),
                 confirmed: new Set(),
                 awaitingRecord: false,
+                sendingStopped: false,
             })
         }
         return sender
@@ -276,11 +279,39 @@ export class FakeEmailDomainBackend {
 
     verifyDomain(domain: string): void {
         this.publishRecords(domain)
-        this.domainState(domain).ses = 'verified'
+        const state = this.domainState(domain)
+        state.ses = 'verified'
+        state.sendingStopped = false
         this.senders.forEach((sender) => {
-            const config = sender.config as EmailSenderConfig
+            const { ses_sending_status: _cleared, ...config } = sender.config as Record<string, unknown>
             if (config.domain === domain) {
-                sender.config = { ...config, verified: true }
+                sender.config = {
+                    ...config,
+                    verified: true,
+                    mail_from_subdomain: state.sesMailFromSubdomain ?? config.mail_from_subdomain,
+                }
+            }
+        })
+    }
+
+    /** SES already uses another MAIL FROM subdomain, so the next verify adopts it on the domain's senders. */
+    sesUsesMailFrom(domain: string, subdomain: string): void {
+        this.domainState(domain).sesMailFromSubdomain = subdomain
+    }
+
+    /** The sender health check found the domain's records gone: its senders keep `verified` but every send fails. */
+    stopsSending(domain: string, { recordsRemoved = false }: { recordsRemoved?: boolean } = {}): void {
+        this.verifyDomain(domain)
+        const state = this.domainState(domain)
+        state.ses = 'failed'
+        state.sendingStopped = true
+        if (recordsRemoved) {
+            state.published.clear()
+        }
+        this.senders.forEach((sender) => {
+            const config = sender.config as Record<string, unknown>
+            if (config.domain === domain) {
+                sender.config = { ...config, ses_sending_status: 'failed' }
             }
         })
     }
@@ -344,7 +375,7 @@ export class FakeEmailDomainBackend {
         const status = this.overallStatus(state, allFound)
         return {
             status,
-            verified: state.ses === 'verified' && !state.awaitingRecord,
+            verified: state.sendingStopped || (state.ses === 'verified' && !state.awaitingRecord),
             checked_at: CHECKED_AT,
             steps: [
                 { key: 'domain_added', state: 'done' },
@@ -413,11 +444,14 @@ export class FakeEmailDomainBackend {
                 ),
             },
             patch: {
-                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) =>
-                    this.withSender(Number(params.id), (sender) =>
-                        this.updateSender(sender, (body as { config: Partial<EmailSenderConfig> }).config)
-                    )
-                ),
+                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) => {
+                    const config = (body as { config: Partial<EmailSenderConfig> }).config
+                    // Like the server's serializer, an update must name the email and the provider.
+                    if (!config.email || !config.provider) {
+                        return [400, { detail: 'This field is required.' }]
+                    }
+                    return this.withSender(Number(params.id), (sender) => this.updateSender(sender, config))
+                }),
             },
         }
     }

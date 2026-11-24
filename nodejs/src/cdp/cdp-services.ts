@@ -217,6 +217,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
         | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
+        | 'CDP_EMAIL_TEXT_PART_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -246,7 +247,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_INTAKE_DLQ_TOPIC'
         | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
         | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
-        | 'CDP_INTAKE_PRODUCER'
         | 'CDP_INTAKE_MSK_PRODUCER'
         | 'CDP_INTAKE_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
@@ -577,6 +577,7 @@ export function createCdpCoreServices(
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
             templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
+            textPartTeams: config.CDP_EMAIL_TEXT_PART_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
