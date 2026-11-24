@@ -31,6 +31,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -41,6 +43,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
+from products.marketing_analytics.backend.hogql_queries.access_control import MarketingAnalyticsAccessMixin
 from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import goal_sums_a_property
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
@@ -140,7 +143,7 @@ class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
-    AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
 ):
     query: MarketingAnalyticsRecommendationsQuery
     response: MarketingAnalyticsRecommendationsQueryResponse
@@ -167,8 +170,54 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             database=self.hogql_database,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(select=[ast.Constant(value=1)])
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
+        # it as the saving user, so it has to name every table a run reads.
+        tables = {
+            table
+            for source in self.sources
+            for field, table in source
+            if field.endswith("Table")
+            and isinstance(table, str)
+            and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
+        }
+        if not tables:
+            return ast.SelectQuery(select=[ast.Constant(value=1)])
+        return ast.SelectSetQuery.create_from_queries(
+            [self._access_probe(table) for table in sorted(tables)], "UNION ALL"
+        )
+
+    def _access_probe(self, table: str) -> ast.SelectQuery:
+        chain = list[str | int](table.split("."))
+        # A saved expression can add a warehouse field that reads another table, and only a selected field gets
+        # expanded, so the probe selects every scalar field of a warehouse table: the fields a run reads are among
+        # them. Other tables and table-valued fields stay out, because one that fails to compile would skip the check.
+        hogql_table = (
+            None if self.hogql_database.is_table_access_denied(table) else self.hogql_database.get_table(table)
+        )
+        fields = (
+            [name for name, field in hogql_table.fields.items() if isinstance(field, DatabaseField)]
+            if isinstance(hogql_table, S3Table)
+            else []
+        )
+        # Every query in a UNION returns the same columns, so each table's fields go into one array.
+        select: ast.Expr = (
+            ast.Call(
+                name="array",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=[*chain, name])]) for name in fields],
+            )
+            if fields
+            else ast.Constant(value=1)
+        )
+        return ast.SelectQuery(
+            select=[select], select_from=ast.JoinExpr(table=ast.Field(chain=chain)), limit=ast.Constant(value=0)
+        )
+
+    @cached_property
+    def sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        if self.query.sources is None:
+            return self._project_sources()
+        return list({source.model_dump_json(): source for source in self.query.sources}.values())
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -314,7 +363,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
-        sources = self.query.sources if self.query.sources is not None else self._project_sources()
+        sources = self.sources
         if not sources:
             return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER, dataGaps=[])
         ads = [source for source in sources if source.sourceType == "GoogleAds"]

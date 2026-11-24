@@ -12587,7 +12587,7 @@ Note: Read llms.txt and the .md page for every REST resource: campaigns, affilia
 
 ## Rippling — gaps
 
-Today (20): `companies`, `compensations`, `departments`, `employment_types`, `leave_accruals`, `leave_balances`, `leave_requests`, `levels`, `payroll_runs`, `teams`, `time_entries`, `titles`, `tracks`, `users`, `variable_compensation_payouts`, `work_locations`, `worker_change_fields`, `worker_changes`, `worker_payroll_records`, `workers`
+Today (24): `companies`, `compensations`, `departments`, `employment_types`, `job_assignments`, `job_codes`, `leave_accruals`, `leave_balances`, `leave_requests`, `leave_types`, `levels`, `payroll_runs`, `teams`, `time_cards`, `time_entries`, `titles`, `tracks`, `users`, `variable_compensation_payouts`, `work_locations`, `worker_change_fields`, `worker_changes`, `worker_payroll_records`, `workers`
 
 Diffed against: <https://developer.rippling.com/sitemap.xml>
 
@@ -12599,10 +12599,10 @@ Diffed against: <https://developer.rippling.com/sitemap.xml>
 - [x] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
 - [x] `list-titles` — lookup resolving the job title ID carried on workers (high)
 - [x] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
-- [ ] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
-- [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium)
-- [ ] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
-- [ ] `list-time-cards` — approved timesheet totals per period, the aggregate view of time entries (medium)
+- [x] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
+- [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium) Skipped: not in the published rest-api reference (the reference page and LegalEntity schema return 404); only a guide links to it.
+- [x] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
+- [x] `list-time-cards` — approved timesheet totals per period, the aggregate view of time entries (medium)
 - [x] `list-variable-compensation-payouts` — per-worker variable compensation payouts (bonuses, commissions, one-off pay) with status and scheduled dates (medium)
 
 Note: Rippling exposes three distinct API surfaces (base-api, company-api, rest-api). The PostHog tables match the modern rest-api (Rippling Platform API), so the diff was taken against the ~230 rest-api reference pages in the sitemap; the base-api/company-api surfaces are older equivalents and were not counted as gaps.
@@ -15403,10 +15403,10 @@ Diffed against: <https://raw.githubusercontent.com/twentyhq/twenty/main/packages
 - [x] `Note targets (GET /rest/noteTargets)` — connect notes to the people, companies, and opportunities they describe (high) → `note_targets` (incremental on `updatedAt`/`createdAt`)
 - [x] `Task targets (GET /rest/taskTargets)` — connect tasks to customer and opportunity records for follow-up and sales activity analysis (high) → `task_targets` (incremental on `updatedAt`/`createdAt`)
 - [ ] `Custom objects (GET /rest/{objectNamePlural})` — import workspace-specific business objects that the six fixed table definitions cannot discover (high) — skipped: needs per-workspace discovery through the metadata API, which the static table catalog does not support
-- [ ] `Messages (GET /rest/messages)` — analyze customer email volume, communication timing, and message content alongside CRM records (medium)
-- [ ] `Message participants (GET /rest/messageParticipants)` — connect email senders and recipients to people and workspace members (medium)
-- [ ] `Message threads (GET /rest/messageThreads)` — group emails into customer conversations for engagement analysis (medium)
-- [ ] `Calendar events (GET /rest/calendarEvents)` — measure customer meetings, meeting duration, and sales activity over time (medium)
+- [x] `Messages (GET /rest/messages)` — analyze customer email volume, communication timing, and message content alongside CRM records (medium) → `messages` (incremental on `updatedAt`/`createdAt`)
+- [x] `Message participants (GET /rest/messageParticipants)` — connect email senders and recipients to people and workspace members (medium) → `message_participants` (incremental on `updatedAt`/`createdAt`)
+- [x] `Message threads (GET /rest/messageThreads)` — group emails into customer conversations for engagement analysis (medium) → `message_threads` (incremental on `updatedAt`/`createdAt`)
+- [x] `Calendar events (GET /rest/calendarEvents)` — measure customer meetings, meeting duration, and sales activity over time (medium) → `calendar_events` (incremental on `updatedAt`/`createdAt`)
 - [ ] `Calendar event participants (GET /rest/calendarEventParticipants)` — connect meetings to customers and staff to assess relationship coverage (medium)
 - [ ] `Calendar event targets (GET /rest/calendarEventTargets)` — attribute meeting activity to companies, people, and opportunities (medium)
 
