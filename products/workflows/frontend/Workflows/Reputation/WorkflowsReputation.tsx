@@ -617,7 +617,6 @@ export function WorkflowsReputation(): JSX.Element {
     const {
         awsReputation,
         sendingAllowance,
-        infrastructureHealth,
         teamReputation,
         ispSendingHealth,
         ispSharedDomains,
@@ -643,16 +642,14 @@ export function WorkflowsReputation(): JSX.Element {
             </LemonBanner>
             {/* Rates cover a rolling 30 days that ends now. */}
             <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
-            {(sendingAllowance?.enforced || infrastructureHealth) && (
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-                    {sendingAllowance?.enforced && (
-                        <div className="flex-1 min-w-0">
-                            <SendingAllowanceCard allowance={sendingAllowance} />
-                        </div>
-                    )}
-                    <EmailInfrastructureCard className="lg:w-80 lg:shrink-0 lg:ml-auto" />
-                </div>
-            )}
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch empty:hidden">
+                {sendingAllowance?.enforced && (
+                    <div className="flex-1 min-w-0">
+                        <SendingAllowanceCard allowance={sendingAllowance} />
+                    </div>
+                )}
+                <EmailInfrastructureCard className="lg:w-80 lg:shrink-0 lg:ml-auto" />
+            </div>
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
