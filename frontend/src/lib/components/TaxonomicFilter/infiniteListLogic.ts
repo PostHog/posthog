@@ -1487,7 +1487,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (trimmedSearch.length === 0 || isLoading || remoteFetchFailed === searchQuery) {
                     return false
                 }
-                // Offering an excluded name would let it be selected as a non-captured event,
+                // Offering an excluded name would let it be selected as a non-captured name,
                 // committing the value the exclusion forbids. A hidden event is excluded by its
                 // label and case variants too, so match it the same way the empty state does —
                 // otherwise a label search offers a "not seen yet" row for a name no event carries
