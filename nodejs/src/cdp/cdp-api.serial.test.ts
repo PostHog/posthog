@@ -2884,6 +2884,7 @@ describe('CDP API', () => {
 
             beforeEach(() => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = true
             })
 
             afterEach(() => {
@@ -2947,11 +2948,12 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['sealing is off', false, false, 1],
-                ['sealing is on and the send is keyed', true, true, 1],
-                ['sealing is on and the send has no key', true, false, 1],
-            ])('produces a sensitive send in async mode when %s', async (_name, sealing, keyed, produced) => {
+                ['refuses a sensitive send with 503 and produces nothing when sealing is off', false, false, 503, 0],
+                ['produces a sensitive send when sealing is on and the send is keyed', true, true, 202, 1],
+                ['produces a sensitive send when sealing is on and the send has no key', true, false, 202, 1],
+            ])('%s', async (_name, sealing, keyed, status, produced) => {
                 api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+                const notSealingBefore = await outcomeCount('not_sealing')
 
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
@@ -2959,8 +2961,9 @@ describe('CDP API', () => {
                     send: { ...codeSend, sensitive: true },
                 })
 
-                expect(res.status).toEqual(202)
+                expect(res.status).toEqual(status)
                 expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
+                expect(await outcomeCount('not_sealing')).toEqual(notSealingBefore + (sealing ? 0 : 1))
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
