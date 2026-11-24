@@ -213,6 +213,35 @@ export const ManagedViewsetsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier. Callers without access to every project of the organization get the tables with unknown sizes.
+ * @summary Estimate a managed warehouse query
+ */
+export const managedWarehouseConsoleEstimateCreateBodyQueryMax = 100000
+
+export const managedWarehouseConsoleEstimateCreateBodySendRawQueryDefault = false
+
+export const ManagedWarehouseConsoleEstimateCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(managedWarehouseConsoleEstimateCreateBodyQueryMax)
+        .describe('The SQL editor query to estimate, HogQL or raw Trino SQL.'),
+    send_raw_query: zod
+        .boolean()
+        .default(managedWarehouseConsoleEstimateCreateBodySendRawQueryDefault)
+        .describe('True when the query is raw Trino SQL. False when it is HogQL.'),
+    variables: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe(
+            'SQL editor variables by id, in the shape a HogQL query takes. They fill the {variables} placeholders.'
+        ),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('HogQL filters, in the shape a HogQL query takes. They fill the {filters} placeholders.'),
+})
+
+/**
  * Create the project's Trino login for the mode, or give an existing one a new password. The password is in this response only.
  * @summary Create or rotate a managed warehouse project login
  */

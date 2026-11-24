@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import time_machine
@@ -12,6 +13,8 @@ from parameterized import parameterized
 from rest_framework import status
 from structlog.testing import capture_logs
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -19,6 +22,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.project_access import restrict_project
 
 from products.managed_warehouse.backend.facade.console import get_console_settings
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTrinoConnectionUnavailable,
+    QueryCostEstimate,
+    QueryCostTable,
+)
 
 
 class TranslatedResponse:
@@ -226,6 +234,34 @@ class TestManagedWarehouseConsoleAPI(APIBaseTest):
             }
             upstream.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, True),
+            ("member without one project", OrganizationMembership.Level.MEMBER, False),
+        ]
+    )
+    def test_estimate_sizes_follow_warehouse_wide_access(
+        self, _name: str, level: OrganizationMembership.Level, include_sizes: bool
+    ) -> None:
+        self._set_level(level)
+        restrict_project(
+            Team.objects.create(organization=self.organization, name="Private"),
+            plain_members=[self.organization_membership] if not include_sizes else [],
+        )
+        estimate = QueryCostEstimate(
+            tables=(),
+            upper_bound_bytes=None,
+            estimated_cost_usd=None,
+            cap_bytes=None,
+            exceeds_cap=False,
+            complete=True,
+            warnings=(),
+        )
+        with self._estimate(return_value=estimate) as run:
+            response = self.client.post(self._url("estimate/"), {"query": "SELECT 1"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert run.call_args.kwargs["include_sizes"] is include_sizes
+
     def test_upstream_unavailable_is_503(self) -> None:
         with self._send(503, {"error": "x"}):
             assert self.client.get(self._url("storage/")).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -252,6 +288,82 @@ class TestManagedWarehouseConsoleAPI(APIBaseTest):
         with patch(_SEND, return_value=TranslatedResponse(upstream, body, from_json=from_json)):
             response = self.client.get(self._url("storage/"))
         assert "internal stack trace" not in response.content.decode()
+
+    @override_settings(HOGTOWER_API_URL=None)
+    def test_estimate_not_found_when_warehouse_not_enabled(self) -> None:
+        with patch(_ENABLED, return_value=False), self._estimate() as run:
+            response = self.client.post(self._url("estimate/"), {"query": "SELECT 1"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        run.assert_not_called()
+
+    def _estimate(self, **kwargs: Any):
+        return patch(
+            "products.data_warehouse.backend.presentation.views.managed_warehouse_console."
+            "console_facade.estimate_managed_trino_query",
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [("member", OrganizationMembership.Level.MEMBER), ("admin", OrganizationMembership.Level.ADMIN)]
+    )
+    def test_estimate_returns_the_upper_bound_with_decimal_strings(
+        self, _name: str, level: OrganizationMembership.Level
+    ) -> None:
+        self._set_level(level)
+        estimate = QueryCostEstimate(
+            tables=(
+                QueryCostTable(catalog="org_x", schema="sales", table="orders", size_bytes=2**40, has_filter=False),
+                QueryCostTable(catalog="org_x", schema="sales", table="gone", size_bytes=None, has_filter=True),
+            ),
+            upper_bound_bytes=2**40,
+            estimated_cost_usd=Decimal("2.5"),
+            cap_bytes=None,
+            exceeds_cap=False,
+            complete=False,
+            warnings=("no_filter_on_large_table", "size_unknown"),
+        )
+        with self._estimate(return_value=estimate) as run:
+            response = self.client.post(
+                self._url("estimate/"),
+                {"query": "SELECT 1", "send_raw_query": True, "variables": {"v1": {"code_name": "x"}}, "filters": {}},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["estimated_cost_usd"] == "2.500000"
+        assert data["upper_bound_bytes"] == 2**40
+        assert data["tables"][1]["size_bytes"] is None
+        assert data["warnings"] == ["no_filter_on_large_table", "size_unknown"]
+        assert run.call_args.kwargs["include_sizes"] is True
+        assert {k: v for k, v in run.call_args.kwargs.items() if k != "include_sizes"} == {
+            "query": "SELECT 1",
+            "send_raw_query": True,
+            "variables": {"v1": {"code_name": "x"}},
+            "filters": {},
+        }
+
+    @parameterized.expand(
+        [
+            ("compile_error", ExposedHogQLError("Unknown table nope"), status.HTTP_400_BAD_REQUEST, "Unknown table"),
+            (
+                "not_ready",
+                ManagedWarehouseTrinoConnectionUnavailable("no catalog"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "not ready",
+            ),
+        ]
+    )
+    def test_estimate_maps_errors(self, _name: str, error: Exception, expected: int, message: str) -> None:
+        with self._estimate(side_effect=error):
+            response = self.client.post(self._url("estimate/"), {"query": "SELECT 1"}, format="json")
+        assert response.status_code == expected
+        assert message in response.json()["error"]
+
+    def test_estimate_rejects_a_missing_query(self) -> None:
+        with self._estimate() as run:
+            response = self.client.post(self._url("estimate/"), {}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.assert_not_called()
 
     @override_settings(HOGTOWER_API_URL="")
     def test_unconfigured_control_plane_is_501(self) -> None:
