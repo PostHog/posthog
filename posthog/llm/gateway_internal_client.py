@@ -2,6 +2,7 @@ import json
 import uuid
 import dataclasses
 from typing import Any, TypeGuard
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -24,11 +25,29 @@ BILLING_ACTOR = "billing"
 # keys or its config recover.
 REJECTED_STATUS_CODES = frozenset({400, 409})
 SIGNED_ENVELOPE_FIELDS = ("body", "signed_at", "key_id", "signature")
+
+
+@frozen
+class SignedMessageRoute:
+    """The gateway route for one body type.
+
+    The path takes the organization ID, and `{key}` takes the body's `key_field` when the route names one.
+    """
+
+    method: str
+    path: str
+    key_field: str | None = None
+
+
 SIGNED_MESSAGE_ROUTES = {
-    "ai_funding_added": "/internal/accounts/{organization_id}/credits",
-    "ai_funding_reversed": "/internal/accounts/{organization_id}/credits/reversal",
-    "ai_withdrawal_requested": "/internal/accounts/{organization_id}/credits/withdrawal",
-    "ai_reload_outcome": "/internal/accounts/{organization_id}/reload-outcome",
+    "ai_funding_added": SignedMessageRoute(method="POST", path="/internal/accounts/{organization_id}/credits"),
+    "ai_funding_reversed": SignedMessageRoute(method="POST", path="/internal/accounts/{organization_id}/reversals"),
+    "ai_withdrawal_requested": SignedMessageRoute(
+        method="POST", path="/internal/accounts/{organization_id}/withdrawals"
+    ),
+    "ai_reload_outcome": SignedMessageRoute(
+        method="PUT", path="/internal/accounts/{organization_id}/reloads/{key}", key_field="reload_key"
+    ),
 }
 
 
@@ -265,8 +284,19 @@ class SignedMessage:
     """
 
     envelope: dict[str, Any]
+    body: dict[str, Any]
     type: str
     organization_id: str
+
+    def path_key(self, field: str) -> str:
+        """The body's `field`, percent-encoded for a route's path.
+
+        Raises `MalformedSignedMessage` when the body has no such field, or its value isn't a string.
+        """
+        value = self.body.get(field)
+        if not isinstance(value, str) or not value:
+            raise MalformedSignedMessage(f"the envelope's body has no {field}")
+        return quote(value, safe="")
 
 
 def read_signed_message(envelope: object) -> SignedMessage:
@@ -289,23 +319,25 @@ def read_signed_message(envelope: object) -> SignedMessage:
     organization_id = body.get("organization_id")
     if not _is_canonical_uuid(organization_id):
         raise MalformedSignedMessage("the envelope's body has no organization ID")
-    return SignedMessage(envelope=envelope, type=message_type, organization_id=organization_id)
+    return SignedMessage(envelope=envelope, body=body, type=message_type, organization_id=organization_id)
 
 
 def post_signed_message(message: SignedMessage) -> object:
-    """Post a message that billing signed for the gateway, unchanged, to the route for its body type.
+    """Send a message that billing signed for the gateway, unchanged, to the route for its body type.
 
     Returns the gateway's 200 answer, parsed from JSON. Raises `MalformedSignedMessage` for a body type that
-    no route takes, and `AIGatewayRequestRejected` for a 400 or a 409. Every other answer, and no answer,
-    raises `AIGatewayInternalError`.
+    no route takes, or a body without the field that its route's path needs. It raises `AIGatewayRequestRejected`
+    for a 400 or a 409. Every other answer, and no answer, raises `AIGatewayInternalError`.
     """
     route = SIGNED_MESSAGE_ROUTES.get(message.type)
     if route is None:
         raise MalformedSignedMessage(f"no gateway route takes {message.type}")
+    key = message.path_key(route.key_field) if route.key_field else None
     url, token = _config()
     try:
-        response = httpx.post(
-            f"{url}{route.format(organization_id=message.organization_id)}",
+        response = httpx.request(
+            route.method,
+            f"{url}{route.path.format(organization_id=message.organization_id, key=key)}",
             headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: BILLING_ACTOR}),
             json=message.envelope,
             timeout=INTERNAL_API_TIMEOUT_SECONDS,

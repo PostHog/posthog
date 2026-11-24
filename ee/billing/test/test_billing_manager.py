@@ -24,6 +24,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.llm.gateway_internal_client import read_signed_message
 from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
@@ -2500,30 +2501,21 @@ class TestAICreditRelayToBilling(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-    @parameterized.expand(
-        [
-            ("reload", "reload_ai_balance", "/api/ai-credits/reload", "ai_credit_reload", 202, {"result": "accepted"}),
-            (
-                "withdrawal_outcome",
-                "send_ai_withdrawal_outcome",
-                "/api/ai-credits/withdrawal-outcome",
-                "ai_credit_withdrawal_outcome",
-                200,
-                None,
-            ),
-        ]
-    )
-    def test_posts_the_envelope_unchanged_with_the_service_action(
-        self, _name, method, path, service_action, status_code, expected_result
-    ):
-        answer = MagicMock(status_code=status_code, json=MagicMock(return_value={"result": "accepted"}))
-        with patch("ee.billing.billing_manager.http_session.post", return_value=answer) as billing_post_request_mock:
-            result = getattr(BillingManager(self._license()), method)(self.organization, self.ENVELOPE)
+    WITHDRAWAL_ANSWER = {
+        "body": json.dumps(
+            {
+                "type": "ai_withdrawal_answered",
+                "organization_id": "0190b3a1-1111-7000-8000-000000000001",
+                "operation_id": "ai_refund:re_1",
+                "result": "approved",
+            }
+        ),
+        "signed_at": "2026-11-23T18:04:05Z",
+        "key_id": "ai-gateway-us-1",
+        "signature": "7d8e9f",
+    }
 
-        assert result == expected_result
-        call_args = billing_post_request_mock.call_args
-        assert call_args[0][0].endswith(path)
-        assert call_args[1]["json"] == self.ENVELOPE
+    def _assert_service_token(self, call_args: Any, service_action: str) -> None:
         assert "Idempotency-Key" not in call_args[1]["headers"]
         token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
         decoded = jwt.decode(token, options={"verify_signature": False})
@@ -2532,23 +2524,59 @@ class TestAICreditRelayToBilling(BaseTest):
         assert "organization_role" not in decoded
         assert "distinct_id" not in decoded
 
+    def test_posts_the_reload_request_unchanged_with_the_service_action(self):
+        answer = MagicMock(status_code=202, json=MagicMock(return_value={"result": "accepted"}))
+        with patch("ee.billing.billing_manager.http_session.post", return_value=answer) as billing_post_request_mock:
+            result = BillingManager(self._license()).reload_ai_balance(self.organization, self.ENVELOPE)
+
+        assert result == {"result": "accepted"}
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/ai-credits/reloads")
+        assert call_args[1]["json"] == self.ENVELOPE
+        self._assert_service_token(call_args, "ai_credit_reload")
+
+    def test_puts_the_withdrawal_answer_unchanged_at_its_operation_id(self):
+        answer = read_signed_message(self.WITHDRAWAL_ANSWER)
+        with patch(
+            "ee.billing.billing_manager.http_session.put", return_value=MagicMock(status_code=200)
+        ) as billing_put_request_mock:
+            result = BillingManager(self._license()).send_ai_withdrawal_answer(self.organization, answer)
+
+        assert result is None
+        call_args = billing_put_request_mock.call_args
+        assert call_args[0][0].endswith("/api/ai-credits/withdrawals/ai_refund%3Are_1")
+        assert call_args[1]["json"] == self.WITHDRAWAL_ANSWER
+        self._assert_service_token(call_args, "ai_credit_withdrawal")
+
     @parameterized.expand(
         [
-            ("reload_answered_synchronously", "reload_ai_balance", 200),
-            ("reload_refused", "reload_ai_balance", 403),
-            ("reload_not_deployed", "reload_ai_balance", 404),
-            ("reload_auth_failure", "reload_ai_balance", 401),
-            ("outcome_bad_signature", "send_ai_withdrawal_outcome", 400),
-            ("outcome_auth_failure", "send_ai_withdrawal_outcome", 401),
-            ("outcome_not_deployed", "send_ai_withdrawal_outcome", 404),
-            ("outcome_unavailable", "send_ai_withdrawal_outcome", 503),
+            ("answered_synchronously", 200),
+            ("refused", 403),
+            ("not_deployed", 404),
+            ("auth_failure", 401),
         ]
     )
-    def test_raises_on_any_answer_but_success(self, _name, method, status_code):
+    def test_a_reload_raises_on_any_answer_but_202(self, _name, status_code):
         response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
         with patch("ee.billing.billing_manager.http_session.post", return_value=response):
             with self.assertRaises(BillingServiceResponseError) as context:
-                getattr(BillingManager(self._license()), method)(self.organization, self.ENVELOPE)
+                BillingManager(self._license()).reload_ai_balance(self.organization, self.ENVELOPE)
+        assert context.exception.status_code == status_code
+
+    @parameterized.expand(
+        [
+            ("bad_signature", 400),
+            ("auth_failure", 401),
+            ("not_deployed", 404),
+            ("unavailable", 503),
+        ]
+    )
+    def test_a_withdrawal_answer_raises_on_any_answer_but_success(self, _name, status_code):
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        answer = read_signed_message(self.WITHDRAWAL_ANSWER)
+        with patch("ee.billing.billing_manager.http_session.put", return_value=response):
+            with self.assertRaises(BillingServiceResponseError) as context:
+                BillingManager(self._license()).send_ai_withdrawal_answer(self.organization, answer)
         assert context.exception.status_code == status_code
 
 

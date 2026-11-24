@@ -33,6 +33,7 @@ from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitl
 from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_internal_client import SignedMessage
 from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
@@ -1259,7 +1260,7 @@ class BillingManager:
         code tells a refusal (403) from a failure.
         """
         res = http_session.post(
-            f"{BILLING_SERVICE_URL}/api/ai-credits/reload",
+            f"{BILLING_SERVICE_URL}/api/ai-credits/reloads",
             headers=self.get_auth_headers(organization, service_action="ai_credit_reload"),
             json=envelope,
             timeout=10,
@@ -1267,17 +1268,18 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(202,))
         return res.json()
 
-    def send_ai_withdrawal_outcome(self, organization: Organization, envelope: Mapping[str, Any]) -> None:
-        """Pass the AI gateway's signed answer to a withdrawal to billing, unchanged.
+    def send_ai_withdrawal_answer(self, organization: Organization, answer: SignedMessage) -> None:
+        """Pass the AI gateway's signed answer to a withdrawal to billing, unchanged, at its operation ID.
 
         Billing checks the signature and gives the answer to the refund workflow. It takes one answer for each
-        operation ID, so the same answer again changes nothing. Any answer but a 200, 202 or 204 raises
+        operation ID, so the same answer again changes nothing. Raises `MalformedSignedMessage` for an answer
+        without an operation ID. Any answer from billing but a 200, 202 or 204 raises
         `BillingServiceResponseError`.
         """
-        res = http_session.post(
-            f"{BILLING_SERVICE_URL}/api/ai-credits/withdrawal-outcome",
-            headers=self.get_auth_headers(organization, service_action="ai_credit_withdrawal_outcome"),
-            json=envelope,
+        res = http_session.put(
+            f"{BILLING_SERVICE_URL}/api/ai-credits/withdrawals/{answer.path_key('operation_id')}",
+            headers=self.get_auth_headers(organization, service_action="ai_credit_withdrawal"),
+            json=answer.envelope,
             timeout=10,
         )
         handle_billing_service_error(res, valid_codes=(200, 202, 204))

@@ -252,7 +252,10 @@ class BillingConsumer(SQSConsumer):
         except MalformedSignedMessage as e:
             _not_delivered(e, context)
 
-        BillingManager(get_cached_instance_license()).send_ai_withdrawal_outcome(organization, signed_answer.envelope)
+        try:
+            BillingManager(get_cached_instance_license()).send_ai_withdrawal_answer(organization, signed_answer)
+        except MalformedSignedMessage as e:
+            _not_delivered(e, context)
         logger.info("ai_withdrawal.answer_relayed", extra=context)
 
     def _process_billing_activity(self, body: dict[str, Any]) -> None:

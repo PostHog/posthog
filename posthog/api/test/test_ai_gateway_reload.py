@@ -21,7 +21,7 @@ class TestAIGatewayReload(BaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self.url = "/api/internal/ai_gateway/reload"
+        self.url = "/api/internal/ai_gateway/reloads"
 
     def _envelope(self, **body: object) -> dict:
         signed = {

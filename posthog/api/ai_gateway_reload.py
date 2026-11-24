@@ -59,12 +59,12 @@ class AIGatewayReloadRequestSerializer(serializers.Serializer):
 
 class AIGatewayReloadView(APIView):
     """
-    POST /api/internal/ai_gateway/reload: reload the AI balance of the organization in the signed body.
+    POST /api/internal/ai_gateway/reloads: reload the AI balance of the organization in the signed body.
 
     Send the envelope as the JSON body. A request again with the same reload key starts nothing new. Answers:
 
     - 202 `{"result": "accepted"}` when billing starts the reload. The outcome follows on billing's
-      queue, which PostHog relays to the gateway's reload-outcome route.
+      queue, which PostHog relays to the gateway's route for the reload key.
     - 400 when PostHog can't read the envelope, or the body's type isn't `ai_reload_requested`.
     - 401 when the bearer token isn't the gateway's.
     - 403 when the organization doesn't buy AI credits.

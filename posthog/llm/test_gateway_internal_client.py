@@ -26,6 +26,9 @@ from posthog.llm.gateway_internal_client import (
 ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
 
 
+GATEWAY_REQUEST = "posthog.llm.gateway_internal_client.httpx.request"
+
+
 def _response(status: int, payload: dict | None = None) -> httpx.Response:
     return httpx.Response(status, json=payload or {}, request=httpx.Request("GET", "http://gw"))
 
@@ -301,23 +304,23 @@ class TestReadSignedMessage:
 
 class TestPostSignedMessage:
     @pytest.mark.parametrize(
-        "message_type, path",
+        "message_type, method, path",
         [
-            ("ai_funding_added", f"/internal/accounts/{ORG_ID}/credits"),
-            ("ai_funding_reversed", f"/internal/accounts/{ORG_ID}/credits/reversal"),
-            ("ai_withdrawal_requested", f"/internal/accounts/{ORG_ID}/credits/withdrawal"),
-            ("ai_reload_outcome", f"/internal/accounts/{ORG_ID}/reload-outcome"),
+            ("ai_funding_added", "POST", f"/internal/accounts/{ORG_ID}/credits"),
+            ("ai_funding_reversed", "POST", f"/internal/accounts/{ORG_ID}/reversals"),
+            ("ai_withdrawal_requested", "POST", f"/internal/accounts/{ORG_ID}/withdrawals"),
+            ("ai_reload_outcome", "PUT", f"/internal/accounts/{ORG_ID}/reloads/low-balance-1"),
         ],
     )
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_posts_the_envelope_unchanged_to_the_route_for_its_type(self, mock_settings, message_type, path):
+    def test_sends_the_envelope_unchanged_to_the_route_for_its_type(self, mock_settings, message_type, method, path):
         _configured(mock_settings)
-        envelope = _envelope(body=_body(message_type))
+        envelope = _envelope(body=_body(message_type, reload_key="low-balance-1"))
         answer = {"entry_id": "entry-1", "duplicate": False}
-        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, answer)) as mock_post:
+        with patch(GATEWAY_REQUEST, return_value=_response(200, answer)) as mock_post:
             result = post_signed_message(read_signed_message(envelope))
 
-        assert mock_post.call_args.args[0] == f"http://gw{path}"
+        assert mock_post.call_args.args == (method, f"http://gw{path}")
         assert mock_post.call_args.kwargs["json"] == envelope
         assert mock_post.call_args.kwargs["headers"] == {
             "Authorization": "Bearer tok",
@@ -341,17 +344,35 @@ class TestPostSignedMessage:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_only_a_200_delivers_and_only_400_or_409_is_rejected(self, mock_settings, answer, rejected):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post", side_effect=[answer]):
+        with patch(GATEWAY_REQUEST, side_effect=[answer]):
             with pytest.raises(AIGatewayInternalError) as excinfo:
                 post_signed_message(read_signed_message(_envelope()))
 
         assert isinstance(excinfo.value, AIGatewayRequestRejected) is rejected
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_a_type_that_no_route_takes_is_malformed_and_never_sent(self, mock_settings):
+    def test_percent_encodes_the_reload_key_for_the_path(self, mock_settings):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.post") as mock_post:
+        envelope = _envelope(body=_body("ai_reload_outcome", reload_key="low/balance 1"))
+        with patch(GATEWAY_REQUEST, return_value=_response(200)) as mock_post:
+            post_signed_message(read_signed_message(envelope))
+
+        assert mock_post.call_args.args[1] == f"http://gw/internal/accounts/{ORG_ID}/reloads/low%2Fbalance%201"
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param(_body("ai_reload_requested"), id="type_without_a_route"),
+            pytest.param(_body("ai_reload_outcome"), id="reload_outcome_without_a_reload_key"),
+            pytest.param(_body("ai_reload_outcome", reload_key=""), id="empty_reload_key"),
+            pytest.param(_body("ai_reload_outcome", reload_key=7), id="reload_key_not_a_string"),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_a_message_that_no_route_takes_is_malformed_and_never_sent(self, mock_settings, body):
+        _configured(mock_settings)
+        with patch(GATEWAY_REQUEST) as mock_post:
             with pytest.raises(MalformedSignedMessage):
-                post_signed_message(read_signed_message(_envelope(body=_body("ai_reload_requested"))))
+                post_signed_message(read_signed_message(_envelope(body=body)))
 
         mock_post.assert_not_called()

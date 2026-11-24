@@ -299,7 +299,7 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/account_audience",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_account_audience"})),
     ),
-    path("api/internal/ai_gateway/reload", csrf_exempt(ai_gateway_reload.AIGatewayReloadView.as_view())),
+    path("api/internal/ai_gateway/reloads", csrf_exempt(ai_gateway_reload.AIGatewayReloadView.as_view())),
     path(
         "api/internal/hog_flows/process_due_schedules",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
