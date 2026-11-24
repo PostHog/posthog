@@ -10,7 +10,12 @@ import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 import { decodeLiquidTags } from '~/cdp/utils/liquid'
 
-import { clickableHrefs, hasReplaceableUnsubscribeLink, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
+import {
+    UnsubscribeLinkCheck,
+    checkReplaceableUnsubscribeLink,
+    isTooLargeToCheck,
+    scanClickableHrefs,
+} from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -439,10 +444,16 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
     return root.branchState === 'matched_base' || root.branchState === 'matched_query'
 }
 
-const hasLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): boolean =>
-    html
-        ? clickableHrefs(html).some(isLiquidUnsubscribeHref)
-        : LIQUID_UNSUBSCRIBE_PLACEHOLDER.test(decodeLiquidTags(text ?? ''))
+const checkLiquidUnsubscribeLink = ({ html, text }: { html?: string; text?: string }): UnsubscribeLinkCheck => {
+    if (html) {
+        const scanned = scanClickableHrefs(html)
+        if (!scanned.ok) {
+            return scanned.reason === 'unsupported_markup' ? 'unsupported_email_markup' : 'unsubscribe_link_required'
+        }
+        return scanned.hrefs.some(isLiquidUnsubscribeHref) ? 'ok' : 'unsubscribe_link_required'
+    }
+    return LIQUID_UNSUBSCRIBE_PLACEHOLDER.test(decodeLiquidTags(text ?? '')) ? 'ok' : 'unsubscribe_link_required'
+}
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
@@ -452,7 +463,11 @@ const marketingEmailInputs = (action: HogFlowAction, category: SendCategory | un
         ? (action.config.inputs.email?.value ?? {})
         : undefined
 
-export type MarketingSendRefusal = 'content_too_large' | 'unsubscribe_link_required' | 'copies_not_allowed'
+export type MarketingSendRefusal =
+    | 'content_too_large'
+    | 'unsubscribe_link_required'
+    | 'unsupported_email_markup'
+    | 'copies_not_allowed'
 
 export const marketingCopiesRefusal = (
     action: HogFlowAction,
@@ -477,8 +492,8 @@ export const marketingSendRefusal = (
     if (isTooLargeToCheck(send?.content ?? email)) {
         return 'content_too_large'
     }
-    const linked = send?.content ? hasReplaceableUnsubscribeLink(send.content) : hasLiquidUnsubscribeLink(email)
-    return linked ? marketingCopiesRefusal(action, send, category) : 'unsubscribe_link_required'
+    const linkCheck = send?.content ? checkReplaceableUnsubscribeLink(send.content) : checkLiquidUnsubscribeLink(email)
+    return linkCheck === 'ok' ? marketingCopiesRefusal(action, send, category) : linkCheck
 }
 
 export const acceptedSendEmailFields = (

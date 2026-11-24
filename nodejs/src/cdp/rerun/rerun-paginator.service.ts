@@ -706,8 +706,7 @@ export class RerunPaginatorService {
                         state.function_kind,
                         state.function_id,
                         row,
-                        state.request.replay_code_sends === true,
-                        state.request.replay_code_send_categories === true
+                        state.request.replay_code_sends === true
                     )
                     if (!invocation) {
                         counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
@@ -749,8 +748,7 @@ export class RerunPaginatorService {
         functionKind: RerunFunctionKind,
         functionId: string,
         row: InvocationRow,
-        replayCodeSends: boolean,
-        replayCodeSendCategories: boolean
+        replayCodeSends: boolean
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
@@ -859,27 +857,8 @@ export class RerunPaginatorService {
                 )
                 return null
             }
-            if (persistedState.send && !replayCodeSends) {
-                logger.warn('⚠️', 'Skipping rerun of an email sent from code while code sends are off', {
-                    functionId,
-                    teamId,
-                    invocation_id: row.invocation_id,
-                })
-                return null
-            }
-            const stepHasCategory =
-                Array.isArray(hogFlow.actions) &&
-                hogFlow.actions.some(
-                    (action) =>
-                        (action.type === 'function_email' || action.type === 'email_sandbox') &&
-                        (Boolean(action.config?.message_category_id) ||
-                            action.config?.message_category_type === 'marketing')
-                )
-            if (
-                !replayCodeSendCategories &&
-                (persistedState.messageCategory || (persistedState.send && stepHasCategory))
-            ) {
-                logger.warn('⚠️', 'Skipping rerun of a categorized email send while code send categories are off', {
+            if (persistedState.messageCategory) {
+                logger.warn('⚠️', 'Skipping rerun of a categorized code send', {
                     functionId,
                     teamId,
                     invocation_id: row.invocation_id,
@@ -893,12 +872,19 @@ export class RerunPaginatorService {
                             instance_id: row.invocation_id,
                             timestamp: DateTime.now(),
                             level: 'warn',
-                            message:
-                                "Not re-run: this run's email uses a message category, which is currently disabled.",
+                            message: "Not re-run: categorized code sends can't be rerun yet.",
                         },
                     ],
                     'hog_flow'
                 )
+                return null
+            }
+            if (persistedState.send && !replayCodeSends) {
+                logger.warn('⚠️', 'Skipping rerun of an email sent from code while code sends are off', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
                 return null
             }
             const eventForFilter = persistedState.event ?? {}
@@ -972,7 +958,6 @@ export class RerunPaginatorService {
                 // Later message steps check these before the per-worker preferences cache, which can predate them.
                 messageOptOuts: persistedState.messageOptOuts,
                 send: persistedState.send,
-                messageCategory: persistedState.messageCategory,
                 senderKind: persistedState.senderKind,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`

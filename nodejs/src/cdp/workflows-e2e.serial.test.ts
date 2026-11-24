@@ -4076,6 +4076,19 @@ describe('Workflows E2E (email queue)', () => {
                 reason: expect.stringContaining('1,500,000 characters'),
             },
             {
+                name: 'a code send in a marketing category whose html includes an unsupported frameset and select tag',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: {
+                        subject: 'News',
+                        html: '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
+                    },
+                }),
+                status: 400,
+                error: 'unsupported_email_markup',
+                reason: expect.stringContaining('plain <a href>'),
+            },
+            {
                 name: 'a code send in a marketing category whose html has no unsubscribe link',
                 kind: 'code',
                 payload: codeSendIn(newsletter, {
@@ -4971,6 +4984,14 @@ describe('Workflows E2E (email queue)', () => {
                 name: 'no unsubscribe link',
                 stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
                 skipped: 'unsubscribe_link_required',
+            },
+            {
+                name: 'an unsupported svg tag',
+                stepEmail: () => ({
+                    html: '<svg></svg><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                    text: 'News',
+                }),
+                skipped: 'unsupported_email_markup',
             },
         ])(
             'skips a marketing code send without its own content whose email step gains $name between the API accepting it and the email worker sending it',

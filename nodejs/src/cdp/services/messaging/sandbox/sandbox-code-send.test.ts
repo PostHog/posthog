@@ -1125,6 +1125,28 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             expect(world.ses.delivered).toEqual([])
         })
 
+        it('refuses a marketing code send whose html uses an unsupported tag', async () => {
+            const res = await sendFromCode(
+                request(
+                    sandboxSend({
+                        content: {
+                            subject: 'Monthly news',
+                            html: '<frameset><table><select></table><a href="{{ unsubscribe_url }}">Unsubscribe</a></frameset>',
+                        },
+                        message_category: { id: new UUIDT().toString(), type: 'marketing' },
+                    })
+                )
+            )
+
+            expect(res.status).toEqual(400)
+            expect(res.body).toEqual({
+                error: 'unsupported_email_markup',
+                reason: expect.stringContaining('plain <a href>'),
+            })
+            expect(await deliver()).toEqual([])
+            expect(world.ses.delivered).toEqual([])
+        })
+
         it('skips a marketing code send at delivery when filling the unsubscribe link pushes the body past the size limit', async () => {
             const paddedHtml = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x')
 

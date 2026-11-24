@@ -642,7 +642,7 @@ describe('CDP hog invocation rerun e2e', () => {
         expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
     })
 
-    it("reruns a failed email sent through the API under the send's category, so an opt-out since then holds", async () => {
+    it('skips rerunning failed categorized code sends with a warning log and still reruns an uncategorized code send after a categorized step is added', async () => {
         const senderId = 9101
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-email',
@@ -662,8 +662,11 @@ describe('CDP hog invocation rerun e2e', () => {
             })
             .build()
         await insertHogFlow(hub.postgres, flow)
-        const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
-        const to = `reader-${new UUIDT().toString()}@example.com`
+        const marketingCategoryId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
+        const transactionalCategoryId = '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b'
+        const marketingTo = `marketing-${new UUIDT().toString()}@example.com`
+        const transactionalTo = `transactional-${new UUIDT().toString()}@example.com`
+        const uncategorizedTo = `uncategorized-${new UUIDT().toString()}@example.com`
 
         const api = new CdpApi(hub, cdpDeps, {
             hogQueue: new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub),
@@ -695,26 +698,53 @@ describe('CDP hog invocation rerun e2e', () => {
                 hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
                 { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
             )
-            const res = await supertest(app)
-                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/transactional_email/send`)
-                .set({ Authorization: `Bearer ${token}` })
-                .send({
-                    to,
-                    distinct_id: 'reader',
+            const sendOne = (body: Record<string, unknown>) =>
+                supertest(app)
+                    .post(`/api/projects/${team.id}/hog_flows/${flow.id}/transactional_email/send`)
+                    .set({ Authorization: `Bearer ${token}` })
+                    .send(body)
+
+            const [marketingRes, transactionalRes, uncategorizedRes] = await Promise.all([
+                sendOne({
+                    to: marketingTo,
+                    distinct_id: 'reader-marketing',
                     send: {
                         tracking: { captureEngagement: false },
-                        message_category: { id: newsletterId, type: 'marketing' },
+                        message_category: { id: marketingCategoryId, type: 'marketing' },
                     },
-                })
-            expect(res.status).toEqual(202)
+                }),
+                sendOne({
+                    to: transactionalTo,
+                    distinct_id: 'reader-transactional',
+                    send: {
+                        tracking: { captureEngagement: false },
+                        message_category: { id: transactionalCategoryId, type: 'transactional' },
+                    },
+                }),
+                sendOne({
+                    to: uncategorizedTo,
+                    distinct_id: 'reader-uncategorized',
+                    send: {
+                        tracking: { captureEngagement: false },
+                    },
+                }),
+            ])
+            expect(marketingRes.status).toEqual(202)
+            expect(transactionalRes.status).toEqual(202)
+            expect(uncategorizedRes.status).toEqual(202)
 
-            const failedRunId = await waitForExpect(async () => {
+            const marketingRunId = marketingRes.body.invocation_id as string
+            const transactionalRunId = transactionalRes.body.invocation_id as string
+            const uncategorizedRunId = uncategorizedRes.body.invocation_id as string
+
+            await waitForExpect(async () => {
                 const rows = await clickhouse.query<PersistedRow>(
                     `SELECT invocation_id FROM hog_invocation_results
                      WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND status = 'failed'`
                 )
-                expect(rows).toHaveLength(1)
-                return rows[0].invocation_id
+                expect(rows.map((r) => r.invocation_id).sort()).toEqual(
+                    [marketingRunId, transactionalRunId, uncategorizedRunId].sort()
+                )
             }, 30_000)
 
             await insertIntegration(hub.postgres, team.id, {
@@ -728,13 +758,28 @@ describe('CDP hog invocation rerun e2e', () => {
                     provider: 'maildev',
                 },
             })
+            // Add a categorized marketing email step on a separate branch to prove reruns decide
+            // solely from persistedState.messageCategory, never from the workflow's current steps.
+            const updatedActions = [
+                ...flow.actions,
+                {
+                    id: 'later_marketing_email',
+                    name: 'Later marketing email',
+                    description: '',
+                    type: 'function_email',
+                    config: {
+                        template_id: 'template-email',
+                        message_category_id: marketingCategoryId,
+                        message_category_type: 'marketing',
+                        inputs: {},
+                    },
+                },
+            ]
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_messagerecipientpreference
-                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
-                [team.id, to, JSON.stringify({ [newsletterId]: 'OPTED_OUT' })],
-                'test-insert-opt-out'
+                `UPDATE posthog_hogflow SET actions = $1::jsonb WHERE id = $2`,
+                [JSON.stringify(updatedActions), flow.id],
+                'test-add-categorized-step-to-flow'
             )
 
             freshHub = await createHub()
@@ -746,35 +791,65 @@ describe('CDP hog invocation rerun e2e', () => {
             hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, freshWorkerDeps, postgresV2Queue)
             await hogflowWorker.start()
             emailWorker = await startEmailWorker(freshWorkerDeps)
-            await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
+
+            const rerunJobId = await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
                 filter: {
                     window_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
                     window_end: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
                     status: ['failed'],
-                    invocation_ids: [failedRunId],
+                    invocation_ids: [marketingRunId, transactionalRunId, uncategorizedRunId],
                 },
                 replay_code_sends: true,
-                replay_code_send_categories: true,
             })
             rerunWorker = new CdpRerunWorkerConsumer(
                 { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
-                cdpDeps,
+                freshWorkerDeps,
                 { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
             )
             await rerunWorker.start()
 
             await waitForExpect(async () => {
-                const rows = await clickhouse.query<PersistedRow>(
-                    `SELECT status FROM hog_invocation_results
-                     WHERE team_id = ${team.id} AND invocation_id = '${failedRunId}' AND is_retry = 1
-                       AND status = 'succeeded'`
-                )
-                expect(rows).toHaveLength(1)
+                const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
+                expect(res.rows[0]?.status).toBe('completed')
             }, 30_000)
+
+            await waitForExpect(async () => {
+                const rows = await clickhouse.query<PersistedRow>(
+                    `SELECT invocation_id, status FROM hog_invocation_results
+                     WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND is_retry = 1`
+                )
+                expect(rows).toEqual([{ invocation_id: uncategorizedRunId, status: 'succeeded' }])
+            }, 30_000)
+
+            const logEntries = mockProducerObserver
+                .getProducedKafkaMessagesForTopic('log_entries_test')
+                .map((m) => m.value as { instance_id: string; level: string; message: string })
+            expect(logEntries).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        instance_id: marketingRunId,
+                        level: 'warn',
+                        message: "Not re-run: categorized code sends can't be rerun yet.",
+                    }),
+                    expect.objectContaining({
+                        instance_id: transactionalRunId,
+                        level: 'warn',
+                        message: "Not re-run: categorized code sends can't be rerun yet.",
+                    }),
+                    expect.objectContaining({
+                        instance_id: rerunJobId,
+                        level: 'info',
+                        message: 'Re-run finished. queued=1 skipped=2',
+                    }),
+                ])
+            )
+
             const emails = (await (await globalThis.fetch(`${mailDevWebUrl}/email`)).json()) as any[]
-            expect(
-                emails.filter((email) => email.envelope.to.some((r: { address: string }) => r.address === to))
-            ).toEqual([])
+            const deliveredTo = (address: string) =>
+                emails.filter((email) => email.envelope.to.some((r: { address: string }) => r.address === address))
+            expect(deliveredTo(marketingTo)).toEqual([])
+            expect(deliveredTo(transactionalTo)).toEqual([])
+            expect(deliveredTo(uncategorizedTo)).toHaveLength(1)
         } finally {
             server.close()
             await Promise.all([api.stop(), emailWorker.stop(), freshHub ? closeHub(freshHub) : Promise.resolve()])

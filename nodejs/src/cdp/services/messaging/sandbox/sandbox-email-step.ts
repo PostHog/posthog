@@ -37,7 +37,7 @@ export type SandboxEmailSendStepDeps = {
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     recipientTokensService: Pick<
         RecipientTokensService,
-        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'hasValidUnsubscribeLink'
+        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'checkUnsubscribeLink'
     >
     events: Pick<SandboxEmailEvents, 'capture'>
     teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>

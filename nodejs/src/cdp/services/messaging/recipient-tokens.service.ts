@@ -3,7 +3,7 @@ import { logger } from '~/common/utils/logger'
 import type { CyclotronJobInvocationHogFunction } from '../../types'
 import { JWT, PosthogJwtAudience } from '../../utils/jwt-utils'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
-import { preferencesTokensInBody } from './helpers/clickable-links'
+import { UnsubscribeLinkCheck, scanPreferencesTokensInBody } from './helpers/clickable-links'
 import { unquoteMailbox } from './helpers/suppressed-recipients'
 
 type PreferencesRecipient = Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
@@ -142,18 +142,31 @@ export class RecipientTokensService {
         ]
     }
 
+    public checkUnsubscribeLink(
+        body: { html?: string; text?: string },
+        teamId: number,
+        recipient: string | undefined
+    ): UnsubscribeLinkCheck {
+        if (!recipient) {
+            return 'unsubscribe_link_required'
+        }
+        const scanned = scanPreferencesTokensInBody(body, this.siteUrl)
+        if (!scanned.ok) {
+            return 'unsupported_email_markup'
+        }
+        const expected = unquoteMailbox(recipient)
+        const hasValid = scanned.tokens.some((token) => {
+            const owner = this.validatePreferencesToken(token)
+            return owner.valid && owner.team_id === teamId && unquoteMailbox(owner.identifier) === expected
+        })
+        return hasValid ? 'ok' : 'unsubscribe_link_required'
+    }
+
     public hasValidUnsubscribeLink(
         body: { html?: string; text?: string },
         teamId: number,
         recipient: string | undefined
     ): boolean {
-        if (!recipient) {
-            return false
-        }
-        const expected = unquoteMailbox(recipient)
-        return preferencesTokensInBody(body, this.siteUrl).some((token) => {
-            const owner = this.validatePreferencesToken(token)
-            return owner.valid && owner.team_id === teamId && unquoteMailbox(owner.identifier) === expected
-        })
+        return this.checkUnsubscribeLink(body, teamId, recipient) === 'ok'
     }
 }

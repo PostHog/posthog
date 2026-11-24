@@ -80,7 +80,7 @@ export function acceptedSandboxEmail(invocation: CyclotronJobInvocationHogFlow):
 
 export type PreparedSandboxCodeSend =
     | { email: SandboxRenderedEmail; headers?: { name: string; value: string }[] }
-    | { skipped: 'content_too_large' | 'unsubscribe_link_required' }
+    | { skipped: 'content_too_large' | 'unsubscribe_link_required' | 'unsupported_email_markup' }
 
 export async function prepareSandboxCodeSend(
     invocation: CyclotronJobInvocationHogFlow,
@@ -88,7 +88,7 @@ export async function prepareSandboxCodeSend(
     deliveredAddress: DeliveredAddressReader,
     recipientTokensService: Pick<
         RecipientTokensService,
-        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'hasValidUnsubscribeLink'
+        'generatePreferencesUrl' | 'generateUnsubscribeHeaders' | 'checkUnsubscribeLink'
     >
 ): Promise<PreparedSandboxCodeSend> {
     const email = acceptedSandboxEmail(invocation)
@@ -117,8 +117,9 @@ export async function prepareSandboxCodeSend(
         ...(email.html ? { html: replaceUnsubscribePlaceholder(email.html, htmlUrl) } : {}),
         ...(email.text ? { text: replaceUnsubscribePlaceholder(email.text, url) } : {}),
     }
-    if (!recipientTokensService.hasValidUnsubscribeLink(filled, invocation.teamId, recipient)) {
-        return { skipped: 'unsubscribe_link_required' }
+    const check = recipientTokensService.checkUnsubscribeLink(filled, invocation.teamId, recipient)
+    if (check !== 'ok') {
+        return { skipped: check }
     }
     return {
         email: filled,

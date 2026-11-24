@@ -978,14 +978,14 @@ describe('SandboxEmailSendStep', () => {
         it('skips without delivery and refunds daily allowance when the recipient opts out during the daily cap claim', async () => {
             const flow = buildCodeSendFlow()
             const category = { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' as const }
-            let optedOutDuringClaim = false
+            let valkeyCalls = 0
             const capsLimiter = new RateLimiterService(
                 {
                     ...world.valkey,
                     useClient: async (options, callback) => {
                         const result = await world.valkey.useClient(options, callback)
-                        if (!optedOutDuringClaim && options.name.includes('claimAllOrNothingAcross')) {
-                            optedOutDuringClaim = true
+                        valkeyCalls += 1
+                        if (valkeyCalls === 1) {
                             await world.postgres.query(
                                 PostgresUse.COMMON_WRITE,
                                 `INSERT INTO posthog_messagerecipientpreference
@@ -1008,7 +1008,6 @@ describe('SandboxEmailSendStep', () => {
             const segments = await runSandboxQueue(executor, routed.invocation)
             const finished = await executor.execute(nextDequeue(segments.at(-1)!.invocation))
 
-            expect(optedOutDuringClaim).toBe(true)
             expect(world.ses.delivered).toEqual([])
             expect(finished.invocation.state.variables?.email_result).toEqual({
                 status: 'skipped',

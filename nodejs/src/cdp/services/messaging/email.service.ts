@@ -51,7 +51,12 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { BODY_MAX_LENGTH, filledUnsubscribeLength, replaceUnsubscribePlaceholder } from './helpers/clickable-links'
+import {
+    BODY_MAX_LENGTH,
+    UNSUPPORTED_EMAIL_MARKUP_MESSAGE,
+    filledUnsubscribeLength,
+    replaceUnsubscribePlaceholder,
+} from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { plainTextFromHtml } from './helpers/email-text'
 import { escapeHtml } from './helpers/escape-html'
@@ -1904,7 +1909,7 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType
     ):
         | { params: CyclotronInvocationQueueParametersEmailType }
-        | { refused: 'content_too_large' | 'unsubscribe_link_required' } {
+        | { refused: 'content_too_large' | 'unsubscribe_link_required' | 'unsupported_email_markup' } {
         if (!isMarketingApiSend(invocation)) {
             return { params }
         }
@@ -1930,9 +1935,8 @@ export class EmailService {
                       text: params.text && replaceUnsubscribePlaceholder(params.text, url),
                   }
                 : params
-        return this.recipientTokensService.hasValidUnsubscribeLink(filled, invocation.teamId, filled.to?.email)
-            ? { params: filled }
-            : { refused: 'unsubscribe_link_required' }
+        const check = this.recipientTokensService.checkUnsubscribeLink(filled, invocation.teamId, filled.to?.email)
+        return check === 'ok' ? { params: filled } : { refused: check }
     }
 }
 
@@ -1946,8 +1950,12 @@ const MARKETING_OPT_OUT_SKIP: EmailSendSkip = {
     blockedSendReport: null,
 }
 
-const MARKETING_SKIP_MESSAGES: Record<'content_too_large' | 'unsubscribe_link_required', string> = {
+const MARKETING_SKIP_MESSAGES: Record<
+    'content_too_large' | 'unsubscribe_link_required' | 'unsupported_email_markup',
+    string
+> = {
     content_too_large: `Skipping send: after rendering, the html or the text of this marketing email is longer than the ${BODY_MAX_LENGTH.toLocaleString('en-US')} characters PostHog checks for an unsubscribe link.`,
     unsubscribe_link_required:
         'Skipping send: this marketing email has no unsubscribe link that readers can click after rendering.',
+    unsupported_email_markup: `Skipping send: ${UNSUPPORTED_EMAIL_MARKUP_MESSAGE}`,
 }
