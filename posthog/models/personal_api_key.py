@@ -1,6 +1,6 @@
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
@@ -96,6 +96,13 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
                 name="personalapikey_provisioned_by",
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Without force_update, Django turns the update of a deleted row into an insert. An edit
+        # that loaded the key before a revocation deleted it would then bring the key back to life.
+        if not self._state.adding and not kwargs.get("force_insert"):
+            kwargs.setdefault("force_update", True)
+        super().save(*args, **kwargs)
 
     @property
     def is_expired(self) -> bool:

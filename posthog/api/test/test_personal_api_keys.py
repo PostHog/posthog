@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.conf import settings
+from django.db import DatabaseError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -298,8 +299,15 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 1
+        stale_copy = PersonalAPIKey.objects.get(id=key.id)
+
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         assert response.status_code == 204
+        assert PersonalAPIKey.objects.count() == 0
+
+        stale_copy.label = "Renamed"
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            stale_copy.save()
         assert PersonalAPIKey.objects.count() == 0
 
     @parameterized.expand(
