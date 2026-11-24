@@ -141,6 +141,22 @@ _OID_VARCHAR = 1043
 _OID_NUMERIC = 1700
 _OID_JSON = 114
 _OID_JSONB = 3802
+_OID_BYTEA = 17
+_OID_BPCHAR = 1042
+_OID_UUID = 2950
+# Array type OID -> element type OID, for the arrays a snapshot writes as a JSON list.
+_ARRAY_ELEMENT_OIDS = {
+    1000: _OID_BOOL,
+    1005: _OID_INT2,
+    1007: _OID_INT4,
+    1016: _OID_INT8,
+    1021: _OID_FLOAT4,
+    1022: _OID_FLOAT8,
+    1009: _OID_TEXT,
+    1015: _OID_VARCHAR,
+    1014: _OID_BPCHAR,
+    2951: _OID_UUID,
+}
 
 
 @dataclass
@@ -742,8 +758,56 @@ def _cast_text_value(text: str, type_oid: int) -> Any:
     elif type_oid in (_OID_JSON, _OID_JSONB):
         # Keep as string — let downstream handle JSON parsing
         return text
+    elif type_oid == _OID_BYTEA and text.startswith("\\x"):
+        # A snapshot writes binary as lowercase hex without the prefix.
+        return text[2:]
+    elif (element_oid := _ARRAY_ELEMENT_OIDS.get(type_oid)) is not None:
+        # A snapshot writes an array as a compact JSON list.
+        return json.dumps(_parse_array(text, element_oid), separators=(",", ":"), ensure_ascii=False)
     else:
         return text
+
+
+def _parse_array(text: str, element_oid: int) -> list[Any]:
+    """A Postgres array literal such as ``{a,"b c",NULL}`` or ``{{1,2},{3,4}}`` as nested Python lists."""
+    if text.startswith("["):
+        # Lower bounds other than 1 come as a ``[0:1]=`` prefix.
+        text = text[text.index("=") + 1 :]
+    position = 0
+
+    def parse_level() -> list[Any]:
+        nonlocal position
+        position += 1
+        items: list[Any] = []
+        if text[position] == "}":
+            position += 1
+            return items
+        while True:
+            if text[position] == "{":
+                items.append(parse_level())
+            elif text[position] == '"':
+                position += 1
+                chars = []
+                while text[position] != '"':
+                    if text[position] == "\\":
+                        position += 1
+                    chars.append(text[position])
+                    position += 1
+                position += 1
+                items.append(_cast_text_value("".join(chars), element_oid))
+            else:
+                end = position
+                while text[end] not in ",}":
+                    end += 1
+                raw = text[position:end]
+                position = end
+                items.append(None if raw == "NULL" else _cast_text_value(raw, element_oid))
+            if text[position] == "}":
+                position += 1
+                return items
+            position += 1
+
+    return parse_level()
 
 
 def _pg_timestamp_to_datetime(us_since_pg_epoch: int) -> datetime:

@@ -523,6 +523,13 @@ class TestPgOutputDecoder:
             ("int8", _OID_INT8, "9999999999", 9999999999),
             ("float8", _OID_FLOAT8, "3.14", 3.14),
             ("jsonb", _OID_JSONB, '{"key": "value"}', '{"key": "value"}'),
+            # Binary and arrays come out as the snapshot writes them: hex, and a compact JSON list.
+            ("bytea", 17, "\\x0a0b0c", "0a0b0c"),
+            ("text_array", 1009, '{c,a,"b c",NULL,"q\\"x",ü}', '["c","a","b c",null,"q\\"x","ü"]'),
+            ("int_array_2d", 1007, "{{1,2},{3,4}}", "[[1,2],[3,4]]"),
+            ("bool_array", 1000, "{t,f}", "[true,false]"),
+            ("empty_array", 1009, "{}", "[]"),
+            ("array_with_lower_bound", 1007, "[0:1]={5,6}", "[5,6]"),
         ]
     )
     def test_type_casting(self, _name, type_oid, text_value, expected):
