@@ -328,7 +328,8 @@ def merge_session_recording_masking_config(requested: dict | None, existing: obj
     web_source = stored if mobile_only else requested
     merged = {key: value for key, value in web_source.items() if key != "mobile"}
 
-    mobile = requested.get("mobile", stored.get("mobile"))
+    stored_mobile = stored.get("mobile")
+    mobile = {**(stored_mobile if isinstance(stored_mobile, dict) else {}), **requested.get("mobile", {})}
     if mobile:
         merged["mobile"] = mobile
     return merged

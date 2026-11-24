@@ -1089,11 +1089,28 @@ def team_api_test_factory():
             assert get_response.json()["session_recording_masking_config"] == config
 
             response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_masking_config": {"mobile": {}}}, format="json"
+                "/api/environments/@current/",
+                {"session_recording_masking_config": {"mobile": {"maskAllImages": True}}},
+                format="json",
             )
             assert response.status_code == status.HTTP_200_OK
             get_response = self.client.get("/api/environments/@current/")
-            assert get_response.json()["session_recording_masking_config"] == {"maskAllInputs": True}
+            assert get_response.json()["session_recording_masking_config"] == {
+                "maskAllInputs": True,
+                "mobile": {"maskAllText": True, "maskAllImages": True},
+            }
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"session_recording_masking_config": {"mobile": {"maskAllText": False}}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            get_response = self.client.get("/api/environments/@current/")
+            assert get_response.json()["session_recording_masking_config"] == {
+                "maskAllInputs": True,
+                "mobile": {"maskAllText": False, "maskAllImages": True},
+            }
 
         @parameterized.expand(
             [
@@ -1107,7 +1124,11 @@ def team_api_test_factory():
                     "mobile_write_keeps_web_keys",
                     {"maskAllInputs": True, "maskTextSelector": "*", "mobile": {"maskAllText": True}},
                     {"mobile": {"maskAllImages": True}},
-                    {"maskAllInputs": True, "maskTextSelector": "*", "mobile": {"maskAllImages": True}},
+                    {
+                        "maskAllInputs": True,
+                        "maskTextSelector": "*",
+                        "mobile": {"maskAllText": True, "maskAllImages": True},
+                    },
                 ),
                 (
                     "none_clears_mobile",
@@ -4745,16 +4766,16 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 {"maskAllInputs": True, "mobile": {"maskAllText": True}},
             ],
             [
-                "mobile write replaces mobile and keeps web keys",
+                "mobile write merges per key and keeps web keys",
                 {"mobile": {"maskAllImages": True}},
                 {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllText": True}},
-                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllImages": True}},
+                {"maskAllInputs": True, "blockSelector": "img", "mobile": {"maskAllText": True, "maskAllImages": True}},
             ],
             [
-                "web and mobile write replaces both",
+                "web and mobile write replaces web keys and merges mobile",
                 {"maskAllInputs": True, "mobile": {"maskAllText": True}},
                 {"maskTextSelector": "*", "mobile": {"maskAllImages": True}},
-                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+                {"maskAllInputs": True, "mobile": {"maskAllImages": True, "maskAllText": True}},
             ],
             [
                 "empty write clears web keys and keeps mobile",
@@ -4763,10 +4784,17 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 {"mobile": {"maskAllText": True}},
             ],
             [
-                "empty mobile is dropped",
+                "empty mobile changes nothing",
                 {"mobile": {}},
                 {"maskAllInputs": True, "mobile": {"maskAllText": True}},
-                {"maskAllInputs": True},
+                {"maskAllInputs": True, "mobile": {"maskAllText": True}},
+            ],
+            ["empty mobile on an unset config stores no mobile", {"mobile": {}}, None, {}],
+            [
+                "off stores false",
+                {"mobile": {"maskAllText": False}},
+                {"mobile": {"maskAllText": True, "maskAllImages": True}},
+                {"mobile": {"maskAllText": False, "maskAllImages": True}},
             ],
             ["non-dict existing with web write", {"maskAllInputs": True}, "legacy", {"maskAllInputs": True}],
             [

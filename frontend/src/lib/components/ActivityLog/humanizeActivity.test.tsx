@@ -226,8 +226,9 @@ describe('humanizeActivity', () => {
         {
             name: 'mobile masking turned off',
             before: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: true } },
-            after: { maskAllInputs: true, mobile: { maskAllText: true } },
+            after: { maskAllInputs: true, mobile: { maskAllText: true, maskAllImages: false } },
             expected: ['disabled masking all images in mobile session replay'],
+            unexpected: ['masking all text in mobile'],
         },
         {
             name: 'mobile masking set when there was no config',
