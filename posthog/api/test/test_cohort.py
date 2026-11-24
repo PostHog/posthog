@@ -9430,6 +9430,66 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("sequence", "sequence", False, "unsupported_criteria"),
+            ("action", "action", False, "action_criteria"),
+            ("daily_cohort_reference", "daily_cohort_reference", False, "includes_non_realtime_cohort"),
+            ("test_account_filter", "pageview", True, "test_account_filter"),
+        ]
+    )
+    def test_a_created_cohort_says_why_it_is_not_realtime(
+        self, _name: str, criteria: str, filter_test_accounts: bool, reason: str
+    ) -> None:
+        pageview = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "time_value": 7,
+            "time_interval": "day",
+        }
+        if criteria == "sequence":
+            leaf = {
+                **pageview,
+                "value": "performed_event_sequence",
+                "seq_event": "$feature_flag_called",
+                "seq_event_type": "events",
+                "seq_time_value": 1,
+                "seq_time_interval": "day",
+            }
+            leaves = [leaf]
+        elif criteria == "action":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": action.id, "event_type": "actions"}]
+        elif criteria == "daily_cohort_reference":
+            daily = Cohort.objects.create(
+                team=self.team,
+                name="Daily",
+                cohort_type=None,
+                filters={
+                    "properties": {"type": "AND", "values": [{**pageview, "value": "performed_event_first_time"}]}
+                },
+            )
+            leaves = [pageview, {"type": "cohort", "key": "id", "value": daily.id}]
+        else:
+            leaves = [pageview]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "New",
+                "filters": {
+                    "properties": {"type": "OR", "values": [{"type": "AND", "values": leaves}]},
+                    "filterTestAccounts": filter_test_accounts,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert (response.json()["realtime"]["state"], response.json()["realtime"]["reason"]) == ("daily", reason)
+
+    @parameterized.expand(
+        [
             ("sent_in_a_patch", False, "patch", {"realtime_enabled": True}, "json", 400, "realtime_enabled_read_only"),
             # DRF reads a boolean left out of form data as false.
             ("left_out_of_a_multipart_put", True, "put", {"name": "Renamed"}, "multipart", 200, None),

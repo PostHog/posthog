@@ -36,13 +36,13 @@ from products.experiments.backend.temporal.models import (
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.recalculation.activities import calculate_experiment_metric_for_recalculation
+from products.experiments.backend.temporal.recalculation.workflow import ExperimentMetricsRecalculationWorkflow
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
 _CALC_BUDGET = timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
-_WORKFLOW_MODULE = "products.experiments.backend.temporal.recalculation_workflow"
-_ACTIVITIES_MODULE = "products.experiments.backend.temporal.recalculation_activities"
+_WORKFLOW_MODULE = "products.experiments.backend.temporal.recalculation.workflow"
+_ACTIVITIES_MODULE = "products.experiments.backend.temporal.recalculation.activities"
 
 
 def _metric(metric_uuid: str) -> ExperimentMetricToRecalculate:
@@ -362,7 +362,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         mock_backstop, backstop_calls = _mock_out_of_time_backstop()
 
         with patch(
-            "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
+            "products.experiments.backend.temporal.recalculation.activities._calculate_experiment_metric_for_recalculation_sync",
             new=failing_sync,
         ):
             result = await _run_workflow(
@@ -547,7 +547,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         activities, _progress, _calls = _make_mock_activities(metrics=metrics, metric_results=metric_results)
 
         with patch(
-            "products.experiments.backend.temporal.recalculation_workflow.increment_workflow_finished"
+            "products.experiments.backend.temporal.recalculation.workflow.increment_workflow_finished"
         ) as mock_finished:
             await _run_workflow(activities)
 
