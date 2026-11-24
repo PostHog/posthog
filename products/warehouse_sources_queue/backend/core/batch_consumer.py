@@ -145,6 +145,16 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.AdminShutdown)
 
 
+# SQLSTATE 25006: a managed-Postgres failover promotes the new primary before it has
+# fully exited recovery, so the connection itself succeeds but a locking statement --
+# the claim query's row-locking SELECT, a lease upsert -- is refused until promotion
+# finishes. Unlike the connect-time guards above, this surfaces only once a query
+# actually runs, but it is the same self-healing window: redialing (the caller's
+# existing retry/backoff) picks up the now-writable primary within seconds.
+def _is_read_only_transaction_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.ReadOnlySqlTransaction)
+
+
 # SQLSTATE 42703/42P01: a column or table a sweep query references does not exist yet on the
 # queue DB. The migration adding it and the code querying it ship in the same commit, but a
 # worker can roll out ahead of the migration completing, so this is a self-healing race, not a
@@ -279,6 +289,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_pooler_query_wait_timeout_error(error)
         or _is_pooler_login_retry_cached_error(error)
         or _is_connection_refused_error(error)
+        or _is_read_only_transaction_error(error)
     )
 
 
@@ -923,6 +934,18 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_admin_shutdown"), error=str(e))
                     else:
                         self._report_queue_failure(self._event("poll_failed_queue_db_unreachable"), e)
+                    self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
+                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    continue
+                except Exception as e:
+                    # Not every queue-DB failure is an OperationalError (e.g. SQLSTATE 25006
+                    # ReadOnlySqlTransaction during a failover's promotion window is a plain
+                    # DatabaseError) -- mirrors the startup sweep's and recovery loop's own
+                    # catch-all so one of those doesn't crash the whole consumer here instead.
+                    if _is_schema_lag_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_schema_lag"), error=str(e))
+                    else:
+                        self._report_queue_failure(self._event("poll_failed_queue_db_error"), e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
