@@ -1,7 +1,7 @@
 import { IconWarning } from '@posthog/icons'
 
 import type { MCPWrappedReliabilityCardApi } from '../../generated/api.schemas'
-import { formatPercent, formatSuccessRate, reliabilityLine } from '../storyCards'
+import { errorLine, formatPercent, formatSuccessRate, reliabilityLine } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }): JSX.Element {
@@ -15,7 +15,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{reliabilityLine(card.success_rate)}</strong>
-                That's the share of tool calls that returned without an error.
+                {errorLine(card.success_rate)}
             </p>
             {card.struggling_tool && (
                 <div className="MCPWrapped__rise flex items-center gap-3 rounded-xl bg-black/10 p-3">

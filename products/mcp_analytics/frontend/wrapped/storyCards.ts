@@ -122,6 +122,17 @@ export function reliabilityLine(rate: number): string {
     return 'A bumpy year, with room to improve.'
 }
 
+/** The error share as a count out of 100 calls, which reads more concretely than a percentage. */
+export function errorLine(rate: number): string {
+    if (rate >= 1) {
+        return 'Not a single tool call hit an error.'
+    }
+    const errorsPer100 = Math.round((1 - rate) * 100)
+    return errorsPer100 < 1
+        ? 'Fewer than 1 in 100 tool calls hit an error.'
+        : `${errorsPer100} in every 100 tool calls hit an error.`
+}
+
 export function formatDuration(ms: number): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`
 }

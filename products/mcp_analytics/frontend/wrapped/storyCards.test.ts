@@ -5,6 +5,7 @@ import {
     storyCardKeys,
     chartMonths,
     formatCallCount,
+    errorLine,
     formatSuccessRate,
     reliabilityLine,
     peakMultiple,
@@ -124,5 +125,13 @@ describe('storyCards', () => {
         [0.8, 'A bumpy year, with room to improve.'],
     ])('describes a success rate of %d', (rate, expected) => {
         expect(reliabilityLine(rate)).toBe(expected)
+    })
+
+    it.each([
+        [1, 'Not a single tool call hit an error.'],
+        [0.997, 'Fewer than 1 in 100 tool calls hit an error.'],
+        [0.964, '4 in every 100 tool calls hit an error.'],
+    ])('counts the errors for a success rate of %d', (rate, expected) => {
+        expect(errorLine(rate)).toBe(expected)
     })
 })
