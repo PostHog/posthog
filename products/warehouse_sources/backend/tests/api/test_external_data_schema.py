@@ -198,6 +198,32 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.status == expected
 
     @parameterized.expand(
+        [
+            ("failing", {"failure_streak": {"runs": 8}}, {"failure_streak": {"runs": 8, "manual_run_requested": True}}),
+            ("healthy", {}, {}),
+        ]
+    )
+    def test_sync_now_lets_a_failing_schema_run(self, _name: str, config: dict, expected: dict) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type_config == expected
+
+    @parameterized.expand(
         [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
     )
     def test_incremental_fields_stripe(
@@ -2784,6 +2810,41 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert schema.sync_type_config.get("primary_key_columns") == ["_id"]
 
+    def test_incremental_field_change_lets_a_failing_schema_run(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "failure_streak": {"runs": 8},
+            },
+            table=DataWarehouseTable.objects.create(team=self.team),
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "available_on", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200, response.content
+        mock_trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.manual_run_requested is True
+
     def test_switch_synced_incremental_schema_to_append_with_existing_pk(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
@@ -4847,6 +4908,9 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
             ("external_data_source:write", "PATCH", "partial_update", True),
             ("other_scope:read", "GET", "list", False),
             ("other_scope:write", "PATCH", "partial_update", False),
+            ("external_data_source:read", "GET", "destinations", True),
+            ("external_data_source:read", "PATCH", "destinations", False),
+            ("external_data_source:write", "PATCH", "destinations", True),
         ]
     )
     def test_api_key_scope_gating(self, scope, method, action, should_have_access):
@@ -4862,6 +4926,12 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
         elif action == "partial_update":
             url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/"
             response = self.client.patch(url, {"should_sync": False}, format="json", headers=headers)
+        elif action == "destinations":
+            url = f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations/"
+            if method == "GET":
+                response = self.client.get(url, headers=headers)
+            else:
+                response = self.client.patch(url, {"destination_ids": None}, format="json", headers=headers)
         else:
             self.fail(f"Unknown action: {action}")
 

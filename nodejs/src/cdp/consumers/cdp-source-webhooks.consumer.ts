@@ -302,7 +302,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        const addMetric = (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => {
+        const addMetric = (
+            metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count' | 'app_source_version'>
+        ) => {
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: hogFlow.team_id,
@@ -427,6 +429,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     metric_kind: 'other',
                     metric_name: 'triggered',
                     count: 1,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
                 })
                 queuedInvocationId = committed.runId
             } else {

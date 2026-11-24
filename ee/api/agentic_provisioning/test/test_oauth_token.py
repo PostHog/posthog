@@ -18,7 +18,7 @@ from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 
-from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_TOKEN_EXPIRY_SECONDS
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
     TEST_PARTNER_SCOPES,
@@ -370,6 +370,67 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         replay = self._refresh(first["refresh_token"])
         assert replay.status_code == 400
         assert replay.json()["error"] == "invalid_grant"
+
+    def test_refresh_issues_partner_lifetime_token(self) -> None:
+        first = self._request_bearer_token().json()
+
+        res = self._refresh(first["refresh_token"])
+
+        assert res.status_code == 200
+        assert res.json()["expires_in"] == PARTNER_TOKEN_EXPIRY_SECONDS
+        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        assert token.expires <= timezone.now() + timedelta(seconds=PARTNER_TOKEN_EXPIRY_SECONDS)
+
+    def test_refresh_rejects_partner_whose_flag_was_cleared(self) -> None:
+        first = self._request_bearer_token().json()
+        OAuthApplication.objects.filter(pk=self.partner.pk).update(is_provisioning_partner=False)
+
+        res = self._refresh(first["refresh_token"])
+
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+        refresh_token = OAuthRefreshToken.objects.get(token=first["refresh_token"])
+        assert refresh_token.revoked is None
+        assert OAuthAccessToken.objects.filter(token=first["access_token"]).exists()
+
+    def test_refresh_rejects_token_of_app_that_is_not_a_partner(self) -> None:
+        app = OAuthApplication.objects.create(
+            client_id="ordinary-public-client",
+            name="Ordinary Public Client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://client.example.com/callback",
+            algorithm="RS256",
+            scopes=TEST_PARTNER_SCOPES,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            token="ordinary_access_token",
+            user=self.user,
+            expires=timezone.now() + timedelta(hours=1),
+            scope="query:read",
+            scoped_teams=[self.team.id],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            token="ordinary_refresh_token",
+            user=self.user,
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+        )
+
+        res = self._post_api(
+            TOKEN_URL,
+            {"grant_type": "refresh_token", "refresh_token": refresh_token.token, "client_id": app.client_id},
+        )
+
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+        refresh_token.refresh_from_db()
+        assert refresh_token.revoked is None
+        assert refresh_token.access_token_id == access_token.id
+        assert list(OAuthAccessToken.objects.filter(application=app).values_list("id", flat=True)) == [access_token.id]
 
     def test_direct_mint_within_ceiling_grants_requested_scopes(self):
         self._set_app_ceiling(["query:read", "project:read"])
