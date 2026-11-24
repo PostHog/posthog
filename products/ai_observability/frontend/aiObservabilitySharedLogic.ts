@@ -40,7 +40,7 @@ import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFla
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
-import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { buildAiObservabilityStorageConfig } from './redesign/shared/preferenceStorage'
 import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
@@ -844,7 +844,13 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
-                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                    // The redesigned shell keeps one choice across its tabs and reads it from the URL, where a
+                    // missing param leaves its previous choice in place, so turning filtering off is written too.
+                    filter_test_accounts: shouldFilterTestAccounts
+                        ? 'true'
+                        : values.featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN]
+                          ? 'false'
+                          : undefined,
                 },
                 router.values.hashParams,
             ]),

@@ -21,7 +21,7 @@ import {
 } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 
 export type AIObservabilityDashboardLogicProps = Record<string, never>
 
