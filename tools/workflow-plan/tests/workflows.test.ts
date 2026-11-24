@@ -539,6 +539,17 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'branch dispatch', github: workflowDispatch('feat/example') },
         { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
+    // The base branch's size reports are built beside the required check, not after it, and only
+    // for a pull request that has a base commit to compare against.
+    frontend({ name: 'ready PR, base reports built beside the size check' }, { runs: ['frontend-base-reports'] }),
+    frontend(
+        { name: 'merge queue, no base to compare against', github: mergeQueue() },
+        { skipped: ['frontend-base-reports'] }
+    ),
+    frontend(
+        { name: 'master push, no base to compare against', github: push() },
+        { skipped: ['frontend-base-reports'] }
+    ),
 ]
 
 interface StepExpectation {
@@ -822,6 +833,13 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
             runs,
         }))
     ),
+    frontend(
+        {
+            name: 'ready PR, base reports built beside the size check',
+            github: pullRequest(),
+        },
+        { job: 'frontend-base-reports', step: 'base-reports-build', runs: true }
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -1030,9 +1048,14 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
-        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
-            baseBuild
-        )
+        // The base build lives in its own job now; the required check only reads its artifact.
+        expect(plan.jobs['frontend-base-reports']?.result).toBe(baseBuild ? 'success' : 'skipped')
+        expect(steps.find((step) => step.name === 'Download base branch reports')?.runs ?? false).toBe(baseBuild)
+        expect(
+            plan.jobs['frontend-base-reports']?.steps.find(
+                (step) => step.name === 'Build base branch for size comparison'
+            )?.runs ?? false
+        ).toBe(baseBuild)
         for (const step of [
             'Build frontend (bundle-size + eager-graph report)',
             'Measure PR dist size',
