@@ -76,8 +76,6 @@ export const CodeReviewReviewsPrStatusRetrieveParams = () => zod.object({
         ),
 })
 
-export const codeReviewReviewsPrStatusRetrieveQueryRunModeDefault = `review`
-
 export const CodeReviewReviewsPrStatusRetrieveQueryParams = () => zod.object({
     head_sha: zod
         .string()
@@ -98,14 +96,14 @@ export const CodeReviewReviewsPrStatusRetrieveQueryParams = () => zod.object({
         ),
     run_mode: zod
         .enum(['review', 'review_only', 'resolve_only', 'flash'])
-        .default(codeReviewReviewsPrStatusRetrieveQueryRunModeDefault)
+        .optional()
         .describe(
-            "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
+            'The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
         ),
 })
 
 /**
- * Start a PostHog Review run on any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
+ * Start a PostHog Review run on any pull request the project's GitHub App installation can access, and publish it back to the PR. The run appears under the requesting user's recent reviews. A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: 'flash' (the default) is a lower-cost Standard review that never resolves comments and is refused after a published Deep review, 'review' is a Deep review that chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review without resolving, and 'resolve_only' runs resolution only. Nonexistent, closed, and fork PRs are rejected synchronously. A PR whose current commit already has a published review in the requested mode returns 'already_reviewed' without starting a run (resolve_only skips that check, because settling threads on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and whether resolution will run, while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const CodeReviewReviewsTriggerCreateParams = () => zod.object({
@@ -116,7 +114,7 @@ export const CodeReviewReviewsTriggerCreateParams = () => zod.object({
         ),
 })
 
-export const codeReviewReviewsTriggerCreateBodyRunModeDefault = `review`
+export const codeReviewReviewsTriggerCreateBodyRunModeDefault = `flash`
 
 export const CodeReviewReviewsTriggerCreateBody = () => zod.object({
     pr_url: zod
@@ -131,6 +129,6 @@ export const CodeReviewReviewsTriggerCreateBody = () => zod.object({
         )
         .default(codeReviewReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
+            "What to run on the pull request. 'flash' (default) runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. 'review' runs a Deep review and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })

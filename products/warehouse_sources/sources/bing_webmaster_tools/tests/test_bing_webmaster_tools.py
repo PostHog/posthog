@@ -299,6 +299,24 @@ class TestRequest:
         with pytest.raises(BingWebmasterToolsError, match="unexpected response shape"):
             _request(session, "key", "GetUserSites")
 
+    def test_chunked_encoding_error_is_retried(self):
+        # A connection reset mid-download surfaces as `ChunkedEncodingError`, a sibling of
+        # `ConnectionError` (not a subclass) that the HTTP adapter's own retries never cover: the
+        # body is read lazily, after the adapter's retry loop around connecting has already
+        # returned. Without its own retry, one dropped connection fails the whole sync.
+        session = mock.MagicMock()
+        session.get.side_effect = [
+            requests.exceptions.ChunkedEncodingError(
+                "(\"Connection broken: InvalidChunkLength(got length b'', 0 bytes read)\", ...)"
+            ),
+            _response(200, {"d": _SITES}),
+        ]
+
+        result = _request(session, "key", "GetUserSites")
+
+        assert result == _SITES
+        assert session.get.call_count == 2
+
 
 class TestGetRows:
     def _driver(self) -> SourceDriver:

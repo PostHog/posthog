@@ -208,6 +208,9 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 | `PostHogLogomark`, `PostHogLogo`      | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Icons                                 | `ui/icons/*.tsx`                                           | One component per glyph, ported from the prototype's SVG paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
+Sheets with multiple pages can pass a `dragResetKey` to `BottomSheet` so it resets its position when the visible page changes.
+In Live filters, dragging down from an editor returns to the filter list with the current draft and the Apply filters button in view.
+
 ## Screens and states
 
 - **Splash**: the centered gradient logomark hops in a ripple, with the head first and the three colored spikes following.

@@ -93,7 +93,7 @@ def request_pr_review_by_url(*, team_id: int, requester_id: int, pr_url: str, ru
 
 
 def get_pr_review_status(
-    *, team_id: int, pr_url: str, requested_at: datetime | None, run_mode: str, head_sha: str | None
+    *, team_id: int, pr_url: str, requested_at: datetime | None, run_mode: str | None, head_sha: str | None
 ) -> PRStatus:
     """Where the pull request's review runs stand, and how the request at `requested_at` ended.
 

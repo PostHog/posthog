@@ -3,6 +3,7 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
+import { hasJwtKeys } from '~/cdp/utils/jwt-utils'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
@@ -22,6 +23,7 @@ import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
 import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
+    BlockRefParamsSchema,
     DeleteRecordingsBodySchema,
     GetBlockQuerySchema,
     RecordingParamsSchema,
@@ -88,7 +90,11 @@ export class RecordingApi {
                       getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
               )
             : null
-        this.publicBlockLimits = this.servesPublicRoutes ? parsePublicBlockLimits(config) : null
+        // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
+        this.publicBlockLimits =
+            this.servesPublicRoutes || hasJwtKeys(config.RECORDING_API_STAFF_JWT_SECRET || '')
+                ? parsePublicBlockLimits(config)
+                : null
     }
 
     private get servesInternalRoutes(): boolean {
@@ -283,6 +289,8 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
+        const blockRefPath = '/api/projects/:team_id/recordings/:session_id/blocks/:ref'
+
         if (this.servesPublicRoutes) {
             router.get(
                 '/replay-blocks/:team_id/:session_id/:viewer/:ref',
@@ -297,6 +305,7 @@ export class RecordingApi {
         const auth = (op: RecordingApiOp) =>
             createRecordingApiAuthMiddleware({
                 jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+                staffJwtSecret: this.config.RECORDING_API_STAFF_JWT_SECRET,
                 op,
             })
         const readAuth = auth('read')
@@ -311,6 +320,7 @@ export class RecordingApi {
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
+        router.get(blockRefPath, asyncHandler(this.getBlockByListedRef))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
@@ -524,11 +534,29 @@ export class RecordingApi {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
+        await this.serveBlockByRef(req, res, paramsResult.data)
+    }
+
+    // The internal twin of the browser route, for a ref from the block listing: only that session's key decodes it.
+    private getBlockByListedRef = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = BlockRefParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+        await this.serveBlockByRef(req, res, paramsResult.data)
+    }
+
+    private async serveBlockByRef(
+        req: express.Request,
+        res: express.Response,
+        params: { team_id: number; session_id: string; ref: string }
+    ): Promise<void> {
         if (!this.recordingService) {
             res.status(503).json({ error: 'Service not initialized' })
             return
         }
-        const { team_id: teamId, session_id: sessionId, ref } = paramsResult.data
+        const { team_id: teamId, session_id: sessionId, ref } = params
         let admittedBytes = 0
 
         try {

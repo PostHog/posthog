@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
@@ -21,6 +21,10 @@ class ProfoundEndpointConfig:
     # Report-only: the metrics to request. They come back as named fields on each row.
     metrics: list[str] = field(default_factory=list)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Extra query params for the GET list endpoints.
+    params: dict[str, Any] = field(default_factory=dict)
+    # Path to the next-page cursor in the body. `None` for the lists that return everything at once.
+    cursor_path: Optional[str] = None
 
 
 def _date_field() -> list[IncrementalField]:
@@ -86,6 +90,36 @@ PROFOUND_ENDPOINTS: dict[str, ProfoundEndpointConfig] = {
         kind="category_reference",
         data_key="data",
         primary_keys=["category_id", "value"],
+    ),
+    # Topic and tag ids are not documented as unique across categories, so the key carries the category.
+    "Topics": ProfoundEndpointConfig(
+        name="Topics",
+        path="/v1/org/categories/{category_id}/topics",
+        kind="category_reference",
+        primary_keys=["category_id", "id"],
+    ),
+    "Tags": ProfoundEndpointConfig(
+        name="Tags",
+        path="/v1/org/categories/{category_id}/tags",
+        kind="category_reference",
+        primary_keys=["category_id", "id"],
+    ),
+    # The prompt list has no time filter, so it stays full refresh.
+    "Prompts": ProfoundEndpointConfig(
+        name="Prompts",
+        path="/v1/org/categories/{category_id}/prompts",
+        kind="category_reference",
+        data_key="data",
+        primary_keys=["category_id", "id"],
+        partition_key="created_at",
+        params={
+            "limit": 1000,
+            # The API returns only active prompts unless asked for both.
+            "status": ["active", "disabled"],
+            "order_by": "created_at",
+            "order_dir": "asc",
+        },
+        cursor_path="info.next_cursor",
     ),
     # Reports, one row per category per day. `category_id` is injected from the fan-out because the
     # response echoes only what was grouped on.

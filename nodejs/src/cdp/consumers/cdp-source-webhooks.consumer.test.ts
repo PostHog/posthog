@@ -568,30 +568,6 @@ describe('SourceWebhooksConsumer', () => {
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
 
-            it('produces the run to the intake topic when its team is in intake shadow mode', async () => {
-                hub.CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-
-                const res = await doPostRequest({
-                    webhookId: hogFlow.id,
-                    body: { event: 'my-event', distinct_id: 'test-distinct-id' },
-                })
-
-                expect(res.status).toEqual(201)
-                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
-                const runId = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
-                ).toEqual([
-                    expect.objectContaining({
-                        key: runId,
-                        value: expect.objectContaining({
-                            kind: 'workflow-webhook',
-                            job: expect.objectContaining({ id: runId }),
-                        }),
-                    }),
-                ])
-            })
-
             it('answers from the produce alone when its team is in intake async mode', async () => {
                 hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
 

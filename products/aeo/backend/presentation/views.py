@@ -37,6 +37,7 @@ from products.aeo.backend.facade.api import (
     create_visibility_dashboard,
     get_brand,
     get_prompt,
+    get_prompt_set_movers,
     get_prompt_set_overview,
     get_prompt_set_rankings,
     get_prompt_stats,
@@ -61,10 +62,12 @@ from products.aeo.backend.facade.contracts import (
     BRAND_NAME_MAX_LENGTH,
     COMPETITOR_CANDIDATE_DAYS,
     DEFAULT_DATE_FROM,
+    MAX_MOVERS,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
     MAX_WINDOW_DAYS,
+    MIN_MOVER_ANSWERS,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
@@ -82,6 +85,7 @@ from products.aeo.backend.facade.contracts import (
     EngineSetting,
     EngineSettingUpdate,
     InvalidDateRangeError,
+    PageMover,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -93,11 +97,14 @@ from products.aeo.backend.facade.contracts import (
     PromptEngineStats,
     PromptImport,
     PromptImportResult,
+    PromptMover,
     PromptNotFoundError,
     PromptSearchWord,
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
+    PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -577,6 +584,28 @@ class AEOPromptSetTopicCountsSerializer(AEOPromptSetCountsSerializer):
         }
 
 
+class AEOPromptSetEngineTopicCountsSerializer(DataclassSerializer):
+    mention_rate = serializers.FloatField(
+        read_only=True, help_text="Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'."
+    )
+
+    class Meta:
+        dataclass = PromptSetEngineTopicCounts
+        ref_name = "AEOPromptSetEngineTopicCounts"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "topic": {
+                "help_text": "Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'."
+            },
+            "answers": {
+                "help_text": "Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'."
+            },
+            "mentioned": {
+                "help_text": "Of those answers, how many name the brand. A cited answer counts as a mention."
+            },
+        }
+
+
 class AEOPromptSetDomainSerializer(DataclassSerializer):
     class Meta:
         dataclass = PromptSetDomain
@@ -637,6 +666,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
+    )
+    engine_topics = AEOPromptSetEngineTopicCountsSerializer(
+        many=True,
+        help_text="The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero.",
     )
     top_domains = AEOPromptSetDomainSerializer(
         many=True,
@@ -763,6 +796,88 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
             "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
             "competitors_confirmed": {
                 "help_text": "Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains."
+            },
+        }
+
+
+MOVER_CHANGE_HELP = (
+    "The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and "
+    "-0.25 a loss of 25."
+)
+
+
+class AEOPromptMoverSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptMover
+        ref_name = "AEOPromptMover"
+        extra_kwargs = {
+            "prompt_id": {"help_text": "Id of the prompt. Pass it to the prompt endpoints for its stats and checks."},
+            "prompt": {"help_text": "The prompt's current text."},
+            "topic": {"help_text": "The prompt's current topic. Empty when it has none."},
+            "answers": {"help_text": "Answered checks of the prompt in the current window."},
+            "mentioned": {
+                "help_text": "Of 'answers', the ones that name the brand. An answer that cites the site counts as a mention."
+            },
+            "mention_rate": {"help_text": "Share (0-1) of 'answers' that name the brand."},
+            "previous_answers": {"help_text": "Answered checks of the prompt in the window before."},
+            "previous_mentioned": {"help_text": "Of 'previous_answers', the ones that name the brand."},
+            "previous_mention_rate": {"help_text": "Share (0-1) of 'previous_answers' that name the brand."},
+            "change": {"help_text": MOVER_CHANGE_HELP},
+        }
+
+
+class AEOPageMoverSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PageMover
+        ref_name = "AEOPageMover"
+        extra_kwargs = {
+            "url": {"help_text": "The cited URL on one of the project's own domains, as the engine returned it."},
+            "answers_citing": {"help_text": "Answered checks in the current window that cite this URL."},
+            "citation_rate": {"help_text": "Share (0-1) of the response's 'answers' that cite this URL."},
+            "previous_answers_citing": {"help_text": "Answered checks in the window before that cite this URL."},
+            "previous_citation_rate": {
+                "help_text": "Share (0-1) of the response's 'previous_answers' that cite this URL."
+            },
+            "change": {"help_text": MOVER_CHANGE_HELP},
+        }
+
+
+class AEOPromptSetMoversSerializer(DataclassSerializer):
+    prompt_gainers = AEOPromptMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} prompts whose mention rate rose the most against the window before, largest gain first.",
+    )
+    prompt_losers = AEOPromptMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} prompts whose mention rate fell the most against the window before, largest loss first.",
+    )
+    page_gainers = AEOPageMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} pages on the project's own domains whose citation rate rose the most, largest gain first.",
+    )
+    page_losers = AEOPageMoverSerializer(
+        many=True,
+        help_text=f"Up to {MAX_MOVERS} pages on the project's own domains whose citation rate fell the most, largest loss first.",
+    )
+
+    class Meta:
+        dataclass = PromptSetMovers
+        ref_name = "AEOPromptSetMovers"
+        extra_kwargs = {
+            "days": {"help_text": "Length of each window in days."},
+            "window_from": {"help_text": "First day of the current window, in the project's timezone."},
+            "window_to": {"help_text": "Last day of the current window, in the project's timezone."},
+            "branded": {"help_text": BRANDED_SEGMENT_ECHO_HELP},
+            "engine": {"help_text": ENGINE_ECHO_HELP},
+            "topic": {"help_text": TOPIC_ECHO_HELP},
+            "answers": {
+                "help_text": "Answered checks in the current window: the denominator of every page's 'citation_rate'."
+            },
+            "previous_answers": {
+                "help_text": "Answered checks in the window before: the denominator of every page's 'previous_citation_rate'."
+            },
+            "min_answers": {
+                "help_text": "The fewest answers a prompt needs in each window to be listed. The page lists are empty when either window has fewer answers in total."
             },
         }
 
@@ -1246,6 +1361,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "versions",
         "overview",
         "rankings",
+        "movers",
         "citations",
         "suggestion",
     ]
@@ -1464,6 +1580,37 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 topic=request.validated_query_data["topic"],
             )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    @validated_request(
+        query_serializer=AEOPromptSetOverviewQuerySerializer,
+        operation_id="aeo_prompts_movers",
+        summary="Get the AEO prompts and pages that moved most",
+        description=(
+            "Gets the tracked prompts and the pages on the project's own domains that gained and lost the most "
+            "visibility between 'date_from' and 'date_to' (default the last 30 days) in the project's timezone and the "
+            "range of the same length before it. A prompt is ranked by the change in its mention rate, the share of its answers that name "
+            "the brand, and a page by the change in its citation rate, the share of all answers that cite it. A "
+            f"prompt needs at least {MIN_MOVER_ANSWERS} answers in each window, and archived prompts are left out. "
+            "Counts cover web-search checks. Pass 'branded' to count only the checks whose prompt names the brand, "
+            "or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one "
+            "topic."
+        ),
+        responses={200: OpenApiResponse(response=AEOPromptSetMoversSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def movers(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        with date_range_errors():
+            movers = get_prompt_set_movers(
+                self.team_id,
+                timezone_name=self.team.timezone,
+                date_from=request.validated_query_data["date_from"],
+                date_to=request.validated_query_data["date_to"],
+                branded=BrandedSegment(request.validated_query_data["branded"]),
+                engine=request.validated_query_data["engine"],
+                topic=request.validated_query_data["topic"],
+            )
+        return Response(AEOPromptSetMoversSerializer(movers).data)
 
     @validated_request(
         query_serializer=AEOPromptSetCitationsQuerySerializer,

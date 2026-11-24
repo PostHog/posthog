@@ -66,7 +66,7 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 - Vertical slices: each product owns its models, logic, API, and UI
 - Isolated: products don't import each other's internals
-- Turbo for selective testing, tach for import boundaries
+- Turbo for selective testing, hoglint for import boundaries
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
@@ -116,8 +116,8 @@ A distribution only CI and developer workflows use belongs in `tools/`, like `ho
 
 Rules that follow from being a distribution rather than a module:
 
-- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach resolves a uv distribution as third-party and cannot police this, so each package gets a `forbidden` contract in the root `pyproject.toml` under `[tool.importlinter]` (see `packages/owners-yaml is a leaf`), which resolves by installed import name.
-- It carries a `package.json` (`@posthog/<name>`, private) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. The manifest also declares `pythonImportName`. `turbo-discover` reads that name, scans `products/` for imports of it, and re-tests the importers plus their tach dependents. Consumers declare nothing.
+- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. hoglint's `leaves-stay-leaves` rule holds every package under `packages/` to this, with no per-package config.
+- It carries a `package.json` (`@posthog/<name>`, private) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. The manifest also declares `pythonImportName`. `turbo-discover` reads that name, scans `products/` for imports of it, and re-tests the importers plus their dependents in the import map (`hoglint map`). Consumers declare nothing.
 - Its own tests are a step in `ci-python.yml`, not a matrix entry: `turbo-discover` treats it as a cascade source only.
 - Core (`posthog/`, `ee/`, `common/`) should not import it, so that a package change re-tests its product consumers rather than the Django suite. `turbo-discover` scans those trees too, and runs the full suite when one of them imports it.
 - Register its path in `pnpm-workspace.yaml`, in `.dockerignore` (an allowlist), and in the Dockerfile bind-mount list, because `uv sync` validates workspace membership at build time.
@@ -139,7 +139,7 @@ They are not products, because no one interacts with them as a user-facing featu
 
 A holding pen for shared code that predates a better home (`hogql_parser` and other cross-cutting utilities) — **not** a destination, and the goal is to shrink it, not grow it.
 
-A catch-all "common" reliably rots into a junk drawer: unscoped, unenforced, imported by everything — a second monolith with worse boundaries than the first. The name itself is the smell; context-named homes are the cure. Unlike `products/*` (tach + turbo), nothing mechanically guards what lands here — only the convention, and conventions erode unless they're made hard to violate.
+A catch-all "common" reliably rots into a junk drawer: unscoped, unenforced, imported by everything — a second monolith with worse boundaries than the first. The name itself is the smell; context-named homes are the cure. Unlike `products/*` (hoglint + turbo), nothing mechanically guards what lands here — only the convention, and conventions erode unless they're made hard to violate.
 
 So new code should go somewhere with a real boundary first: `products/<name>/`, `tools/`, `services/`, or `packages/` (a clean, published-style leaf — `packages/quill` is the model). Land code in `common/` only when none of those fit _and_ it can't yet be a clean leaf because it still imports app modules (`lib/*`, `scenes/*`); when that's the case, treat it as tracked debt and name the graduation target. Once something here becomes a clean leaf, promote it out to `packages/` or the owning product and delete it from `common/`. See `common/AGENTS.md` for the agent-facing rules.
 
