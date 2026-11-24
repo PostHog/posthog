@@ -176,7 +176,6 @@ async def call_llm(
         ai_product=ai_product,
         ai_stage=stage,
         team_id=team_id,
-        use_bedrock_fallback=True,
         trace_id=trace_id,
         properties=properties,
     )
