@@ -770,7 +770,7 @@ describe('judge', () => {
 
         expect({ result, unread: judge.evidence().unread }).toEqual({
             result: expect.objectContaining({ passed: true }),
-            unread: 'the truth read hit a harness limit at record 1 of 2: 2 attempts failed, the last with The operation was aborted due to timeout',
+            unread: 'the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
         })
     })
 
@@ -779,17 +779,23 @@ describe('judge', () => {
         const PAGE = 1000
         const PAGE_TIMEOUT_MS = 1000
 
+        type PageFault = 'hang' | 'reset' | undefined
+
         let truth: Truth
         let edge: ProviderEdge
         let front: http.Server
-        let hangs: (after: number) => boolean
+        let faultOf: (after: number) => PageFault
 
         beforeEach(async () => {
             truth = new Truth()
             edge = await startProviderEdge({ port: 0, truth })
             front = http.createServer((req, res) => {
                 const url = new URL(req.url ?? '/', edge.url)
-                if (url.pathname === '/_truth' && hangs(Number(url.searchParams.get('after')))) {
+                const fault = url.pathname === '/_truth' ? faultOf(Number(url.searchParams.get('after'))) : undefined
+                if (fault === 'reset') {
+                    req.socket.destroy()
+                }
+                if (fault !== undefined) {
                     return
                 }
                 http.get(`${edge.url}${req.url}`, (answer) => {
@@ -812,29 +818,64 @@ describe('judge', () => {
             }
         }
 
-        const hangingOnce = (at: number): ((after: number) => boolean) => {
+        const hangingOnce = (at: number) => (): ((after: number) => PageFault) => {
             let hung = false
-            return (after) => after === at && !hung && (hung = true)
+            return (after) => (after === at && !hung && (hung = true) ? 'hang' : undefined)
         }
 
-        it.each<[string, number, (after: number) => boolean, object]>([
+        const resettingFrom = (at: number) => (): ((after: number) => PageFault) => (after) =>
+            after >= at ? 'reset' : undefined
+
+        const recordingMoreOnTheFirstPage = (more: number) => (): ((after: number) => PageFault) => (after) => {
+            if (after === 0) {
+                append(more)
+            }
+            return undefined
+        }
+
+        const STOPPED = AbortSignal.abort()
+
+        it.each<[string, number, () => (after: number) => PageFault, AbortSignal | undefined, object]>([
             [
                 'reads all of it when one page request hangs once',
                 LARGE_TRUTH_RECORDS,
                 hangingOnce(LARGE_TRUTH_RECORDS / 2),
+                undefined,
                 { read: LARGE_TRUTH_RECORDS, unread: undefined },
+            ],
+            [
+                'reads up to the head it took first, leaving out what the edge records after it',
+                1.5 * PAGE,
+                recordingMoreOnTheFirstPage(PAGE),
+                undefined,
+                { read: 1.5 * PAGE, unread: undefined },
             ],
             [
                 'keeps what it read and names a harness limit when the edge stops answering',
                 3 * PAGE,
-                (after) => after >= 2 * PAGE,
+                resettingFrom(2 * PAGE),
+                undefined,
                 {
                     read: 2 * PAGE,
-                    unread: `the truth read hit a harness limit at record ${2 * PAGE} of ${3 * PAGE}: 3 attempts failed, the last with The operation was aborted due to timeout`,
+                    unread: expect.stringMatching(
+                        /^the truth read hit a harness limit at record 2000 of 3000: 3 of 3 attempts failed, the last with /
+                    ),
                 },
             ],
-        ])('%s', async (_story, records, hang, expected) => {
-            hangs = hang
+            [
+                'tries a failed page once when the run was stopped',
+                3 * PAGE,
+                resettingFrom(2 * PAGE),
+                STOPPED,
+                {
+                    read: 2 * PAGE,
+                    unread: expect.stringMatching(
+                        /^the truth read hit a harness limit at record 2000 of 3000: 1 of 3 attempts failed, the last with /
+                    ),
+                },
+            ],
+        ])('%s', async (_story, records, fault, signal, expected) => {
+            faultOf = fault()
             const judge = createJudge({
                 truth: edgeTruth(`http://127.0.0.1:${(front.address() as AddressInfo).port}`, PAGE_TIMEOUT_MS),
                 probe: { unfinishedJobs: () => Promise.resolve(0) },
@@ -844,7 +885,7 @@ describe('judge', () => {
             await judge.open(SEED)
             append(records)
 
-            await judge.check([], {}, NO_RESETS)
+            await judge.check([], {}, NO_RESETS, signal)
 
             const { truth: read, unread } = judge.evidence()
             expect({ read: read.length, unread }).toEqual(expected)

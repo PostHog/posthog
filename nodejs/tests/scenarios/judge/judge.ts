@@ -7,7 +7,7 @@ import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { TruthSource } from './truth'
+import type { TruthRead, TruthSource } from './truth'
 
 export type IntakeAnswer = (
     | { accepted: true }
@@ -52,7 +52,12 @@ export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
+    check(
+        invariants: Named[],
+        gates: Record<string, number>,
+        run: RunEvidence,
+        signal?: AbortSignal
+    ): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number; unread?: string }
 }
 
@@ -69,20 +74,26 @@ export type JudgeOptions = {
 export type FinalRead = { attempts: number; backoffMs: number }
 
 const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
-const ONCE: FinalRead = { attempts: 1, backoffMs: 0 }
+const FINAL: TruthRead = { final: true }
 
 const messageOf = (error: unknown): string =>
     typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
 
-async function retried<T>(read: () => Promise<T>, { attempts, backoffMs }: FinalRead): Promise<T> {
+async function retried<T>(
+    read: () => Promise<T>,
+    { attempts, backoffMs }: FinalRead,
+    signal?: AbortSignal
+): Promise<T> {
     for (let attempt = 1; ; attempt++) {
         try {
             return await read()
         } catch (error) {
-            if (attempt >= attempts) {
-                throw error
+            if (attempt < attempts && !signal?.aborted) {
+                await sleep(backoffMs * attempt, undefined, { signal }).catch(() => undefined)
             }
-            await sleep(backoffMs * attempt)
+            if (attempt >= attempts || signal?.aborted) {
+                throw new Error(`${attempt} of ${attempts} attempts failed, the last with ${messageOf(error)}`)
+            }
         }
     }
 }
@@ -102,9 +113,9 @@ export function createJudge({
     let teams: number[] = []
     let unread: string | undefined
 
-    const pullTruth = async (head = Infinity, attempts = ONCE): Promise<void> => {
-        while (cursor < head) {
-            const page = await retried(() => source.after(cursor), attempts)
+    const pullTruth = async (): Promise<void> => {
+        for (;;) {
+            const page = await source.after(cursor)
             if (page.records.length === 0) {
                 return
             }
@@ -113,16 +124,22 @@ export function createJudge({
         }
     }
 
-    const pullToHead = async (): Promise<void> => {
+    const pullToHead = async (signal?: AbortSignal): Promise<void> => {
         let head: number | undefined
         try {
-            head = await retried(() => source.head(), finalRead)
-            await pullTruth(head, finalRead)
+            head = await retried(() => source.head(FINAL), finalRead, signal)
+            while (cursor < head) {
+                const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
+                const records = page.records.filter(({ seq }) => seq <= head!)
+                if (records.length === 0) {
+                    return
+                }
+                truth.push(...records)
+                cursor = records.at(-1)!.seq
+            }
         } catch (error) {
             const at = head === undefined ? cursor : `${cursor} of ${head}`
-            throw new Error(
-                `the truth read hit a harness limit at record ${at}: ${finalRead.attempts} attempts failed, the last with ${messageOf(error)}`
-            )
+            throw new Error(`the truth read hit a harness limit at record ${at}: ${messageOf(error)}`)
         }
     }
 
@@ -188,8 +205,8 @@ export function createJudge({
             }
         },
 
-        async check(invariants, gates, run) {
-            await read(pullToHead)
+        async check(invariants, gates, run, signal) {
+            await read(() => pullToHead(signal))
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined

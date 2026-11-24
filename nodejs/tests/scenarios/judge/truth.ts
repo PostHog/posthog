@@ -3,19 +3,19 @@ import { internalFetch } from '~/common/utils/request'
 
 import type { TruthHead, TruthPage } from '../provider-edge'
 
-export type TruthRead = { limit?: number; timeoutMs?: number }
+export type TruthRead = { limit?: number; timeoutMs?: number; final?: boolean }
 
-// A full page is a thousand records with their messages, served by an edge whose one event loop also answers sends.
-const TRUTH_PAGE_TIMEOUT_MS = 30_000
+const FULL_PAGE_FROM_A_BUSY_EDGE_MS = 30_000
 
 export interface TruthSource {
     head(read?: TruthRead): Promise<number>
     after(cursor: number, read?: TruthRead): Promise<TruthPage>
 }
 
-export function edgeTruth(edgeUrl: string, pageTimeoutMs = TRUTH_PAGE_TIMEOUT_MS): TruthSource {
-    const get = async <T>(route: string, query: string, { timeoutMs = pageTimeoutMs }: TruthRead = {}): Promise<T> => {
-        const response = await internalFetch(`${edgeUrl}${route}${query}`, { timeoutMs })
+export function edgeTruth(edgeUrl: string, finalTimeoutMs = FULL_PAGE_FROM_A_BUSY_EDGE_MS): TruthSource {
+    const get = async <T>(route: string, query: string, { timeoutMs, final }: TruthRead = {}): Promise<T> => {
+        const bound = timeoutMs ?? (final ? finalTimeoutMs : undefined)
+        const response = await internalFetch(`${edgeUrl}${route}${query}`, bound ? { timeoutMs: bound } : undefined)
         if (response.status !== 200) {
             throw new Error(`The edge answered ${route} with ${response.status}`)
         }
