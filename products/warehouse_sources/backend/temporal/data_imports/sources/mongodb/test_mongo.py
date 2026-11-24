@@ -245,11 +245,12 @@ class TestSafeServerSelector(SimpleTestCase):
 
         getaddrinfo.assert_not_called()
 
+    @parameterized.expand([("plain", "cluster.oast.fun"), ("percent_encoded", "cluster.oast%2efun")])
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_client_refuses_an_out_of_band_srv_name_without_looking_it_up(self):
+    def test_client_refuses_an_out_of_band_srv_name_without_looking_it_up(self, _name, srv_host):
         resolver = MagicMock()
         with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver), pytest.raises(HostNotAllowedError):
-            with mongo_client("mongodb+srv://user:pw@cluster.oast.fun/db", team_id=999):
+            with mongo_client(f"mongodb+srv://user:pw@{srv_host}/db", team_id=999):
                 pass
 
         resolver.assert_not_called()

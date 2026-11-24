@@ -580,7 +580,8 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
     }
     checked_connection_string = _checked_connection_string(connection_string)
     if checked_connection_string.startswith("mongodb+srv://"):
-        _refuse_oob_domain(urlparse(checked_connection_string).hostname or "", team_id)
+        # pymongo percent-decodes the host before its SRV lookup, so check the decoded name.
+        _refuse_oob_domain(unquote_plus(urlparse(checked_connection_string).hostname or ""), team_id)
     # The client's monitor dials the seed as soon as the client opens, so check before it exists.
     # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
     _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)
