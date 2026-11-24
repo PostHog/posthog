@@ -19,7 +19,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -170,9 +170,24 @@ from products.notifications.backend.facade.api import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-
 logger = structlog.get_logger(__name__)
+
+
+class _SavedMetricLinkWriteSerializer(serializers.ModelSerializer):
+    # Checks that both ids exist and that the metadata is not null, and answers a 400 when they fail.
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = ["experiment", "saved_metric", "metadata"]
+
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    serializer = _SavedMetricLinkWriteSerializer(
+        data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
+        context=context,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -2050,16 +2065,12 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data["id"],
-                    "metadata": saved_metric_data.get("metadata"),
-                },
+            _create_saved_metric_link(
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric_data["id"],
+                metadata=saved_metric_data.get("metadata"),
                 context=context,
             )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
 
     # ------------------------------------------------------------------
     # Launch
@@ -4048,16 +4059,12 @@ class ExperimentService:
                             existing_link.metadata = new_metadata
                             existing_link.save(update_fields=["metadata", "updated_at"])
                     else:
-                        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                            data={
-                                "experiment": experiment.id,
-                                "saved_metric": saved_metric_id,
-                                "metadata": new_metadata,
-                            },
+                        _create_saved_metric_link(
+                            experiment_id=experiment.id,
+                            saved_metric_id=saved_metric_id,
+                            metadata=new_metadata,
                             context=context,
                         )
-                        saved_metric_serializer.is_valid(raise_exception=True)
-                        saved_metric_serializer.save()
 
             # (stats_config / excluded_variants / duplicate-metric-uuid validation
             # runs before the flag write above so a 400 can't leave a committed flag

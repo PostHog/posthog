@@ -215,6 +215,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "comment_type": "Type of comment.",
         },
     },
+    "PullRequestEvents": {
+        "description": "An event on a pull request supplied by the git host, such as a comment or an approval.",
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802666298",
+        "columns": {
+            "id": "Unique identifier for the pull request event.",
+            "user_alias_id": "Identifier of the user alias associated with the event.",
+            "apex_user_id": "Identifier of the main user record for the event author's aliases.",
+            "pull_request_id": "Identifier of the pull request the event belongs to.",
+            "to_state": "The event type.",
+            "created_at": "Date and time the event was created.",
+        },
+    },
+    "TicketComments": {
+        "description": "A comment a user made on a ticket in the issue-tracking system.",
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802698753",
+        "columns": {
+            "id": "Unique identifier for the ticket comment.",
+            "user_alias_id": "Identifier of the user alias that wrote the comment.",
+            "ticket_id": "Identifier of the ticket the comment belongs to.",
+            "body": "Ticket comment body.",
+            "word_count": "Total number of words in the comment.",
+            "comment_robustness": "How robust the comment is: robust, regular, or trivial.",
+            "created_at": "Date and time the ticket comment was created.",
+            "updated_at": "Date and time the ticket comment was updated.",
+        },
+    },
     "TicketEvents": {
         "description": "A state change in a ticket's lifecycle in the issue-tracking system.",
         "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802568132",

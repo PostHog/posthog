@@ -316,7 +316,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
         ],
 
         // IMPORTANT: Keep these hardcoded tiles in sync with backend template in
-        // products/ai_observability/backend/dashboard_templates.py:4-319 until full migration to customizable dashboard.
+        // products/ai_observability/backend/dashboard_templates.py:7-325 until full migration to customizable dashboard.
         //
         // Used when LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD feature flag is OFF.
         // When feature flag is ON, dashboard is loaded from backend template instead.

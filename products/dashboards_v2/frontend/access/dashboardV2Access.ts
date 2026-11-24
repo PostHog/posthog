@@ -2,7 +2,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { DashboardEdit } from '../layout/dashboardEdits'
+import type { DashboardEdit } from '../dashboard/dashboardEdits'
 
 /**
  * Everything a person can do to a v2 dashboard, and the access level it needs. Each edit kind must appear here, so a
@@ -17,6 +17,7 @@ export const DASHBOARD_V2_REQUIRED_LEVEL: Record<DashboardV2Action, AccessContro
     removeTile: AccessControlLevel.Editor,
     updateSection: AccessControlLevel.Editor,
     setTileParts: AccessControlLevel.Editor,
+    setWidgetConfig: AccessControlLevel.Editor,
     addTab: AccessControlLevel.Editor,
     renameTab: AccessControlLevel.Editor,
     removeTab: AccessControlLevel.Editor,

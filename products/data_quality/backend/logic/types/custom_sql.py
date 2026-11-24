@@ -6,6 +6,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.exceptions_capture import capture_exception
+
 from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import CheckConfigError
@@ -109,7 +111,8 @@ def parse_custom_sql_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(query.rstrip(";").strip())
     except ExposedHogQLError as err:
         raise CheckConfigError(f"Could not parse the custom query: {err}")
-    except Exception:
+    except Exception as error:
+        capture_exception(error)
         raise CheckConfigError("Could not parse the custom query.")
 
 
