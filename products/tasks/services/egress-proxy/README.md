@@ -155,6 +155,16 @@ Observation failures stop that probe and are logged. They do not change the agen
 
 The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
 
+Set `renew_relay_certificate: true` in the enrollment or probe JSON only after selecting a relay image that supports certificate reload and `client_ca_file`. It defaults to false for existing images and executions. The worker installs the public enrollment CA in the sidecar and renews the same registered key halfway through the certificate's remaining lifetime. The renewal deadline is saved on the run so another worker can continue it.
+
+```text
+renew lease -> check registered key -> issue certificate
+  publish atomically in sidecar -> SIGHUP identified process
+  relay acknowledges reload -> save next renewal deadline
+```
+
+The relay retains its private key. The CA signing key stays with the worker. Renewal verifies the process identity before signalling, waits for the reload result and restores the previous file on failure. A failed delivery does not advance the saved deadline. The existing lease and run checks still apply before publication; certificate renewal does not extend the observation window or restore revoked authority. A 600-second observation can exercise the first renewal of a 15-minute certificate, but cannot prove continuity past its original expiry. Use an isolated test with short-lived certificates for that check until full-run enrollment is available. Enrollment-CA rotation remains separate.
+
 ```text
 Selected TaskRun -> ordinary VM provision and agent launch
   attach relay -> register execution -> publish bounded capability
@@ -278,7 +288,7 @@ Every request checks the current client CA, including requests on reused TLS con
 The relay also reloads its certificate, key and server CA files on SIGHUP. Renewed certificates must use the same public key; a new key needs a new execution registration.
 Set `client_ca_file` to the enrollment CA bundle trusted by the regional proxy. Reload verifies the candidate's client-authentication chain against this bundle. Existing configurations can start without it, but cannot reload certificates until it is configured and the relay restarted.
 Successful relay reloads replace the upstream connection pool and close its idle connections. In-flight requests can finish, and new requests use the renewed certificate even on an existing guest connection.
-Invalid material leaves the previous material active. Readiness and new requests fail once that certificate expires. The worker must still issue, publish and trigger renewal; SIGHUP does not extend enrollment or relay process lifetime.
+Invalid material leaves the previous material active. Readiness and new requests fail once that certificate expires. Opted-in workers issue and publish renewed certificates through the existing renewal activity; SIGHUP does not extend enrollment or relay process lifetime.
 Listener addresses, endpoints and limits require a restart.
 SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
 
