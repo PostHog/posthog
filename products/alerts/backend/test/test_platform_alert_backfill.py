@@ -2,9 +2,11 @@ from io import StringIO
 from typing import Any
 from uuid import UUID
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db.models.signals import pre_delete
 
 from parameterized import parameterized
@@ -81,12 +83,15 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         assert (counts.created, counts.skipped, counts.failed) == (5, 1, 1)
         assert ai_detector.id not in self._copies()
 
-        call_command(
-            "backfill_platform_insight_alert_configurations",
-            team_id=self.team.id,
-            include_ai_detector=True,
-            stdout=StringIO(),
-        )
+        stdout = StringIO()
+        with pytest.raises(CommandError, match="insight backfill failed copies: 1"):
+            call_command(
+                "backfill_platform_insight_alert_configurations",
+                team_id=self.team.id,
+                include_ai_detector=True,
+                stdout=stdout,
+            )
+        assert stdout.getvalue() == "Created 1, updated 5, skipped 0, failed 1\n"
         again = backfill_platform_insight_alert_configurations(team_id=self.team.id, include_ai_detector=True)
 
         assert (again.created, again.updated) == (0, 6)

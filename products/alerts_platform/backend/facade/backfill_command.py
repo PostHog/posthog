@@ -74,6 +74,8 @@ class PlatformBackfillCommand(BaseCommand):
         self.stdout.write(
             f"Created {counts.created}, updated {counts.updated}, skipped {counts.skipped}, failed {counts.failed}"
         )
+        if counts.failed:
+            raise CommandError(f"{self.source_name} backfill failed copies: {counts.failed}")
 
 
 def _alert_ids(path: str | None) -> list[UUID] | None:

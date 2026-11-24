@@ -548,6 +548,7 @@ python manage.py backfill_platform_alert_configurations
 Pass `--team-id` to copy one team's configurations only.
 Pass `--sample-percent` to copy a sample of teams. Logs samples whole teams, not alerts, because one query checks a cohort of a team's alerts, so a sample of alerts spread across every team costs nearly as many queries as copying all of them. The sample is chosen by team id, so a rerun copies the same teams and a larger percentage only adds teams.
 An alert the copy rejects is logged and counted as failed, and the run carries on.
+When any alert fails, either backfill prints its summary and then exits non-zero, so a script that runs it stops instead of reporting success.
 It is a seed, not a sync: the logs product keeps the control plane.
 Each logs check reads its logs alert's current filters, threshold, window, N-of-M, cooldown, quiet hours and snooze, so an edit counts from the next check without a rerun.
 A copy whose logs alert is deleted or disabled switches itself off on its next check.
