@@ -2655,14 +2655,16 @@ class TestCohortCalculationTasks(APIBaseTest):
             pending_population_mode=CohortPopulationMode.REPLACE,
             population_claimed_at=claimed_at,
         )
+        delete_err = RuntimeError("ch delete down")
 
         with (
             patch(QUERY_CH_INSERT_PATH, return_value=1),
             patch(PG_SYNC_PATH, side_effect=RuntimeError("pg down")),
             patch(
                 "products.cohorts.backend.models.util.delete_failed_replace_attempt_rows",
-                side_effect=RuntimeError("ch delete down"),
+                side_effect=delete_err,
             ),
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
         ):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
@@ -2674,6 +2676,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertIsNotNone(cohort.population_marker)
         self.assertIsNotNone(cohort.population_first_marker)
         self.assertEqual(cohort.population_claimed_at, claimed_at)
+        self.assertEqual([call.args[0] for call in mock_capture.call_args_list if call.args], [delete_err])
 
     def test_query_append_still_runs_when_replace_flag_is_off(self) -> None:
         self.mock_replace_flag.return_value = False
@@ -3872,15 +3875,23 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=2))
 
+        delete_err = RuntimeError("ch delete down")
         with patch(
             "products.cohorts.backend.models.util.delete_failed_replace_attempt_rows",
-            side_effect=RuntimeError("ch delete down"),
+            side_effect=delete_err,
         ):
             reset_stuck_cohorts()
 
         cohort.refresh_from_db()
         mock_insert_cohort_from_query.delay.assert_not_called()
-        mock_capture.assert_called_once()
+        mock_capture.assert_called_once_with(
+            delete_err,
+            additional_properties={
+                "cohort_id": cohort.pk,
+                "team_id": cohort.team_id,
+                "log_prefix": "reset_stuck_static_cohort",
+            },
+        )
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
         self.assertEqual(cohort.population_marker, marker)

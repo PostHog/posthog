@@ -449,10 +449,6 @@ def reset_stuck_cohorts() -> None:
                     cohort_id=cohort.pk,
                     team_id=cohort.team_id,
                 )
-                capture_exception(
-                    RuntimeError(f"Failed to clean up stuck static cohort {cohort.pk} replace rows"),
-                    additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id},
-                )
                 continue
 
         cohort.is_calculating = False
@@ -1059,11 +1055,15 @@ def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing
         delete_failed_replace_attempt_rows(
             cohort.pk, team_id=cohort.team_id, from_marker=first_marker, to_marker=to_marker
         )
-    except Exception:
+    except Exception as err:
         logger.exception(
             f"{log_prefix}_failed_replace_cleanup_failed",
             cohort_id=cohort.pk,
             team_id=cohort.team_id,
+        )
+        capture_exception(
+            err,
+            additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id, "log_prefix": log_prefix},
         )
         return False
     return True
