@@ -4,5 +4,10 @@ import type { ContentWidget } from '../../dashboard/dashboardTypes'
 import type { MarkdownConfig } from './markdownSpec'
 
 export function MarkdownWidget({ widget }: { widget: ContentWidget<MarkdownConfig> }): JSX.Element {
-    return <LemonMarkdown className="text-sm">{widget.config.text}</LemonMarkdown>
+    // Every viewer would load an image from any URL the editor typed, so only PostHog-hosted images show.
+    return (
+        <LemonMarkdown className="text-sm" disableImages>
+            {widget.config.text}
+        </LemonMarkdown>
+    )
 }
