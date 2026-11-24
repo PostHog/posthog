@@ -46,6 +46,7 @@ from products.knowledge_writer.backend.logic.launch import (
     change_check_script,
 )
 from products.knowledge_writer.backend.logic.pull_requests import (
+    AUTHOR_FLAG_UNREADABLE,
     AUTHOR_NOT_OPTED_IN,
     DRAFT_EVENT,
     LINK_BACK_START,
@@ -1101,7 +1102,9 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
         pytest.param(None, "octo-person", True, [], None, id="pull_requests_flag_unreadable"),
         pytest.param(True, "octo-person", False, ["logged"], AUTHOR_NOT_OPTED_IN, id="author_not_opted_in"),
         pytest.param(True, None, True, ["logged"], AUTHOR_NOT_OPTED_IN, id="no_human_author"),
-        pytest.param(True, "octo-person", None, [], None, id="author_flag_unreadable"),
+        pytest.param(
+            True, "octo-person", None, ["logged"], AUTHOR_FLAG_UNREADABLE, id="author_flag_unreadable_on_last_attempt"
+        ),
     ],
 )
 def test_without_an_opted_in_author_a_finished_run_is_logged_with_its_patches_and_creates_no_branch(
