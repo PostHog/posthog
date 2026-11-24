@@ -11,6 +11,7 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.event.sql import EVENTS_TABLE_BASE_SQL, EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS
+from posthog.models.raw_sessions.excluded_events import SESSIONS_EVENT_FILTER_SQL
 
 """Raw sessions table v3
 
@@ -425,9 +426,11 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
 -- of the session id's timestamp. The bound is symmetric because the client mints the session id with its own clock
 -- while the server corrects event timestamps, so a client clock that runs days ahead is still a real session.
 AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) BETWEEN timestamp - INTERVAL 31 DAY AND timestamp + INTERVAL 31 DAY
+AND {event_filter}
 AND {where}
     """.format(
         source_table=source_table,
+        event_filter=SESSIONS_EVENT_FILTER_SQL,
         where=where,
         PROPERTIES=PROPERTIES,
         extra_ctes=extra_ctes,
@@ -537,6 +540,20 @@ AS
         mv_name=RAW_SESSIONS_V3_EVENTS_WS_MV,
         database=settings.CLICKHOUSE_DATABASE,
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.{KAFKA_RAW_SESSIONS_V3_TABLE}",
+            extra_ctes=KAFKA_SOURCE_COLUMN_CTES,
+        ),
+    )
+
+
+def RAW_SESSIONS_V3_EVENTS_WS_MV_UPDATE_SQL():
+    return """
+ALTER TABLE {mv_name}
+MODIFY QUERY
+{select_sql}
+""".format(
+        mv_name=RAW_SESSIONS_V3_EVENTS_WS_MV,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             source_table=f"{settings.CLICKHOUSE_DATABASE}.{KAFKA_RAW_SESSIONS_V3_TABLE}",
             extra_ctes=KAFKA_SOURCE_COLUMN_CTES,

@@ -6,6 +6,7 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.models.raw_sessions.excluded_events import SESSIONS_EVENT_FILTER_SQL
 
 TABLE_BASE_NAME = "raw_sessions"
 
@@ -287,8 +288,10 @@ SELECT
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.{events_table}
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull({session_id}, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+AND {event_filter}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
+        event_filter=SESSIONS_EVENT_FILTER_SQL,
         events_table=events_table,
         session_id=session_id_expr,
         current_url=source_url_column("$current_url", use_new),
@@ -411,6 +414,7 @@ SELECT
     argMinState({vitals_lcp}, timestamp) as vitals_lcp
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
+AND {event_filter}
 GROUP BY
     team_id,
     toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
@@ -418,6 +422,7 @@ GROUP BY
     session_id_v7
 """.format(
     database=settings.CLICKHOUSE_DATABASE,
+    event_filter=SESSIONS_EVENT_FILTER_SQL,
     current_url=source_url_column("$current_url"),
     current_url_string=source_string_column("$current_url"),
     external_click_url=source_string_column("$external_click_url"),

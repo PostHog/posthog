@@ -139,4 +139,6 @@ WHERE
 AND
   ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) >= (timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) <= (timestamp + toIntervalDay(31))))
 AND
+  (NOT (startsWith(event, '$mcp_') OR startsWith(event, '$ai_')))
+AND
   true
