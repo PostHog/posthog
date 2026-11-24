@@ -21,7 +21,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.warehouse_sources.backend.facade.contracts import FileUploadSourceError
+from products.warehouse_sources.backend.facade.contracts import FileUploadSourceError, UnreadableSourceInputsError
 from products.warehouse_sources.backend.file_uploads import (
     HostedUpload,
     InvalidUploadError,
@@ -41,6 +41,7 @@ FILE_UPLOAD_METADATA_KEY = "file_upload"
 SUPERSEDED_KEY = "superseded"
 
 PENDING_UPLOAD_TTL = timedelta(days=1)
+PENDING_UPLOAD_BATCH_SIZE = 100
 
 
 def reserve_file_upload(team_id: int, filename: str) -> str:
@@ -194,24 +195,28 @@ def delete_upload_if_unused(upload: HostedUpload, exclude_source_id: str | None 
     return _delete_if_unused(upload, exclude_source_id) is True
 
 
-def sweep_expired_file_uploads() -> None:
+def sweep_expired_file_uploads(after_id: str | None = None) -> str | None:
     if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
-        return
-    now = timezone.now()
-    due = PendingFileUpload.objects.unscoped().filter(expires_at__lte=now)
-    ids = list(due.order_by("expires_at").values_list("pk", flat=True)[:100])
+        return None
+    due = PendingFileUpload.objects.unscoped().filter(expires_at__lte=timezone.now())
+    if after_id is not None:
+        due = due.filter(pk__gt=after_id)
+    ids = list(due.order_by("pk").values_list("pk", flat=True)[:PENDING_UPLOAD_BATCH_SIZE])
     for upload_id in ids:
         with transaction.atomic():
             pending = due.select_for_update(skip_locked=True).filter(pk=upload_id).first()
             if pending is None:
                 continue
             upload = UploadLocation(team_id=pending.team_id, upload_id=str(pending.pk), filename=pending.filename)
-            if _delete_if_unused(upload, exclude_source_id=None) is None:
-                # Move failures behind the backlog, keeping them expired so a late claim checks storage.
-                pending.expires_at = now
-                pending.save(update_fields=["expires_at"])
-            else:
+            try:
+                result = _delete_if_unused(upload, exclude_source_id=None)
+            except UnreadableSourceInputsError as error:
+                capture_exception(error)
+                continue
+            if result is not None:
                 pending.delete()
+    # Advance past failed or locked rows. The next hourly sweep retries them from the beginning.
+    return str(ids[-1]) if len(ids) == PENDING_UPLOAD_BATCH_SIZE else None
 
 
 def lock_source(source_id: str, team_id: int) -> ExternalDataSource | None:
