@@ -23,6 +23,8 @@ class AgentEgressEnrollmentConfig(BaseModel):
     server_ca_file: Path
     client_ca_file: Path
     client_ca_key_file: Path
+    renew_relay_certificate: bool = False
+    maintain_for_run: bool = False
     duration_seconds: int = Field(default=360, ge=1, le=600)
     concurrency: int = Field(default=1, ge=1, le=32)
     requests_per_round: int = Field(default=1, ge=1, le=256)
@@ -33,6 +35,8 @@ class AgentEgressEnrollmentConfig(BaseModel):
             raise ValueError("Agent egress enrollment is disabled")
         try:
             config = cls.model_validate_json(read_agent_egress_config(Path(settings.AGENT_EGRESS_ENROLLMENT_CONFIG)))
+            if config.maintain_for_run and not config.renew_relay_certificate:
+                raise ValueError("Run-lifetime maintenance requires certificate renewal")
             if not config.region or config.region != settings.AGENT_EGRESS_REGION:
                 raise ValueError("Egress region mismatch")
             return config

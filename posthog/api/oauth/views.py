@@ -859,7 +859,9 @@ class OAuthValidator(OAuth2Validator):
           the ceiling rather than staying a wildcard.
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
-        Desktop CLI) but never on the provisioning paths — see the flag.
+        Desktop CLI) but never for a self-registered (DCR or CIMD) client, where it
+        resolves to the `UNPRIVILEGED_SCOPES` default, and never on the provisioning
+        paths. See the flag.
 
         An EMA setup request (`ema_issuer:manage` alone or with identity scopes, see
         `requests_ema_issuer`) is the one exception to clamping, and the only case that
@@ -881,10 +883,12 @@ class OAuthValidator(OAuth2Validator):
                 return False
             request.scopes = [EMA_ISSUER_MANAGE_SCOPE]
             return True
+        application = client or getattr(request, "client", None)
+        grandfathers_wildcard = isinstance(application, OAuthApplication) and not application.is_self_registered
         request.scopes = resolve_requested_scopes(
             list(scopes or []),
-            getattr(client, "ceiling_scopes", None) or [],
-            allow_wildcard_under_empty_ceiling=True,
+            getattr(application, "ceiling_scopes", None) or [],
+            allow_wildcard_under_empty_ceiling=grandfathers_wildcard,
         )
         return True
 
@@ -901,6 +905,9 @@ class OAuthValidator(OAuth2Validator):
         - a `*` token is left untouched: narrowing it would strip all resource access
           on refresh, and `*` is still issued to legacy clients. Its retirement is
           handled separately in #60330 (coupled to #60342).
+        - except for a self-registered (DCR or CIMD) client, whose `*` resolves on
+          refresh as `validate_scopes` resolves it at issue time. Otherwise a `*` minted
+          before that rule would keep the privileged and hidden scopes on every refresh.
         - a token whose scopes have no overlap with the ceiling can't be narrowed
           without emptying it, so we reject the refresh (`invalid_grant`) — the client
           re-authorizes and gets a token within the current ceiling, rather than
@@ -930,6 +937,9 @@ class OAuthValidator(OAuth2Validator):
         if application is None:
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
+
+        if isinstance(application, OAuthApplication) and application.is_self_registered and "*" in original_list:
+            original_list = clamp_scopes_to_ceiling(original_list, application.ceiling_scopes)
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed == [] and getattr(application, "is_first_party", False):
@@ -1643,7 +1653,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         dropped_scopes = [
             scope
             for scope in scopes_outside_ceiling(
-                submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+                submitted,
+                application.ceiling_scopes,
+                allow_wildcard_under_empty_ceiling=not application.is_self_registered,
             )
             if scope != "*"
         ]
@@ -1651,7 +1663,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return
 
         granted = clamp_scopes_to_ceiling(
-            submitted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+            submitted,
+            application.ceiling_scopes,
+            allow_wildcard_under_empty_ceiling=not application.is_self_registered,
         )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1741,8 +1755,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
-        # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
-        if "*" in requested_scope_tokens and resolve_ceiling(application.ceiling_scopes) is not None:
+        # (see `wildcard_is_narrowed`); track that volume so `*` can be retired once it drains.
+        wildcard_is_narrowed = resolve_ceiling(application.ceiling_scopes) is not None or application.is_self_registered
+        if "*" in requested_scope_tokens and wildcard_is_narrowed:
             posthoganalytics.capture(
                 distinct_id=str(request.user.distinct_id),
                 event="oauth_wildcard_scopes_narrowed",

@@ -40,7 +40,6 @@ const PAYLOAD: UsageSnapshotPayloadApi = {
     metric_runs: null,
     adjusted_runs: null,
     topics: null,
-    topic_definitions: null,
     topic_sessions: null,
     table_sources: null,
     uncovered: [

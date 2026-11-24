@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import { NextFunction, Request, Response } from 'ultimate-express'
 
 import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
@@ -20,7 +21,7 @@ describe('createRecordingApiAuthMiddleware', () => {
     ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API, { expiresIn })
 
     const mockResponse = () => {
-        const res = {} as Response
+        const res = { locals: {} } as Response
         res.status = jest.fn().mockReturnValue(res)
         res.json = jest.fn().mockReturnValue(res)
         return res
@@ -29,11 +30,11 @@ describe('createRecordingApiAuthMiddleware', () => {
     // Mirrors what the middleware actually receives: it is mounted on the '/api/projects' prefix, so
     // ultimate-express strips the mount from req.path and exposes no req.params, leaving originalUrl
     // as the only source of team_id.
-    const mockRequest = (teamIdSegment: string, headers: Record<string, string> = {}) =>
+    const mockRequest = (teamIdSegment: string, headers: Record<string, string> = {}, route = 'block') =>
         ({
             headers,
-            originalUrl: `/api/projects/${teamIdSegment}/recordings/abc/block`,
-            path: `/${teamIdSegment}/recordings/abc/block`,
+            originalUrl: `/api/projects/${teamIdSegment}/recordings/abc/${route}`,
+            path: `/${teamIdSegment}/recordings/abc/${route}`,
             method: 'GET',
         }) as unknown as Request
 
@@ -188,6 +189,101 @@ describe('createRecordingApiAuthMiddleware', () => {
             expect(res.status).not.toHaveBeenCalled()
         })
     })
+
+    describe('staff read tokens', () => {
+        const STAFF_SECRET = 'recording-api-staff-key'
+        const staffClaims = { team_id: 123, op: 'read', actor: 'staff@example.com', reason: 'ticket 1' }
+        const nowSeconds = Math.floor(Date.now() / 1000)
+        // jsonwebtoken's sign replaces iat 0 with now, so this case signs the token by hand.
+        const signRaw = (payload: Record<string, unknown>): string => {
+            const encode = (part: object): string => Buffer.from(JSON.stringify(part)).toString('base64url')
+            const unsigned = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode(payload)}`
+            return `${unsigned}.${createHmac('sha256', STAFF_SECRET).update(unsigned).digest('base64url')}`
+        }
+        const mintStaffToken = (
+            claims: Record<string, unknown> = staffClaims,
+            { secret = STAFF_SECRET, expiresIn = '15m' as string | number, noTimestamp = false } = {}
+        ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API_STAFF, { expiresIn, noTimestamp })
+
+        it.each([
+            ['a staff token on a read route', 'read', '123', mintStaffToken(), 'allowed'],
+            ['a staff token on a delete route', 'delete', '123', mintStaffToken(), 401],
+            ['a staff token for another team', 'read', '456', mintStaffToken(), 403],
+            ['a staff token without a reason', 'read', '123', mintStaffToken({ ...staffClaims, reason: ' ' }), 403],
+            [
+                'a staff token without an actor',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, actor: undefined }),
+                403,
+            ],
+            [
+                'a staff token whose op is not read',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, op: 'delete' }),
+                403,
+            ],
+            [
+                'a staff token minted over 15 minutes ago, whatever its exp',
+                'read',
+                '123',
+                mintStaffToken({ ...staffClaims, iat: nowSeconds - 16 * 60 }, { expiresIn: '1d' }),
+                401,
+            ],
+            ['a staff token without iat', 'read', '123', mintStaffToken(staffClaims, { noTimestamp: true }), 401],
+            [
+                'a staff token issued at the epoch, whatever its exp',
+                'read',
+                '123',
+                signRaw({
+                    ...staffClaims,
+                    aud: PosthogJwtAudience.RECORDING_API_STAFF,
+                    iat: 0,
+                    exp: nowSeconds + 86400,
+                }),
+                403,
+            ],
+            ['a malformed token', 'read', '123', 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.bm90IGpzb24.sig', 401],
+            ['an expired staff token', 'read', '123', mintStaffToken(staffClaims, { expiresIn: -60 }), 401],
+            [
+                'a staff token signed with the service key',
+                'read',
+                '123',
+                mintStaffToken(staffClaims, { secret: JWT_SECRET }),
+                401,
+            ],
+            [
+                'a delete token signed with the staff key',
+                'delete',
+                '123',
+                mintToken({ team_id: 123, op: 'delete' }, STAFF_SECRET),
+                401,
+            ],
+        ] as const)('handles %s', (_, op, teamId, token, expected) => {
+            const { res, next } = run(
+                { op, staffJwtSecret: STAFF_SECRET },
+                mockRequest(teamId, bearer(token), 'blocks/v1.abc')
+            )
+            if (expected === 'allowed') {
+                expect(next).toHaveBeenCalled()
+                expect(res.status).not.toHaveBeenCalled()
+            } else {
+                expect(next).not.toHaveBeenCalled()
+                expect(res.status).toHaveBeenCalledWith(expected)
+            }
+        })
+
+        it('refuses staff tokens when no staff key is configured', () => {
+            const { res, next } = run({ op: 'read' }, mockRequest('123', bearer(mintStaffToken())))
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+        })
+
+        it('audience enum value matches the Python minter', () => {
+            expect(PosthogJwtAudience.RECORDING_API_STAFF).toBe('posthog:recording_api:staff')
+        })
+    })
 })
 
 describe('deployed signing keys', () => {
@@ -197,10 +293,30 @@ describe('deployed signing keys', () => {
         ['public', { blocksJwtSecret: 'dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['all', { blocksJwtSecret: 'new,dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
         ['internal', { jwtSecret: 'dev-recording-api-jwt-secret' }, /dev RECORDING_API_JWT_SECRET/],
+        ['internal', { staffJwtSecret: 'dev-recording-api-staff-jwt-secret' }, /dev RECORDING_API_STAFF_JWT_SECRET/],
+        ['internal', { staffJwtSecret: 's'.repeat(31) }, /STAFF_JWT_SECRET keys must be at least 32 bytes/],
+        [
+            'internal',
+            { jwtSecret: 'k'.repeat(32), staffJwtSecret: `${'s'.repeat(32)},${'k'.repeat(32)}` },
+            /must not share a key/,
+        ],
+        ['public', { blocksJwtSecret: 'b'.repeat(32), staffJwtSecret: 'b'.repeat(32) }, /must not share a key/],
         ['public', { blocksJwtSecret: 'x'.repeat(31) }, /at least 32 bytes/],
         ['all', { blocksJwtSecret: `${'x'.repeat(32)},short` }, /at least 32 bytes/],
     ] as const)('refuses a deployed %s process holding a dev or short key', (role, secrets, error) => {
         expect(() => assertRecordingApiRoleAuthConfigured({ ...base, ...secrets, role, deployed: true })).toThrow(error)
+    })
+
+    it('refuses a staff key shared with the service key on a self-hosted production process', () => {
+        expect(() =>
+            assertRecordingApiRoleAuthConfigured({
+                ...base,
+                role: 'internal',
+                deployed: false,
+                jwtSecret: 'k'.repeat(32),
+                staffJwtSecret: 'k'.repeat(32),
+            })
+        ).toThrow(/must not share a key/)
     })
 
     // The local and E2E containers run the production image with the dev keys.
