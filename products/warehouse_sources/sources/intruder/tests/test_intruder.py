@@ -31,6 +31,9 @@ class TestSourceResponseShape:
             ("issue_targets", ["issue_id", "id"], None, None),
             ("fixed_occurrences", ["id"], "datetime", "first_seen_at"),
             ("tags", ["name"], None, None),
+            ("attack_surface_services", ["id"], "datetime", "first_observed_at"),
+            ("ai_pentests", ["id"], "datetime", "created_at"),
+            ("ai_pentest_findings", ["ai_pentest_id", "id"], "datetime", "first_seen_at"),
         ]
     )
     def test_primary_keys_and_partitioning(
@@ -50,11 +53,11 @@ class TestSourceResponseShape:
 
 
 class TestEndpointConfig:
-    def test_occurrences_is_fan_out_with_composite_key(self) -> None:
-        config = INTRUDER_ENDPOINTS["occurrences"]
-        assert config.fan_out_over_issues is True
-        # An occurrence id is only unique within its issue, so the key must include the parent issue.
-        assert config.primary_keys == ["issue_id", "id"]
+    def test_fan_out_primary_keys_include_parent_id(self) -> None:
+        # A fan-out child id is only unique within its parent, so the key must include the parent id.
+        for config in INTRUDER_ENDPOINTS.values():
+            if config.fan_out is not None:
+                assert config.primary_keys == [config.fan_out.parent_id_key, "id"]
 
     def test_tags_keyed_by_name(self) -> None:
         # Tags are bare {name} objects with no numeric id, so name is the primary key.
@@ -77,32 +80,49 @@ class TestStandardPagination:
         assert result.rows == [{"id": 2}]
 
 
-class TestOccurrencesFanOut:
-    @parameterized.expand([("occurrences", "occurrences"), ("issue_targets", "targets")])
-    def test_injects_parent_issue_id_into_every_row(self, endpoint: str, child_path: str) -> None:
-        # The child response has no issue reference; without the injected issue_id the composite
-        # primary key [issue_id, id] collapses to id and duplicate rows accumulate across issues.
+class TestFanOut:
+    @parameterized.expand(
+        [
+            ("occurrences", "issues", "occurrences", "issue_id", [10, 20], None),
+            ("issue_targets", "issues", "targets", "issue_id", [10, 20], None),
+            ("ai_pentest_findings", "ai-pentests", "findings", "ai_pentest_id", ["aip_a", "aip_b"], "open,fixed"),
+        ]
+    )
+    def test_injects_parent_id_into_every_row(
+        self,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        parent_key: str,
+        parent_ids: list[Any],
+        expected_child_statuses: str | None,
+    ) -> None:
+        # The child response has no parent reference; without the injected parent id the composite
+        # primary key collapses to id and duplicate rows accumulate across parents.
+        first, second = parent_ids
         result = _driver().run(
             endpoint,
             route(
                 {
-                    "/v1/issues/": [_page([{"id": 10}, {"id": 20}])],
-                    f"/v1/issues/10/{child_path}/": [_page([{"id": 1}, {"id": 2}])],
-                    f"/v1/issues/20/{child_path}/": [_page([{"id": 3}])],
+                    f"/v1/{parent_path}/": [_page([{"id": first}, {"id": second}])],
+                    f"/v1/{parent_path}/{first}/{child_path}/": [_page([{"id": 1}, {"id": 2}])],
+                    f"/v1/{parent_path}/{second}/{child_path}/": [_page([{"id": 3}])],
                 }
             ),
         )
         assert result.raised is None
         assert result.paths == [
-            "/v1/issues/",
-            f"/v1/issues/10/{child_path}/",
-            f"/v1/issues/20/{child_path}/",
+            f"/v1/{parent_path}/",
+            f"/v1/{parent_path}/{first}/{child_path}/",
+            f"/v1/{parent_path}/{second}/{child_path}/",
         ]
         assert result.params("limit") == [str(PAGE_SIZE)] * 3
+        # Findings default to open only, so the child request must ask for fixed ones too.
+        assert result.params("statuses") == [None, expected_child_statuses, expected_child_statuses]
         assert result.rows == [
-            {"id": 1, "issue_id": 10},
-            {"id": 2, "issue_id": 10},
-            {"id": 3, "issue_id": 20},
+            {"id": 1, parent_key: first},
+            {"id": 2, parent_key: first},
+            {"id": 3, parent_key: second},
         ]
 
     def test_resume_from_deleted_issue_restarts_from_first(self) -> None:
