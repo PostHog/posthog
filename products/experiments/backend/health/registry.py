@@ -504,8 +504,8 @@ def evaluate(
     ctx: HealthContext, checks: Sequence[HealthCheck], *, launched: HealthContext | None = None
 ) -> ExperimentHealth:
     """`launched` is the draft as it is when its launch succeeds. A check that runs only after launch then runs on it
-    too, and its finding or pass replaces "Runs after launch". A check that still needs data from the run keeps that
-    reason, because it is what holds at launch."""
+    too, and its outcome replaces "Runs after launch". A check that couldn't check on it keeps "Runs after launch",
+    because what it reads, such as the latest calculation or the flag history, loads only for a running experiment."""
     findings: list[ExperimentHealthFinding] = []
     results: list[ExperimentHealthCheckResult] = []
     for check in checks:
@@ -514,7 +514,7 @@ def evaluate(
             outcome = check.run(ctx)
             if launched is not None and _runs_after_launch(outcome):
                 launched_outcome = check.run(launched)
-                if not isinstance(launched_outcome, CheckSkip):
+                if not _not_checked(launched_outcome):
                     outcome, read_from = launched_outcome, launched
         except Exception as error:
             # The findings ride on the health action, the exposure answer and `experiment launched`, so one
@@ -539,6 +539,10 @@ def evaluate(
 
 def _runs_after_launch(outcome: CheckOutcome) -> bool:
     return isinstance(outcome, CheckSkip) and outcome.reason == RUNS_AFTER_LAUNCH
+
+
+def _not_checked(outcome: CheckOutcome) -> bool:
+    return isinstance(outcome, CheckSkip) and outcome.status == ExperimentHealthCheckStatus.NOT_CHECKED
 
 
 def not_checked_health(checks: Sequence[HealthCheck], reason: str) -> ExperimentHealth:
