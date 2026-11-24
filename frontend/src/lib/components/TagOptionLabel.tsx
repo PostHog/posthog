@@ -5,7 +5,11 @@ import { TAG_OBJECT_NOUNS, TagOption } from './tagSelectLogic'
 
 export function TagOptionLabel({ tag, count, total_count, objectType }: TagOption): JSX.Element {
     if (count === undefined) {
-        return <>{tag}</>
+        return (
+            <span className="min-w-0 flex-1 truncate" title={tag}>
+                {tag}
+            </span>
+        )
     }
     const countLabel = <span className="text-muted tabular-nums shrink-0">{count}</span>
     return (
