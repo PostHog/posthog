@@ -347,6 +347,8 @@ fn classify_outcome(
                         err.message
                     )))
                 }
+                // Processing serialized this payload itself, so the resolver rejecting it means
+                // the two deploys run different versions, not that the event's data is bad.
                 ErrorKind::InvalidPayload | ErrorKind::Unhandled => Err(terminal_item_error(
                     work_item.token,
                     format!(

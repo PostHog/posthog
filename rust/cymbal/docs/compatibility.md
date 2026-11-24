@@ -14,7 +14,7 @@ A cymbal version that does not know the header answers with the array described 
 | --- | --- |
 | `ok` | The event was processed. `value` is the same `AnyEvent` shape with updated `properties`. |
 | `drop` | The normal cymbal pipeline dropped the event. `reason` is `suppressed`, `suppressed_by_rule`, `rate_limited_per_issue`, or `rate_limited_project`. |
-| `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The code is `invalid_input`. |
+| `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The resolution service can also report an item as poison, but does not yet. The code is `invalid_input`. |
 
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
