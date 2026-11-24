@@ -122,11 +122,11 @@ def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, 
     Translations are separate objects. They can share the default message's id, or name its language branch.
     """
     by_id: dict[str, dict[str, Any]] = {}
-    for app_action in app_actions:
+    for message in app_actions:
         # A translation can come with its default message's id, and the default has no language.
-        key = str(app_action.get("id"))
-        if key not in by_id or (by_id[key].get("language") and not app_action.get("language")):
-            by_id[key] = app_action
+        key = str(message.get("id"))
+        if key not in by_id or (by_id[key].get("language") and not message.get("language")):
+            by_id[key] = message
     templates = dict(source.templates)
     for action in source.actions:
         template_id = action.get("template_id")
