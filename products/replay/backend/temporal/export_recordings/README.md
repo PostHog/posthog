@@ -61,14 +61,14 @@ The header carries viewports because file playback has no events to read them fr
 
 ## What the customer sets up
 
-The export writes through a role-based AWS S3 integration, the kind S3 batch exports use, but PostHog assumes it from a dedicated recording-exports role.
-The customer adds it in the project with the AWS S3 setup modal ("assume IAM role"), which lists the trust policy requirements:
+The customer creates an IAM role in their AWS account and sends us its ARN, which staff pass to the command with `--role-arn`.
+PostHog assumes the role from its own recording-exports role, so the role trusts nothing else of ours:
 
-- The role trusts PostHog's recording-exports role for the region, not only the batch export role the setup modal shows:
+- The role trusts PostHog's recording-exports role for the region:
   - US: `arn:aws:iam::309986977637:role/posthog-external-recording-exports`
   - EU: `arn:aws:iam::623789312881:role/posthog-external-recording-exports`
 - The trust policy requires `sts:ExternalId` equal to `posthog-<organization id>`.
-  PostHog refuses a role that does not enforce it.
+  The run checks the role before any shard starts and fails at once on a role that does not enforce it, cannot be assumed, or cannot start an upload in the bucket.
 - The role allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix.
 - With `--kms-key-id`, the role also allows `kms:GenerateDataKey` and `kms:Decrypt` on the key, and the key policy allows the role.
   Pass the flag even when the bucket encrypts with that key by default: the session policy caps the role to the actions it lists.

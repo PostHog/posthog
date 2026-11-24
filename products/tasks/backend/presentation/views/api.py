@@ -2253,6 +2253,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _sent_by_run_sandbox: bool = False
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -2422,13 +2423,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not run_context.is_sandbox_run_request(
+        self._sent_by_run_sandbox = run_context.is_sandbox_run_request(
             request=self.request,
             team_id=self.team_id,
             task_id=task_id,
             run_id=run_id,
             include_resume_sources=is_read_only,
-        ) and not run_context.may_read_task_run_context(
+        )
+        if not self._sent_by_run_sandbox and not run_context.may_read_task_run_context(
             request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
@@ -2854,13 +2856,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         entries = request.validated_data["entries"]
         with timer("s3_append"):
-            run = tasks_facade.append_task_run_log(pk, task_id, self.team_id, entries=entries)
+            run = tasks_facade.append_task_run_log(
+                pk,
+                task_id,
+                self.team_id,
+                entries=entries,
+                sent_by_run_sandbox=self._sent_by_run_sandbox,
+            )
         if run is None:
             raise NotFound()
 
         response = Response(TaskRunDetailSerializer(run).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Heartbeat recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run cannot take heartbeats"),
+        },
+        summary="Record a local run heartbeat",
+        description=(
+            "Tell the server that a local run is still alive. The client that drives a local run calls "
+            "this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that "
+            "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
+            "them, along with failed and cancelled runs and runs of a finished task."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="heartbeat",
+        required_scopes=["task:write"],
+    )
+    def heartbeat(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome = tasks_facade.record_local_task_run_heartbeat(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_live_local":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run can no longer take heartbeats. Start a new run to keep working."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,

@@ -271,30 +271,6 @@ class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
     DEFINITION = "definition"
 
 
-class HealthExposureInputsStatus(LabeledStrEnum):
-    READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
-    STALE = "stale"
-    # No cached answer. A calculation runs in the background.
-    CALCULATING = "calculating"
-    NOT_LAUNCHED = "not_launched"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The query could not be built, or no answer is cached and the last background calculation failed.
-    FAILED = "failed"
-
-
-class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
-    READ = "read"
-    NOT_NEEDED = "not_needed"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The reader is denied a flag call property that the scan reads.
-    DENIED_PROPERTIES = "denied_properties"
-    NO_FLAG_VERSION = "no_flag_version"
-    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
-    # request's scan was still running and did not answer in time.
-    UNKNOWN = "unknown"
-
-
 class ExperimentHealthFlagChangeKind(LabeledStrEnum):
     SPLIT = "split"
     # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
@@ -636,10 +612,44 @@ class ExperimentHealthExposureSetup:
     activation: str | None
 
 
+class ExperimentHealthStatsMethod(LabeledStrEnum):
+    BAYESIAN = "bayesian", "Bayesian"
+    FREQUENTIST = "frequentist", "Frequentist"
+
+
+class ExperimentHealthMultipleVariantHandling(LabeledStrEnum):
+    EXCLUDE = "exclude", "Exclude from analysis"
+    FIRST_SEEN = "first_seen", "Use first seen variant"
+
+
+@frozen
+class ExperimentHealthAnalysisSetup:
+    """What the results calculation reads besides the metrics, resolved as the calculation resolves it. A
+    `*_from_project_default` field is true when the experiment doesn't set the value, so the calculation takes the
+    project's default."""
+
+    stats_method: ExperimentHealthStatsMethod
+    confidence_level: float
+    sequential_testing: bool | None
+    sequential_testing_from_project_default: bool
+    cuped: bool
+    cuped_lookback_days: int | None
+    cuped_from_project_default: bool
+    cuped_lookback_days_from_project_default: bool
+    # The names of the calculated metrics whose type CUPED doesn't support. Empty when CUPED is off.
+    metrics_without_cuped_support: tuple[str, ...]
+    filters_test_accounts: bool | None
+    test_account_filter_count: int
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None
+    only_count_matured_users: bool
+    baseline_variant: str
+    excluded_variants: tuple[str, ...]
+
+
 @frozen
 class ExperimentHealthSetup:
-    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, and who
-    counts as exposed."""
+    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, who counts
+    as exposed, and how the results are calculated."""
 
     # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
@@ -651,6 +661,7 @@ class ExperimentHealthSetup:
     ensure_experience_continuity: bool
     # None when the exposure criteria can't be read, or the exposures come from a data warehouse table.
     exposure: ExperimentHealthExposureSetup | None
+    analysis: ExperimentHealthAnalysisSetup
 
 
 @frozen
