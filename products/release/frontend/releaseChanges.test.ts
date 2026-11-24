@@ -33,6 +33,29 @@ describe('releaseChanges', () => {
             lines: ['Added cohort Beta testers'],
         },
         {
+            name: 'a cohort added in a new condition set',
+            kind: 'flag',
+            input: entry({
+                changes: [
+                    {
+                        field: 'filters',
+                        before: { groups: [{ properties: [], rollout_percentage: 100 }] },
+                        after: {
+                            groups: [
+                                { properties: [], rollout_percentage: 100 },
+                                {
+                                    properties: [{ key: 'id', type: 'cohort', value: 8, cohort_name: 'Postal codes' }],
+                                    rollout_percentage: 100,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            }),
+            who: 'Ana',
+            lines: ['Added cohort Postal codes'],
+        },
+        {
             name: 'a rollout from 30% to 100%',
             kind: 'flag',
             input: entry({

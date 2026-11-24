@@ -116,7 +116,7 @@ export function ReleaseTrackLane({
                     lane={lane}
                 />
             ) : null}
-            <ReleaseChangeDots changes={changes} scale={scale} top={(height - 18) / 2 - 7} />
+            <ReleaseChangeDots changes={changes} scale={scale} center={height / 2} />
         </div>
     )
 }

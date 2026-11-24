@@ -109,10 +109,15 @@ export function describeFilters(beforeValue: unknown, afterValue: unknown): stri
         }
     }
 
+    const cohortLines = lines.length
     if (afterGroups.length > beforeGroups.length) {
-        lines.push(`Added ${plural(afterGroups.length - beforeGroups.length, 'condition set', 'condition sets')}`)
+        if (!cohortLines) {
+            lines.push(`Added ${plural(afterGroups.length - beforeGroups.length, 'condition set', 'condition sets')}`)
+        }
     } else if (afterGroups.length < beforeGroups.length) {
-        lines.push(`Removed ${plural(beforeGroups.length - afterGroups.length, 'condition set', 'condition sets')}`)
+        if (!cohortLines) {
+            lines.push(`Removed ${plural(beforeGroups.length - afterGroups.length, 'condition set', 'condition sets')}`)
+        }
     } else {
         afterGroups.forEach((group, index) => {
             const from = rollout(beforeGroups[index])
