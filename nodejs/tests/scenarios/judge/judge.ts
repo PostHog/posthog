@@ -140,8 +140,9 @@ export function createJudge({
             const startedAt = now()
             for (;;) {
                 const polled = await read(async () => {
+                    const jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                     await pullTruth()
-                    return probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
+                    return jobs
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt

@@ -369,16 +369,19 @@ function boundsOf(
     horizonAt: number,
     skippedBy: SkippedBy
 ): Bounds {
-    const skippedByFault = records.some(({ status, fault }) =>
-        skippedBy.some((skip) => skip.fault === fault && skip.status === status)
-    )
-    if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt || skippedByFault) {
+    if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt) {
         return NONE
     }
+    const endedFlows = new Set(
+        records
+            .filter(({ status, fault }) => skippedBy.some((skip) => skip.fault === fault && skip.status === status))
+            .map(({ flowId }) => flowId)
+    ).size
     if (!answer.accepted) {
-        return 'transportError' in answer ? { min: 0, max: 1 } : NONE
+        return 'transportError' in answer && endedFlows === 0 ? { min: 0, max: 1 } : NONE
     }
-    const due = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
+    const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
+    const due = Math.max(0, flows - endedFlows)
     return { min: due, max: due }
 }
 
@@ -390,7 +393,7 @@ const effectsOf = ({ kind, detail, flowId }: DeliveryRecord): Effect[] =>
         : addressesOf([...(detail.message?.to ?? []), ...(detail.message?.cc ?? []), ...(detail.message?.bcc ?? [])])
     ).map((recipient) => ({ recipient, flowId }))
 
-type Shortfall = { unitId: string; actionId: string; flows: number; expected: number }
+type Shortfall = { unitId: string; actionId: string; recipient?: string; flows: number; expected: number }
 
 type Excess = {
     unitId: string
@@ -399,12 +402,11 @@ type Excess = {
     flowId?: string
     accepted: number
     expected: number
+    excess: number
 }
 
-const shortfallOf = ({ unitId, actionId, flows, expected }: Shortfall): string =>
-    expected > 1
-        ? `${unitId} ${actionId}: accepted from ${plural(flows, 'flow')} by the recovery horizon, expected ${expected}`
-        : `${unitId} ${actionId}: accepted ${plural(flows, 'time')} by the recovery horizon, expected ${expected}`
+const shortfallOf = ({ unitId, actionId, recipient, flows, expected }: Shortfall): string =>
+    `${unitId} ${actionId}${recipient === undefined ? '' : ` to ${recipient}`}: accepted ${expected > 1 ? `from ${plural(flows, 'flow')}` : plural(flows, 'time')} by the recovery horizon, expected ${expected}`
 
 const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected }: Excess): string =>
     `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}`
@@ -434,25 +436,35 @@ export const noLoss: InvariantDefinition = {
                 const records = byDelivery.get(deliveryKey(unitId, actionId)) ?? []
                 const { min, max } = boundsOf(entry, actionId, records, horizon.at, skippedBy)
                 const effects = records.filter(({ status }) => isAccepted(status)).flatMap(effectsOf)
-                let flows = 0
-                for (const [recipient, sends] of Map.groupBy(effects, ({ recipient }) => recipient)) {
-                    const byFlow = Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)
-                    flows = Math.max(flows, byFlow.size)
-                    const [flowId, resent] = [...byFlow].find(([, { length }]) => length > 1) ?? []
-                    if (sends.length > max) {
-                        extra.push({ unitId, actionId, recipient, accepted: sends.length, expected: max })
-                    } else if (typeof flowId === 'string' && resent !== undefined) {
-                        extra.push({ unitId, actionId, recipient, flowId, accepted: resent.length, expected: 1 })
-                    }
+                const byRecipient = Map.groupBy(effects, ({ recipient }) => recipient)
+                if (byRecipient.size === 0 && min > 0) {
+                    missing.push({ unitId, actionId, flows: 0, expected: min })
                 }
-                if (flows < min) {
-                    missing.push({ unitId, actionId, flows, expected: min })
+                for (const [recipient, sends] of byRecipient) {
+                    const byFlow = [...Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)]
+                    const repeats = byFlow.reduce((sum, [, { length }]) => sum + length - 1, 0)
+                    const excess = repeats + Math.max(0, byFlow.length - max)
+                    const resent = byFlow.find(([flowId, { length }]) => typeof flowId === 'string' && length > 1)
+                    if (excess > 0) {
+                        extra.push({
+                            unitId,
+                            actionId,
+                            recipient,
+                            excess,
+                            ...(resent
+                                ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
+                                : { accepted: sends.length, expected: max }),
+                        })
+                    }
+                    if (byFlow.length < min) {
+                        missing.push({ unitId, actionId, recipient, flows: byFlow.length, expected: min })
+                    }
                 }
             }
         }
         const observed =
             missing.reduce((sum, { flows, expected }) => sum + expected - flows, 0) +
-            extra.reduce((sum, { accepted, expected }) => sum + accepted - expected, 0)
+            extra.reduce((sum, { excess }) => sum + excess, 0)
         const [lost] = missing
         const [resent] = extra
         const violation = [lost && shortfallOf(lost), resent && excessOf(resent)].filter(Boolean).join('; ')

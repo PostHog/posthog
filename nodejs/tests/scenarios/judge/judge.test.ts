@@ -29,6 +29,7 @@ describe('judge', () => {
     let resident: ResidentBacklog | undefined
     let truthFails: string | undefined
     let truthLoses: number | undefined
+    let duringProbe: (() => Promise<unknown>) | undefined
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -60,9 +61,10 @@ describe('judge', () => {
                 },
             },
             probe: {
-                unfinishedJobs: () => {
+                unfinishedJobs: async () => {
                     clockMs += probeTakesMs
                     polls += 1
+                    await duringProbe?.()
                     return polls > probeAnswers
                         ? Promise.reject(new Error('The operation was aborted due to timeout'))
                         : Promise.resolve(unfinishedJobs)
@@ -93,6 +95,7 @@ describe('judge', () => {
         resident = undefined
         truthFails = undefined
         truthLoses = undefined
+        duringProbe = undefined
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -104,12 +107,12 @@ describe('judge', () => {
         await edge.close()
     })
 
-    const deliver = (unitId: string, actionId = 'email', flowId = 'flow-1'): Promise<unknown> =>
+    const deliver = (unitId: string, actionId = 'email', flowId = 'flow-1', cc: string[] = []): Promise<unknown> =>
         ses
             .send(
                 new SendEmailCommand({
                     FromEmailAddress: 'flows@www.example.com',
-                    Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`] },
+                    Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`], CcAddresses: cc },
                     Content: {
                         Simple: {
                             Subject: { Data: 'Scenario delivery' },
@@ -473,6 +476,7 @@ describe('judge', () => {
     })
 
     const ADDRESS = `${UNIT}@${UNIT_EMAIL_DOMAIN}`
+    const CC = 'manager@example.com'
     const SCHEDULED_PAST_THE_HORIZON = 1_000_000
 
     it.each<[string, JournalEntry, () => Promise<unknown>, Record<string, unknown>, object]>([
@@ -485,7 +489,7 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 1,
-                violation: `${UNIT} email to ${ADDRESS}: accepted 2 times, expected 1`,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
                 missing: [],
                 extra: [UNIT],
             },
@@ -531,10 +535,47 @@ describe('judge', () => {
             {
                 passed: false,
                 observed: 2,
-                violation: `${UNIT} email: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                violation: `${UNIT} email to ${ADDRESS}: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
                 missing: [UNIT],
                 extra: [UNIT],
             },
+        ],
+        [
+            'with a follow-up the intake accepted, whose first flow sent three times and follow-up never',
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliverTwice(UNIT)
+                await deliver(UNIT)
+            },
+            {},
+            { passed: false, observed: 3, missing: [UNIT], extra: [UNIT] },
+        ],
+        [
+            "with a follow-up the intake accepted, which reached only one of the first send's recipients",
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliver(UNIT, 'email', 'flow-1', [CC])
+                await deliver(UNIT, 'email', 'follow-up-flow')
+            },
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${CC}: accepted from 1 flow by the recovery horizon, expected 2`,
+                missing: [UNIT],
+                extra: [],
+            },
+        ],
+        [
+            'with a follow-up the intake accepted, whose follow-up the declared fault ended',
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliver(UNIT)
+                await rejectNextSend()
+                await deliver(UNIT, 'email', 'follow-up-flow')
+            },
+            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
+            { passed: true, observed: 0 },
         ],
         [
             'sent under an action the journal never listed',
@@ -666,6 +707,17 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject(expected)
+    })
+
+    it('counts a resend the edge accepted while convergence read the job count for the last time', async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        duringProbe = () => deliver(UNIT)
+        await judge.converge(5, NEVER_ABORTED)
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+        expect(result).toMatchObject({ passed: false, observed: 1, extra: [UNIT] })
     })
 
     it.each<[string, () => Promise<unknown>, RunEvidence, string]>([
