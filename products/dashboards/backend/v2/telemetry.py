@@ -20,6 +20,7 @@ from django.conf import settings
 from django.utils.timezone import now
 
 import requests
+import structlog
 from dateutil.relativedelta import relativedelta
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG, SnuffleNotConfiguredError, snuffle_request
@@ -35,6 +36,8 @@ from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+
+logger = structlog.get_logger(__name__)
 
 _STEPS: tuple[tuple[str, int, str], ...] = (
     ("15s", 15, "second_15"),
@@ -250,6 +253,7 @@ def _query_range(team: Team, data: dict[str, str], budget: Optional[BudgetSpec])
 def _loki_data(response: requests.Response, deadline: float) -> Any:
     if response.status_code in (401, 403) or response.status_code >= 500:
         response.close()
+        logger.error("dashboard_v2_logql_upstream_failed", status_code=response.status_code)
         raise TelemetryTargetError("The LogQL query backend failed. Try again later.")
     payload = _decode(_read_capped(response, deadline))
     if response.status_code >= 400:
