@@ -72,7 +72,9 @@ def _resolve_object_names(*, team: Team, object_ids: dict[str, set[str]]) -> dic
     return objects
 
 
-def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> AccessRuleNames:
+def resolve_target_names(
+    *, team: Team, objects: Iterable[AccessRuleObject], role_ids: Iterable[UUID]
+) -> AccessRuleNames:
     """Look up display names with one query per resource type and one for roles.
 
     A name that is not found is left out, and the entry shows the id instead. Members are never named:
@@ -80,33 +82,41 @@ def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> 
     each other.
     """
     object_ids: dict[str, set[str]] = defaultdict(set)
-    role_ids: set[UUID] = set()
-    for rule in rules:
-        if rule.resource_id:
-            object_ids[rule.resource].add(rule.resource_id)
-        if rule.role_id:
-            role_ids.add(rule.role_id)
-
-    objects = _resolve_object_names(team=team, object_ids=object_ids)
+    for target in objects:
+        object_ids[target.resource].add(target.resource_id)
+    wanted_role_ids = set(role_ids)
     roles: dict[UUID, str] = {}
-    if role_ids:
+    if wanted_role_ids:
         roles = dict(
-            Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", "name")
+            Role.objects.filter(organization_id=team.organization_id, id__in=wanted_role_ids).values_list("id", "name")
         )
-    return AccessRuleNames(objects=objects, roles=roles)
+    return AccessRuleNames(objects=_resolve_object_names(team=team, object_ids=object_ids), roles=roles)
+
+
+def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> AccessRuleNames:
+    rules = list(rules)
+    return resolve_target_names(
+        team=team,
+        objects=[
+            AccessRuleObject(resource=rule.resource, resource_id=rule.resource_id) for rule in rules if rule.resource_id
+        ],
+        role_ids=[rule.role_id for rule in rules if rule.role_id],
+    )
 
 
 _batch_names: ContextVar[AccessRuleNames | None] = ContextVar("access_rule_batch_names", default=None)
 
 
 @contextmanager
-def access_rule_names_for_batch(*, team: Team, rules: Iterable[AccessControl]) -> Iterator[None]:
+def access_rule_names_for_batch(
+    *, team: Team, objects: Iterable[AccessRuleObject], role_ids: Iterable[UUID]
+) -> Iterator[None]:
     """Resolve names once for rules that are saved or deleted one at a time inside the block.
 
     Each save sends its own activity signal, so without this every rule looks up its names again.
-    Pass every rule the block writes: a rule that is missing gets ids in its entry.
+    Pass the objects and roles of every rule the block writes: a rule that is missing gets ids in its entry.
     """
-    token = _batch_names.set(resolve_access_rule_names(team=team, rules=rules))
+    token = _batch_names.set(resolve_target_names(team=team, objects=objects, role_ids=role_ids))
     try:
         yield
     finally:
