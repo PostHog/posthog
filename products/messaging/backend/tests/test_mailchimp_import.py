@@ -2,27 +2,35 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportStepBlocked,
+)
 from products.messaging.backend.provider_imports.mailchimp import MailchimpImportProvider
 from products.messaging.backend.tests.fake_mailchimp import FULL_KEY, Failure, FakeMailchimp, split_url
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 
 CLIENT = "products.messaging.backend.services.mailchimp_client"
 HOST = "https://us21.api.mailchimp.com"
-ALL_STEPS = [spec.key for spec in MailchimpImportProvider.steps]
+OPT_OUT_STEPS = ["audiences", "groups", "cleaned", "complaints"]
+# Every step that doesn't write people, so these runs need no ClickHouse.
+ALL_STEPS = [spec.key for spec in MailchimpImportProvider.steps if spec.key != "new_people" and spec.key != "contacts"]
 
 
-class TestMailchimpImport(BaseTest):
+class TestMailchimpImportBase(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.mailchimp = FakeMailchimp()
@@ -61,6 +69,8 @@ class TestMailchimpImport(BaseTest):
             for row in MessageRecipientPreference.objects.filter(team_id=self.team.id)
         }
 
+
+class TestMailchimpImport(TestMailchimpImportBase):
     def test_imports_every_step_from_the_key_data_center(self) -> None:
         run = self._run()
 
@@ -372,3 +382,141 @@ class TestMailchimpImport(BaseTest):
             MailchimpImportProvider().check_credentials(self.team.id, "fake-wrong-key-us21", {}, ALL_STEPS)
 
         assert self.hosts == [HOST]
+
+    def test_contacts_need_every_opt_out_step_in_the_run(self) -> None:
+        with self.assertRaisesRegex(runs.InvalidImportSteps, "Contacts needs Groups, Abuse reports selected too"):
+            runs.start_run(self.team.id, "mailchimp", ["audiences", "cleaned", "contacts"], FULL_KEY, self.user.id, {})
+
+
+class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.people = PeopleImportRecorder(self)
+
+    def _staged(self, run: ProviderImportRun) -> dict[str, dict[str, dict[str, str]]]:
+        """Each cohort's people as the run stored them, by cohort name and then person ID."""
+        return {
+            Cohort.objects.get(id=plan["cohort_id"]).name or "": {
+                person["distinct_id"]: person["properties"] for person in self.people.people(plan)
+            }
+            for plan in run.progress["contacts"]["people_imports"]
+        }
+
+    def _import_contacts(self, *extra_steps: str) -> ProviderImportRun:
+        run = runs.start_run(
+            self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts", *extra_steps], FULL_KEY, self.user.id, {}
+        )
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+        return run
+
+    def _close(self, run: ProviderImportRun) -> None:
+        runs.finish_run(self.team.id, run.id)
+
+    def test_only_subscribed_members_become_people_and_fill_each_audience_cohort(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "Ada@Example.com"})
+        flush_persons_and_events()
+        weekly, novedades, _ = self.mailchimp.data["lists"]
+        weekly["members"][0]["merge_fields"] = {
+            "FNAME": "Ada \x00Ñ 🎉",
+            "LNAME": "",
+            "COMPANY": "Example GmbH",
+            "ADDRESS": {"addr1": "1 Main St", "addr2": "", "city": "Köln", "zip": "50667", "country": "DE"},
+            "SEATS": 3,
+            "ID": "other-person",
+            "$browser": "no",
+        }
+        novedades["members"][0]["merge_fields"] = {"FNAME": "Other", "ROLE": "Admin"}
+        weekly["members"].append(
+            {
+                "email_address": "Left.Person@example.com",
+                "status": "cleaned",
+                "last_changed": "2026-03-04T05:06:07+00:00",
+            }
+        )
+
+        run = self._import_contacts("new_people")
+
+        ada = {
+            "email": "ada@example.com",
+            "first_name": "Ada Ñ 🎉",
+            "COMPANY": "Example GmbH",
+            "ADDRESS": "1 Main St, Köln, 50667, DE",
+            "SEATS": "3",
+            "ROLE": "Admin",
+        }
+        grace = {"email": "Grace.Hopper@example.com"}
+        linus = {"email": "linus@example.com"}
+        assert self._staged(run) == {
+            "Mailchimp contacts": {
+                "user-ada": ada,
+                "Grace.Hopper@example.com": grace,
+                "linus@example.com": linus,
+            },
+            "Weekly newsletter (from Mailchimp)": {
+                "user-ada": ada,
+                "Grace.Hopper@example.com": grace,
+                "linus@example.com": linus,
+            },
+            "Novedades del producto ñ (from Mailchimp)": {"user-ada": ada},
+        }
+        assert run.progress["contacts"]["processed"] == 4
+        assert run.progress["contacts"]["counts"]["repeats_merged"] == 1
+        # The person PostHog already had spells the address differently, and a send matches it exactly.
+        assert self._opt_outs()["Ada@Example.com"] == {"Event invitations 🎉"}
+
+    def test_importing_again_drops_who_left_and_empties_an_audience_everyone_left(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        weekly, novedades, _ = self.mailchimp.data["lists"]
+        weekly["members"][0]["status"] = "unsubscribed"
+        del weekly["members"][1]
+        novedades["members"][0]["status"] = "archived"
+
+        run = self._import_contacts("new_people")
+
+        assert self._staged(run) == {
+            "Mailchimp contacts": {"linus@example.com": {"email": "linus@example.com"}},
+            "Weekly newsletter (from Mailchimp)": {"linus@example.com": {"email": "linus@example.com"}},
+            "Novedades del producto ñ (from Mailchimp)": {},
+        }
+        assert {"Weekly newsletter", "Novedades del producto ñ"} <= self._opt_outs()["ada@example.com"]
+
+    @parameterized.expand([("not_found", 404), ("server_error", 500)])
+    def test_an_audience_that_cannot_be_read_whole_leaves_every_cohort_alone(self, _name: str, status: int) -> None:
+        self._patch(f"{CLIENT}.PAGE_SIZE", 2)
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        self.mailchimp.failures.append(
+            Failure(route="members", status=status, times=100, from_offset=1, status_filter="subscribed")
+        )
+
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        run.refresh_from_db()
+        assert "people_imports" not in run.progress["contacts"]
+        assert not Cohort.objects.filter(team_id=self.team.id).exists()
+        self.mailchimp.failures.clear()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+        run.refresh_from_db()
+        assert len(run.progress["contacts"]["people_imports"]) == 3
+
+    def test_an_account_without_audiences_leaves_the_cohort_of_all_contacts_alone(self) -> None:
+        self._close(self._import_contacts("new_people"))
+        self.mailchimp.data["lists"] = []
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert "people_imports" not in run.progress["contacts"]
+
+    def test_contacts_wait_when_an_audience_hid_its_opt_outs(self) -> None:
+        self.mailchimp.failures.append(Failure(route="members", status=404, times=100, status_filter="unsubscribed"))
+        run = runs.start_run(self.team.id, "mailchimp", [*OPT_OUT_STEPS, "contacts"], FULL_KEY, self.user.id, {})
+
+        with self.assertRaisesRegex(ImportProviderUnavailable, "couldn't find this audience"):
+            runs.run_step(self.team.id, run.id, "audiences", attempt=1)
+        with self.assertRaises(ImportStepBlocked):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)

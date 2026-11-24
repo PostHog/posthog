@@ -1,7 +1,8 @@
-"""Imports audiences, groups, cleaned contacts, abuse reports, templates and campaigns from Mailchimp.
+"""Imports audiences, groups, cleaned contacts, abuse reports, templates, campaigns and subscribers from Mailchimp.
 
 Mailchimp keeps contacts per audience. Each audience becomes a marketing category, and each group a recipient can pick
-becomes one too. People never move: the audience steps read only who left, never subscribed, or isn't in a group.
+becomes one too. The audience steps read only who left, never subscribed, or isn't in a group. Only the contacts step
+makes people, and only of contacts who are subscribed to an audience.
 
 Steps that read contacts walk a sorted list of targets, one per audience and contact status, and page through each one
 by offset. The checkpoint names the target and the offset, so a retried step continues where it stopped.
@@ -13,7 +14,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -39,13 +40,22 @@ from products.messaging.backend.provider_imports.base import (
     ImportSettingChoice,
     ImportSettingSpec,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactCollector,
+    ContactList,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
+)
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
-from products.messaging.backend.provider_imports.mailchimp_templates import convert_email
+from products.messaging.backend.provider_imports.mailchimp_templates import convert_email, property_name
 from products.messaging.backend.services import mailchimp_client
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -66,6 +76,7 @@ from products.messaging.backend.services.mailchimp_client import (
     quoted,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -92,6 +103,14 @@ RECENT_DAYS = 90
 UNSENT_STATUSES = frozenset({"save", "paused", "schedule"})
 CATEGORY_KEY_MAX_LENGTH = 64
 EMAILS_PER_PAGE = 10
+# Each audience becomes its own cohort, and the contacts step saves them all in one transaction.
+MAX_AUDIENCES = 500
+TOO_MANY_AUDIENCES_MESSAGE = (
+    f"This account has more than {MAX_AUDIENCES} audiences, more than one import takes. Upload the audiences you need "
+    "as CSV files instead."
+)
+OPT_OUT_STEPS = ("audiences", "groups", "cleaned", "complaints")
+_ADDRESS_PARTS = ("addr1", "addr2", "city", "state", "zip", "country")
 MAX_LIST_RESTARTS = 3
 # Bounds a worker's memory on a huge list. Past it, a restart counts the contacts it reads again twice, but skips none.
 MAX_REMEMBERED_CONTACTS = 100_000
@@ -133,15 +152,15 @@ class MailchimpImportProvider(ImportProvider):
     )
     api_key_url = "https://us1.admin.mailchimp.com/account/api/"
     not_imported = (
-        "Subscribed contacts don't become people in PostHog. Customer journeys, classic automations, segments, tags, "
-        "signup forms, reports and Mailchimp Transactional (Mandrill) stay in Mailchimp, so rebuild what you need."
+        "Customer journeys, classic automations, segments, tags, signup forms, reports and Mailchimp Transactional "
+        "(Mandrill) stay in Mailchimp, so rebuild what you need."
     )
     next_steps = (
         "Add your sending domain in PostHog and publish its DNS records.",
         "Open each template with notes and fix what they mention, then send yourself a test.",
         "Mailchimp fills merge tags such as *|COMPANY|* from the audience. PostHog reads *|FNAME|* and *|LNAME|* "
         "from the first_name and last_name person properties and every other tag from the property of the same "
-        "name, so send those to PostHog for your people.",
+        "name. The Contacts step fills these in from your merge fields. Send them to PostHog for people who join later.",
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Once nothing sends through Mailchimp, delete the API key you created for this import.",
@@ -228,6 +247,24 @@ class MailchimpImportProvider(ImportProvider):
                 ("missing", "Audiences Mailchimp couldn't find, skipped"),
             ),
         ),
+        # Needs the opt-out steps in the same run and before it, so no imported contact can be sent marketing email they
+        # left in Mailchimp. Right after them, so few contacts join in between.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each subscribed contact to a person in PostHog by email and copies their merge fields where "
+                "PostHog has no value. Fills a cohort with all your subscribed contacts and one with each audience's. "
+                "Contacts who unsubscribed, never subscribed, were archived or were cleaned stay out. Needs Audiences, "
+                "Groups, Cleaned contacts and Abuse reports selected too, so no one who left in Mailchimp gets "
+                "marketing email."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+            requires=OPT_OUT_STEPS,
+            needs=OPT_OUT_STEPS,
+            counts_as_events=True,
+        ),
+        new_people_step("Mailchimp"),
         ImportStepSpec(
             key="templates",
             label="Templates",
@@ -279,22 +316,36 @@ class MailchimpImportProvider(ImportProvider):
         with _translated_errors(LOST_ACCESS_MESSAGE):
             client = MailchimpClient(context.api_key)
             match step:
-                case "audiences":
-                    yield from _fetch_audiences(client, context, checkpoint)
-                case "groups":
-                    yield from _fetch_groups(client, context, checkpoint)
-                case "cleaned":
-                    targets = [_member_target(audience, "cleaned") for audience in _audiences(client)]
-                    yield from _read_targets(client, targets, checkpoint, partial(_save_cleaned, context))
-                case "complaints":
-                    targets = [_abuse_target(audience) for audience in _audiences(client)]
-                    yield from _read_targets(client, targets, checkpoint, partial(_save_complaints, context))
+                case "audiences" | "groups" | "cleaned" | "complaints":
+                    pages = _opt_out_pages(step, client, context, checkpoint)
+                    # A contact whose opt-out wasn't read could get marketing email once contacts become people.
+                    yield from map(_whole_lists_only, pages) if "contacts" in context.steps else pages
                 case "templates":
                     yield from _fetch_templates(client, context, checkpoint)
                 case "campaigns":
                     yield from _fetch_campaigns(client, context, checkpoint)
+                case "contacts":
+                    yield from _fetch_contacts(client, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case _:
                     raise UnknownImportStep(f"Mailchimp has no import step named {step}.")
+
+
+def _opt_out_pages(
+    step: str, client: MailchimpClient, context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    match step:
+        case "audiences":
+            yield from _fetch_audiences(client, context, checkpoint)
+        case "groups":
+            yield from _fetch_groups(client, context, checkpoint)
+        case "cleaned":
+            targets = [_member_target(audience, "cleaned") for audience in _audiences(client)]
+            yield from _read_targets(client, targets, checkpoint, partial(_save_cleaned, context))
+        case "complaints":
+            targets = [_abuse_target(audience) for audience in _audiences(client)]
+            yield from _read_targets(client, targets, checkpoint, partial(_save_complaints, context))
 
 
 @contextmanager
@@ -491,6 +542,18 @@ def _missing_audience(target: _Target) -> SavedPage:
     )
 
 
+def _whole_lists_only(page: ImportPage) -> ImportPage:
+    """Fails the step when an audience couldn't be read whole, instead of going on with a warning."""
+
+    def save() -> SavedPage:
+        saved = page.save()
+        if saved.warnings:
+            raise ImportProviderUnavailable(" ".join(saved.warnings))
+        return saved
+
+    return replace(page, save=save)
+
+
 def _audience_category(audience: Mapping[str, Any]) -> ImportedCategory:
     name = _audience_name(audience)
     return ImportedCategory(
@@ -582,9 +645,12 @@ def _save_left_members(context: ImportContext, target: _Target, items: list[dict
                 status="created" if result.created else "skipped",
                 url="/workflows/opt-outs",
                 notes=(
-                    f"Subscribed contacts in this audience in Mailchimp: {members}. PostHog doesn't create people from "
-                    "an audience, and their merge fields stay in Mailchimp too. To send to them, build a cohort from "
-                    "your own data or send people's details to PostHog first.",
+                    f"Subscribed contacts in this audience in Mailchimp: {members}. "
+                    + (
+                        "The Contacts step matches them to people in PostHog."
+                        if "contacts" in context.steps
+                        else "To send to them, import again with Contacts selected."
+                    ),
                 ),
             ),
         )
@@ -722,6 +788,81 @@ def _carry_to_every_spelling(context: ImportContext, addresses: Iterable[str]) -
         [spelling for address in addresses for spelling in (address, address.lower())],
         context.created_by_id,
     )
+
+
+def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator[ImportPage]:
+    audiences = _audiences(client)
+    if not audiences:
+        # A key for another, empty account says nothing about who is in the cohort an earlier import filled.
+        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
+        return
+    if len(audiences) > MAX_AUDIENCES:
+        raise ImportTooLarge(TOO_MANY_AUDIENCES_MESSAGE)
+    # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
+    # them again.
+    contacts = ContactCollector()
+    lists: list[ContactList] = []
+    read = 0
+    for audience in audiences:
+        members: list[dict[str, str]] = []
+        target = _member_target(
+            audience,
+            "subscribed",
+            "members.email_address,members.status,members.merge_fields,members.last_changed",
+        )
+        for page in _read_targets(client, [target], None, partial(_collect_subscribed, contacts, members)):
+            # Holds the contacts in memory. Nothing reaches PostHog until the page this step yields saves.
+            _whole_lists_only(page).save()
+            read += page.processed
+        name = _audience_name(audience)
+        lists.append(
+            ContactList(
+                cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailchimp)",
+                cohort_description=f"Imported from Mailchimp audience {audience['id']}.",
+                source=f'the Mailchimp audience "{name}"',
+                rows=tuple(members),
+                empty_note="No subscribed contacts, so no one is in its cohort.",
+            )
+        )
+    everyone = ContactList(
+        cohort_name="Mailchimp contacts",
+        cohort_description="Imported from Mailchimp contacts.",
+        source="your Mailchimp contacts",
+        rows=contacts.everyone,
+        empty_note="No subscribed contacts, so no one is in its cohort.",
+        repeats_merged=contacts.repeats_merged,
+        invalid_skipped=contacts.invalid_skipped,
+    )
+    yield ImportPage(
+        processed=read, save=partial(save_contact_lists, context, everyone, lists, contacts.other_spellings)
+    )
+
+
+def _collect_subscribed(
+    contacts: ContactCollector,
+    members: list[dict[str, str]],
+    _target: _Target,
+    items: list[dict[str, Any]],
+    _first: bool,
+) -> SavedPage:
+    for item in items:
+        if item.get("status") != "subscribed":
+            continue
+        row = contacts.add(item.get("email_address"), _merge_properties(item.get("merge_fields")))
+        if row is not None:
+            members.append(row)
+    return SavedPage(imported=0)
+
+
+def _merge_properties(merge_fields: Any) -> dict[str, Any]:
+    return {property_name(_clean(tag)): _merge_value(value) for tag, value in _as_dict(merge_fields).items()}
+
+
+def _merge_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        parts = (_clean(value.get(part)).strip() for part in _ADDRESS_PARTS)
+        return ", ".join(part for part in parts if part)
+    return _clean(value) if isinstance(value, str) else value
 
 
 def _save_cleaned(context: ImportContext, target: _Target, items: list[dict[str, Any]], _first: bool) -> SavedPage:
