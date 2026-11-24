@@ -46,8 +46,12 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
     const { monitorPR } = useActions(pullRequestsLogic)
     const { label, color } = pullRequestStateMeta(pr)
     const isMonitoring = Boolean(monitoringUrls[pr.url])
-    const closedDisabledReason = pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined
+    const disabledReason =
+        pr.monitoring_disabled_reason ??
+        (pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined)
     const reportStatus = pr.report ? (pr.report.status as SignalReportStatus) : null
+    const canRetryReport =
+        reportStatus === SignalReportStatus.FAILED || reportStatus === SignalReportStatus.PENDING_INPUT
     const reportId = pr.report && reportStatus !== SignalReportStatus.FAILED ? pr.report.id : null
 
     const summary = (
@@ -91,15 +95,15 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
             )}
 
             <div className="flex shrink-0 items-center gap-0.5">
-                {reportStatus === SignalReportStatus.FAILED ? (
+                {canRetryReport && reportStatus ? (
                     <div className="flex items-center gap-1">
-                        <SignalReportStatusBadge status={SignalReportStatus.FAILED} />
+                        <SignalReportStatusBadge status={reportStatus} />
                         <LemonButton
                             size="xsmall"
                             type="secondary"
                             loading={isMonitoring}
-                            disabled={isMonitoring && !closedDisabledReason}
-                            disabledReason={closedDisabledReason}
+                            disabled={isMonitoring && !disabledReason}
+                            disabledReason={disabledReason}
                             data-attr="inbox-pr-retry"
                             onClick={() => monitorPR(pr.url)}
                         >
@@ -115,8 +119,8 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                         size="xsmall"
                         type="secondary"
                         loading={isMonitoring}
-                        disabled={isMonitoring && !closedDisabledReason}
-                        disabledReason={closedDisabledReason}
+                        disabled={isMonitoring && !disabledReason}
+                        disabledReason={disabledReason}
                         data-attr="inbox-pr-monitor"
                         onClick={() => monitorPR(pr.url)}
                     >

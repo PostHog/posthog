@@ -137,16 +137,23 @@ class ReportMetricAccessPolicy:
         # shared result when the materializer had a different property-access fingerprint.
         return not self._materializer_property_restrictions
 
-    def may_read_research_note(self, required_scopes: Sequence[object]) -> bool:
-        if self._user is None or self._team is None or not required_scopes or self._viewer_property_restrictions:
+    def _may_read_research_scope(self, scope: object, access_control: UserAccessControl) -> bool:
+        if not isinstance(scope, str) or not scope.endswith(":read"):
             return False
-        for scope in required_scopes:
-            if not isinstance(scope, str) or not scope.endswith(":read"):
-                return False
-            resource = scope.removesuffix(":read")
-            if not resource or not self._token_grants(resource):
-                return False
-        return True
+        resource = scope.removesuffix(":read")
+        if not resource or not self._token_grants(resource):
+            return False
+        if resource not in ACCESS_CONTROL_RESOURCES:
+            return True
+        return access_control.has_resource_access(resource) and not access_control.blocked_resource_ids_by_scope.get(
+            resource
+        )
+
+    def may_read_research_note(self, required_scopes: Sequence[object]) -> bool:
+        access_control = self._user_access_control
+        if access_control is None or not required_scopes or self._viewer_property_restrictions:
+            return False
+        return all(self._may_read_research_scope(scope, access_control) for scope in required_scopes)
 
     @cached_property
     def _viewer_property_restrictions(self) -> frozenset[RestrictedProperty]:

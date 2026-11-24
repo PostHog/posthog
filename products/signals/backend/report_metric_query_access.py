@@ -50,6 +50,26 @@ def _hogql_call_allows_read(node: ast.Call, allowed_calls: frozenset[str], *, al
     )
 
 
+def _is_non_distinct_count_star(node: ast.Call) -> bool:
+    return (
+        node.name.lower() == "count"
+        and not node.distinct
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Field)
+        and node.args[0].chain == ["*"]
+    )
+
+
+def _hogql_call_children(
+    node: ast.Call, *, allowed_calls: frozenset[str], allow_distinct: bool
+) -> tuple[ast.Expr, ...] | None:
+    if not _hogql_call_allows_read(node, allowed_calls, allow_distinct=allow_distinct):
+        return None
+    if allow_distinct and _is_non_distinct_count_star(node):
+        return ()
+    return tuple(node.args)
+
+
 def _hogql_leaf_allows_read(node: ast.AST) -> bool:
     return isinstance(node, ast.Constant) or (isinstance(node, ast.Field) and _hogql_field_allows_read(node))
 
@@ -69,8 +89,8 @@ def _hogql_node_children(
         if node.op in {ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort}:
             return None
         return (node.left, node.right)
-    if isinstance(node, ast.Call) and _hogql_call_allows_read(node, allowed_calls, allow_distinct=allow_distinct):
-        return tuple(node.args)
+    if isinstance(node, ast.Call):
+        return _hogql_call_children(node, allowed_calls=allowed_calls, allow_distinct=allow_distinct)
     return None
 
 

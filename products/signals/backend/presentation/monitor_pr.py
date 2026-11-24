@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
@@ -17,6 +18,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.monitor_pr import (
     REPORT_STATUS_CHOICES,
     InvalidPullRequest,
@@ -81,6 +83,12 @@ class PRBrowserItemSerializer(serializers.Serializer):
     report = PRBrowserReportSerializer(
         allow_null=True, help_text="The caller’s monitoring report, or null when not requested."
     )
+    monitoring_disabled_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Why monitoring or retrying is unavailable for this pull request, or null when eligible.",
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -100,6 +108,11 @@ class _BasePRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "inbox"
     requires_resource_level_access = True
     pagination_class = None
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        team = self.team.parent_team or self.team
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)

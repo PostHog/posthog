@@ -8212,24 +8212,6 @@ class SignalReportArtefactViewSet(
             transaction.on_commit(partial(self._capture_canonical_reviewer_state, str(artefact.report_id)))
         return Response(self._write_response_data(artefact))
 
-    @extend_schema(
-        responses={
-            204: OpenApiResponse(description="Artefact deleted."),
-            400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
-            404: OpenApiResponse(description="Artefact not found for this report / project."),
-        },
-        summary="Delete an artefact",
-        description=(
-            "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
-            "the report's canonical status to the previous version (latest-wins over what remains). "
-            "`task_run` artefacts are an append-only work log and cannot be deleted. Neither can the "
-            "types this API cannot write, which the pipeline owns: "
-            # Interpolated from the constant the guard tests, so the contract cannot drift from it.
-            f"{', '.join(f'`{artefact_type}`' for artefact_type in sorted(NON_WRITABLE_ARTEFACT_TYPES))}."
-        ),
-        parameters=[_REPORT_ID_PARAMETER],
-        operation_id="signals_report_artefacts_destroy",
-    )
     @staticmethod
     def _is_stored_restricted_note(artefact: SignalReportArtefact) -> bool:
         if artefact.type != SignalReportArtefact.ArtefactType.NOTE:
@@ -8256,6 +8238,24 @@ class SignalReportArtefactViewSet(
         ):
             raise ArtefactContentValidationError("Note access restrictions cannot be set through the API")
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Artefact deleted."),
+            400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
+            404: OpenApiResponse(description="Artefact not found for this report / project."),
+        },
+        summary="Delete an artefact",
+        description=(
+            "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
+            "the report's canonical status to the previous version (latest-wins over what remains). "
+            "`task_run` artefacts are an append-only work log and cannot be deleted. Neither can the "
+            "types this API cannot write, which the pipeline owns: "
+            # Interpolated from the constant the guard tests, so the contract cannot drift from it.
+            f"{', '.join(f'`{artefact_type}`' for artefact_type in sorted(NON_WRITABLE_ARTEFACT_TYPES))}."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        operation_id="signals_report_artefacts_destroy",
+    )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type in {

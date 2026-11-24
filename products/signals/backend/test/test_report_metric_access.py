@@ -176,18 +176,17 @@ class TestReportMetricAccessPolicy(APIBaseTest):
 
     def test_authorizes_safe_hogql_math_and_rejects_resource_bearing_expressions(self) -> None:
         policy = self._policy(["query:read", "event_definition:read"])
-        safe = self._metric(
-            series=[
-                {
-                    "kind": "EventsNode",
-                    "event": "$pageview",
-                    "math": "hogql",
-                    "math_hogql": "countIf(properties.status = 'ok')",
-                }
-            ]
-        )
-        assert policy.may_read_query(safe)
-        assert query_filter_shape_allows_read(cast(dict[str, object], safe["query"]))
+        for safe_math in (
+            "countIf(properties.status = 'ok')",
+            "count(*)",
+            "countIf(properties.status = 'ok') / count(*)",
+        ):
+            with self.subTest(safe_math=safe_math):
+                safe = self._metric(
+                    series=[{"kind": "EventsNode", "event": "$pageview", "math": "hogql", "math_hogql": safe_math}]
+                )
+                assert policy.may_read_query(safe)
+                assert query_filter_shape_allows_read(cast(dict[str, object], safe["query"]))
 
         for bad_math in (
             "countIf(person_id IN COHORT 12)",
@@ -195,6 +194,8 @@ class TestReportMetricAccessPolicy(APIBaseTest):
             "countIf(matchesAction(12))",
             "countIf(person.cohorts = 12)",
             "sum((SELECT person_id FROM cohortpeople WHERE cohort_id = 12))",
+            "count(DISTINCT *)",
+            "max(*)",
             "",
         ):
             with self.subTest(bad_math=bad_math):
@@ -203,6 +204,12 @@ class TestReportMetricAccessPolicy(APIBaseTest):
                 )
                 assert not policy.may_read_query(unsafe)
                 assert not query_filter_shape_allows_read(cast(dict[str, object], unsafe["query"]))
+
+    def test_may_read_research_note_fails_closed_on_resource_or_object_revocation(self) -> None:
+        scopes = ["query:read", "event_definition:read", "insight:read"]
+        assert self._policy(scopes).may_read_research_note(scopes)
+        assert not self._policy(scopes, allowed={"insight": {123}}).may_read_research_note(scopes)
+        assert not self._policy(scopes, blocked={"insight": {123}}).may_read_research_note(scopes)
 
     def test_rejects_property_groups_over_the_depth_limit(self) -> None:
         property_filter: dict[str, object] = {"type": "event", "key": "$browser", "value": "Chrome"}

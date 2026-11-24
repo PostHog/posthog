@@ -80192,6 +80192,11 @@ export namespace Schemas {
       updated_at: string;
       /** The caller’s monitoring report, or null when not requested. */
       report: PRBrowserReport | null;
+      /**
+         * Why monitoring or retrying is unavailable for this pull request, or null when eligible.
+         * @nullable
+         */
+      monitoring_disabled_reason?: string | null;
     }
 
     export interface PRBrowserPage {

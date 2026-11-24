@@ -4561,6 +4561,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 key: redact_credentials(value) if isinstance(value, str) else value for key, value in parsed.items()
             }
 
+        if obj.type == SignalReportArtefact.ArtefactType.CHECK_AUTHORING and isinstance(parsed, dict):
+            parsed.pop("initiator_note", None)
+            return parsed
+
         if obj.type in {
             SignalReportArtefact.ArtefactType.CHECK_RESULT,
             SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
@@ -4572,22 +4576,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             and isinstance(parsed, dict)
             and ("analytics_query_context" in parsed or "required_read_scopes" in parsed)
         ):
-            queries = parsed.pop("analytics_query_context", None)
-            required_scopes = parsed.pop("required_read_scopes", None)
-            acting_user_id = parsed.pop("restricted_to_user_id", None)
-            request = self.context.get("request")
-            viewer_id = getattr(getattr(request, "user", None), "id", None)
-            policy = report_metric_access_policy(self.context)
-            check_query = policy.may_read_query if required_scopes is not None else policy.may_read_snapshot
-            queries_allowed = isinstance(queries, list) and all(
-                isinstance(query, Mapping) and check_query({"query": query}) for query in queries
-            )
-            scopes_allowed = required_scopes is None or (
-                isinstance(required_scopes, list) and policy.may_read_research_note(required_scopes)
-            )
-            if viewer_id is None or acting_user_id != viewer_id or not queries_allowed or not scopes_allowed:
-                parsed["note"] = "You don't have access to this assessment's evidence."
-            return parsed
+            return self._redact_restricted_note(parsed)
 
         if (
             obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE
@@ -4609,6 +4598,24 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                     "retired": parsed.get("retired", False),
                 }
 
+        return parsed
+
+    def _redact_restricted_note(self, parsed: dict) -> dict:
+        queries = parsed.pop("analytics_query_context", None)
+        required_scopes = parsed.pop("required_read_scopes", None)
+        acting_user_id = parsed.pop("restricted_to_user_id", None)
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        policy = report_metric_access_policy(self.context)
+        check_query = policy.may_read_query if required_scopes is not None else policy.may_read_snapshot
+        queries_allowed = isinstance(queries, list) and all(
+            isinstance(query, Mapping) and check_query({"query": query}) for query in queries
+        )
+        scopes_allowed = required_scopes is None or (
+            isinstance(required_scopes, list) and policy.may_read_research_note(required_scopes)
+        )
+        if viewer_id is None or acting_user_id != viewer_id or not queries_allowed or not scopes_allowed:
+            parsed["note"] = "You don't have access to this assessment's evidence."
         return parsed
 
     def _redact_check_result(self, obj: SignalReportArtefact, content: dict) -> dict:

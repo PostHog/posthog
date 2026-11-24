@@ -19,6 +19,7 @@ from asgiref.sync import async_to_sync
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions import QuotaLimitExceeded
@@ -40,9 +41,9 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.daily_limit import team_day_start
+from products.signals.backend.daily_limit import check_daily_report_admission, team_day_start
 from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission, self_driving_quota_gate
 from products.signals.backend.report_access import may_read_reports
@@ -73,6 +74,7 @@ from products.tasks.backend.facade.repo_selection_types import RepoSelectionResu
 logger = structlog.get_logger(__name__)
 RECENT_PR_LIMIT = 50
 PR_RESEARCH_DAILY_ATTEMPT_LIMIT = 5
+MAX_PROMPT_DIFF_CHARS = 100_000
 
 
 @frozen
@@ -112,6 +114,7 @@ class BrowserPR:
     created_at: str
     updated_at: str
     report: PRReport | None
+    monitoring_disabled_reason: str | None = None
 
 
 @frozen
@@ -302,6 +305,22 @@ def load_pull_request(team_id: int, pr_url: str, *, priority: Priority = Priorit
     )
 
 
+def load_pull_request_diff(team_id: int, pr: MonitoredPullRequest, *, priority: Priority = Priority.NORMAL) -> str:
+    github = _resolve_repository_installation(team_id, pr.repository, priority=priority)
+    result = github.get_pull_request_diff(pr.repository, pr.number)
+    if not result.get("success"):
+        status_code = result.get("status_code")
+        if status_code is None or status_code >= 500:
+            raise GitHubIntegrationError(
+                "GitHub is temporarily unavailable. Try again shortly.", status_code=status_code
+            )
+        raise InvalidPullRequest("Could not read this pull request diff through the project's GitHub integration.")
+    diff = str(result.get("diff") or "")
+    if len(diff) > MAX_PROMPT_DIFF_CHARS:
+        return diff[:MAX_PROMPT_DIFF_CHARS] + "\n\n... diff truncated ...\n"
+    return diff
+
+
 def _fetch_recent_items(
     *, team_id: int, integration: _RegisteredGitHubInstallation, login: str
 ) -> list[dict[str, Any]]:
@@ -326,6 +345,18 @@ def _fetch_recent_items(
     return items
 
 
+def _browser_monitoring_disabled_reason(state: str, raw_merged_at: object) -> str | None:
+    if state == "closed":
+        return "Closed pull requests cannot be monitored"
+    if state != "merged":
+        return None
+    merged_at = parse_datetime(raw_merged_at) if isinstance(raw_merged_at, str) and raw_merged_at else None
+    now = timezone.now()
+    if merged_at is None or timezone.is_naive(merged_at) or merged_at <= now - MAX_CHECK_HORIZON:
+        return f"Pull requests merged more than {MAX_CHECK_HORIZON.days} days ago are outside the monitoring window"
+    return None
+
+
 def _browser_pr_from_search_item(
     *,
     item: dict[str, Any],
@@ -339,18 +370,66 @@ def _browser_pr_from_search_item(
         return None
     if repository not in integration.repositories:
         return None
+    raw_merged_at = item.get("pull_request", {}).get("merged_at")
+    state = "merged" if raw_merged_at else item["state"]
     return BrowserPR(
         url=f"https://github.com/{repository}/pull/{number}",
         repository=repository,
         number=number,
         title=item["title"],
-        state="merged" if item.get("pull_request", {}).get("merged_at") else item["state"],
+        state=state,
         draft=bool(item.get("draft")),
         author=item["user"]["login"],
         created_at=item["created_at"],
         updated_at=item["updated_at"],
         report=reports.get(monitor_key(user_id, item["html_url"])),
+        monitoring_disabled_reason=_browser_monitoring_disabled_reason(state, raw_merged_at),
     )
+
+
+def _integration_prs(
+    *,
+    team_id: int,
+    integration: _RegisteredGitHubInstallation,
+    user_id: int,
+    login: str,
+    reports: dict[str, PRReport],
+) -> list[BrowserPR]:
+    return [
+        pr
+        for item in _fetch_recent_items(team_id=team_id, integration=integration, login=login)
+        if (pr := _browser_pr_from_search_item(item=item, integration=integration, user_id=user_id, reports=reports))
+    ]
+
+
+def _collect_authored_prs(
+    *,
+    team_id: int,
+    eligible: Sequence[_RegisteredGitHubInstallation],
+    user_id: int,
+    login: str,
+    reports: dict[str, PRReport],
+) -> list[BrowserPR]:
+    results: list[BrowserPR] = []
+    failures: list[Exception] = []
+    for integration in eligible:
+        try:
+            results.extend(
+                _integration_prs(
+                    team_id=team_id, integration=integration, user_id=user_id, login=login, reports=reports
+                )
+            )
+        except (EgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError) as error:
+            logger.warning(
+                "signals_pr_browser_integration_failed",
+                team_id=team_id,
+                integration_id=integration.id,
+                exc_info=True,
+            )
+            failures.append(error)
+    if failures and len(failures) == len(eligible):
+        raise failures[0]
+    return results
 
 
 def list_authored_prs(*, team: Team, user: User) -> PRPage:
@@ -363,7 +442,8 @@ def list_authored_prs(*, team: Team, user: User) -> PRPage:
     integrations = _registered_installations(team.id, source="signals_pr_browser")
     if not login or not GITHUB_LOGIN_PATTERN.fullmatch(login):
         return PRPage(results=[], github_login=None, has_integration=bool(integrations))
-    if any(item.cache_pending and item.owner for item in integrations):
+    eligible = [item for item in integrations if item.repositories and item.owner]
+    if not eligible and any(item.cache_pending and item.owner for item in integrations):
         raise PRMonitoringUnavailable("GitHub repositories are still syncing. Try again shortly.")
 
     monitoring_enabled = team_report_monitoring_enabled(team.id)
@@ -379,13 +459,7 @@ def list_authored_prs(*, team: Team, user: User) -> PRPage:
         .values_list("scout_idempotency_key", "id", "status")
         if key is not None
     }
-    results: list[BrowserPR] = []
-    for integration in integrations:
-        if not integration.repositories or not integration.owner:
-            continue
-        for item in _fetch_recent_items(team_id=team.id, integration=integration, login=login):
-            if pr := _browser_pr_from_search_item(item=item, integration=integration, user_id=user.id, reports=reports):
-                results.append(pr)
+    results = _collect_authored_prs(team_id=team.id, eligible=eligible, user_id=user.id, login=login, reports=reports)
     results.sort(key=lambda pr: (pr.created_at, pr.url), reverse=True)
     return PRPage(results=results[:RECENT_PR_LIMIT], github_login=login, has_integration=bool(integrations))
 
@@ -487,10 +561,28 @@ def _lock_user_pr_monitoring(team_id: int, user_id: int) -> None:
         )
 
 
+def _can_restart_pr_monitoring(report: SignalReport) -> bool:
+    if report.status == SignalReport.Status.FAILED:
+        return True
+    return (
+        report.status == SignalReport.Status.PENDING_INPUT
+        and bool(report.scout_idempotency_key and report.scout_idempotency_key.startswith("monitor-pr:"))
+        and not report.metrics
+        and not SignalReportCheck.objects.for_team(report.team_id).filter(report=report).exists()
+    )
+
+
 def _bind_pr_monitoring_pass(
-    *, team: Team, report_id: UUID, run_started_at: datetime, admission: SelfDrivingAdmission
+    *,
+    team: Team,
+    report_id: UUID,
+    run_started_at: datetime,
+    admission: SelfDrivingAdmission,
+    is_new_report: bool = False,
 ) -> None:
     try:
+        if is_new_report:
+            check_daily_report_admission(team, report_id=str(report_id))
         prepare_report_pass(
             team=team,
             report_id=str(report_id),
@@ -565,7 +657,7 @@ def prepare_monitoring(
             .filter(team=team, scout_idempotency_key=key)
             .first()
         )
-        if existing is not None and existing.status != SignalReport.Status.FAILED:
+        if existing is not None and not _can_restart_pr_monitoring(existing):
             return existing, False
         _enforce_pr_research_limits(team, user, existing, check_quota=False)
         run_started_at = timezone.now()
@@ -591,7 +683,13 @@ def prepare_monitoring(
             summary=f"Post-merge impact check for {pr.repository}#{pr.number}.",
             last_run_at=run_started_at,
         )
-        _bind_pr_monitoring_pass(team=team, report_id=report.id, run_started_at=run_started_at, admission=admission)
+        _bind_pr_monitoring_pass(
+            team=team,
+            report_id=report.id,
+            run_started_at=run_started_at,
+            admission=admission,
+            is_new_report=True,
+        )
         report.refresh_from_db(fields=["self_driving_funding"])
         claim = create_claim(report, actor)
         SignalReportArtefact.append_status(
@@ -698,7 +796,7 @@ def request_pr_monitoring(
         .first()
     )
     started = False
-    if report is None or report.status == SignalReport.Status.FAILED:
+    if report is None or _can_restart_pr_monitoring(report):
         _enforce_pr_research_limits(team, user, report, check_quota=False)
         admission = prepare_self_driving_admission(team)
         if admission.gate.limited and admission.gate.enforced:
@@ -818,7 +916,7 @@ def _record_research_note(
 ) -> None:
     sections = [f"**{output.title}**", output.summary]
     if output.metric is not None and output.check is not None:
-        detail = f"**Measurement:** {output.metric.title} — {output.check.title}"
+        detail = f"**Measurement:** {output.metric.title}: {output.check.title}"
         if output.check.rationale:
             detail = f"{detail}\n\n{output.check.rationale}"
         sections.append(detail)
@@ -829,12 +927,22 @@ def _record_research_note(
         report_id=str(report.id),
         content=NoteArtefact(
             note="\n\n".join(sections),
-            analytics_query_context=[output.metric.query] if output.metric is not None else [],
+            analytics_query_context=[_strip_embedded_query_responses(output.metric.query)]
+            if output.metric is not None
+            else [],
             required_read_scopes=list(pr_monitoring_data_scopes(inputs.token_scopes)),
             restricted_to_user_id=inputs.user_id,
         ),
         attribution=actor,
     )
+
+
+def _strip_embedded_query_responses(value: object) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _strip_embedded_query_responses(item) for key, item in value.items() if key != "response"}
+    if isinstance(value, list):
+        return [_strip_embedded_query_responses(item) for item in value]
+    return value
 
 
 def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest) -> tuple[dict[str, Any], CheckSpec]:
@@ -848,7 +956,7 @@ def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest)
         role="primary",
         value_format=output.metric.value_format,
         unit=safe_unit,
-        query=output.metric.query,
+        query=_strip_embedded_query_responses(output.metric.query),
     )
     check = output.check.model_copy(
         update={

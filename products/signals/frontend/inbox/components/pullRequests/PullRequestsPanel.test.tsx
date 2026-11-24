@@ -53,6 +53,17 @@ describe('PullRequestsPanel', () => {
                             report: { id: 'rep-3', status: 'suppressed' },
                         }),
                         makePR(4, { state: 'open', title: 'Active change' }),
+                        makePR(5, {
+                            state: 'open',
+                            title: 'Needs instrumentation retry',
+                            report: { id: 'rep-5', status: 'pending_input' },
+                        }),
+                        makePR(6, {
+                            state: 'merged',
+                            title: 'Old merged change',
+                            monitoring_disabled_reason:
+                                'Pull requests merged more than 90 days ago are outside the monitoring window',
+                        }),
                     ],
                     github_login: 'example-author',
                     has_integration: true,
@@ -66,13 +77,21 @@ describe('PullRequestsPanel', () => {
         await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
 
         const monitorButtons = screen.getAllByText('Monitor').map((node) => node.closest('button'))
-        expect(monitorButtons).toHaveLength(2)
+        expect(monitorButtons).toHaveLength(3)
         expect(monitorButtons[0]).toHaveAttribute('aria-disabled', 'true')
         expect(monitorButtons[1]).not.toHaveAttribute('aria-disabled', 'true')
+        expect(monitorButtons[2]).toHaveAttribute('aria-disabled', 'true')
 
         expect(screen.queryByText('Draft')).not.toBeInTheDocument()
         expect(screen.getAllByText('Closed')).toHaveLength(3)
-        expect(screen.getByText('Retry').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        const retryButtons = screen.getAllByText('Retry').map((node) => node.closest('button'))
+        expect(retryButtons).toHaveLength(2)
+        expect(retryButtons[0]).toHaveAttribute('aria-disabled', 'true')
+        expect(retryButtons[1]).not.toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Needs instrumentation retry').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringContaining('rep-5')
+        )
         expect(screen.getByText('Closed existing report').closest('a')).toHaveAttribute(
             'href',
             expect.stringContaining('rep-3')

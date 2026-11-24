@@ -14,8 +14,9 @@ from pydantic import ValidationError
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Integration, OrganizationMembership, Team, User
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -23,9 +24,11 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportCheck,
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
+    SignalTeamConfig,
 )
 from products.signals.backend.monitor_pr import (
     PR_RESEARCH_DAILY_ATTEMPT_LIMIT,
@@ -39,7 +42,7 @@ from products.signals.backend.monitor_pr import (
 from products.signals.backend.monitor_pr_research import _context, research_pull_request
 from products.signals.backend.pull_requests import update_pull_request_state
 from products.signals.backend.report_claims import get_active_claim
-from products.signals.backend.tasks import refresh_linked_pull_request_state
+from products.signals.backend.tasks import refresh_linked_pull_request_state, refresh_signals_github_repository_cache
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 PR_URL = "https://github.com/example/widget/pull/42"
@@ -136,6 +139,15 @@ class TestMonitorPR(APIBaseTest):
             ),
             patch.object(GitHubIntegration, "installation_can_access_repository", return_value=True),
             patch.object(GitHubIntegration, "get_pull_request", side_effect=lambda *args: self.pr),
+            patch.object(
+                GitHubIntegration,
+                "get_pull_request_diff",
+                return_value={
+                    "success": True,
+                    "diff": "diff --git a/checkout.py b/checkout.py\n+track()\n",
+                    "truncated": False,
+                },
+            ),
             patch("products.signals.backend.temporal.monitor_pr.async_connect", return_value=client),
         ):
             mock.start()
@@ -546,6 +558,18 @@ class TestMonitorPR(APIBaseTest):
             ),
             patch("products.signals.backend.monitor_pr_research.MultiTurnSession.start", side_effect=fake_start),
         ):
+            embedded_query = trends_metric_query(
+                series=[
+                    {
+                        "kind": "EventsNode",
+                        "event": "checkout_completed",
+                        "math": "avg",
+                        "math_property": "duration_ms",
+                        "response": {"leaked_series": "secret"},
+                    }
+                ]
+            )
+            embedded_query["source"]["response"] = {"results": [{"leaked": "secret"}]}
             duration_output = PRMonitoringOutput.model_validate(
                 {
                     **_valid_output_payload(),
@@ -554,16 +578,7 @@ class TestMonitorPR(APIBaseTest):
                         "kind": "duration",
                         "value_format": "duration",
                         "unit": "ms",
-                        "query": trends_metric_query(
-                            series=[
-                                {
-                                    "kind": "EventsNode",
-                                    "event": "checkout_completed",
-                                    "math": "avg",
-                                    "math_property": "duration_ms",
-                                }
-                            ]
-                        ),
+                        "query": embedded_query,
                     },
                     "check": {
                         **_valid_output_payload()["check"],
@@ -582,9 +597,12 @@ class TestMonitorPR(APIBaseTest):
             assert queued_refreshes == [(self.team.id, integration_id)]
 
             async_to_sync(research_pull_request)(inputs)
+            assert captured_start.get("branch") is None
             assert "Private launch target" not in captured_start["prompt"]
             dispatch_state = captured_start["before_task_dispatch"](uuid4())
             assert "Private launch target" in dispatch_state["initial_prompt_override"]
+            assert "diff --git a/checkout.py" in dispatch_state["initial_prompt_override"]
+            assert "git checkout" not in dispatch_state["initial_prompt_override"]
             assert captured_start["analytics_query_context"] == [{}]
             assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
@@ -595,10 +613,15 @@ class TestMonitorPR(APIBaseTest):
             assert report.status == SignalReport.Status.READY
             assert "baseline" not in report.summary
             assert report.metrics[0]["unit"] == "ms"
+            assert "response" not in report.metrics[0]["query"]["source"]
+            assert "response" not in report.metrics[0]["query"]["source"]["series"][0]
             check = SignalReportCheck.objects.for_team(self.team.id).get(report=report)
             assert check.title == "Post-merge check for example/widget#42"
             assert check.rationale == ""
             assert check.config["unit"] == "ms"
+            assert "leaked" not in str(
+                self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+            )
             narrow_raw = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="narrow-monitor",
@@ -804,3 +827,134 @@ class TestMonitorPR(APIBaseTest):
             fail_monitoring_research(inputs)
         capped = self.client.post(self.url, {"pr_url": PR_URL})
         assert capped.status_code == 429 and int(capped.headers["Retry-After"]) >= 1
+
+    def test_staff_artefact_redaction_pending_input_retry_parent_inbox_and_daily_project_cap(self):
+        report, inputs = self.request_report(note="Private focus note")
+        pr = load_pull_request(self.team.id, PR_URL)
+        finish_monitoring_research(
+            inputs,
+            PRMonitoringOutput(
+                title="Missing event",
+                summary="Checkout completion is not tracked yet.",
+                inspected_commit="a" * 40,
+                unavailable_reason="Instrument checkout_completed first.",
+            ),
+            pr,
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.PENDING_INPUT
+
+        staff_peer = User.objects.create_and_join(self.organization, email="staff@example.com", password="test")
+        staff_peer.is_staff = True
+        staff_peer.save(update_fields=["is_staff"])
+        staff_raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="staff-inbox-read",
+            user=staff_peer,
+            secure_value=hash_key_value(staff_raw),
+            scopes=["inbox:read"],
+            scoped_teams=[self.team.id],
+        )
+        api_client = APIClient()
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        staff_list = api_client.get(artefacts_url, HTTP_AUTHORIZATION=f"Bearer {staff_raw}").json()["results"]
+        authoring_row = next(
+            row for row in staff_list if row["type"] == SignalReportArtefact.ArtefactType.CHECK_AUTHORING
+        )
+        assert "initiator_note" not in authoring_row["content"]
+        assert "Private focus note" not in str(staff_list)
+        staff_detail = api_client.get(
+            f"{artefacts_url}{authoring_row['id']}/", HTTP_AUTHORIZATION=f"Bearer {staff_raw}"
+        ).json()
+        assert "initiator_note" not in staff_detail["content"]
+
+        restarted, retry_inputs = self.request_report(note="Ignored override", expected_status=202)
+        assert restarted.id == report.id and retry_inputs.note == "Private focus note"
+        finish_monitoring_research(retry_inputs, self.output(), pr)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        member = User.objects.create_and_join(self.organization, email="child-only@example.com", password="test")
+        parent_block = AccessControl.objects.create(
+            team=self.team,
+            resource="task",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        AccessControl.objects.create(
+            team=child,
+            resource="task",
+            resource_id=None,
+            access_level="editor",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        member_client = APIClient()
+        member_client.force_login(member)
+        assert member_client.get(f"/api/projects/{child.id}/signals/pull_requests/").status_code == 403
+        assert (
+            member_client.post(f"/api/projects/{child.id}/signals/monitor_pr/", {"pr_url": PR_URL}).status_code == 403
+        )
+        parent_block.delete()
+
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"max_reports_per_day": 1})
+        capped_new = self.client.post(self.url, {"pr_url": "https://github.com/example/widget/pull/99"})
+        assert capped_new.status_code == 429
+
+    def test_partial_browser_integration_failure_window_eligibility_and_paced_repo_sync(self):
+        cache.clear()
+        second = Integration.objects.create(
+            team=self.team, kind="github", integration_id="456", config={"organization": "healthy-org"}
+        )
+        old_merged = self._search_item(10, "healthy-org/app")
+        old_merged["state"] = "closed"
+        old_merged["pull_request"] = {"merged_at": (timezone.now() - timedelta(days=95)).isoformat()}
+        fresh_open = self._search_item(11, "healthy-org/app")
+
+        def list_repos(gh, **kwargs):
+            return (
+                [{"full_name": "healthy-org/app"}]
+                if gh.integration.id == second.id
+                else [{"full_name": "example/widget"}]
+            )
+
+        def search_api(gh, *args, **kwargs):
+            if gh.integration.id != second.id:
+                raise GitHubIntegrationError("broken installation")
+            return Mock(ok=True, json=lambda: {"items": [fresh_open, old_merged]})
+
+        with (
+            patch.object(User, "get_github_login", return_value="example-author"),
+            patch.object(GitHubIntegration, "list_all_cached_repositories", list_repos),
+            patch.object(GitHubIntegration, "api_request", search_api),
+        ):
+            res = self.client.get(f"/api/projects/{self.team.id}/signals/pull_requests/")
+        assert res.status_code == 200
+        assert res.data["results"][0]["monitoring_disabled_reason"] is None
+        assert "90 days" in (res.data["results"][1]["monitoring_disabled_reason"] or "")
+
+        seen_pages: list[int] = []
+
+        def paged_repos(_gh, *, page=1, per_page=100, priority=None):
+            seen_pages.append(page)
+            if len(seen_pages) == 2:
+                raise GitHubEgressBudgetExhausted("shed", scope="installation:456")
+            if page == 1:
+                return [{"id": 1, "name": "one", "full_name": "healthy-org/one"}], True
+            return [{"id": 2, "name": "two", "full_name": "healthy-org/two"}], False
+
+        with (
+            patch.object(GitHubIntegration, "list_repositories", paged_repos),
+            patch.object(GitHubIntegration, "_wait_for_budget", lambda _gh: None),
+            patch("products.signals.backend.tasks.github_installation_pace_seconds", return_value=120),
+        ):
+            with self.assertRaises(Exception):
+                refresh_signals_github_repository_cache(self.team.id, second.id)
+            refresh_signals_github_repository_cache(self.team.id, second.id)
+        second.refresh_from_db()
+        assert seen_pages == [1, 2, 2]
+        assert [repo["full_name"] for repo in second.repository_cache] == ["healthy-org/one", "healthy-org/two"]
