@@ -1064,13 +1064,6 @@ class _TableFiles:
     written_bytes: int | None
 
 
-@frozen
-class _WriteOutcome:
-    row_count: int
-    file_uris: list[str]
-    files: _TableFiles | None
-
-
 def _read_live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int]:
     add_actions = pa.table(delta_table.get_add_actions(flatten=True))
     paths = typing.cast(list[str], add_actions.column("path").to_pylist())
@@ -1113,7 +1106,7 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
-) -> _WriteOutcome:
+) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
     # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
@@ -1219,7 +1212,8 @@ async def _materialize_fully(
             mode="full_refresh",
             table_uri=table_uri,
         )
-    return _WriteOutcome(row_count=row_count, file_uris=file_uris, files=files)
+    await _record_table_files(objects.job, files)
+    return row_count, file_uris
 
 
 async def _materialize_incrementally(
@@ -1231,7 +1225,7 @@ async def _materialize_incrementally(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
-) -> _WriteOutcome:
+) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
 
     The watermark is saved after the last upsert but before the queryable publish. That is only
@@ -1331,11 +1325,8 @@ async def _materialize_incrementally(
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
-    return _WriteOutcome(
-        row_count=row_count,
-        file_uris=delta_table.file_uris(),
-        files=_table_files(await _live_file_sizes(delta_table), before=files_before),
-    )
+    await _record_table_files(objects.job, _table_files(await _live_file_sizes(delta_table), before=files_before))
+    return row_count, delta_table.file_uris()
 
 
 @tracer.start_as_current_span("materialize_view.compact")
@@ -1501,7 +1492,7 @@ async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewRes
 
             try:
                 if plan.incremental:
-                    outcome = await _materialize_incrementally(
+                    row_count, file_uris = await _materialize_incrementally(
                         objects,
                         plan,
                         hogql_query,
@@ -1512,7 +1503,7 @@ async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewRes
                         person_property_sink,
                     )
                 else:
-                    outcome = await _materialize_fully(
+                    row_count, file_uris = await _materialize_fully(
                         objects,
                         plan,
                         hogql_query,
@@ -1528,9 +1519,8 @@ async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewRes
                 await cdp_sink.discard()
                 raise
 
-            await _record_table_files(objects.job, outcome.files)
-            activity_span.set_attribute("rows_materialized", outcome.row_count)
-            await logger.ainfo(f"Materialized node {objects.node.name} with {outcome.row_count} rows")
+            activity_span.set_attribute("rows_materialized", row_count)
+            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)
         )
@@ -1547,9 +1537,9 @@ async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewRes
         result = MaterializeViewResult(
             node_id=objects.node.id,
             node_name=objects.node.name,
-            row_count=outcome.row_count,
+            row_count=row_count,
             table_uri=table_uri,
-            file_uris=outcome.file_uris,
+            file_uris=file_uris,
             saved_query_id=str(objects.saved_query.id),
             quality_audit=quality_audit,
             incremental=plan.incremental,
