@@ -41,6 +41,7 @@ clickhouse_property_values
 clickhouse_session_replay_events
 clickhouse_tophog
 clickhouse_traces
+cdp_events_dlq
 cdp_intake_dlq
 cdp_intake_transactional_email
 cdp_intake_workflow_webhook

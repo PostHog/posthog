@@ -178,7 +178,7 @@ for key in INTERNAL_REQUEST_TOKEN BROWSERLESS_SECRET RECORDING_API_JWT_SECRET \
     fi
 done
 # A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
-if ! grep -qE "^CDP_SEALED_STATE_KEYS=.+" .env; then
+if ! grep -qE "^CDP_SEALED_STATE_KEYS=[\"']?[^\"' ]" .env; then
     sed -i '/^CDP_SEALED_STATE_KEYS=/d' .env
     # Exported too, because an empty value sourced from .env earlier would override the file for compose.
     export CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)

@@ -56,8 +56,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first. Sensitive job
-    // state is sealed whenever a key is set.
+    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first. Whenever a key
+    // is set, transactional sends are sealed, and so is a webhook run with a sensitive step while it is on the intake topic.
     CDP_SEALED_STATE_KEYS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
