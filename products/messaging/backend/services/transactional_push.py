@@ -1,6 +1,7 @@
 """Transactional push notifications: a push template made sendable over the API. Each one is backed by a workflow
 that runs once per send, so sends get the workflow's metrics, run history and versions."""
 
+import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -43,6 +44,8 @@ logger = structlog.get_logger(__name__)
 # The CDP service names a keyed send's run with this scope, so a batch result's ID matches the run's.
 TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
 PUSH_BATCH_PARALLEL_REQUESTS = 10
+# A recipient not reached by then is answered as unconfirmed, so a stalled CDP service can't hold the request.
+PUSH_BATCH_TIMEOUT_SECONDS = 30
 # These hold for every recipient, so a batch refused for all of them answers once instead of per recipient.
 WHOLE_BATCH_REFUSALS = (QuotaLimited, TransactionalPushPaused, DeliveryUnavailable)
 
@@ -104,16 +107,20 @@ def send_transactional_push_batch(
     """Queue one push notification per recipient, in the order of `recipients`. A recipient the push pipeline refuses
     fails only its own result, unless every recipient was refused for the same reason that holds for the whole batch."""
     hog_flow_id = _transactional_push_workflow_id(team.id, template)
+    deadline = time.monotonic() + PUSH_BATCH_TIMEOUT_SECONDS
 
     def queue(recipient: PushBatchRecipient) -> QueuedEmail | EmailNotQueued:
         try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DeliveryUnavailable()
             return _queue_push(
                 team.id,
                 hog_flow_id,
                 distinct_id=recipient.distinct_id,
                 message_data=recipient.message_data,
                 idempotency_key=recipient.idempotency_key,
-                timeout=timeout,
+                timeout=min(timeout, remaining),
             )
         except (TransactionalEmailError, DeliveryUnavailable) as e:
             message_id = keyed_run_id(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, recipient.idempotency_key)
@@ -159,7 +166,12 @@ def _queue_push(
             status_code=response.status_code,
             refusal_code=refusal_code,
         )
-    return queued_send(response)
+    try:
+        return queued_send(response)
+    except KeyError as e:
+        # Accepted, but the answer names no run, so whether the push goes out isn't known.
+        logger.exception("transactional_push_answer_unreadable", team_id=team_id, hog_flow_id=str(hog_flow_id))
+        raise DeliveryUnavailable() from e
 
 
 def _transactional_push_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
