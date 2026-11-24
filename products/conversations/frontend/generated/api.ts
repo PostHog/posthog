@@ -899,7 +899,7 @@ export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
  * @summary Draft a PostHog support ticket for the person to approve
  */
 export const posthogSupportDraftsCreate = async (

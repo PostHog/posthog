@@ -34,6 +34,9 @@ const posthogSupportDraftCreate = (): ToolBase<
         if (params.error !== undefined) {
             body['error'] = params.error
         }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
         if (params.filing_reason !== undefined) {
             body['filing_reason'] = params.filing_reason
         }

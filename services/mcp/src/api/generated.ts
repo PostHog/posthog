@@ -56011,7 +56011,6 @@ export namespace Schemas {
     /**
      * * `user_asked_for_support` - The person asked to contact PostHog support
      * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
-     * * `billing_question` - A billing or usage question, which PostHog answers on every plan
      * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
      * * `user_disagrees_with_agent` - The person disagrees with the agent's answer
      */
@@ -56021,7 +56020,6 @@ export namespace Schemas {
     export const FilingReasonEnum = {
       UserAskedForSupport: 'user_asked_for_support',
       NeedsPosthogStaff: 'needs_posthog_staff',
-      BillingQuestion: 'billing_question',
       UnexplainedError: 'unexplained_error',
       UserDisagreesWithAgent: 'user_disagrees_with_agent',
     } as const;
@@ -100716,8 +100714,8 @@ export namespace Schemas {
       ticket_context: string;
       /** Unix time after which the draft is gone if nobody sent it. */
       expires_at: number;
-      /** True when the draft is a billing or usage question, which the person can send on any plan. */
-      billing_question: boolean;
+      /** True when the draft's topic is one the person can send on any plan, such as billing. */
+      any_plan: boolean;
       /** True when the person's plan lets them send this ticket. Offer to send it only when this is true. */
       can_send: boolean;
       /** Link the person opens in their browser to review, edit and send the ticket. */
@@ -100726,9 +100724,37 @@ export namespace Schemas {
       next_step: string;
     }
 
+    /**
+     * * `privacy` - Privacy
+     * * `security` - Security
+     * * `compliance` - Compliance
+     * * `retention` - Data retention
+     * * `dpa` - Data processing agreement (DPA)
+     * * `baa` - Business associate agreement (BAA)
+     * * `privacy_or_security_deletion` - Deleting data for a privacy or security reason
+     * * `other_deletion` - Deleting data for another reason
+     * * `billing` - Billing or usage
+     * * `other` - Anything else
+     */
+    export type TicketTopicEnum = typeof TicketTopicEnum[keyof typeof TicketTopicEnum];
+
+
+    export const TicketTopicEnum = {
+      Privacy: 'privacy',
+      Security: 'security',
+      Compliance: 'compliance',
+      Retention: 'retention',
+      Dpa: 'dpa',
+      Baa: 'baa',
+      PrivacyOrSecurityDeletion: 'privacy_or_security_deletion',
+      OtherDeletion: 'other_deletion',
+      Billing: 'billing',
+      Other: 'other',
+    } as const;
+
     export interface PostHogSupportDraftCreate {
       /**
-         * A short title that names the problem, such as 'Experiment exposures split 90/10 instead of 50/50'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'.
+         * A short title that names the problem, such as 'Delete test events that contain customer emails'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'.
          * @maxLength 100
          */
       title: string;
@@ -100738,12 +100764,12 @@ export namespace Schemas {
          */
       request: string;
       /**
-         * Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, such as '- Experiment: [Checkout test](<link>)', and put the region on its own line. Take links from _posthogUrl. No guesses.
+         * Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, such as '- Project: [Web app](<link>)', and put the region on its own line. Take links from _posthogUrl. No guesses.
          * @maxLength 3000
          */
       details?: string;
       /**
-         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check.
+         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. When filing_reason is user_disagrees_with_agent or user_asked_for_support, this is required: add the answer you already gave them, with a link to each docs page it came from. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check.
          * @maxLength 1500
          */
       already_checked?: string;
@@ -100752,11 +100778,23 @@ export namespace Schemas {
          * @maxLength 1500
          */
       error?: string;
-      /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason. Use billing_question only when the ticket is about billing or usage, not for a billing question asked in passing in a ticket about something else.
+      /** What the ticket as a whole is about. Only privacy, security, compliance, retention, deletion, DPA, BAA and billing tickets can be filed from here. Use other for everything else, and don't stretch a topic to fit: support sees the topic. A login problem is other, never security. Use privacy_or_security_deletion only when the person gave a privacy or security reason for the deletion. Use billing only when the ticket is about billing or usage, not for a billing question asked in passing.
+       *
+       * * `privacy` - Privacy
+       * * `security` - Security
+       * * `compliance` - Compliance
+       * * `retention` - Data retention
+       * * `dpa` - Data processing agreement (DPA)
+       * * `baa` - Business associate agreement (BAA)
+       * * `privacy_or_security_deletion` - Deleting data for a privacy or security reason
+       * * `other_deletion` - Deleting data for another reason
+       * * `billing` - Billing or usage
+       * * `other` - Anything else */
+      topic: TicketTopicEnum;
+      /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.
        *
        * * `user_asked_for_support` - The person asked to contact PostHog support
        * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
-       * * `billing_question` - A billing or usage question, which PostHog answers on every plan
        * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
        * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
       filing_reason: FilingReasonEnum;

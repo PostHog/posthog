@@ -23,7 +23,7 @@ const DRAFT: PostHogSupportDraftApi = {
     ].join('\n\n---\n\n'),
     ticket_context: 'Drafted by an AI agent through the PostHog MCP, then reviewed and sent by the person.',
     expires_at: 0,
-    billing_question: false,
+    any_plan: false,
     can_send: true,
     review_url: '',
     next_step: '',

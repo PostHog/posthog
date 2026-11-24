@@ -81,7 +81,7 @@ export const myTicketsSceneLogic = kea<myTicketsSceneLogicType>([
         openSupportDraft: async ({ draftId }) => {
             let draft: PostHogSupportDraftApi | null = null
             try {
-                draft = await posthogSupportDraftsRetrieve(String(ApiConfig.getCurrentProjectId()), draftId)
+                draft = await posthogSupportDraftsRetrieve(String(ApiConfig.getCurrentTeamId()), draftId)
             } catch (e) {
                 if ((e as { status?: number }).status !== 404) {
                     // Keep the link as it is, so a reload retries a draft that may still be there
@@ -102,8 +102,7 @@ export const myTicketsSceneLogic = kea<myTicketsSceneLogicType>([
                 message: draft.message,
                 ticket_context: draft.ticket_context,
                 ai_draft_id: draft.id,
-                // Billing questions are answered on every plan, so this lets a free plan send one
-                billing_issue: draft.billing_question,
+                any_plan_request: draft.any_plan,
             })
             actions.reviewDraft(draft)
         },

@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
  * @summary Draft a PostHog support ticket for the person to approve
  */
 export const PosthogSupportDraftsCreateParams = () => zod.object({
@@ -38,7 +38,7 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         .string()
         .max(posthogSupportDraftsCreateBodyTitleMax)
         .describe(
-            "A short title that names the problem, such as 'Experiment exposures split 90\/10 instead of 50\/50'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'."
+            "A short title that names the problem, such as 'Delete test events that contain customer emails'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'."
         ),
     request: zod
         .string()
@@ -51,14 +51,14 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         .max(posthogSupportDraftsCreateBodyDetailsMax)
         .optional()
         .describe(
-            "Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, such as '- Experiment: [Checkout test](<link>)', and put the region on its own line. Take links from _posthogUrl. No guesses."
+            "Markdown bullets of facts support needs: the project and the region, a link to each object involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Link each object on its name, such as '- Project: [Web app](<link>)', and put the region on its own line. Take links from _posthogUrl. No guesses."
         ),
     already_checked: zod
         .string()
         .max(posthogSupportDraftsCreateBodyAlreadyCheckedMax)
         .optional()
         .describe(
-            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check."
+            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and link the page on its title, a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. When filing_reason is user_disagrees_with_agent or user_asked_for_support, this is required: add the answer you already gave them, with a link to each docs page it came from. List only your checks that bear on the open questions, because support can look up the rest of your calls. Never write a number the person gave you as your own check."
         ),
     error: zod
         .string()
@@ -67,19 +67,32 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         .describe(
             'The exact text of an error the person saw, and its top frames. A lookup of yours that failed goes in already_checked. Remove any credential and say that you removed it.'
         ),
-    filing_reason: zod
+    topic: zod
         .enum([
-            'user_asked_for_support',
-            'needs_posthog_staff',
-            'billing_question',
-            'unexplained_error',
-            'user_disagrees_with_agent',
+            'privacy',
+            'security',
+            'compliance',
+            'retention',
+            'dpa',
+            'baa',
+            'privacy_or_security_deletion',
+            'other_deletion',
+            'billing',
+            'other',
         ])
         .describe(
-            "\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `billing_question` - A billing or usage question, which PostHog answers on every plan\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
+            '\* `privacy` - Privacy\n\* `security` - Security\n\* `compliance` - Compliance\n\* `retention` - Data retention\n\* `dpa` - Data processing agreement (DPA)\n\* `baa` - Business associate agreement (BAA)\n\* `privacy_or_security_deletion` - Deleting data for a privacy or security reason\n\* `other_deletion` - Deleting data for another reason\n\* `billing` - Billing or usage\n\* `other` - Anything else'
         )
         .describe(
-            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason. Use billing_question only when the ticket is about billing or usage, not for a billing question asked in passing in a ticket about something else.\n\n\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `billing_question` - A billing or usage question, which PostHog answers on every plan\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
+            "What the ticket as a whole is about. Only privacy, security, compliance, retention, deletion, DPA, BAA and billing tickets can be filed from here. Use other for everything else, and don't stretch a topic to fit: support sees the topic. A login problem is other, never security. Use privacy_or_security_deletion only when the person gave a privacy or security reason for the deletion. Use billing only when the ticket is about billing or usage, not for a billing question asked in passing.\n\n\* `privacy` - Privacy\n\* `security` - Security\n\* `compliance` - Compliance\n\* `retention` - Data retention\n\* `dpa` - Data processing agreement (DPA)\n\* `baa` - Business associate agreement (BAA)\n\* `privacy_or_security_deletion` - Deleting data for a privacy or security reason\n\* `other_deletion` - Deleting data for another reason\n\* `billing` - Billing or usage\n\* `other` - Anything else"
+        ),
+    filing_reason: zod
+        .enum(['user_asked_for_support', 'needs_posthog_staff', 'unexplained_error', 'user_disagrees_with_agent'])
+        .describe(
+            "\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
+        )
+        .describe(
+            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.\n\n\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
         ),
     agent_name: zod
         .union([

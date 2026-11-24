@@ -109,7 +109,7 @@ async function claimAgentDraft({ ai_draft_id, message, kind }: SupportFormFields
         return true
     }
     try {
-        await posthogSupportDraftsClaimCreate(String(ApiConfig.getCurrentProjectId()), ai_draft_id)
+        await posthogSupportDraftsClaimCreate(String(ApiConfig.getCurrentTeamId()), ai_draft_id)
         return true
     } catch (e) {
         if ((e as { status?: number }).status !== 404) {
@@ -276,6 +276,7 @@ export type SupportFormFields = {
      * it. Answered on every plan, like billing questions, because the app cannot be fixed without us.
      */
     oauth_app_request?: boolean
+    any_plan_request?: boolean
     exception_event?: SupportTicketExceptionEvent
     ticket_context?: string
     isEmailFormOpen?: boolean | 'true' | 'false'
@@ -479,6 +480,7 @@ export const supportLogic = kea<supportLogicType>([
                 message: '',
                 billing_issue: false,
                 oauth_app_request: false,
+                any_plan_request: false,
             } as SupportFormFields,
             errors: ({ name, email, message }) => {
                 return {
@@ -521,10 +523,14 @@ export const supportLogic = kea<supportLogicType>([
         ],
         // Requests answered on every plan, even one that does not include support. Billing questions and OAuth app
         // reviews only move forward with us, and the error boundary promised an engineer would read a crash report.
+        // The server marks an agent's draft as any_plan when its topic can be sent on every plan.
         earnsSupportExemption: [
             (s) => [s.isBillingIssue, s.isErrorReport, s.sendSupportRequest],
             (isBillingIssue: boolean, isErrorReport: boolean, sendSupportRequest: SupportFormFields): boolean =>
-                isBillingIssue || isErrorReport || !!sendSupportRequest.oauth_app_request,
+                isBillingIssue ||
+                isErrorReport ||
+                !!sendSupportRequest.oauth_app_request ||
+                !!sendSupportRequest.any_plan_request,
         ],
     }),
     listeners(({ actions, props, values }) => ({

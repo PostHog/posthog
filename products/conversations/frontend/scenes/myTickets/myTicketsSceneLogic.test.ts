@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
@@ -177,21 +178,30 @@ describe('myTicketsSceneLogic', () => {
         ;(posthog as any).conversations.sendMessage = jest
             .fn()
             .mockResolvedValue({ ticket_id: 'ticket-9', ticket_status: 'new', created_at: '2026-10-30T00:00:00Z' })
+        const opened = jest.fn()
         const claimed = jest.fn()
+        ApiConfig.setCurrentProjectId(116)
+        ApiConfig.setCurrentTeamId(117)
         useMocks({
             get: {
-                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': {
-                    id: 'draft-1',
-                    message: 'Request: My funnel is empty',
-                    ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
-                    expires_at: 0,
-                    review_url: '',
-                    next_step: '',
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': ({ params }) => {
+                    opened(params.team_id)
+                    return [
+                        200,
+                        {
+                            id: 'draft-1',
+                            message: 'Request: My funnel is empty',
+                            ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
+                            expires_at: 0,
+                            review_url: '',
+                            next_step: '',
+                        },
+                    ]
                 },
             },
             post: {
                 '/api/projects/:team_id/posthog_support/drafts/:draft_id/claim/': ({ params }) => {
-                    claimed(params.draft_id)
+                    claimed(params.team_id, params.draft_id)
                     return [204, null]
                 },
             },
@@ -217,7 +227,8 @@ describe('myTicketsSceneLogic', () => {
             email: 'person@example.com',
         })
 
-        expect(claimed).toHaveBeenCalledWith('draft-1')
+        expect(opened).toHaveBeenCalledWith('117')
+        expect(claimed).toHaveBeenCalledWith('117', 'draft-1')
         expect((posthog as any).conversations.sendMessage).toHaveBeenCalled()
     })
 
@@ -239,7 +250,7 @@ describe('myTicketsSceneLogic', () => {
         sceneLogic.unmount()
     })
 
-    it('lets a free plan send an agent draft that is a billing question', async () => {
+    it('lets a free plan send an agent draft on a topic every plan can send', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/posthog_support/drafts/:draft_id/': {
@@ -247,7 +258,7 @@ describe('myTicketsSceneLogic', () => {
                     message: 'Request: Which chats used our AI credits?',
                     ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
                     expires_at: 0,
-                    billing_question: true,
+                    any_plan: true,
                     review_url: '',
                     next_step: '',
                 },

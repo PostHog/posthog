@@ -51,12 +51,12 @@ export function SupportDraftReviewModal(): JSX.Element {
                         type="warning"
                         action={{
                             children: 'Ask the community',
-                            to: 'https://posthog.com/questions',
+                            to: 'https://posthog.com/forum',
                             targetBlank: true,
                         }}
                     >
                         Your plan doesn't include support tickets. You can ask the community instead, or upgrade to
-                        message our support engineers.
+                        message our support engineers. The forum is public, so leave out personal data and secrets.
                     </LemonBanner>
                     <LemonMarkdown className="border rounded p-3">{sendSupportRequest.message ?? ''}</LemonMarkdown>
                 </div>

@@ -1,13 +1,14 @@
 ---
 name: writing-posthog-support-tickets
 description: >
-  Writes a ticket to PostHog's support team for the person you are helping and drafts it through
-  the PostHog MCP, so a support engineer can act on it without asking a follow-up question. Use
-  once the docs and the product's own skills could not solve the problem, when only PostHog staff
-  can do what the person needs (such as deleting specific events), or when the person asks to
-  contact PostHog support, talk to a human, or file a ticket. Covers the information a ticket needs,
-  its fixed shape, and asking the person to approve the draft before you send it. It does not investigate
-  or solve the problem. Not for a team's own helpdesk tickets from its customers, which the
+  Writes a ticket to PostHog's support team about privacy, security, compliance, data retention, data
+  deletion, a DPA or BAA, or billing, and drafts it through the PostHog MCP, so a support engineer can
+  act on it without asking a follow-up question. Use once the docs and the product's own skills could
+  not settle one of those topics, or only PostHog staff can do what the person needs (such as deleting
+  specific events). Also use when the person asks to contact PostHog support, talk to a human, or file a
+  ticket on any topic, because it says where to send them for the rest. Covers the information a ticket
+  needs, its fixed shape, and asking the person to approve the draft before you send it. It does not
+  investigate or solve the problem. Not for a team's own helpdesk tickets from its customers, which the
   conversations-tickets tools cover.
 ---
 
@@ -18,15 +19,32 @@ It does not solve the problem.
 The docs and the product's own skills run first, and this skill takes over when they could not settle it, or when the person asks for a human.
 The person decides to contact support, and nothing is sent until the person approves the ticket.
 
+## Which topics you can file
+
+File a ticket only when the whole ticket is about privacy, security, compliance, data retention, data deletion, a DPA, a BAA, or billing.
+For every topic except billing, load `answering-privacy-questions` first: it finds the docs answer and says which questions need staff.
+
+For anything else, don't write or draft a ticket, even when the person asks for a human. Don't write one for them to paste either.
+Answer what the docs answer, then say where they can ask:
+
+- **On a paid plan, on a trial that includes support, or in an organization under 3 months old:** log in to PostHog in their browser and ask in the support widget in the right-hand sidebar.
+- **On the free plan:** community support at https://posthog.com/forum. Say that the forum is public, so they should leave out personal data and secrets. Any paid plan adds support.
+- **When you don't know the plan:** give both.
+- **When they can't log in:** no plan can file that from here. Say something like "For security reasons, I can't send that ticket through the MCP. When you try to log in and it fails, a help link appears above the login fields. You can open a support ticket from there, even on the free plan."
+
+Don't offer to write a forum post. Write one only when they ask for it, and never put personal data or secrets in it, even when they ask for that too. Use placeholders, and tell them something like "I've written the draft with placeholders for your private data and your keys, and I suggest you don't post those to the public forum."
+
+When a conversation covers both kinds, file only the part that is on one of these topics, and point them elsewhere for the rest.
+
 ## When to write one
 
-- Only PostHog staff can do what the person needs, such as deleting specific events, changing a bill, or restoring access to an account.
+- Only PostHog staff can do what the person needs, such as deleting specific events or changing a bill.
 - Answering needs data or state on PostHog's side that neither of you can see.
-- The docs and the product's skills could not explain the problem.
-- The person still wants a human after hearing your answer. The ticket then gives your answer and what it rests on, and asks support to confirm it.
+- The docs and the product's skills could not answer a question on one of those topics.
+- The person still wants a human after hearing your answer, usually because they disagree that the docs answer it. This is for paid plans, trials that include support, organizations under 3 months old, and billing on any plan. The ticket then gives your answer and what it rests on, and asks support to confirm it. For another topic on the free plan, point them to community support as above.
 
-Your own conclusion that something is a PostHog bug is not enough.
-Tell the person what you found, and offer a ticket.
+Your own conclusion that something is a PostHog bug is not enough, and a bug report is not one of those topics.
+Tell the person what you found, and where they can ask.
 
 ## 1. Gather the information
 
@@ -45,7 +63,7 @@ A request for a staff action needs exact inputs, so read its reference before yo
 | ------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Delete events, or remove personal or sensitive data from them | [references/deleting-events.md](./references/deleting-events.md) |
 
-When a lookup finds nothing, or fails, say so in its own line of **Already checked**, such as "Claude Code checked: no flag with the key `checkout-v2` in project 12345" or "Claude Code checked: the billing lookup failed, so the quota is unknown".
+When a lookup finds nothing, or fails, say so in its own line of **Already checked**, such as "Claude Code checked: no events named `checkout_started` in project 12345" or "Claude Code checked: the billing lookup failed, so the quota is unknown".
 Ask the person only for what you cannot look up, such as when it started or what they expected.
 
 ## 2. Write it
@@ -77,6 +95,7 @@ Details:
 Already checked:
 - Docs: [<page title>](<link>) says <what it says, in one line>
 - <your name> checked: <a lookup you ran, and what it showed>
+- <your name> answered: <the answer you gave them>, from [<page title>](<link>)
 - I tried: <a step the person took, and what happened>
 
 ---
@@ -85,11 +104,11 @@ Error:
 <exact text, top frames only>
 ```
 
-- **The title** names the problem in under 100 characters, with the object it's about, such as "Experiment exposures split 90/10 instead of 50/50". Ticket lists show it, so don't start it with "Request", a greeting or the product name alone.
+- **The title** names the problem in under 100 characters, with the object it's about, such as "Delete test events that contain customer emails". Ticket lists show it, so don't start it with "Request", a greeting or the product name alone.
 - **Request** is the whole ask, so support knows what to do from this one section.
   - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
-  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns". When their question only asks for the action, such as "Can you raise our rate limit?", this sentence covers it.
-  - When they heard your answer and still want a human, give your answer in one sentence, as yours, such as "Claude Code found that the gap matches our 90/10 split, but we'd like you to confirm it". What it rests on goes in **Already checked**.
+  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns". When their question only asks for the action, such as "Can you send us our signed DPA?", this sentence covers it.
+  - When they heard your answer and still want a human, give your answer in one sentence, as yours, such as "Claude Code found that our events are kept for 7 years, but we'd like you to confirm it". What it rests on goes in **Already checked**.
   - List every open question, numbered, in the person's order. Tighten the wording, but keep every part, because a question support does not see comes back as a follow-up.
   - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open when only a general rule answers it, but one you answered from their own data is answered.
 - **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
@@ -117,31 +136,38 @@ Cut these:
 When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
 
 - Each part of the ticket is one field, without its heading: `title`, `request`, `details`, `already_checked` and `error`.
-- Set `filing_reason` to the first that fits. Only `billing_question` changes what happens. The others tell support why the ticket exists.
-  - `billing_question` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. It lets the person send the ticket on any plan, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
+- Set `topic` to what the whole ticket is about. Support sees it, and the server refuses `other`.
+  - `privacy_or_security_deletion` only when the person gave a privacy or security reason for the deletion, such as a data subject request, or secrets in their events. Any plan can send it. Ask for the reason, and use `other_deletion` when it is something else, such as cleaning up test events.
+  - `billing` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. Any plan can send it, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
+  - `privacy`, `security`, `compliance`, `retention`, `dpa` or `baa` when the ticket is about that.
+- Set `filing_reason` to the first that fits. It tells support why the ticket exists.
   - `user_disagrees_with_agent` when you answered what they asked and they think your answer is wrong.
   - `user_asked_for_support` when you answered what they asked and they still want a human to confirm or check it.
-  - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as what the flag service returned.
+  - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as which DPA they signed.
   - `unexplained_error` for an error you reproduced that nothing explains.
-    Then show the person the full ticket, and follow the `next_step` the draft returns:
+- For `user_disagrees_with_agent` and `user_asked_for_support`, **Already checked** must hold the answer you gave them, with a link to each docs page it came from. Support needs it to see where you and the person disagree, and the server refuses the draft without it. If you did not answer them, use `needs_posthog_staff`.
+
+Then show the person the full ticket, and follow the `next_step` the draft returns:
 
 - **When `can_send` is true**, ask whether to send it to PostHog support, such as "Do you want me to send this to PostHog support?". Also give them the `review_url`, where they can edit it and send it from PostHog.
-- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`, and give them the ticket number and the `tickets_url` it returns.
+- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`, and give them the ticket number and the `tickets_url` it returns. Tell them to log in to PostHog in their browser and check the support widget in the right-hand sidebar for support's reply, because replies don't show up in this conversation.
 - Anything else is not a yes: a question, a change they want, or no answer. Change the ticket and draft it again, or give them the `review_url`. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
-- **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says, such as asking the community when their plan doesn't include support tickets.
+- **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says.
+- **When the draft is refused for its topic or their plan**, tell them where its `detail` says they can ask instead. Don't draft it again under another topic. When it is refused for a missing field, add the field and draft it again.
 - When the send fails, tell them what its `detail` says. When the detail says the ticket may already be with support, do not send it again.
 
 Never say a ticket was filed before the send returns its number, and do not promise a response time.
 
-Without the draft tool, they paste the ticket into the Support panel in the PostHog app, which attaches their project and session to it.
+Without the draft tool, they paste the ticket into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it.
 Either way, say which details or links you could not find, so they can add them before the ticket is sent.
 
 ## Before you hand it over, check
 
+- The whole ticket is about one of the topics above, and `topic` says which.
 - It asks only what the docs and the product's skills could not settle, or what the person still wants a human to confirm.
 - Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
 - A staff action has every input its reference asks for.
 - Each "<your name> checked" line is a lookup run in this conversation.
-- No credential or personal data about their users made it in.
+- No credential made it in, and no personal data about their users beyond what the request needs.
 - It fits on one screen.
 - You send it only after the person said yes to this version of the ticket.

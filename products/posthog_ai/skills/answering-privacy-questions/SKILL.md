@@ -21,25 +21,25 @@ These rules cover privacy, security, retention, deletion, data region, DPA, BAA,
 - If the docs don't fully answer it, say what's missing. If only PostHog staff can answer it, offer to open a support ticket from the skill.
 - If sources conflict, use the most recently updated unless something proves it wrong, and offer a support ticket to get clarification.
 
-The details below say where to look and what the docs said when this skill was written (last checked Nov 19, 2026). Docs change often, so open the page and go by it. If the page and this skill disagree, the page wins.
+The details below say where to look and what the docs said when this skill was written (last checked Nov 19, 2026, and the deletion routes Nov 24, 2026). Docs change often, so open the page and go by it. If the page and this skill disagree, the page wins.
 
-Lead with the self-serve path. Open a support ticket only when there is no self-serve option and the answers are not found in the docs.
+Lead with the self-serve path. Open a support ticket only when there is no self-serve option and the docs don't answer it, or when someone who can open one still disagrees that the docs do (section 5).
 
 ## 1. Check the user's plan first
 
 Many options depend on the plan. Find the user's plan, then offer what it includes and name the plan(s) that would add what they asked for. Confirm each line on its page before you quote it.
 
-| Item                          | Availability as of Nov 19, 2026                                                                                                                                                                                                       | Check on                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| DPA                           | Every PostHog Cloud plan, including free                                                                                                                                                                                              | https://posthog.com/docs/privacy (FAQ: "How do I get a signed DPA?")                                                     |
-| Standard BAA                  | Boost, Scale or Enterprise platform package                                                                                                                                                                                           | https://posthog.com/docs/privacy/hipaa-compliance and https://posthog.com/baa                                            |
-| Custom BAA                    | Enterprise only                                                                                                                                                                                                                       | https://posthog.com/docs/privacy/hipaa-compliance                                                                        |
-| Events retention              | Free: fixed at 1 year. Paid: 2 years by default, up to 3 years with Boost, 5 with Scale, 7 with Enterprise. Org admins and owners change it.                                                                                          | https://posthog.com/docs/data/events-retention and https://posthog.com/pricing                                           |
-| Recording retention           | From 30 days on Free up to 5 years on Enterprise, by plan. A change applies only to new recordings.                                                                                                                                   | https://posthog.com/docs/session-replay/recording-retention                                                              |
-| Custom contract terms         | Standard terms for everyone. A custom MSA with custom SLAs and legal terms is Enterprise only. DPA redlines generally need a long-term contract through sales.                                                                        | https://posthog.com/platform-packages, https://posthog.com/docs/support-options#terms-and-conditions and the privacy FAQ |
-| Security questionnaires       | Cloud customers get PostHog's standard security assessment (docs and Trust Center). Enterprise customers can have their own questionnaire completed.                                                                                  | https://posthog.com/docs/support-options#security-assessment                                                             |
-| Support tickets               | Free: community support only on the pricing page; tickets are usually limited to login or billing issues, plus staff-run deletions for privacy or security reasons (section 5). Paid: email support, and Slack above a monthly spend. | https://posthog.com/pricing and https://posthog.com/docs/support-options                                                 |
-| Person and recording deletion | Self-serve on every plan                                                                                                                                                                                                              | https://posthog.com/docs/privacy/data-storage#data-deletion                                                              |
+| Item                          | Availability as of Nov 19, 2026                                                                                                                                                                                              | Check on                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| DPA                           | Every PostHog Cloud plan, including free                                                                                                                                                                                     | https://posthog.com/docs/privacy (FAQ: "How do I get a signed DPA?")                                                     |
+| Standard BAA                  | Boost, Scale or Enterprise platform package                                                                                                                                                                                  | https://posthog.com/docs/privacy/hipaa-compliance and https://posthog.com/baa                                            |
+| Custom BAA                    | Enterprise only                                                                                                                                                                                                              | https://posthog.com/docs/privacy/hipaa-compliance                                                                        |
+| Events retention              | Free: fixed at 1 year. Paid: 2 years by default, up to 3 years with Boost, 5 with Scale, 7 with Enterprise. Org admins and owners change it.                                                                                 | https://posthog.com/docs/data/events-retention and https://posthog.com/pricing                                           |
+| Recording retention           | From 30 days on Free up to 5 years on Enterprise, by plan. A change applies only to new recordings.                                                                                                                          | https://posthog.com/docs/session-replay/recording-retention                                                              |
+| Custom contract terms         | Standard terms for everyone. A custom MSA with custom SLAs and legal terms is Enterprise only. DPA redlines generally need a long-term contract through sales.                                                               | https://posthog.com/platform-packages, https://posthog.com/docs/support-options#terms-and-conditions and the privacy FAQ |
+| Security questionnaires       | Cloud customers get PostHog's standard security assessment (docs and Trust Center). Enterprise customers can have their own questionnaire completed.                                                                         | https://posthog.com/docs/support-options#security-assessment                                                             |
+| Support tickets               | Free: community support only on the pricing page; tickets are usually limited to billing issues, plus staff-run deletions for privacy or security reasons (section 5). Paid: email support, and Slack above a monthly spend. | https://posthog.com/pricing and https://posthog.com/docs/support-options                                                 |
+| Person and recording deletion | Self-serve on every plan                                                                                                                                                                                                     | https://posthog.com/docs/privacy/data-storage#data-deletion                                                              |
 
 ## 2. DPA
 
@@ -75,16 +75,17 @@ As of the last check:
 
 Match the ask to a route, and open the pages for that route before you describe it.
 
-| They want to                                                            | Self-serve route                                                                                                                                     | Read first                                                                                                   |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Erase a known person (GDPR or CCPA request)                             | Delete the person in the app, or call persons `bulk_delete` with `delete_events` and `delete_recordings` set. Check progress with `deletion_status`. | https://posthog.com/docs/privacy/data-storage#right-to-be-forgotten and https://posthog.com/docs/api/persons |
-| Delete recordings only                                                  | Session recordings delete or `bulk_delete`                                                                                                           | https://posthog.com/docs/api/session-recordings                                                              |
-| Remove events older than a date                                         | Events retention setting (section 1). Recording retention is separate.                                                                               | https://posthog.com/docs/data/events-retention                                                               |
-| Delete an account, project or organization                              | Settings                                                                                                                                             | https://posthog.com/docs/privacy/data-storage#data-deletion                                                  |
-| Delete events by name, time or filter, or events with no person profile | None for most orgs. Open a ticket (below).                                                                                                           |                                                                                                              |
-| Remove a property but keep the events                                   | None. Open a ticket (below).                                                                                                                         |                                                                                                              |
+| They want to                                                 | Self-serve route                                                                                                                                                                           | Read first                                                                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Erase a known person (GDPR or CCPA request)                  | Delete the person in the app, or call persons `bulk_delete` with `delete_events` and `delete_recordings` set. Check progress with `deletion_status`.                                       | https://posthog.com/docs/privacy/data-storage#right-to-be-forgotten and https://posthog.com/docs/api/persons |
+| Delete recordings only                                       | Session recordings delete or `bulk_delete`                                                                                                                                                 | https://posthog.com/docs/api/session-recordings                                                              |
+| Remove events older than a date                              | Events retention setting (section 1). Recording retention is separate.                                                                                                                     | https://posthog.com/docs/data/events-retention                                                               |
+| Delete an account, project or organization                   | Settings                                                                                                                                                                                   | https://posthog.com/docs/privacy/data-storage#data-deletion                                                  |
+| Delete all events for one distinct ID with no person profile | Give the distinct ID a person profile, then delete that person, as the page describes.                                                                                                     | https://posthog.com/docs/privacy/data-storage#data-deletion                                                  |
+| Delete events by name, time or filter                        | None by default. Open a ticket (below). Support runs the deletion, or, for a one-off deletion that one query can select, can turn on event deletion in the app so they file it themselves. | https://posthog.com/docs/privacy/data-storage#deleting-specific-events                                       |
+| Remove a property but keep the events                        | None, and support usually can't. They delete the events instead, so open a ticket (below) only if that is what they want.                                                                  |                                                                                                              |
 
-Before naming any endpoint, check that every user can call it (server instructions). As of Nov 19, 2026, the data deletion requests endpoint and its UI are behind a feature flag, so offer neither.
+Before naming any endpoint, check that every user can call it (server instructions). The data deletion requests endpoint and its UI work only for organizations that support turned event deletion on for, so don't tell someone to use them. For a one-off deletion that one query can select, tell them they can ask support to turn it on (docs: https://posthog.com/docs/privacy/data-storage#deleting-specific-events). Support runs any other event deletion, with the query and count below. Once it's on, their project settings have a "Deletion requests" section for organization admins, owners, and members who are given access, and PostHog reviews each request before any events are deleted. Never say it's on for them, or that it will be.
 
 When you describe a self-serve route:
 
@@ -93,7 +94,7 @@ When you describe a self-serve route:
 - API calls need a personal API key with the scope the API page names, sent to the user's own region (US or EU).
 - Offer only routes from the pages you opened.
 
-When there's no self-serve route, collect these for the ticket, so staff can act without asking again:
+When there's no self-serve route, collect these for the ticket, so staff can act without asking again. A ticket that only asks to turn on event deletion can leave out the query and count:
 
 - **Region and project ID**, from a project URL the user gives you. `us.posthog.com` and `app.posthog.com` are US, `eu.posthog.com` is EU. Each environment needs its own request.
 - **The user's own SQL query** that selects exactly the events to delete, and **the count it returned**. You can help them write it, but they run it and confirm the count. Keep their scope exactly as they wrote it.
@@ -103,7 +104,7 @@ When there's no self-serve route, collect these for the ticket, so staff can act
 
 ## 5. Opening a support ticket
 
-Open one only when there's no self-serve option and the docs don't answer it, and only for what the user's plan supports.
+Open one only when there's no self-serve option and the docs don't answer it, or the person still disagrees that they do, and only for what the user's plan supports. An organization under 3 months old, or on a trial that includes support, can open the same tickets as a paid plan.
 
 **On a paid plan**, these need staff:
 
@@ -114,19 +115,23 @@ Open one only when there's no self-serve option and the docs don't answer it, an
 - trouble getting access to a gated Trust Center document
 - docs that conflict, when the user needs a firm answer
 
-**On the free plan**, tickets are usually only for login or billing issues. The exception is a deletion with no self-serve route: ask why they need it first. If the reason is privacy or security (like PII or secrets in the data), open a ticket with the section 4 details and that reason. For anything else, answer from the docs, point to the community support options on https://posthog.com/docs/support-options, and name the plan that adds email support or the feature they need.
+**On the free plan**, tickets from here are only for billing issues, with one exception. For a deletion with no self-serve route, ask why they need it first. If the reason is privacy or security (like PII or secrets in the data), open a ticket with the section 4 details and that reason. For anything else, answer from the docs, tell them community support is available at https://posthog.com/forum (other options are on https://posthog.com/docs/support-options), that any paid plan adds support, and which plan adds the feature they need. The forum is public, so tell them to leave out personal data and secrets. Don't offer to write the post. The `writing-posthog-support-tickets` skill says what to do when they ask for one.
 
-Skip the ticket when the docs answer the question (answer and cite instead) or when the ask is legal interpretation (give the legal counsel line). If the docs answer part of it, answer that part with a citation and open a ticket only for the rest.
+**When they can't log in**, don't open a ticket. Say what the `writing-posthog-support-tickets` skill says about the help link on the login page.
 
-How it works (paid plans, and the free-plan deletions above):
+When the docs answer the question, answer and cite instead of opening a ticket. If someone on a paid plan, a trial that includes support, or in a new organization still disagrees that the docs answer it, offer a ticket that includes the answer you gave and its links. Skip the ticket when the ask is legal interpretation (give the legal counsel line). If the docs answer part of it, answer that part with a citation and open a ticket only for the rest.
 
-1. Draft the ticket: what they asked, what the docs say (with the links you opened), what's still missing, and the details staff need (for a deletion, the section 4 list).
-2. Show them the draft and let them edit it. Open the ticket for them once they say it's ready, so they don't copy or paste anything.
-3. Tell them the ticket ID, and that replies show in the support widget in their PostHog app at `/activity/events#panel=support` (on us.posthog.com or eu.posthog.com, matching their region).
+How it works (paid plans, trials that include support, new organizations, and the free-plan deletions above):
+
+1. Load the `writing-posthog-support-tickets` skill and write the ticket with it: what they asked, what the docs say (with the links you opened), what's still missing, and the details staff need (for a deletion, the section 4 list). Set `topic` to match, and use `privacy_or_security_deletion` only when they gave a privacy or security reason.
+2. Show them the full draft and let them edit it. Send it only when they say yes to that version, so they don't copy or paste anything.
+3. Give them the ticket number, and tell them to log in to PostHog in their browser and check the support widget in the right-hand sidebar for replies. Give them the `tickets_url` the send returns.
+
+If they also want to ask about something outside these topics, don't put it in the ticket. On a paid plan, on a trial that includes support, or in a new organization, they can ask in the support widget. On the free plan, point them to https://posthog.com/forum, which is public, so they should leave out personal data and secrets.
 
 Use only the support ticket tool for this. The `conversations-tickets-*` tools manage the user's own Conversations inbox, not PostHog support.
 
-Partially redact personal data (emails, names, IP addresses) in drafts and tickets, like `j***@exa***.com`, so the customer can see what you're referring to without revealing the PII. If staff need the full values, they'll ask in the ticket.
+The `writing-posthog-support-tickets` skill and its deletion reference say what the ticket holds. Partially redact personal data (emails, names, IP addresses) everywhere else in the ticket, but never in a deletion query or an ID support needs to find the data, because support uses those exactly as written. Redact like `j***@exa***.com`, so the customer can see what you're referring to without revealing the PII. If staff need the full values, they'll ask in the ticket.
 
 ## Good habits
 
@@ -135,7 +140,7 @@ Partially redact personal data (emails, names, IP addresses) in drafts and ticke
 - State only retention periods, deletion timelines and compliance claims from pages you opened.
 - Describe what a BAA, DPA or setting covers, and leave the compliance judgment to the customer and their counsel.
 
-## Sources (opened Nov 19, 2026)
+## Sources (opened Nov 19, 2026, and data storage again Nov 24, 2026)
 
 - https://posthog.com/docs/privacy
 - https://posthog.com/dpa

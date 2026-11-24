@@ -23,17 +23,22 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import MCP_TRANSPORT_EVENT_SOURCES, get_event_source, report_user_action, sanitize_header_value
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
 from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
     AGENT_CLAIMANT,
+    ANSWERED_FILING_REASONS,
+    ANY_PLAN_TOPICS,
+    MAX_SEND_ATTEMPTS,
     DraftedVia,
     FilingReason,
     SentVia,
     SupportDraftStore,
     SupportTicketDraft,
     TicketPermission,
+    TicketTopic,
     check_ticket_permission,
     compose_ticket_message,
 )
@@ -66,7 +71,7 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=100,
         help_text=(
-            "A short title that names the problem, such as 'Experiment exposures split 90/10 instead of 50/50'. "
+            "A short title that names the problem, such as 'Delete test events that contain customer emails'. "
             "It opens the ticket, and ticket lists show it, so don't start it with 'Request'."
         ),
     )
@@ -86,7 +91,7 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         help_text=(
             "Markdown bullets of facts support needs: the project and the region, a link to each object involved, "
             "SDK and version, and every required detail for the kind of request, such as a deletion query and its "
-            "count. Link each object on its name, such as '- Experiment: [Checkout test](<link>)', and put the "
+            "count. Link each object on its name, such as '- Project: [Web app](<link>)', and put the "
             "region on its own line. Take links from _posthogUrl. No guesses."
         ),
     )
@@ -98,7 +103,9 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
             "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:' and "
             "link the page on its title, "
             "a lookup you ran in this conversation with '<your name> checked:', and a step the person took with "
-            "'I tried:'. List only your checks that bear on the open questions, because support can look up the "
+            "'I tried:'. When filing_reason is user_disagrees_with_agent or user_asked_for_support, this is required: add the "
+            "answer you already gave them, with a link to each docs page it came from. List only your checks that "
+            "bear on the open questions, because support can look up the "
             "rest of your calls. Never write a number the person gave you as your own check."
         ),
     )
@@ -111,12 +118,20 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
             "already_checked. Remove any credential and say that you removed it."
         ),
     )
+    topic = serializers.ChoiceField(
+        choices=TicketTopic.choices,
+        help_text=(
+            "What the ticket as a whole is about. Only privacy, security, compliance, retention, deletion, DPA, BAA and "
+            "billing tickets can be filed from here. Use other for everything else, and don't stretch a topic to fit: "
+            "support sees the topic. A login problem is other, never security. Use privacy_or_security_deletion only when the person gave a privacy or security "
+            "reason for the deletion. Use billing only when the ticket is about billing or usage, not for a billing "
+            "question asked in passing."
+        ),
+    )
     filing_reason = serializers.ChoiceField(
         choices=FilingReason.choices,
         help_text=(
-            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason. "
-            "Use billing_question only when the ticket is about billing or usage, not for a billing question asked in "
-            "passing in a ticket about something else."
+            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason."
         ),
     )
     agent_name = serializers.RegexField(
@@ -127,6 +142,13 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     )
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data["filing_reason"] in ANSWERED_FILING_REASONS and not data.get("already_checked"):
+            raise serializers.ValidationError(
+                {
+                    "already_checked": "Add the answer you already gave them, with a link to each docs page it came from. "
+                    "If you did not answer them, use needs_posthog_staff."
+                }
+            )
         data["message"] = compose_ticket_message(
             title=data["title"],
             request=data["request"],
@@ -144,8 +166,8 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
         help_text="Note filed under the ticket for support, saying an agent drafted it and why."
     )
     expires_at = serializers.IntegerField(help_text="Unix time after which the draft is gone if nobody sent it.")
-    billing_question = serializers.BooleanField(
-        help_text="True when the draft is a billing or usage question, which the person can send on any plan."
+    any_plan = serializers.BooleanField(
+        help_text="True when the draft's topic is one the person can send on any plan, such as billing."
     )
     can_send = serializers.BooleanField(
         help_text="True when the person's plan lets them send this ticket. Offer to send it only when this is true."
@@ -169,7 +191,10 @@ class _SendFromWebAppOnly(SessionAuthenticationOnly):
     message = "Only the person can open a draft or send it from the PostHog web app."
 
 
-COMMUNITY_URL = "https://posthog.com/questions"
+COMMUNITY_URL = "https://posthog.com/forum"
+COMMUNITY_SUPPORT = (
+    f"community support is available at {COMMUNITY_URL}. The forum is public, so leave out personal data and secrets."
+)
 
 NEXT_STEP_BY_PERMISSION = {
     TicketPermission.ALLOWED: (
@@ -177,14 +202,21 @@ NEXT_STEP_BY_PERMISSION = {
         "support. Call posthog-support-draft-send only after they say yes in this conversation. If they want "
         "to edit it or send it themselves, give them review_url. Do not tell them the ticket was filed."
     ),
-    TicketPermission.PLAN_EXCLUDES_SUPPORT: (
-        "Nothing has been sent. Their plan doesn't include support tickets, so don't offer to send it. Show "
-        f"them the message and tell them they can ask the community at {COMMUNITY_URL}. Mention upgrading "
-        "only if they ask."
-    ),
     TicketPermission.PLAN_UNKNOWN: (
         "Nothing has been sent. PostHog couldn't check their plan, so don't offer to send it from here. Show "
         "them the message and give them review_url to send it from PostHog."
+    ),
+}
+
+REFUSAL_BY_PERMISSION = {
+    TicketPermission.TOPIC_EXCLUDED: (
+        "PostHog support doesn't take tickets on this topic from an agent. The person can log in to PostHog in their "
+        "browser and ask in the support widget in the right-hand sidebar. If their plan doesn't include support, "
+        f"{COMMUNITY_SUPPORT}"
+    ),
+    TicketPermission.PLAN_EXCLUDES_SUPPORT: (
+        "Their plan doesn't include support tickets for this topic. Any paid plan adds support. Without one, "
+        f"{COMMUNITY_SUPPORT}"
     ),
 }
 
@@ -202,6 +234,8 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # The draft reads and the claim are left out on purpose: the scope check refuses tokens on
     # unlisted actions, so only a browser session can open a draft or send it from the web app.
     scope_object_write_actions = ["create_draft", "send_draft"]
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = {"mcp-posthog-support-tickets": ["create_draft", "send_draft"]}
     pagination_class = None
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -214,26 +248,27 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return cast(User, self.request.user)
 
     def _draft_store(self) -> SupportDraftStore:
-        return SupportDraftStore(self._user.pk)
+        return SupportDraftStore(self._user.pk, self.team_id)
 
     def _tickets_url(self) -> str:
         return f"{settings.SITE_URL}/project/{self.team_id}/my-tickets"
 
     def _permission(self, draft: SupportTicketDraft) -> TicketPermission:
-        return check_ticket_permission(self.organization, self._user, draft.filing_reason)
+        return check_ticket_permission(self.organization, self._user, draft.topic)
 
-    def _draft_response(self, draft: SupportTicketDraft, status_code: int = status.HTTP_200_OK) -> Response:
-        permission = self._permission(draft)
+    def _draft_response(
+        self, draft: SupportTicketDraft, permission: TicketPermission, status_code: int = status.HTTP_200_OK
+    ) -> Response:
         data = PostHogSupportDraftSerializer(
             {
                 "id": draft.id,
                 "message": draft.message,
-                "ticket_context": draft.ticket_context(SentVia.WEB_APP),
+                "ticket_context": draft.ticket_context(SentVia.WEB_APP, self.team),
                 "expires_at": draft.expires_at,
-                "billing_question": draft.filing_reason == FilingReason.BILLING_QUESTION,
+                "any_plan": draft.topic in ANY_PLAN_TOPICS,
                 "can_send": permission == TicketPermission.ALLOWED,
                 "review_url": f"{self._tickets_url()}?support_draft={draft.id}",
-                "next_step": NEXT_STEP_BY_PERMISSION[permission],
+                "next_step": NEXT_STEP_BY_PERMISSION.get(permission, "Nothing has been sent."),
             }
         ).data
         return Response(data, status=status_code)
@@ -245,18 +280,21 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "ticket_number": ticket.ticket_number,
                 "tickets_url": self._tickets_url(),
                 "next_step": (
-                    "The ticket is with PostHog support. Tell the person its number, and that support's replies "
-                    "show up at tickets_url and in the Support panel in PostHog. Don't promise a response time."
+                    "The ticket is with PostHog support. Tell the person its number, and that to see support's reply "
+                    "they need to log in to PostHog in their browser and check the support widget in the right-hand "
+                    "sidebar. Give them tickets_url, which opens their tickets. Replies don't show up in this "
+                    "conversation. Don't promise a response time."
                 ),
             }
         ).data
         return Response(data, status=status.HTTP_200_OK)
 
+    # The MCP server passes `detail` to the agent only for a 4xx, so a failed send never uses a 5xx.
     def _send_failed(self, draft: SupportTicketDraft, reason: str, detail: str, status_code: int) -> Response:
         report_user_action(
             self._user,
             "posthog support draft send failed",
-            {"draft_id": draft.id, "filing_reason": draft.filing_reason, "reason": reason},
+            {"draft_id": draft.id, "topic": draft.topic, "filing_reason": draft.filing_reason, "reason": reason},
             team=self.team,
         )
         return Response({"detail": detail}, status=status_code)
@@ -265,11 +303,13 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=PostHogSupportDraftCreateSerializer,
         responses={
             201: OpenApiResponse(response=PostHogSupportDraftSerializer),
+            403: OpenApiResponse(response=PostHogSupportErrorSerializer),
             429: OpenApiResponse(response=PostHogSupportErrorSerializer),
         },
         summary="Draft a PostHog support ticket for the person to approve",
         description=(
-            "Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so "
+            "Saves a draft ticket to PostHog support. It does not send it. Refuses a topic that an agent can't file, "
+            "and a plan without support for the topic, and says where the person can ask instead. The person approves it in chat, so "
             "the agent sends it with the send endpoint, or opens review_url to edit it and send it from the "
             "PostHog web app."
         ),
@@ -277,11 +317,22 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False, url_path="drafts")
     def create_draft(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
+        topic = TicketTopic(data["topic"])
+        permission = check_ticket_permission(self.organization, self._user, topic)
+        if (refusal := REFUSAL_BY_PERMISSION.get(permission)) is not None:
+            report_user_action(
+                self._user,
+                "posthog support draft refused",
+                {"topic": topic.value, "filing_reason": data["filing_reason"], "reason": permission.value},
+                team=self.team,
+            )
+            return Response({"detail": f"Nothing was drafted. {refusal}"}, status=status.HTTP_403_FORBIDDEN)
         mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
         mcp_conversation_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
         drafted_via = DraftedVia.MCP if get_event_source(request) in MCP_TRANSPORT_EVENT_SOURCES else DraftedVia.API
         draft = self._draft_store().create(
             message=data["message"],
+            topic=topic,
             filing_reason=data["filing_reason"],
             drafted_via=drafted_via,
             mcp_session_id=mcp_session_id,
@@ -292,6 +343,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "posthog support draft created",
             {
                 "draft_id": draft.id,
+                "topic": draft.topic,
                 "filing_reason": draft.filing_reason,
                 "agent_name": data.get("agent_name") or None,
                 "authenticated_with": type(request.successful_authenticator).__name__,
@@ -303,7 +355,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
             team=self.team,
         )
-        return self._draft_response(draft, status.HTTP_201_CREATED)
+        return self._draft_response(draft, permission, status.HTTP_201_CREATED)
 
     @validated_request(
         responses={
@@ -323,7 +375,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         draft = self._draft_store().get(draft_id, claimant=_claimant(request))
         if draft is None:
             return _draft_not_found()
-        return self._draft_response(draft)
+        return self._draft_response(draft, self._permission(draft))
 
     @validated_request(
         responses={
@@ -354,7 +406,12 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         report_user_action(
             self._user,
             "posthog support draft submitted",
-            {"draft_id": draft_id, "filing_reason": draft.filing_reason, "sent_via": SentVia.WEB_APP.value},
+            {
+                "draft_id": draft_id,
+                "topic": draft.topic,
+                "filing_reason": draft.filing_reason,
+                "sent_via": SentVia.WEB_APP.value,
+            },
             team=self.team,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -365,8 +422,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             403: OpenApiResponse(response=PostHogSupportErrorSerializer),
             404: OpenApiResponse(response=PostHogSupportErrorSerializer),
             409: OpenApiResponse(response=PostHogSupportErrorSerializer),
-            502: OpenApiResponse(response=PostHogSupportErrorSerializer),
-            503: OpenApiResponse(response=PostHogSupportErrorSerializer),
+            424: OpenApiResponse(response=PostHogSupportErrorSerializer),
         },
         summary="Send a drafted ticket to PostHog support after the person approved it",
         description=(
@@ -387,35 +443,40 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        permission = self._permission(draft)
-        if permission == TicketPermission.PLAN_EXCLUDES_SUPPORT:
+        may_be_sent = (
+            "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
+            f"their tickets at {self._tickets_url()}."
+        )
+        if store.send_started(draft_id):
+            return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
+        if store.count_send_attempt(draft_id) > MAX_SEND_ATTEMPTS:
             return self._send_failed(
                 draft,
-                permission.value,
-                "Nothing was sent, because their plan doesn't include support tickets. Tell them they can ask "
-                f"the community at {COMMUNITY_URL}.",
-                status.HTTP_403_FORBIDDEN,
+                "too_many_attempts",
+                "Nothing was sent, and this draft has no send attempts left. The person can send it from the draft's "
+                "review_url.",
+                status.HTTP_409_CONFLICT,
             )
+
+        permission = self._permission(draft)
+        if (refusal := REFUSAL_BY_PERMISSION.get(permission)) is not None:
+            return self._send_failed(draft, permission.value, f"Nothing was sent. {refusal}", status.HTTP_403_FORBIDDEN)
         if permission == TicketPermission.PLAN_UNKNOWN:
             return self._send_failed(
                 draft,
                 permission.value,
                 "Nothing was sent, because PostHog couldn't check their plan. Give them the draft's review_url "
                 "to send it from PostHog.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_424_FAILED_DEPENDENCY,
             )
 
-        may_be_sent = (
-            "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
-            f"their tickets at {self._tickets_url()}."
-        )
         if not store.claim(draft_id, AGENT_CLAIMANT):
             return _draft_not_found()
         if not store.start_send(draft_id):
             return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
         try:
             ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
-                self._user, draft.outgoing_message(SentVia.CHAT)
+                self._user, draft.outgoing_message(SentVia.CHAT, self.team)
             )
         except SupportTicketNotSent:
             store.cancel_send(draft_id)
@@ -425,10 +486,10 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "not_sent",
                 "Nothing was sent, because PostHog support couldn't take the ticket. Try again in a moment, "
                 "or give the person the draft's review_url to send it from PostHog.",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_424_FAILED_DEPENDENCY,
             )
         except SupportTicketOutcomeUnknown:
-            return self._send_failed(draft, "outcome_unknown", may_be_sent, status.HTTP_502_BAD_GATEWAY)
+            return self._send_failed(draft, "outcome_unknown", may_be_sent, status.HTTP_409_CONFLICT)
 
         store.record_sent(draft_id, ticket)
         report_user_action(
@@ -436,6 +497,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "posthog support draft submitted",
             {
                 "draft_id": draft_id,
+                "topic": draft.topic,
                 "filing_reason": draft.filing_reason,
                 "sent_via": SentVia.CHAT.value,
                 "ticket_id": ticket.ticket_id,

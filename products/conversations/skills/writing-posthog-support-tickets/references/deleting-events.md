@@ -4,8 +4,21 @@ Deleting events cannot be undone, so support needs the exact scope before they r
 A ticket with everything below lets support start the request the day they read it.
 A ticket without it gets a reply asking for each missing item.
 
-When the person would rather keep the events and remove only some properties, say so in **Request**.
-Support usually cannot do that, so the ticket still asks to delete the events, with everything below.
+When the person would rather keep the events and remove only some properties, tell them before you write anything.
+Support usually cannot do that, so ask whether they want the events deleted instead, and write the ticket only if they do.
+
+There are two routes ([docs](https://posthog.com/docs/privacy/data-storage#deleting-specific-events)):
+
+- **Support runs the deletion.** The ticket needs everything below, including the query and its count.
+- **Support turns on event deletion in the PostHog app** for the person's organization, so they file their own requests. This fits only a one-off deletion of events that one query can select, because PostHog selects the matching events once, when it processes the request. Organization admins and owners can use it, and so can members who are given access. A project can have up to 5 requests in progress, and PostHog reviews each one before any events are deleted.
+
+Use the first route for any other event deletion, and when you aren't sure. If one query can't select the events, give a query and a count for each part.
+Removing properties, deleting on a schedule, and deleting persons or recordings fit neither.
+To delete by age, point them to [events retention](https://posthog.com/docs/data/events-retention).
+
+When the second route fits, tell the person about both and say in **Request** which one they want.
+That ticket needs the region, the project, the reason, who is asking, and what they want to delete. Add the query and count when they have them, and say that they ask for event deletion to be turned on, and not for support to run the deletion.
+Never say that event deletion is turned on, or that it will be.
 
 ## What the ticket must include
 
@@ -27,15 +40,16 @@ Write it in HogQL against `events`:
 - `!=`, `NOT` and `NOT IN` also match events where the property is missing. Check that the person wants that.
 
 **The count that query returned.**
-Run it as `SELECT count() FROM events WHERE <the same conditions>` with `posthog:execute-sql`.
+Ask the person to run it in the SQL editor as `SELECT count() FROM events WHERE <the same conditions>` and give you the count.
 Support checks the deletion against this number and stops if they differ.
 
 **The person's confirmation.**
 Show the person the query and the count before you write the ticket, and ask them to confirm that this is exactly what to delete.
+Ask why they need it deleted, and put their reason in **Request**. A privacy or security reason decides the ticket's `topic`.
 Then **Request** asks to delete that many events, such as "Please delete the 3,817 events the query below returns".
 A ticket that gives the query and its count and asks for the deletion counts as their confirmation, so support does not ask again.
 
-When you hand it over, tell the person to send it from their own PostHog account, through the draft tool or the Support panel, and not from another email address.
+When you hand it over, tell the person to send it from their own PostHog account, through the draft tool or the support widget, and not from another email address.
 Support checks that the requester is a member of the organization that owns the project.
 
 ## Leave out
@@ -77,5 +91,5 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
 
 Already checked:
 - Claude Code checked: no self-serve route fits, because the same persons have real events that must stay
-- Claude Code checked: the query returns 3,817 events, all from `staging.example.com`
+- I tried: the query returns 3,817 events, all from `staging.example.com`
 ````
