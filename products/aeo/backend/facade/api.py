@@ -23,6 +23,7 @@ from django.db.models import (
     Count,
     Exists,
     ExpressionWrapper,
+    F,
     Max,
     Min,
     OuterRef,
@@ -48,6 +49,7 @@ from products.aeo.backend import (
     gaps,
     keyword_suggestions,
     keywords,
+    movers,
     rankings,
     suggestions,
 )
@@ -104,6 +106,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
+    PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -129,6 +133,7 @@ from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scop
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.stored_results import stored_result
 from products.aeo.backend.tasks.tasks import (
+    enrich_aeo_check_brands_task,
     recompute_aeo_own_citations_task,
     set_up_aeo_task,
     suggest_aeo_keywords_task,
@@ -704,7 +709,9 @@ def get_prompt_set_overview(
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
-        "overview",
+        # The name changes with the fields of `PromptSetOverview`, because a result stored by a release with
+        # other fields loads without the new ones.
+        "overview_v2",
         _window_key(timezone_name, window, branded, engine, topic),
         lambda: _compute_prompt_set_overview(
             team_id, timezone_name=timezone_name, window=window, branded=branded, engine=engine, topic=topic
@@ -781,6 +788,13 @@ def _compute_prompt_set_overview(
         )
         for key in sorted(active_prompts.keys() | topic_checks.keys())
     )
+    engine_topics = tuple(
+        PromptSetEngineTopicCounts(**row)
+        for row in current.filter(check_failed=False)
+        .values("engine", topic=F("prompt_topic"))
+        .annotate(answers=Count("id"), mentioned=Count("id", filter=mention_filter()))
+        .order_by("engine", "topic")
+    )
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
@@ -800,6 +814,7 @@ def _compute_prompt_set_overview(
         non_branded_answers=split["answers"] - split["branded"],
         engines=engines,
         topics=topics,
+        engine_topics=engine_topics,
         top_domains=_top_domains(
             team_id,
             window=window,
@@ -842,12 +857,43 @@ def get_prompt_set_rankings(
     )
 
 
+def get_prompt_set_movers(
+    team_id: int,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> PromptSetMovers:
+    """The prompts whose mention rate, and the own pages whose citation rate, gained and lost the most
+    between `date_from` to `date_to` in the team's timezone and the range of the same length before it.
+    `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
+    one topic. Raises InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    return stored_result(
+        team_id,
+        "movers",
+        _window_key(timezone_name, window, branded, engine, topic),
+        lambda: movers.get_movers(
+            team_id,
+            target_domains=catalog.own_domains(team_id),
+            window=window,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
+    )
+
+
 def refresh_stored_results(team_id: int, *, timezone_name: str) -> None:
     """Compute the views the page opens on and store them, so a person who opens it never waits for
     the queries. Run it after every write that changes them, and on a timer."""
     # No date range: a request without one resolves to the same default window, so it reads these results.
     get_prompt_set_overview(team_id, timezone_name=timezone_name, refresh=True)
     get_prompt_set_rankings(team_id, timezone_name=timezone_name, refresh=True)
+    get_prompt_set_movers(team_id, timezone_name=timezone_name, refresh=True)
 
 
 def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
@@ -1019,6 +1065,7 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
         raise duplicate from error
     if catalog.counts_as_own(brand.kind, brand.status):
         _recompute_own_citations_on_commit(brand.team_id)
+    _enrich_check_brands_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1044,6 +1091,10 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
     if "kind" in changed or "status" in changed:
         _recompute_own_citations_on_commit(brand.team_id)
+    # Kind and status only label the brand rows, which reads join to the catalog. A new name or alias
+    # changes which answers name the brand.
+    if "name" in changed or "aliases" in changed:
+        _enrich_check_brands_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1060,6 +1111,21 @@ def _recompute_own_citations_on_commit(team_id: int) -> None:
                 f"aeo_own_citations_recompute_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS
             ):
                 recompute_aeo_own_citations_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
+
+
+def _enrich_check_brands_on_commit(team_id: int) -> None:
+    """A brand that is new or now goes by other names has its matches resolved again across the stored
+    answers, in the background, once the change is visible to the task. Edits within the debounce window
+    share one task. When the enqueue fails, the refresh beat finds the stale brand and starts the pass."""
+
+    def enqueue() -> None:
+        try:
+            if get_client().set(f"aeo_check_brands_enrich_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS):
+                enrich_aeo_check_brands_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
         except Exception as error:
             capture_exception(error, {"team_id": team_id})
 

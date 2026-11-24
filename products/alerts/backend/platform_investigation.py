@@ -41,7 +41,12 @@ from products.alerts.backend.investigation_release import (
 )
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
-from products.alerts.backend.platform_insight_alert import evaluation_alert, investigated_alert, is_built_from_platform
+from products.alerts.backend.platform_insight_alert import (
+    evaluation_alert,
+    investigated_alert,
+    is_built_from_platform,
+    show_copy_settings,
+)
 from products.alerts.backend.platform_investigation_detail import (
     INVESTIGATION_REQUESTED_KEY,
     METRICS_INVESTIGATION_REQUESTED_KEY,
@@ -357,6 +362,9 @@ def run_metrics_investigation(
         return
     investigation = rows.select_related("alert_configuration__insight", "alert_configuration__team").get()
     alert = investigation.alert_configuration or investigated_alert(run.team_id, investigation.configuration_id)
+    if alert is not None:
+        # The investigation's own row is loaded as stored, and a moved alert's edits reach only its copy.
+        show_copy_settings([alert])
     if alert is None:
         rows.update(status=InvestigationStatus.FAILED, error={"message": "The alert was deleted."})
         return

@@ -4149,8 +4149,6 @@ export interface PassRateOverviewApi {
     median: number | null
     /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
     medianComparison: PeriodComparisonApi | null
-    /** Median pass rate per bucket, aligned with `buckets`. */
-    medianTrend: (number | null)[]
 }
 
 export interface EvaluationsOverviewApi {

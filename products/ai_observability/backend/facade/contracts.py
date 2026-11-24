@@ -853,7 +853,6 @@ class PassRateOverview(Contract):
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
     )
-    median_trend: list[float | None] = Field(description="Median pass rate per bucket, aligned with `buckets`.")
 
 
 class OverviewSentiment(Contract):
