@@ -17,9 +17,9 @@ import {
 
 import type { EmailDeliveryStatusEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
 import { TransactionalLogChannelSubMenu } from './TransactionalLogChannelSubMenu'
+import { TransactionalLogDateFilter } from './TransactionalLogDateFilter'
 
 const ANY = 'any'
 
@@ -97,7 +97,7 @@ export function QuillTransactionalEmailLogFilters({
                     />
                 </DropdownMenuContent>
             </DropdownMenu>
-            <TransactionalEmailLogDateFilter />
+            <TransactionalLogDateFilter dateFrom={filters.dateFrom} dateTo={filters.dateTo} onChange={setFilters} />
             <Button
                 variant="outline"
                 loading={pageLoading}

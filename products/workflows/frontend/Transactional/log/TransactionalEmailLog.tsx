@@ -24,8 +24,8 @@ import {
     emailReasonText,
 } from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
-import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
+import { TransactionalLogDateFilter } from './TransactionalLogDateFilter'
 
 /** Lets a long address wrap before its domain instead of mid-word. */
 function EmailAddress({ address }: { address: string }): JSX.Element {
@@ -138,7 +138,11 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                                 data-attr="transactional-email-log-reason-filter"
                             />
                         )}
-                        <TransactionalEmailLogDateFilter />
+                        <TransactionalLogDateFilter
+                            dateFrom={filters.dateFrom}
+                            dateTo={filters.dateTo}
+                            onChange={setFilters}
+                        />
                         <LemonButton
                             type="secondary"
                             size="small"

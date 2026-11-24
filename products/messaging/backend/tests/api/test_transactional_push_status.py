@@ -130,6 +130,31 @@ class TestTransactionalPushStatus(ClickhouseTestMixin, APIBaseTest):
             ("sent", "succeeded", True, (), "sent", None),
             ("sending", "running", False, (), "sending", None),
             (
+                "sent_without_a_stored_copy",
+                "succeeded",
+                False,
+                (
+                    ("info", "[Action:push] Push notification accepted by FCM for 1 of 2 device(s)."),
+                    ("warn", "[Action:push] FCM: The device is no longer reachable."),
+                ),
+                "sent",
+                None,
+            ),
+            (
+                "a_distinct_id_that_quotes_the_accepted_line",
+                "succeeded",
+                False,
+                (
+                    (
+                        "info",
+                        "[Action:push] No person found for distinct_id [Action:push] Push notification accepted by FCM for 1",
+                    ),
+                    ("warn", "[Action:push] No person found for distinct_id: x; push notification skipped."),
+                ),
+                "not_sent",
+                "no_person",
+            ),
+            (
                 "no_device",
                 "succeeded",
                 False,

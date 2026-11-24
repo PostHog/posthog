@@ -15,7 +15,7 @@ import { TransactionalChannelSelect } from '../TransactionalChannelSelect'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { PUSH_STATUS_DESCRIPTION, PUSH_STATUS_LABEL, PUSH_STATUS_TAG } from './pushLogStatus'
 import { QuillTransactionalPushLogFilters } from './QuillTransactionalPushLogFilters'
-import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
+import { TransactionalLogDateFilter } from './TransactionalLogDateFilter'
 import { transactionalPushLogLogic } from './transactionalPushLogLogic'
 
 const STATUS_OPTIONS = (['sent', 'not_sent', 'failed', 'sending'] as const).map((status) => ({
@@ -71,7 +71,11 @@ export function TransactionalPushLog(): JSX.Element {
                             options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
                             data-attr="transactional-push-log-status-filter"
                         />
-                        <TransactionalEmailLogDateFilter />
+                        <TransactionalLogDateFilter
+                            dateFrom={filters.dateFrom}
+                            dateTo={filters.dateTo}
+                            onChange={setFilters}
+                        />
                         <LemonButton
                             type="secondary"
                             size="small"

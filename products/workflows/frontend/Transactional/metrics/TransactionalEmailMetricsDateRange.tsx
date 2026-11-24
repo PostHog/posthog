@@ -5,13 +5,13 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { METRICS_DATE_RANGES, transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { METRICS_DATE_RANGES, transactionalMetricsPeriodLogic } from './transactionalMetricsPeriodLogic'
 
 const DATA_ATTR = 'transactional-email-metrics-date-filter'
 
 export function TransactionalEmailMetricsDateRange(): JSX.Element {
-    const { hours } = useValues(transactionalEmailMetricsLogic)
-    const { setHours } = useActions(transactionalEmailMetricsLogic)
+    const { hours } = useValues(transactionalMetricsPeriodLogic)
+    const { setHours } = useActions(transactionalMetricsPeriodLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!todayRailNav) {

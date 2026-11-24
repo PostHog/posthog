@@ -17,8 +17,8 @@ import {
 
 import type { PushSendStatusEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { TransactionalLogChannelSubMenu } from './TransactionalLogChannelSubMenu'
+import { TransactionalLogDateFilter } from './TransactionalLogDateFilter'
 import { transactionalPushLogLogic } from './transactionalPushLogLogic'
 
 const ANY = 'any'
@@ -80,7 +80,7 @@ export function QuillTransactionalPushLogFilters({
                     />
                 </DropdownMenuContent>
             </DropdownMenu>
-            <TransactionalEmailLogDateFilter />
+            <TransactionalLogDateFilter dateFrom={filters.dateFrom} dateTo={filters.dateTo} onChange={setFilters} />
             <Button
                 variant="outline"
                 loading={pageLoading}

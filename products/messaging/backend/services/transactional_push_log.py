@@ -1,7 +1,7 @@
 """The transactional push log: every send of a project's push notifications, and how many went out.
 
-Each send is one run of the push's workflow. A run that delivered to a device stored a copy of the push, so a finished
-run with no copy did not reach anyone, and the warnings its push step logged say why.
+Each send is one run of the push's workflow. A run that delivered to a device stored a copy of the push and logged that the
+provider accepted it. A finished run with neither did not reach anyone, and the warnings its push step logged say why.
 """
 
 import re
@@ -85,7 +85,12 @@ _RUNS = """
     GROUP BY invocation_id
 """
 
-# A run counts as sent once any device took the push, which is when its copy is stored.
+# The push step logs this line when a device took the push. Anchored past the step's prefix, because a warning can quote a
+# caller's distinct ID, which could hold the same words.
+_ACCEPTED_LINE = r"^\[Action:[^\]]*\] Push notification accepted by (FCM|APNs) for [1-9]"
+
+# A run counts as sent once any device took the push. The stored copy usually shows it, but storing one can fail after the
+# provider took the push, so the line the step logged counts too.
 _SEND_STATUS = """
     multiIf(
         run_status = 'running', 'sending',
@@ -97,6 +102,15 @@ _SEND_STATUS = """
               AND kind = 'push'
               AND function_id IN %(workflows)s
               AND sent_at >= toDateTime64(%(start)s, 6)
+              {search}
+            UNION ALL
+            SELECT instance_id AS invocation_id FROM log_entries
+            WHERE team_id = %(team_id)s
+              AND log_source = 'hog_flow'
+              AND log_source_id IN %(workflows)s
+              AND timestamp >= toDateTime64(%(start)s, 6)
+              AND level = 'info'
+              AND match(message, %(accepted_line)s)
               {search}
         ), 'sent',
         'not_sent'
@@ -251,6 +265,7 @@ def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | Non
             "start": _ch_time(period.start),
             "end": _ch_time(period.end),
             "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+            "accepted_line": _ACCEPTED_LINE,
         },
     )
     if not rows:
@@ -299,6 +314,7 @@ def list_transactional_pushes(
         "start": _ch_time(period.start),
         "end": _ch_time(period.end),
         "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+        "accepted_line": _ACCEPTED_LINE,
         "limit": limit + 1,
         "offset": offset,
     }
@@ -394,6 +410,7 @@ def transactional_push_stats(
             "start": _ch_time(period.start),
             "end": _ch_time(period.end),
             "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+            "accepted_line": _ACCEPTED_LINE,
         },
     )
     stats = [
