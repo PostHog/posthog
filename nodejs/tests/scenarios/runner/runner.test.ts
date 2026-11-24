@@ -50,7 +50,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
-import { _fetch, fetch } from '~/common/utils/request'
+import { _fetch, fetch, internalFetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -75,7 +75,7 @@ import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
     const actual = jest.requireActual('~/common/utils/request')
-    return { ...actual, fetch: jest.fn(actual.fetch) }
+    return { ...actual, fetch: jest.fn(actual.fetch), internalFetch: jest.fn(actual.internalFetch) }
 })
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
@@ -2233,6 +2233,67 @@ describe('runner through seed, drive and judge', () => {
         } finally {
             refusingIntake.closeAllConnections()
             await new Promise((resolve) => refusingIntake.close(resolve))
+        }
+    }, 30_000)
+
+    it('ends a ramp whose intake fails mid-ramp as broke, with the step before it judged, when the judge cannot read the final state', async () => {
+        const intake = http.createServer((request, response) => {
+            let body = ''
+            request.on('data', (chunk) => (body += chunk))
+            request.on('end', () => {
+                response.writeHead(unitNumber(parseJSON(body).distinct_id) > 25 ? 429 : 200).end('{}')
+            })
+        })
+        await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
+        const actual = jest.requireActual<{ internalFetch: typeof internalFetch }>('~/common/utils/request')
+        jest.mocked(internalFetch).mockImplementation((url, options) =>
+            url.includes('/_truth?') && !url.includes('limit=')
+                ? Promise.reject(
+                      Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+                  )
+                : actual.internalFetch(url, options)
+        )
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(intake.address() as AddressInfo).port}`),
+                env,
+                { topologyWithinMs: 1000, topologyEveryMs: 10 }
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 5, for: '2s' },
+                        { scale: 10, for: '2s' },
+                    ],
+                    stopOnBreak: true,
+                    driveFor: '4s',
+                    convergeWithin: '1s',
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [scorecard] = api.captured.map(({ properties }) => properties)
+            const [held, broke] = (scorecard?.ramp_steps ?? []) as { refused: number }[]
+            expect({ scorecard, refusedAtTheBreak: broke?.refused > 0 }).toEqual({
+                scorecard: expect.objectContaining({
+                    status: 'failed',
+                    status_reason:
+                        'the ramp broke: refused_at_intake broke at the 10x step; the judge could not read the final state: The operation was aborted due to timeout',
+                    ramp_end: 'broke',
+                    ramp_sustained_scale: 5,
+                    ramp_broke_scale: 10,
+                    ramp_broke_by: 'refused_at_intake',
+                    converged: false,
+                    invariants_failed: ['refused_at_intake'],
+                }),
+                refusedAtTheBreak: true,
+            })
+            expect(held).toMatchObject({ scale: 5, expected: 20, refused: 0, refused_rate: 0 })
+            expect(broke).toMatchObject({ scale: 10, refused_rate: expect.any(Number) })
+        } finally {
+            jest.mocked(internalFetch).mockImplementation(actual.internalFetch)
+            intake.closeAllConnections()
+            await new Promise((resolve) => intake.close(resolve))
         }
     }, 30_000)
 
