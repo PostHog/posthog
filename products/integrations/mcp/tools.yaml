@@ -86,11 +86,12 @@ tools:
             the status to get the records to publish. On failed, fix the records first, then call
             integrations-email-verify-create. After about 15 minutes without verified, stop polling and call
             integrations-email-verify-create once; it also starts any setup the email provider is missing. If it returns
-            success, the sender is ready. Otherwise read the status, publish any record other than DMARC it lists as
-            pending, merging SPF into an existing v=spf1 record at that name instead of adding a second one, and tell
-            the person the sender is not verified yet, which records are still pending, and that they can ask you to
-            check again later. The setting-up-an-email-domain skill has the details. If this tool returns an error, fall
-            back to adding the records from integrations-email-status-retrieve by hand.
+            success, the sender can send; read the status once more and publish and name any record other than DMARC
+            still pending. Otherwise read the status, publish any record other than DMARC it lists as pending, merging
+            SPF into an existing v=spf1 record at that name instead of adding a second one, and tell the person the
+            sender is not verified yet, which records are still pending, and that they can ask you to check again later.
+            The setting-up-an-email-domain skill has the details. If this tool returns an error, fall back to adding the
+            records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id

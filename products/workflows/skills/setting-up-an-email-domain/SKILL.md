@@ -96,7 +96,7 @@ Pick the first path that works:
 DMARC is the domain owner's policy, so never add, change or delete a `_dmarc` record yourself, on any path.
 If the DMARC record shows as `verified`, the domain already has a policy; keep it.
 If it is `pending`, tell the person and let them decide: give them the suggested record, and the `_dmarc` records you can see at the sending domain and every parent up to its organizational domain, such as `_dmarc.tx.example.com` and `_dmarc.example.com` for `mail.tx.example.com`.
-Tell them to add the suggested record only after they confirm at their DNS host that none of those names has a `_dmarc` record, since a second DMARC record makes receivers ignore both.
+Tell them to add the suggested record only after they confirm at their DNS host that the sending domain has no `v=DMARC1` record, since a second policy at the same name makes receivers ignore both, and that a policy at a parent name is one they want to replace for this sender.
 If the sending domain has a `_dmarc` record PostHog cannot read, name that record and leave the repair and the policy choice to them.
 A `pending` DMARC record can mean no policy exists, the lookup timed out, or an existing record has a form PostHog cannot read, such as no `p=` tag right after `v=DMARC1;`.
 
@@ -111,7 +111,7 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 - `verified`: call `integrations-email-verify-create` once. When it returns `success`, every sender on this domain in the project can send.
 
 After about 15 minutes without `verified`, stop polling and call `integrations-email-verify-create` once, since it also starts any setup the email provider is missing, such as DKIM.
-If it returns `success`, the sender is ready: go to step 6.
+If it returns `success`, the sender can send. Call `integrations-email-status-retrieve` with `refresh=true` once more, publish any record other than DMARC it still lists as `pending`, and name it to the person, then go to step 6.
 Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish any record other than DMARC it lists as `pending`, as in step 4; leave a `pending` DMARC record to the person, as step 4 says.
 Then tell the person the sender is not verified yet: name each record still `pending` and the exact name it must be published at, since a record under the wrong name never resolves, and say they can ask you to check again later or verify the sender in PostHog.
 
