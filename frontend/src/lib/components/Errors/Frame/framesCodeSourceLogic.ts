@@ -5,6 +5,7 @@ import { match } from 'ts-pattern'
 import api from 'lib/api'
 import { GitMetadataParser, supportedProviders } from 'lib/components/Git/gitMetadataParser'
 
+import { frameSourceFileName } from './frameSourceFileName'
 import { stackFrameLogic } from './stackFrameLogic'
 import type { KeyedStackFrameRecords } from './stackFrameLogic'
 
@@ -88,7 +89,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                     return
                 }
 
-                const fileName = record.contents.source.split('/').pop()
+                const fileName = frameSourceFileName(record.contents.source)
 
                 if (!codeSample || !remoteUrl || !fileName) {
                     return

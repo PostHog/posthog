@@ -1,3 +1,4 @@
+import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -71,11 +72,23 @@ class GitHubSearchOutcome:
     status_code: int | None
 
 
+def strip_module_query(file_name: str) -> str:
+    """Drop a bundler module query or fragment, such as `order.tsx?route-chunk=clientAction` or `select.vue?821e`.
+    Source map paths keep them, but repository files never carry one."""
+    return re.split(r"[?#]", file_name, maxsplit=1)[0]
+
+
 class GitProviderFileLinkResolveQuerySerializer(serializers.Serializer):
     owner = serializers.CharField(help_text="Repository owner or namespace.")
     repository = serializers.CharField(help_text="Repository name.")
     code_sample = serializers.CharField(help_text="Code snippet to search for in repository files.")
     file_name = serializers.CharField(help_text="File name to match in search results.")
+
+    def validate_file_name(self, value: str) -> str:
+        file_name = strip_module_query(value).strip()
+        if not file_name:
+            raise serializers.ValidationError("file_name must name a file.")
+        return file_name
 
 
 class GitProviderFileLinkResolveResponseSerializer(serializers.Serializer):

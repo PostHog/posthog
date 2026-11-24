@@ -16,6 +16,7 @@ from posthog.egress.limiter.policies import Priority
 from products.error_tracking.backend.presentation.views.git_provider_file_link_resolver import (
     _PUBLIC_TOKEN_CIRCUIT_OPEN_KEY,
     _PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY,
+    GitProviderFileLinkResolveQuerySerializer,
     get_gitlab_file_url,
     search_github_file,
 )
@@ -94,6 +95,21 @@ class TestGitProviderFileLinksResolveGithub(APIBaseTest):
         assert outcome.url is None
         assert outcome.status_code is None
 
+    def test_searches_by_file_name_without_module_query(self) -> None:
+        # Source maps keep bundler module queries (React Router route chunks, webpack `?hash`); the repo file has none.
+        with patch(
+            "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.github_request",
+            return_value=_response(200, {"items": [{"html_url": "https://github.com/o/r/blob/main/app/order.tsx"}]}),
+        ) as gh:
+            response = self.client.get(
+                self._url(), {**self._query(), "file_name": "order.tsx?route-chunk=clientAction"}
+            )
+
+        assert response.json() == {"found": True, "url": "https://github.com/o/r/blob/main/app/order.tsx"}
+        search_url = gh.call_args.args[1]
+        assert "filename%3Aorder.tsx" in search_url
+        assert "route-chunk" not in search_url
+
     def test_malformed_success_body_degrades_to_not_found(self) -> None:
         # A 200 with a non-JSON body must not escape as a 500 — parsing lives inside the guard.
         with patch(
@@ -153,3 +169,53 @@ class TestGetGitlabFileUrl(SimpleTestCase):
         assert get.call_count == 2
         for call in get.call_args_list:
             assert call.kwargs["allow_redirects"] is False
+
+
+class TestFileNameModuleQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("route_chunk", "order.tsx?route-chunk=clientAction", "order.tsx"),
+            ("webpack_hash", "select.vue?821e", "select.vue"),
+            ("vue_block", "App.vue?vue&type=script&lang.ts", "App.vue"),
+            ("fragment", "main.ts#L10", "main.ts"),
+            ("plain", "main.py", "main.py"),
+        ]
+    )
+    def test_file_name_drops_module_query(self, _name: str, file_name: str, expected: str) -> None:
+        serializer = GitProviderFileLinkResolveQuerySerializer(
+            data={"owner": "o", "repository": "r", "code_sample": "print(1)", "file_name": file_name}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["file_name"] == expected
+
+    def test_file_name_that_is_only_a_query_is_invalid(self) -> None:
+        serializer = GitProviderFileLinkResolveQuerySerializer(
+            data={"owner": "o", "repository": "r", "code_sample": "print(1)", "file_name": "?raw"}
+        )
+
+        assert not serializer.is_valid()
+
+    def test_gitlab_matches_path_after_query_is_dropped(self) -> None:
+        found = _response(200, raw=json.dumps([{"path": "app/routes/order.tsx", "ref": "main"}]).encode())
+        with (
+            patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None)),
+            patch(
+                "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.requests.get",
+                return_value=found,
+            ),
+        ):
+            serializer = GitProviderFileLinkResolveQuerySerializer(
+                data={"owner": "o", "repository": "r", "code_sample": "x", "file_name": "order.tsx?route-chunk=a"}
+            )
+            assert serializer.is_valid()
+            url = get_gitlab_file_url(
+                code_sample="x",
+                token="tok",
+                owner="o",
+                repository="r",
+                file_name=serializer.validated_data["file_name"],
+                gitlab_url="https://gitlab.example.com",
+            )
+
+        assert url == "https://gitlab.example.com/o/r/-/blob/main/app/routes/order.tsx"
