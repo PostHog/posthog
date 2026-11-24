@@ -22,7 +22,7 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
-import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql } from './due-rows-sql'
+import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql, filesRowPollSql } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, IDEMPOTENCY_KEY_TTL_MS } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -2904,9 +2904,10 @@ describe('Cyclotron V2', () => {
             const stuck = createPromise()
             const filesPollBlocked = createPromise()
             let plainClaimed = createPromise()
+            const dueOnTheDatabaseClock = new Date(Date.now() - 1_000)
             const claimPlainSend = async (): Promise<void> => {
                 plainClaimed = createPromise()
-                await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+                await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email', scheduled: dueOnTheDatabaseClock }])
                 await plainClaimed.promise
             }
             jest.useFakeTimers({
@@ -3363,11 +3364,12 @@ describe('Cyclotron V2', () => {
         const BACKLOG_ROWS = 20_000
         const BACKLOG_BUFFER_BUDGET = 30
         const BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES = 80
+        const BACKLOG_ROWS_SCANNED_BUDGET = 30
 
         type PlanMode = 'custom' | 'generic'
 
-        function sessionUrl(applicationName: string, mode: PlanMode): string {
-            const options = `-c search_path=${PROBE_SCHEMA} -c plan_cache_mode=force_${mode}_plan`
+        function sessionUrl(applicationName: string, mode: PlanMode, extraOptions = ''): string {
+            const options = `-c search_path=${PROBE_SCHEMA} -c plan_cache_mode=force_${mode}_plan ${extraOptions}`
             return `${DB_URL}?application_name=${applicationName}&options=${encodeURIComponent(options)}`
         }
 
@@ -3455,25 +3457,6 @@ describe('Cyclotron V2', () => {
             await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () => Promise.resolve(markPolled()))
         }
 
-        async function claimFilesOnce(dbUrl: string): Promise<void> {
-            const { polled, markPolled } = pollSignal()
-            // The main poll's legacy count would read the backlog, so only the files poll gets measured.
-            class FilesPollOnly extends CyclotronV2RateLimitedWorker {
-                protected override countWork(): Promise<number> {
-                    return Promise.resolve(0)
-                }
-            }
-            const worker = new FilesPollOnly(
-                {
-                    pool: { dbUrl },
-                    queueName: 'email',
-                    sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
-                },
-                (requested) => Promise.resolve({ limit: requested })
-            )
-            await pollOnce(worker, polled, () => Promise.resolve(markPolled()))
-        }
-
         const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
         const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
         const operations: [string, string, SeededRows, number, number, PlanMode[], (dbUrl: string) => Promise<void>][] =
@@ -3519,15 +3502,6 @@ describe('Cyclotron V2', () => {
                         )
                         await pollOnce(worker, polled)
                     },
-                ],
-                [
-                    'the rate-limited poll for sends with files',
-                    'email',
-                    'with files',
-                    1,
-                    BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES,
-                    PARAMETERIZED_SQL_PLANS,
-                    claimFilesOnce,
                 ],
                 [
                     'the manager depth check',
@@ -3586,6 +3560,121 @@ describe('Cyclotron V2', () => {
 
                 expect(withBacklog - withoutBacklog).toBeLessThan(budget)
             }
+        )
+
+        async function seedSendWithFilesBesidePlainBacklog(plainBacklogJobs: number): Promise<void> {
+            const applicationName = 'polling-cost-seed'
+            const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
+            await client.connect()
+            try {
+                await client.query('TRUNCATE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq, file_bytes)
+                     SELECT gen_random_uuid(), 1, 'email', 'available', 0,
+                            NOW() - interval '1 minute', NOW(), NOW(), g,
+                            CASE WHEN g = 1 THEN 1024 END
+                     FROM generate_series(1, $1::int + 1) g`,
+                    [plainBacklogJobs]
+                )
+                await client.query('VACUUM ANALYZE cyclotron_jobs')
+            } finally {
+                await client.end()
+            }
+            await untilSessionStatsFlushed(applicationName)
+        }
+
+        // auto_explain reports the plan of every statement a session runs, so the files poll's statements can be told
+        // apart by their SQL text from the main poll's, which runs beside them on the same pool.
+        const EXPLAIN_EVERY_STATEMENT = [
+            'session_preload_libraries=auto_explain',
+            'auto_explain.log_min_duration=0',
+            'auto_explain.log_analyze=on',
+            'auto_explain.log_timing=off',
+            'auto_explain.log_format=json',
+            'auto_explain.log_level=notice',
+        ]
+            .map((setting) => `-c ${setting}`)
+            .join(' ')
+
+        type PlanNode = {
+            'Node Type': string
+            'Relation Name'?: string
+            'Actual Rows': number
+            'Actual Loops': number
+            'Rows Removed by Filter'?: number
+            'Rows Removed by Index Recheck'?: number
+            Plans?: PlanNode[]
+        }
+
+        function rowsScanned(node: PlanNode): number {
+            const scans = node['Relation Name'] !== undefined && node['Node Type'] !== 'ModifyTable'
+            const own = scans
+                ? (node['Actual Rows'] +
+                      (node['Rows Removed by Filter'] ?? 0) +
+                      (node['Rows Removed by Index Recheck'] ?? 0)) *
+                  node['Actual Loops']
+                : 0
+            return own + (node.Plans ?? []).reduce((sum, child) => sum + rowsScanned(child), 0)
+        }
+
+        async function rowsScannedByOneFilesPoll(mode: PlanMode): Promise<number> {
+            const filesPoll = filesRowPollSql('email')
+            const filesPollStatements = new Set([filesPoll.countWork, filesPoll.fairDequeueJobs])
+            const { polled, markPolled } = pollSignal()
+            let rows = 0
+            let finished = false
+            const countFilesPollRows = (notice: { message?: string }): void => {
+                const text = notice.message ?? ''
+                const explained = parseJSON(text.slice(text.indexOf('{')))
+                if (finished || !filesPollStatements.has(explained['Query Text'])) {
+                    return
+                }
+                rows += rowsScanned(explained.Plan)
+                if (explained['Query Text'] === filesPoll.fairDequeueJobs) {
+                    finished = true
+                    markPolled()
+                }
+            }
+            // The worker's pool keeps its clients to itself, so the listener goes on each client as it sends a query.
+            const listening = new WeakSet<Client>()
+            const query = Client.prototype.query
+            const spy = jest.spyOn(Client.prototype, 'query').mockImplementation(function (
+                this: Client,
+                ...args: unknown[]
+            ) {
+                if (!listening.has(this)) {
+                    listening.add(this)
+                    this.on('notice', countFilesPollRows)
+                }
+                return (query as (...queryArgs: unknown[]) => unknown).apply(this, args)
+            } as typeof Client.prototype.query)
+            const worker = new CyclotronV2RateLimitedWorker(
+                {
+                    pool: { dbUrl: sessionUrl('polling-cost-operation', mode, EXPLAIN_EVERY_STATEMENT) },
+                    queueName: 'email',
+                    sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
+                },
+                (requested) => Promise.resolve({ limit: requested })
+            )
+            try {
+                await pollOnce(worker, polled)
+            } finally {
+                spy.mockRestore()
+            }
+            return rows
+        }
+
+        it.each(PARAMETERIZED_SQL_PLANS)(
+            'the rate-limited poll for sends with files does not read through a due plain backlog under a %s plan',
+            async (mode) => {
+                await seedSendWithFilesBesidePlainBacklog(0)
+                const withoutBacklog = await rowsScannedByOneFilesPoll(mode)
+                await seedSendWithFilesBesidePlainBacklog(BACKLOG_ROWS)
+                const withBacklog = await rowsScannedByOneFilesPoll(mode)
+
+                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_ROWS_SCANNED_BUDGET)
+            },
+            10_000
         )
 
         async function seedEmailAfterAnalyze(rows: SeededRows, emailBacklogJobs: number): Promise<void> {
@@ -3932,15 +4021,30 @@ describe('Cyclotron V2', () => {
         ])('Worker: fairDequeue ordering, %s claim', (_label, boundedFairDequeue) => {
             // The email queue is intrinsically fair-dequeued — the worker derives
             // it from the queue name, so an EMAIL_QUEUE worker is already fair.
-            const createFairWorker = (
-                overrides?: Record<string, unknown>,
-                Worker?: typeof CyclotronV2Worker
-            ): CyclotronV2Worker => createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides }, Worker)
+            const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
+                createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides })
 
-            class FilesPollOnly extends CyclotronV2Worker {
-                protected override runConsumerLoop(): Promise<void> {
-                    return Promise.resolve()
-                }
+            async function deliveredAmong(
+                worker: CyclotronV2Worker,
+                watched: string[],
+                count: number
+            ): Promise<string[]> {
+                const delivered: string[] = []
+                await new Promise<void>((resolve, reject) => {
+                    const timer = setTimeout(() => resolve(), 2000)
+                    worker
+                        .connect((batch) => {
+                            delivered.push(...batch.map((job) => job.id).filter((id) => watched.includes(id)))
+                            if (delivered.length >= count) {
+                                clearTimeout(timer)
+                                resolve()
+                            }
+                            return Promise.resolve()
+                        })
+                        .catch(reject)
+                })
+                await worker.stopConsuming()
+                return delivered
             }
 
             it.each([
@@ -3982,76 +4086,95 @@ describe('Cyclotron V2', () => {
                     },
                     overrides: { sendsWithFiles: { room: () => 0, stalled: () => false, overdueAfterMs: DAY_MS } },
                 },
-                {
-                    label: 'the poll for sends with files passes a parked lower-sequence row with files, a lower-sequence plain row and an earlier-scheduled row with files',
-                    seed: async (): Promise<string> => {
-                        await manager.bulkCreateJobs([
-                            {
-                                teamId: 200,
-                                queueName: EMAIL_QUEUE,
-                                fileBytes: 1000,
-                                scheduled: new Date(Date.now() + 3_600_000),
-                            },
-                        ])
-                        await manager.bulkCreateJobs([
-                            { teamId: 300, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 7_200_000) },
-                        ])
-                        const [due] = await manager.bulkCreateJobs([
-                            { teamId: 100, queueName: EMAIL_QUEUE, fileBytes: 1000 },
-                        ])
-                        await manager.bulkCreateJobs([
-                            {
-                                teamId: 400,
-                                queueName: EMAIL_QUEUE,
-                                fileBytes: 1000,
-                                scheduled: new Date(Date.now() - 3_600_000),
-                            },
-                        ])
-                        return due
-                    },
-                    overrides: { sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS } },
-                    Worker: FilesPollOnly,
-                },
-            ])('claims the lowest-sequence due row when $label', async ({ seed, overrides, Worker }) => {
+            ])('claims the lowest-sequence due row when $label', async ({ seed, overrides }) => {
                 const expected = await seed()
 
-                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }, Worker))
+                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }))
 
                 expect(jobs.map((j) => j.id)).toEqual([expected])
+            })
+
+            it('delivers the due sends with files in sequence order from the poll for sends with files, past a parked lower-sequence row with files, while the plain poll claims an earlier-scheduled plain row', async () => {
+                const [parked] = await manager.bulkCreateJobs([
+                    {
+                        teamId: 200,
+                        queueName: EMAIL_QUEUE,
+                        fileBytes: 1000,
+                        scheduled: new Date(Date.now() + 3_600_000),
+                    },
+                ])
+                await manager.bulkCreateJobs([
+                    { teamId: 300, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 7_200_000) },
+                ])
+                const [first] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE, fileBytes: 1000 }])
+                const [second] = await manager.bulkCreateJobs([
+                    {
+                        teamId: 400,
+                        queueName: EMAIL_QUEUE,
+                        fileBytes: 1000,
+                        scheduled: new Date(Date.now() - 3_600_000),
+                    },
+                ])
+
+                const worker = createFairWorker({
+                    batchMaxSize: 1,
+                    sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
+                })
+
+                expect(await deliveredAmong(worker, [parked, first, second], 2)).toEqual([first, second])
             })
 
             it.each([
                 {
                     lane: 'plain poll',
                     withFiles: false,
+                    otherKind: 'left due',
                     overrides: { sendsWithFiles: { room: () => 0, stalled: () => false, overdueAfterMs: DAY_MS } },
                 },
                 {
                     lane: 'poll for sends with files',
                     withFiles: true,
+                    otherKind: 'claimed by the plain poll',
                     overrides: { sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS } },
-                    Worker: FilesPollOnly,
                 },
             ])(
-                'claims only its own kind of send from the $lane when more are due than the candidate cap',
-                async ({ withFiles, overrides, Worker }) => {
-                    const due = new Date(Date.now() - 3_600_000)
+                'delivers its lowest-sequence send of its own kind first from the $lane when more are due than the candidate cap',
+                async ({ withFiles, otherKind, overrides }) => {
                     const fileBytes = (files: boolean): number | null => (files ? 1000 : null)
-                    await manager.bulkCreateJobs([
-                        { teamId: 100, queueName: EMAIL_QUEUE, scheduled: due, fileBytes: fileBytes(!withFiles) },
+                    const [lowestSequenceOfTheOtherKind] = await manager.bulkCreateJobs([
+                        {
+                            teamId: 100,
+                            queueName: EMAIL_QUEUE,
+                            scheduled: new Date(Date.now() - 10_800_000),
+                            fileBytes: fileBytes(!withFiles),
+                        },
                     ])
-                    const own = await manager.bulkCreateJobs(
+                    const [lowestSequence] = await manager.bulkCreateJobs([
+                        {
+                            teamId: 300,
+                            queueName: EMAIL_QUEUE,
+                            scheduled: new Date(Date.now() - 60_000),
+                            fileBytes: fileBytes(withFiles),
+                        },
+                    ])
+                    const earlierScheduled = await manager.bulkCreateJobs(
                         Array.from({ length: FAIR_DEQUEUE_CANDIDATE_CAP + 1 }, () => ({
                             teamId: 200,
                             queueName: EMAIL_QUEUE,
-                            scheduled: due,
+                            scheduled: new Date(Date.now() - 3_600_000),
                             fileBytes: fileBytes(withFiles),
                         }))
                     )
 
-                    const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }, Worker))
+                    const worker = createFairWorker({ batchMaxSize: 1, ...overrides })
 
-                    expect(jobs.map((j) => own.includes(j.id))).toEqual([true])
+                    const watched = [
+                        ...(otherKind === 'left due' ? [lowestSequenceOfTheOtherKind] : []),
+                        lowestSequence,
+                        ...earlierScheduled,
+                    ]
+
+                    expect(await deliveredAmong(worker, watched, 1)).toEqual([lowestSequence])
                 }
             )
 
