@@ -375,7 +375,10 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk), from_sweep=True)
         self.assertEqual(temporal.started, {})
 
-    def test_hourly_sweep_recovers_suspended_proxy_after_monitor_error_and_missed_enqueue(self) -> None:
+    @parameterized.expand([(ProxyRecord.Status.VALID,), (ProxyRecord.Status.ISSUING,)])
+    def test_hourly_sweep_recovers_suspended_proxy_after_error_and_missed_enqueue(self, previous_status: str) -> None:
+        self.record.status = previous_status
+        self.record.save(update_fields=["status"])
         Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             self._cloudflare(http, exists=True)
@@ -517,7 +520,8 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
     CLOUDFLARE_ACCOUNT_ID="test-account",
 )
 class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCase):
-    async def test_recovery_waits_for_the_cloudflare_certificate(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    async def test_recovery_waits_for_final_status_and_preserves_deactivation(self, deactivate: bool) -> None:
         await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(
             status=ProxyRecord.Status.ISSUING, needs_activation_recovery=True, cloudflare_deprovisioned=True
         )
@@ -537,7 +541,23 @@ class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCas
             await wait_for_cloudflare_certificate(inputs)
 
         await self.record.arefresh_from_db()
-        self.assertFalse(self.record.needs_activation_recovery)
+        self.assertTrue(self.record.needs_activation_recovery)
+        if deactivate:
+            await Organization.objects.filter(pk=self.organization.pk).aupdate(is_active=False)
+            with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+                self._cloudflare(http, exists=True)
+                await sync_to_async(reconcile_proxy.run)(str(self.organization.pk), str(self.record.pk))
+
+        await activity_update_proxy_record(
+            UpdateProxyRecordInputs(
+                organization_id=self.organization.pk,
+                proxy_record_id=self.record.pk,
+                status=ProxyRecord.Status.VALID,
+            )
+        )
+        await self.record.arefresh_from_db()
+        self.assertEqual(self.record.needs_activation_recovery, deactivate)
+        self.assertEqual(self.record.cloudflare_deprovisioned, deactivate)
 
     async def test_status_update_recovers_from_a_closed_connection(self) -> None:
         @sync_to_async
