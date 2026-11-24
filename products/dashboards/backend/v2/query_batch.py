@@ -41,6 +41,7 @@ from posthog.api.services.query import (
     run_planned_query,
 )
 from posthog.api.utils import is_async_query, is_insight_actors_options_query, is_insight_actors_query
+from posthog.api_queries_budget import BudgetSpec
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -58,6 +59,7 @@ from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
     assert_can_read_logs,
+    logql_budget,
     promql_interval,
     run_logql,
 )
@@ -458,6 +460,7 @@ class QueryBatch:
         self._context = copy_context()
         # Plain data, not bound methods, so a batch with misses is not in a reference cycle and is freed on release.
         self._jobs: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
+        self._logql_budget: Optional[BudgetSpec] = None
         self._queue: Queue[tuple[int, bytes]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._response: tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]] | None = None
@@ -548,6 +551,7 @@ class QueryBatch:
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, resolved[index]))
+        self._logql_budget = logql_budget(self._team) if logql else None
         for index in logql:
             self._jobs.append((index, f"{self._client_query_id}-{index}", inputs[index]))
 
@@ -785,7 +789,7 @@ class QueryBatch:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
 
-    def _run_logql(self, index: int, item: QueryBatchInput) -> dict[str, Any]:
+    def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         if self._cancelled:
             return {"i": index, "error": _FAILED}
         try:
@@ -796,6 +800,7 @@ class QueryBatch:
                 date_to=item.date_to,
                 min_interval=item.interval,
                 max_data_points=item.max_data_points,
+                budget=budget,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
@@ -830,7 +835,7 @@ class QueryBatch:
                 self._active.add(query_id)
             with tags_context(team_id=self._team.pk, client_query_id=query_id):
                 if isinstance(query, QueryBatchInput):
-                    line = self._run_logql(index, query)
+                    line = self._run_logql(index, query, self._logql_budget)
                 else:
                     line = self._run(index, query, query_id)
             index, data = line["i"], self._encode(line)
