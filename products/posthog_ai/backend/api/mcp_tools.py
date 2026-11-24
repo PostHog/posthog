@@ -23,6 +23,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.data_access_policy import is_metadata_only_request, metadata_only_mcp_tool_response
 from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
@@ -161,6 +162,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
         args_data = request.data.get("args", {})
+
+        if is_metadata_only_request(request):
+            restricted = metadata_only_mcp_tool_response(self.team, tool_name, args_data)
+            if restricted is not None:
+                restricted_status, restricted_body = restricted
+                return Response(restricted_body, status=restricted_status)
 
         try:
             validated_args = tool.args_schema.model_validate(args_data)

@@ -666,6 +666,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
     read_only_mcp_access?: boolean
+    ai_data_access?: 'full' | 'metadata_only'
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
     ip_restrictions?: string[]

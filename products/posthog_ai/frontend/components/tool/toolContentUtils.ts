@@ -204,3 +204,19 @@ export function compactInput(input: unknown, max = INPUT_PREVIEW_MAX_LENGTH): st
         return ''
     }
 }
+
+const DATA_ACCESS_BLOCK_PATTERN = /metadata-only mode|"code":\s*"metadata_only"/
+
+export function isDataAccessBlock(message: {
+    error?: ToolCallMessage['error']
+    content?: unknown[]
+    rawOutput?: unknown
+}): boolean {
+    const texts = [message.error?.message ?? '', getContentText(message.content ?? [])]
+    if (typeof message.rawOutput === 'string') {
+        texts.push(message.rawOutput)
+    } else if (message.rawOutput && typeof message.rawOutput === 'object') {
+        texts.push(JSON.stringify(message.rawOutput))
+    }
+    return texts.some((text) => DATA_ACCESS_BLOCK_PATTERN.test(text))
+}

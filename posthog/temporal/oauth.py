@@ -7,6 +7,7 @@ from django.conf import settings
 
 import structlog
 
+from posthog.data_access_policy import METADATA_ONLY_SCOPE
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
@@ -108,6 +109,7 @@ McpScopePreset = Literal[
     "signals_research",
     "signals_assessment",
     "signals_implementation",
+    "metadata_only",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
@@ -379,6 +381,7 @@ MCP_SCOPE_PRESETS = (
     "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
+    "metadata_only",
 )
 
 # Withheld from `signals_research`, which is otherwise the `read_only` resolution.
@@ -471,6 +474,8 @@ def resolve_scopes(
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        elif scopes == "metadata_only":
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, METADATA_ONLY_SCOPE]
         elif scopes == "signals_implementation":
             # The self-driving implementation run: `full`, plus durable memory. It already
             # writes code and logs its work on the report, so the scratchpad adds reach into
@@ -541,6 +546,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # (see `RESEARCH_WITHHELD_SCOPES`), so turning read-only mode off widens nothing else.
         return scopes in (
             "full",
+            "metadata_only",
             "signals_scout",
             "signals_scout_reports",
             "signals_scout_experiment",

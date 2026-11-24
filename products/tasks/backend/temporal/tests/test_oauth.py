@@ -76,6 +76,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
         (Task.OriginProduct.SIGNALS_SCOUT, {"billing_product": "posthog_ai"}),
     ],
 )
+@patch("products.tasks.backend.temporal.oauth.team_requires_metadata_only", new=MagicMock(return_value=False))
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
@@ -119,6 +120,7 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
         ),
     ],
 )
+@patch("products.tasks.backend.temporal.oauth.team_requires_metadata_only", new=MagicMock(return_value=False))
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_profiled_task_takes_its_oauth_application_and_agent_scope_from_the_profile(
@@ -528,6 +530,28 @@ def test_subscription_run_withholds_the_gateway_scope(mock_create: MagicMock, ad
     create_oauth_access_token(task, run_state={f"{adapter}_model_access": "own-subscription"})
 
     assert mock_create.call_args.kwargs["withhold_scopes"] == ["llm_gateway:read"]
+
+
+@pytest.mark.parametrize(
+    "origin_product,no_data_access,expected",
+    [
+        (Task.OriginProduct.POSTHOG_AI, True, "metadata_only"),
+        (Task.OriginProduct.POSTHOG_AI, False, "full"),
+        (Task.OriginProduct.USER_CREATED, True, "full"),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_posthog_ai_run_without_data_access_gets_the_metadata_only_preset(
+    mock_create: MagicMock, origin_product: str, no_data_access: bool, expected: str
+) -> None:
+    task = MagicMock(
+        id="task-id", created_by=MagicMock(), stored_profile=None, team_id=123, origin_product=origin_product
+    )
+
+    with patch("products.tasks.backend.temporal.oauth.team_requires_metadata_only", return_value=no_data_access):
+        create_oauth_access_token(task, scopes="full")
+
+    assert mock_create.call_args.kwargs["scopes"] == expected
 
 
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")

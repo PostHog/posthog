@@ -41,6 +41,8 @@ export interface VisualizationWidgetProps {
     onCollapsedChange?: (isCollapsed: boolean) => void
     /** Extra buttons rendered in the actions row before the CTA. */
     extraActions?: React.ReactNode
+    /** Line under the footer, such as who can see the chart's data. */
+    footerNote?: React.ReactNode
 }
 
 /** Fallback CTA for ephemeral visualizations: open the rendered query as a new unsaved insight. */
@@ -74,6 +76,7 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     isCollapsed: controlledCollapsed,
     onCollapsedChange,
     extraActions,
+    footerNote,
 }: VisualizationWidgetProps): JSX.Element {
     const { loadCohortsByIds } = useActions(cohortsModel)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
@@ -160,6 +163,7 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
                     )}
                 </>
             )}
+            {footerNote}
         </>
     )
 

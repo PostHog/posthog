@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.data_access_policy import team_requires_metadata_only
 from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -232,6 +233,9 @@ def create_oauth_access_token(
             {"task_id": task.id},
             cause=RuntimeError(f"Task {task.id} missing sandbox OAuth user"),
         )
+
+    if task.origin_product == Task.OriginProduct.POSTHOG_AI and team_requires_metadata_only(task.team_id):
+        scopes = "metadata_only"
 
     token_options: dict[str, Any] = {
         "scopes": scopes,
