@@ -3,8 +3,9 @@
 A GitHub issue reaches the inbox two ways: the GitHub source ingests it as a signal, or a scout
 reads it and files a report itself. Only the first carried the issue's identity, so a scout's report
 never commented on the issue, and the issue's own signal later grouped by embedding alone and often
-opened a second report. A scout now names the issue when it files the report, and this module is the
-one place that writes and reads that record:
+opened a second report. A scout now names the issue when it files the report, grouping records the
+issue of each GitHub issue signal on the report the signal lands on, and this module is the one place
+that writes and reads that record:
 
 - `append_source_issues` writes one row per new issue and, after commit, starts the GitHub
   writeback for a report that is visible in the inbox.
