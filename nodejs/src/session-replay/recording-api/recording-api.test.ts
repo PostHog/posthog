@@ -1010,7 +1010,7 @@ describe('RecordingApi', () => {
                 .set('Authorization', serviceToken())
 
             expect(res.status).toBe(404)
-            expect(mockService.getBlockByRef).not.toHaveBeenCalled()
+            expect(res.text).toContain('Cannot GET')
         })
 
         it('refuses a team id spelled with a leading zero', async () => {

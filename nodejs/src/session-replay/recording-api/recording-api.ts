@@ -98,7 +98,7 @@ export class RecordingApi {
             this.servesPublicRoutes || this.servesStaffReads ? parsePublicBlockLimits(config) : null
     }
 
-    // Only cloud sets the staff secret, so the staff block-by-ref route exists only where toolbox pods read from.
+    // Staff tokens are the only caller of the block-by-ref route, so a pod without the staff secret does not serve it.
     private get servesStaffReads(): boolean {
         return this.servesInternalRoutes && hasJwtKeys(this.config.RECORDING_API_STAFF_JWT_SECRET || '')
     }
