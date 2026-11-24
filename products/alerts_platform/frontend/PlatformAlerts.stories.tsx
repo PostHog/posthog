@@ -448,6 +448,27 @@ export const ListGroupMenuAlertSnoozed: Story = {
     },
 }
 
+export const ListGroupMenuSourceOwned: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/platform_alerts/': {
+                    count: 3,
+                    next: null,
+                    previous: null,
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, { ...GROUPED_CONFIGURATION, owner: 'source' }],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await openGroupRowMenu(canvasElement, 'service_name=checkout severity_text=error')
+        await userEvent.hover(await within(document.body).findByText('Snooze group for 1 hour'))
+        await within(document.body).findByText('Logs manages this alert, so snooze the whole alert there')
+    },
+}
+
 export const Detail: Story = {
     parameters: { pageUrl: urls.platformAlert(CONFIGURATION.id) },
 }
