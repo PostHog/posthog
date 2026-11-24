@@ -10,10 +10,10 @@ export function SpeedCard({ card }: { card: MCPWrappedSpeedCardApi }): JSX.Eleme
     return (
         <WrappedCard cardKey="speed" kicker="Response times">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className="text-5xl font-bold leading-none tabular-nums">
+                <span className="text-2xl font-bold">under</span>
+                <span className="text-6xl font-bold leading-none tabular-nums">
                     {formatDuration(card.p95_duration_ms)}
                 </span>
-                <span className="text-xl font-bold">p95</span>
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{speedLine(card.p95_duration_ms)}</strong>
