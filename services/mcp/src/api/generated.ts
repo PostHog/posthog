@@ -107036,6 +107036,8 @@ export namespace Schemas {
     /**
      * * `insight` - Insight
      * * `hogql` - HogQL
+     * * `promql` - PromQL
+     * * `logql` - LogQL
      */
     export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
 
@@ -107043,6 +107045,8 @@ export namespace Schemas {
     export const QueryBatchLanguageEnum = {
       Insight: 'insight',
       Hogql: 'hogql',
+      Promql: 'promql',
+      Logql: 'logql',
     } as const;
 
     /**
@@ -107057,10 +107061,12 @@ export namespace Schemas {
          * @maxLength 200
          */
       refId: string;
-      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`. 'promql' and 'logql': `query` is the expression, run as a range query over the panel's time range.
        *
        * * `insight` - Insight
-       * * `hogql` - HogQL */
+       * * `hogql` - HogQL
+       * * `promql` - PromQL
+       * * `logql` - LogQL */
       language: QueryBatchLanguageEnum;
       /**
          * The query text, read according to `language`.
@@ -107093,10 +107099,16 @@ export namespace Schemas {
          */
       variables?: QueryBatchQueryVariables;
       /**
-         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year. For promql and logql targets, the smallest step, as a duration such as 1m or 5m.
          * @maxLength 20
          */
       interval?: string;
+      /**
+         * For promql and logql targets: the most points per series. Sets the step with `interval`.
+         * @minimum 1
+         * @maximum 10000
+         */
+      maxDataPoints?: number;
       /** Serve a stale cached result at once and recompute it in the background for the next read. */
       swr?: boolean;
       /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
