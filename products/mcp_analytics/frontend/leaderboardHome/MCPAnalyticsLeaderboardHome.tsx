@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { HogQLQuery, MCPDashboardSection, NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -16,6 +17,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { labMark, modelLab } from '../aiLabs'
 import { InstrumentationEmptyState } from '../components/InstrumentationEmptyState'
 import { McpDateFilter } from '../components/McpDateFilter'
+import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { HarnessLogo } from '../dashboard/harness'
 import { KpiTiles } from '../dashboard/KpiTiles'
@@ -25,7 +27,7 @@ import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
 import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
-import { activityUrlWithFilter } from '../mcpAnalyticsFiltersLogic'
+import { mcpTabUrlWithFilter } from '../mcpAnalyticsFiltersLogic'
 import { mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import {
     mcpDashboardOverviewLogic,
@@ -36,6 +38,9 @@ import {
     slowestToolsEmptyMessage,
 } from '../mcpDashboardOverviewLogic'
 import { ToolReportDrawer } from '../tool-quality/ToolReportDrawer'
+import { mcpUserUrl } from '../users/MCPAnalyticsUsers'
+import { UserReport } from '../users/UserReport'
+import { userReportLogic } from '../users/userReportLogic'
 import { LabScoreboard } from './LabScoreboard'
 import { isMostlyLabeled } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
@@ -54,6 +59,8 @@ const isCurrentProtocol = (version: string): boolean =>
 const protocolLabel = (version: string): string => (isCurrentProtocol(version) ? `${version} (current)` : version)
 const modelIcon = (model: string): JSX.Element => <BrandMark name={labMark(modelLab(model))} />
 const harnessIcon = (harness: string): JSX.Element => <HarnessLogo category={harness} />
+
+type FilterChange = Parameters<typeof mcpTabUrlWithFilter>[2]
 
 export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const {
@@ -84,6 +91,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
+    const [openedUser, setOpenedUser] = useState<{ distinctId: string; label: string; labels: string[] } | null>(null)
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
     const loadingFacet = (...keys: FacetKey[]): boolean =>
@@ -104,38 +112,39 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const modelMissing = isMostlyLabeled(facets.model, ['Unknown'])
     const harnessMissing = isMostlyLabeled(facets.harness, ['Unknown'])
     const usersAnonymous = isMostlyLabeled(facets.user, ['Unknown'])
-    const openActivity = (change: Parameters<typeof activityUrlWithFilter>[1]): void =>
-        router.actions.push(activityUrlWithFilter(searchParams, change))
-    const eventFilter = (key: string, values: string[]): Parameters<typeof activityUrlWithFilter>[1] => ({
+    const openActivity = (change: FilterChange): void =>
+        router.actions.push(mcpTabUrlWithFilter(urls.mcpAnalyticsActivity(), searchParams, change))
+    // An error type is about which tools fail with it, so it opens Tool quality.
+    const openToolQuality = (change: FilterChange): void =>
+        router.actions.push(mcpTabUrlWithFilter(urls.mcpAnalyticsToolQuality(), searchParams, change))
+    const eventFilter = (key: string, values: string[]): FilterChange => ({
         property: { type: PropertyFilterType.Event, key, value: values, operator: PropertyOperator.Exact },
     })
     // A chart's Unknown row counts the calls that didn't send the property.
-    const notSetFilter = (key: string): Parameters<typeof activityUrlWithFilter>[1] => ({
+    const notSetFilter = (key: string): FilterChange => ({
         property: { type: PropertyFilterType.Event, key, operator: PropertyOperator.IsNotSet },
     })
-    // The label is the email, else the distinct ID, and the filters can't OR the two, so check which one it is.
-    const openUserActivity = async (user: string): Promise<void> => {
-        const callsWithoutEmail = user.includes('@')
+    // The label is the email, else the distinct ID, so an email label needs a lookup for the drawer.
+    const openUser = async (label: string, labels: string[]): Promise<void> => {
+        const match = label.includes('@')
             ? await api
                   .query<HogQLQuery>({
                       kind: NodeKind.HogQLQuery,
-                      query: hogql`SELECT 1 FROM events
-                          WHERE event = '$mcp_tool_call' AND {filters} AND distinct_id = ${user}
-                              AND empty(toString(person.properties.email))
+                      query: hogql`SELECT distinct_id FROM events
+                          WHERE event = '$mcp_tool_call' AND {filters}
+                              AND (distinct_id = ${label} OR toString(person.properties.email) = ${label})
+                          ORDER BY timestamp DESC
                           LIMIT 1`,
                       filters: { dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo } },
                   })
                   .catch(() => null)
             : null
-        const isDistinctId = !user.includes('@') || !!callsWithoutEmail?.results?.length
-        openActivity({
-            property: {
-                type: PropertyFilterType.Person,
-                key: isDistinctId ? 'distinct_id' : 'email',
-                value: [user],
-                operator: PropertyOperator.Exact,
-            },
-        })
+        setOpenedUser({ distinctId: String(match?.results?.[0]?.[0] ?? label), label, labels })
+    }
+    const userIndex = openedUser ? openedUser.labels.indexOf(openedUser.label) : -1
+    const stepUser = (offset: number): (() => void) | null => {
+        const next = openedUser?.labels[userIndex + offset]
+        return openedUser && next ? () => void openUser(next, openedUser.labels) : null
     }
 
     return (
@@ -270,7 +279,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         rows={facets.user}
                         loading={loadingFacet('user')}
                         failed={failedFacet('user')}
-                        onSelect={openUserActivity}
+                        onSelect={(label, labels) => void openUser(label, labels)}
                         dataAttr="mcp-dashboard-user-share"
                         unknownLabel="Anonymous"
                         sensitive
@@ -302,8 +311,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         {...shareProps}
                         title="Common errors"
                         rows={facets.errorType}
-                        onSelect={(errorType) => openActivity({ facets: { errors: [errorType] } })}
-                        onSelectOther={(errors) => openActivity({ facets: { errors } })}
+                        onSelect={(errorType) => openToolQuality({ facets: { errors: [errorType] } })}
+                        onSelectOther={(errors) => openToolQuality({ facets: { errors } })}
                         loading={loadingFacet('errorType')}
                         failed={failedFacet('errorType')}
                         dataAttr="mcp-dashboard-error-type-share"
@@ -349,6 +358,31 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                 </TwoColumns>
             </Section>
+            {openedUser ? (
+                <MCPDetailDrawer
+                    noun="user"
+                    title={<span className="ph-no-capture">{openedUser.label}</span>}
+                    position={userIndex >= 0 ? { index: userIndex, total: openedUser.labels.length } : null}
+                    onPrevious={stepUser(-1)}
+                    onNext={stepUser(1)}
+                    fullPageHref={mcpUserUrl(openedUser.distinctId, dateFilter.dateFrom, dateFilter.dateTo)}
+                    onClose={() => setOpenedUser(null)}
+                    data-attr="mcp-dashboard-user-drawer"
+                >
+                    <BindLogic
+                        logic={userReportLogic}
+                        props={{
+                            distinctId: openedUser.distinctId,
+                            dateFrom: dateFilter.dateFrom,
+                            dateTo: dateFilter.dateTo,
+                        }}
+                    >
+                        <div data-quill>
+                            <UserReport />
+                        </div>
+                    </BindLogic>
+                </MCPDetailDrawer>
+            ) : null}
             <ToolReportDrawer
                 tool={drawerTool}
                 position={drawerPosition}

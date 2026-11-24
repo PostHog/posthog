@@ -146,8 +146,9 @@ export function pickSharedFilterParams(searchParams: Record<string, any>): Recor
     )
 }
 
-/** Activity URL with the shared filters plus one facet or property. */
-export function activityUrlWithFilter(
+/** A tab's URL with the shared filters plus one facet or property. */
+export function mcpTabUrlWithFilter(
+    tabUrl: string,
     searchParams: Record<string, any>,
     change: { facets?: Partial<McpFacetFilters>; property?: AnyPropertyFilter }
 ): string {
@@ -158,7 +159,7 @@ export function activityUrlWithFilter(
     if (change.property) {
         params.properties = [...(Array.isArray(params.properties) ? params.properties : []), change.property]
     }
-    return combineUrl(urls.mcpAnalyticsActivity(), params).url
+    return combineUrl(tabUrl, params).url
 }
 
 export const MCP_ANALYTICS_FILTER_ROUTES = [
