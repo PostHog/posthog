@@ -398,7 +398,11 @@ export interface todayShellLogicMeta {
             routePane: TodayRailPane | null,
             featureFlags: FeatureFlagsSet
         ) => TodayRailPane
-        paneHasSidebar: (activePane: TodayRailPane, featureFlags: FeatureFlagsSet, warehouseProvisioned: any) => boolean
+        paneHasSidebar: (
+            activePane: TodayRailPane,
+            featureFlags: FeatureFlagsSet,
+            warehouseProvisioned: boolean | null
+        ) => boolean
         currentView: (
             location: {
                 hash: string
