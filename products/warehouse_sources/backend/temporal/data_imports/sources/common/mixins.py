@@ -14,6 +14,7 @@ from django.db import OperationalError, close_old_connections
 import paramiko
 import structlog
 from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
+from temporalio import activity
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
@@ -821,6 +822,8 @@ _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0, 8.0)
 # Two changes keep that burst from switching off every table. Each wait is jittered, so the
 # syncs stop retrying in lockstep. And a reset before the banner, which proves the bastion is up,
 # gets these extra attempts, so the retries spread over about a minute instead of 14 seconds.
+# Only a Temporal activity gets them. A web request, such as a source check or a direct SQL query,
+# keeps the short budget, because a wrong port or a firewall can show the same reset.
 _SSH_GATEWAY_BUSY_EXTRA_BACKOFF_SECONDS: tuple[float, ...] = (16.0, 30.0)
 _SSH_TUNNEL_CONNECT_JITTER = (0.5, 1.5)
 
@@ -913,7 +916,7 @@ def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Ge
             except BaseSSHTunnelForwarderError:
                 _release_failed_forwarder(forwarder)
                 gateway_busy = any(_gateway_dropped_before_banner(e) for e in gateway_errors)
-                if gateway_busy:
+                if gateway_busy and activity.in_activity():
                     backoff = _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS + _SSH_GATEWAY_BUSY_EXTRA_BACKOFF_SECONDS
                 if attempt >= len(backoff):
                     raise

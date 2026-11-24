@@ -640,20 +640,22 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (f"{entrypoint}_{name}", entrypoint, gateway_error, backoff)
+            (f"{entrypoint}_{name}", entrypoint, gateway_error, in_activity, backoff)
             for entrypoint in ("open_ssh_tunnel", "factory")
-            for name, gateway_error, backoff in [
-                ("no_cause", None, (2.0, 4.0, 8.0)),
-                ("refused", ConnectionRefusedError(111, "Connection refused"), (2.0, 4.0, 8.0)),
-                ("bad_host_key", paramiko.SSHException("Bad host key from server"), (2.0, 4.0, 8.0)),
-                ("banner_timeout", "banner_timeout", (2.0, 4.0, 8.0)),
-                ("banner_reset", "banner_reset", (2.0, 4.0, 8.0, 16.0, 30.0)),
-                ("banner_eof", "banner_eof", (2.0, 4.0, 8.0, 16.0, 30.0)),
+            for name, gateway_error, in_activity, backoff in [
+                ("no_cause", None, True, (2.0, 4.0, 8.0)),
+                ("refused", ConnectionRefusedError(111, "Connection refused"), True, (2.0, 4.0, 8.0)),
+                ("bad_host_key", paramiko.SSHException("Bad host key from server"), True, (2.0, 4.0, 8.0)),
+                ("banner_timeout", "banner_timeout", True, (2.0, 4.0, 8.0)),
+                ("banner_reset", "banner_reset", True, (2.0, 4.0, 8.0, 16.0, 30.0)),
+                ("banner_eof", "banner_eof", True, (2.0, 4.0, 8.0, 16.0, 30.0)),
+                ("banner_reset_web_request", "banner_reset", False, (2.0, 4.0, 8.0)),
+                ("banner_eof_web_request", "banner_eof", False, (2.0, 4.0, 8.0)),
             ]
         ]
     )
     def test_connect_failing_every_attempt_still_raises_the_gateway_error(
-        self, _name: str, entrypoint: str, gateway_error, backoff: tuple[float, ...]
+        self, _name: str, entrypoint: str, gateway_error, in_activity: bool, backoff: tuple[float, ...]
     ):
         banner_causes = {
             "banner_timeout": TimeoutError("timed out"),
@@ -667,6 +669,7 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
             patch(f"{_MIXINS_MODULE}.SSHTunnel") as mock_ssh,
             patch(f"{_MIXINS_MODULE}.time.sleep") as mock_sleep,
             patch(f"{_MIXINS_MODULE}.random.uniform", side_effect=lambda low, high: high),
+            patch(f"{_MIXINS_MODULE}.activity.in_activity", return_value=in_activity),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
             get_tunnel = mock_ssh.from_config.return_value.get_tunnel
@@ -675,8 +678,9 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
                 with self._tunnel_cm(entrypoint, self._config()):
                     pass
             # The budget stays bounded, so a credential that is really wrong reaches the same
-            # classification it reached before the retry existed. Only a bastion that is up but
-            # dropped the connection before its banner gets the longer budget.
+            # classification it reached before the retry existed. Only a sync whose bastion is up but
+            # dropped the connection before its banner gets the longer budget. A web request, such
+            # as a source check, must not wait that long for a port that is really wrong.
             assert get_tunnel.call_count == attempts
             # Each wait is scaled by its own random draw, here pinned to the top of the range.
             assert [c.args[0] for c in mock_sleep.call_args_list] == [delay * 1.5 for delay in backoff]
