@@ -54,3 +54,10 @@ class DashboardUsageCount(StrEnum):
     FROM_TEMPLATE = "from_template"
     SHARED = "shared"
     TAGGED = "tagged"
+
+
+class QueryBatchLanguage(LabeledStrEnum):
+    """What a query batch target's `query` text holds."""
+
+    INSIGHT = "insight", "Insight"
+    HOGQL = "hogql", "HogQL"
