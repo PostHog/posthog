@@ -18,6 +18,12 @@ import {
 } from './todayShellLogic'
 
 describe('todayShellLogic', () => {
+    const areaFlagCombinations: Record<string, boolean>[] = Array.from({ length: 8 }, (_, index) => ({
+        [FEATURE_FLAGS.RELEASES_AREA]: Boolean(index & 1),
+        [FEATURE_FLAGS.MONITOR_AREA]: Boolean(index & 2),
+        [FEATURE_FLAGS.DATA_AREA]: Boolean(index & 4),
+    }))
+
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
@@ -221,9 +227,10 @@ describe('todayShellLogic', () => {
         expect(railPaneForPath(pathname, { [areaFlag]: true })).toBe(pane)
         expect(railPaneForPath(pathname, {})).toBe(paneWithoutArea)
 
-        for (const enabled of [true, false]) {
+        for (const areaFlags of areaFlagCombinations) {
+            const enabled = areaFlags[areaFlag]
             initKeaTests()
-            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [areaFlag]: enabled }
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, ...areaFlags }
             featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
             const logic = todayShellLogic()
             logic.mount()
@@ -276,9 +283,10 @@ describe('todayShellLogic', () => {
         '/early_access_features/new',
         '/early_access_features/12',
     ])('selects Release for %s only with releases-area enabled', (pathname) => {
-        for (const enabled of [true, false]) {
+        for (const areaFlags of areaFlagCombinations) {
+            const enabled = areaFlags[FEATURE_FLAGS.RELEASES_AREA]
             initKeaTests()
-            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.RELEASES_AREA]: enabled }
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, ...areaFlags }
             featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
             const logic = todayShellLogic()
             logic.mount()
