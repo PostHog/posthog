@@ -54,6 +54,7 @@ from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
+    ToolbarOAuthStateReplayError,
     build_authorization_url,
     build_toolbar_oauth_state,
     get_or_create_toolbar_oauth_application,
@@ -62,6 +63,7 @@ from posthog.api.oauth.toolbar_service import (
     refresh_tokens,
     validate_and_consume_toolbar_oauth_state,
 )
+from posthog.api.oauth.toolbar_views import redirect_to_toolbar_oauth_error
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
@@ -168,7 +170,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_safe_cache, render_template, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
@@ -1921,21 +1923,11 @@ def toolbar_oauth_authorize(request):
         )
     except ToolbarOAuthError as exc:
         if exc.code == "forbidden_app_url":
-            parsed_redirect = urllib.parse.urlparse(redirect_url)
-            hostname = parsed_redirect.hostname or redirect_url
-            return render_template(
-                "toolbar_oauth_error.html",
+            return redirect_to_toolbar_oauth_error(
                 request,
-                context={
-                    "error_title": "Domain not authorized",
-                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                    "error_detail": (
-                        f"The hostname {hostname} needs to be added to your project's "
-                        "authorized URLs before the toolbar can be used on this site."
-                    ),
-                    "error_code": "403",
-                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-                },
+                title="Domain not authorized",
+                message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                unauthorized_url=redirect_url,
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -1993,19 +1985,22 @@ def toolbar_oauth_callback(request):
             signed_state=state,
             request_user=request.user,
             request_team=team,
+            code=code,
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
+        # A refused state never sends the code to the toolbar, so remove the grant before anyone can redeem it. A
+        # replay with the code that claimed the state is the exception: the first callback may have sent it already.
+        if not isinstance(exc, ToolbarOAuthStateReplayError):
+            OAuthGrant.objects.filter(
+                code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME
+            ).delete()
         if exc.code == "invalid_state":
             # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
-            return render_template(
-                "toolbar_oauth_error.html",
+            return redirect_to_toolbar_oauth_error(
                 request,
-                context={
-                    "error_title": "This toolbar sign-in expired",
-                    "error_message": "Open the toolbar from your site again to start a new sign-in.",
-                    "error_code": str(exc.status_code),
-                },
+                title="This toolbar sign-in expired",
+                message="Open the toolbar from your site again to start a new sign-in.",
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -2274,31 +2269,17 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        try:
-            hostname = urllib.parse.urlparse(app_url).hostname or app_url
-        except ValueError:
-            # A URL too malformed to parse is still a rejection, so report it back as typed
-            # rather than failing the request with a 500.
-            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
             app_url=app_url,
             team_id=team.id,
         )
-        return render_template(
-            "toolbar_oauth_error.html",
+        return redirect_to_toolbar_oauth_error(
             request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
+            title="Domain not authorized",
+            message="The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+            unauthorized_url=app_url,
             status_code=403,
         )
 
