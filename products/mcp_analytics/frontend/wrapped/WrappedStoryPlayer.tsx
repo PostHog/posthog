@@ -7,7 +7,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ArchetypeCard } from './cards/ArchetypeCard'
 import { IntroCard } from './cards/IntroCard'
-import { ModelsCard } from './cards/ModelsCard'
 import { ReliabilityCard } from './cards/ReliabilityCard'
 import { RushHourCard } from './cards/RushHourCard'
 import { ShareCard } from './cards/ShareCard'
@@ -57,7 +56,15 @@ function CurrentCard({ cardKey }: { cardKey: WrappedCardKey }): JSX.Element | nu
                 />
             ) : null
         case 'models':
-            return cards.models ? <ModelsCard card={cards.models} /> : null
+            return cards.models ? (
+                <SharesCard
+                    cardKey="models"
+                    card={cards.models}
+                    kicker="The models doing the calling"
+                    headline={(leader, share) => `${leader} led with ${share}`}
+                    otherLabel="Other models"
+                />
+            ) : null
         case 'rush_hour':
             return cards.rush_hour ? <RushHourCard card={cards.rush_hour} /> : null
         case 'reliability':

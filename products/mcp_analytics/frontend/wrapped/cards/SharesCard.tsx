@@ -1,7 +1,7 @@
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { cn } from 'lib/utils/css-classes'
 
-import { labMark, type ModelLab } from '../../aiLabs'
+import { labMark, modelLab, type ModelLab } from '../../aiLabs'
 import { HarnessLogo } from '../../dashboard/harness'
 import type { MCPWrappedSharesCardApi } from '../../generated/api.schemas'
 import { formatPercent } from '../storyCards'
@@ -9,31 +9,25 @@ import { WrappedCard } from '../WrappedCard'
 
 const OTHER = 'Other'
 
+type SharesCardKey = 'apps' | 'labs' | 'models'
+
 export interface SharesCardProps {
-    cardKey: 'apps' | 'labs'
+    cardKey: SharesCardKey
     card: MCPWrappedSharesCardApi
     kicker: string
     headline: (leader: string, share: string) => string
     otherLabel: string
 }
 
-function Logo({
-    cardKey,
-    name,
-    className,
-}: {
-    cardKey: 'apps' | 'labs'
-    name: string
-    className: string
-}): JSX.Element {
-    return cardKey === 'apps' ? (
-        <HarnessLogo category={name} className={className} />
-    ) : (
-        <BrandMark name={labMark(name as ModelLab) ?? 'Unbranded model'} className={className} />
-    )
+function Logo({ cardKey, name, className }: { cardKey: SharesCardKey; name: string; className: string }): JSX.Element {
+    if (cardKey === 'apps') {
+        return <HarnessLogo category={name} className={className} />
+    }
+    const lab = cardKey === 'models' ? modelLab(name) : (name as ModelLab)
+    return <BrandMark name={labMark(lab) ?? 'Unbranded model'} className={className} />
 }
 
-/** The apps or AI labs that made the calls, ranked, with each one's logo. */
+/** The apps, AI labs or model families behind the calls, ranked, with each one's logo. */
 export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: SharesCardProps): JSX.Element {
     const named = card.shares.filter((share) => share.name !== OTHER)
     const other = card.shares.find((share) => share.name === OTHER)

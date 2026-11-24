@@ -5,7 +5,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import type { MCPWrappedCardsApi } from '../generated/api.schemas'
 import { ArchetypeCard } from './cards/ArchetypeCard'
 import { IntroCard } from './cards/IntroCard'
-import { ModelsCard } from './cards/ModelsCard'
 import { ReliabilityCard } from './cards/ReliabilityCard'
 import { RushHourCard } from './cards/RushHourCard'
 import { ShareCard } from './cards/ShareCard'
@@ -102,7 +101,15 @@ function AllCards(): JSX.Element {
                     otherLabel="Other labs"
                 />
             )}
-            {CARDS.models && <ModelsCard card={CARDS.models} />}
+            {CARDS.models && (
+                <SharesCard
+                    cardKey="models"
+                    card={CARDS.models}
+                    kicker="The models doing the calling"
+                    headline={(leader, share) => `${leader} led with ${share}`}
+                    otherLabel="Other models"
+                />
+            )}
             {CARDS.rush_hour && <RushHourCard card={CARDS.rush_hour} />}
             <ReliabilityCard card={CARDS.reliability} />
             {CARDS.speed && <SpeedCard card={CARDS.speed} />}
