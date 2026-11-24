@@ -15,12 +15,12 @@ from products.workflows.backend.facade.email_images import copy_images_for_team,
 
 MAX_IMAGES_PER_STEP = 1000
 MAX_SECONDS_PER_PAGE = 10 * 60
-# Past it, the step's later images keep their address. Without it a slow host could hold a step for days.
+# Copying time, not the provider's API. Past it, the step's later images keep their address. Without it a slow host could hold a step for days.
 MAX_SECONDS_PER_STEP = 30 * 60
 _MAX_NOTED_IMAGES = 10
 _MAX_NOTED_URL_LENGTH = 300
 
-# Every repeat is capped, so an unclosed quote scans in linear time. Regular expressions rather than a parser, because
+# Every repeat is capped, so an unclosed quote can't make a scan slow. Regular expressions rather than a parser, because
 # Outlook's VML sits inside comments and the rest of the HTML has to stay byte for byte as it was.
 _ATTRIBUTE = re.compile(
     r"""(?<=[\s"'])(?:src|background|poster)\s{0,20}=\s{0,20}(?:"([^"]{0,8192})"|'([^']{0,8192})'|([^\s"'<>]{1,8192}))""",
@@ -64,7 +64,7 @@ class TemplateImages:
         self._copied: dict[str, str] = {}
         self._tried: set[str] = set()
         self._remaining = MAX_IMAGES_PER_STEP
-        self._deadline: float | None = None
+        self._seconds_left: float = MAX_SECONDS_PER_STEP
 
     @property
     def enabled(self) -> bool:
@@ -91,18 +91,17 @@ class TemplateImages:
             self._can_upload = False
             return
         now = time.monotonic()
-        if self._deadline is None:
-            self._deadline = now + MAX_SECONDS_PER_STEP
         copied = copy_images_for_team(
             self._team_id,
             user_id,
             found,
             source,
             max_images=self._remaining,
-            deadline=min(self._deadline, now + MAX_SECONDS_PER_PAGE),
+            deadline=now + min(self._seconds_left, MAX_SECONDS_PER_PAGE),
         )
         self._copied.update(copied.copies)
         self._remaining -= copied.downloads
+        self._seconds_left -= time.monotonic() - now
         self._tried.update(found)
 
     def place(self, html: str) -> PlacedImages:
@@ -144,8 +143,7 @@ class TemplateImages:
         if tagged:
             notes.append(
                 f"{_count(len(tagged))} from {source.label}'s servers, because the address holds a template tag: "
-                f"{_named(tagged)}. Move {'it' if len(tagged) == 1 else 'them'} before you close your {source.label} "
-                "account."
+                f"{_named(tagged)}. Use an image from the media library there before you close your {source.label} account."
             )
         return PlacedImages(html=html, notes=tuple(notes))
 
