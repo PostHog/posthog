@@ -143,6 +143,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     }[] = []
     public goalsReadGate: Promise<void> | null = null
     public goalsReadQueued = false
+    public watcherScanGate: Promise<void> | null = null
     public failGoalsRead = false
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
@@ -206,6 +207,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: claimed, rowCount: claimed.length })
             }
             // Checked before the parked-job lookup: both select `id, team_id, function_id`.
+            if (sql.includes('MIN(created_at)') && this.watcherScanGate) {
+                return this.watcherScanGate.then(() => ({ rows: [], rowCount: 0 }))
+            }
             if (sql.includes('FROM conversion_watchers')) {
                 const rows = this.watcherRows.map((r) => ({ expires_at: farFuture, ...r }))
                 return Promise.resolve({ rows, rowCount: rows.length })
@@ -2343,6 +2347,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     }
                 }
             )
+
+            it('starts no second watcher scan while one is still running', async () => {
+                const matcher = new MatcherUnderTest()
+                let finishScan = (): void => {}
+                matcher.watcherScanGate = new Promise((resolve) => (finishScan = resolve))
+                const scans = (): number => matcher.calls.filter((c) => c.sql.includes('MIN(created_at)')).length
+
+                const ticks = [(matcher as any).refreshWatcherState(), (matcher as any).refreshWatcherState()]
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(scans()).toBe(1)
+
+                finishScan()
+                await Promise.all(ticks)
+                expect(scans()).toBe(1)
+            })
 
             it('counts a conversion and a would-be miss in shadow mode when the goals lack it', async () => {
                 const missed = async (): Promise<number> =>

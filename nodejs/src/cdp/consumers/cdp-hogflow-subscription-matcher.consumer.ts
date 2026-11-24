@@ -358,6 +358,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by team.
     private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
     private pinnedGoalsRead: Promise<void> | null = null
+    private watcherScan: Promise<void> | null = null
     private teamsOverGoalCap: Set<number> = new Set()
     private pinnedGoalsReadAt = 0
     // Team -> when one of its flows changed, until a goals read that started PINNED_GOALS_CHANGE_WINDOW_MS later.
@@ -1408,7 +1409,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             this.teamsWithChangedFlows.clear()
             gaugeHogflowMatcherTeamsWithWatchers.set(0)
         } else if (Date.now() - this.watcherRefreshedAt >= WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
-            await this.refreshTeamsWithLiveWatchers()
+            // The cyclotron pool has no query timeout either, so a slow scan must not start another every tick.
+            if (!this.watcherScan) {
+                this.watcherScan = this.refreshTeamsWithLiveWatchers().finally(() => {
+                    this.watcherScan = null
+                })
+            }
+            await this.watcherScan
         }
     }
 
