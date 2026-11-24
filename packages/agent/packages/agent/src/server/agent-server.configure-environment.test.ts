@@ -145,8 +145,12 @@ describe("AgentServer.configureEnvironment", () => {
       originProduct: "signal_report",
     });
 
-    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
-    expect(env.openaiBaseUrl).toBe("https://gateway.us.posthog.com/signals/v1");
+    expect(env.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
+    expect(env.openaiBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals/v1",
+    );
   });
 
   it("tags as signals when origin_product is 'signal_report' even if the task is not internal", () => {
@@ -155,7 +159,9 @@ describe("AgentServer.configureEnvironment", () => {
       originProduct: "signal_report",
     });
 
-    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
   });
 
   it("tags as signals for scout runs (origin_product 'signals_scout'), internal or not", () => {
@@ -164,7 +170,9 @@ describe("AgentServer.configureEnvironment", () => {
       originProduct: "signals_scout",
     });
 
-    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
   });
 
   it.each([{ isInternal: true }, { isInternal: false }] as const)(
@@ -176,10 +184,10 @@ describe("AgentServer.configureEnvironment", () => {
       });
 
       expect(env.anthropicBaseUrl).toBe(
-        "https://gateway.us.posthog.com/conversations",
+        "http://llm-gateway.internal:8080/conversations",
       );
       expect(env.openaiBaseUrl).toBe(
-        "https://gateway.us.posthog.com/conversations/v1",
+        "http://llm-gateway.internal:8080/conversations/v1",
       );
     },
   );
@@ -193,10 +201,10 @@ describe("AgentServer.configureEnvironment", () => {
       });
 
       expect(env.anthropicBaseUrl).toBe(
-        "https://gateway.us.posthog.com/posthog_code",
+        "http://llm-gateway.internal:8080/posthog_code",
       );
       expect(env.openaiBaseUrl).toBe(
-        "https://gateway.us.posthog.com/posthog_code/v1",
+        "http://llm-gateway.internal:8080/posthog_code/v1",
       );
     },
   );
@@ -208,10 +216,10 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/onboarding",
+      "http://llm-gateway.internal:8080/onboarding",
     );
     expect(env.openaiBaseUrl).toBe(
-      "https://gateway.us.posthog.com/onboarding/v1",
+      "http://llm-gateway.internal:8080/onboarding/v1",
     );
   });
 
@@ -364,10 +372,10 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/slack_app",
+      "http://llm-gateway.internal:8080/slack_app",
     );
     expect(env.openaiBaseUrl).toBe(
-      "https://gateway.us.posthog.com/slack_app/v1",
+      "http://llm-gateway.internal:8080/slack_app/v1",
     );
   });
 
@@ -378,7 +386,7 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/slack_app",
+      "http://llm-gateway.internal:8080/slack_app",
     );
   });
 
@@ -388,7 +396,7 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code",
+      "http://llm-gateway.internal:8080/posthog_code",
     );
   });
 
@@ -398,10 +406,10 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_ai",
+      "http://llm-gateway.internal:8080/posthog_ai",
     );
     expect(env.openaiBaseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_ai/v1",
+      "http://llm-gateway.internal:8080/posthog_ai/v1",
     );
   });
 

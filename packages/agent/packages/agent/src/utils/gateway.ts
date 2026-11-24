@@ -70,7 +70,7 @@ function legacyProduct(product: GatewayProduct): GatewayProduct {
   return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
 }
 
-export function getLlmGatewayUrl(posthogHost: string): string {
+export function getAiGatewayUrl(posthogHost: string): string {
   return getCloudTaskGatewayUrl(posthogHost);
 }
 
@@ -93,7 +93,7 @@ export function resolveLlmGatewayUrl(
     // slug would 404. A trailing `/v1` is stripped because callers re-append
     // it: the Anthropic SDK adds `/v1/messages`, and the OpenAI base URL is
     // derived by appending `/v1`.
-    const base = (envUrl ?? getLlmGatewayUrl(posthogHost)).replace(/\/+$/, "");
+    const base = (envUrl ?? getAiGatewayUrl(posthogHost)).replace(/\/+$/, "");
     return base.replace(/\/v1$/, "");
   }
   if (envUrl) {
@@ -164,13 +164,6 @@ export function resolveAiProduct({
     }
   }
   return product;
-}
-
-export function getGatewayUsageUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
 }
 
 export interface GatewayTarget {

@@ -3,7 +3,7 @@ import { type CloudRegion, getCustomCloud } from "@posthog/agent-contracts";
 const GATEWAY_HOSTS: Record<CloudRegion, string> = {
   us: "https://ai-gateway.us.posthog.com",
   eu: "https://ai-gateway.eu.posthog.com",
-  dev: "http://localhost:3308",
+  dev: "http://localhost:8080",
   "dev-cloud": "https://ai-gateway.dev.posthog.dev",
   custom: "https://ai-gateway.us.posthog.com",
 };

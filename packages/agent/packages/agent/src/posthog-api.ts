@@ -18,9 +18,9 @@ import {
   contextSelectionResponseSchema,
 } from "./context-selection/schemas";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
-import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
+import { getAiGatewayUrl } from "./utils/gateway";
 
-export { getGatewayUsageUrl, getLlmGatewayUrl };
+export { getAiGatewayUrl };
 
 const TASK_MODELS_FETCH_TIMEOUT_MS = 10_000;
 export { API_TRANSFER_TIMEOUT_MS, type TaskRunUpdate };
@@ -131,8 +131,8 @@ export class PostHogAPIClient {
     return this.http.resolveApiKey(forceRefresh);
   }
 
-  getLlmGatewayUrl(): string {
-    return getLlmGatewayUrl(this.baseUrl);
+  getAiGatewayUrl(): string {
+    return getAiGatewayUrl(this.baseUrl);
   }
 
   async getTaskModels(): Promise<GatewayModel[]> {

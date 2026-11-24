@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  getGatewayUsageUrl,
-  getLlmGatewayUrl,
+  getAiGatewayUrl,
   resolveAiProduct,
   resolveGatewayProduct,
   resolveGatewayTarget,
@@ -166,7 +165,7 @@ describe("resolveLlmGatewayUrl", () => {
   );
 });
 
-describe("getLlmGatewayUrl", () => {
+describe("getAiGatewayUrl", () => {
   it.each([
     {
       posthogHost: "https://us.posthog.com",
@@ -185,7 +184,7 @@ describe("getLlmGatewayUrl", () => {
       expected: "http://localhost:8080",
     },
   ] as const)("$posthogHost -> $expected", ({ posthogHost, expected }) => {
-    expect(getLlmGatewayUrl(posthogHost)).toBe(expected);
+    expect(getAiGatewayUrl(posthogHost)).toBe(expected);
   });
 });
 

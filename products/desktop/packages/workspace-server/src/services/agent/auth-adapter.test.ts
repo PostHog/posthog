@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFetch = vi.hoisted(() => vi.fn());
 
-vi.mock("@posthog/agent/posthog-api", () => ({
-  getLlmGatewayUrl: vi.fn(() => "https://gateway.example.com"),
-}));
-
 vi.stubGlobal("fetch", mockFetch);
 
 import { configureCustomCloud } from "@posthog/shared";
