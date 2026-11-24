@@ -2,12 +2,17 @@ import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { MetricValueWithName, register } from 'prom-client'
 
+import { KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL } from '~/common/config/kafka-topics'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { HOG_INVOCATION_RESULTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutput } from '~/common/outputs/ingestion-output'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { CdpOutputs } from '../cdp-services'
 import { CDP_INTAKE_DLQ_OUTPUT, CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, EMAIL_STATUS_OUTPUT } from '../outputs/outputs'
@@ -200,7 +205,10 @@ describe('insertIntakeBatch', () => {
         ])
     })
 
-    const produceSealed = async (contentState: Record<string, unknown>): Promise<{ id: string; produced: Buffer }> => {
+    const produceSealed = async (
+        contentState: Record<string, unknown>,
+        output?: IngestionOutput
+    ): Promise<{ id: string; produced: Buffer }> => {
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
             CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
@@ -213,7 +221,7 @@ describe('insertIntakeBatch', () => {
                 ...recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
                 produce: (message) => {
                     produced = message.value as Buffer
-                    return Promise.resolve()
+                    return output ? output.produce(message) : Promise.resolve()
                 },
             },
         })
@@ -261,15 +269,40 @@ describe('insertIntakeBatch', () => {
             sizeBytes,
             sha256: sha.repeat(64),
         })
-        const { id, produced } = await produceSealed({
-            send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] },
-        })
+        const topicName = createKafkaTestTopicName(KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL)
+        await ensureKafkaTopics([topicName])
+        const producer = await KafkaProducerWrapper.create(undefined)
+        const consumer = new KafkaConsumer(
+            { topic: topicName, groupId: `intake-read-${topicName}`, autoCommit: false, autoOffsetStore: false },
+            { 'auto.offset.reset': 'earliest' } as never
+        )
+        try {
+            const output = new SingleIngestionOutput('intake-file-bytes-test', topicName, producer, 'test')
+            const { id } = await produceSealed(
+                { send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] } },
+                output
+            )
+            await producer.flush()
 
-        await insertIntakeBatch([kafkaMessage(produced)], services, OPTIONS)
+            let received: (batch: Message[]) => void = () => undefined
+            const delivered = new Promise<Message[]>((resolve) => (received = resolve))
+            await consumer.connect((batch) => {
+                if (batch.length) {
+                    received(batch)
+                }
+                return Promise.resolve()
+            })
 
-        const [job] = await storedJobs([id])
-        expect(job.fileBytes).toBe('1000')
-    })
+            await insertIntakeBatch(await delivered, services, OPTIONS)
+
+            const [job] = await storedJobs([id])
+            expect(job.fileBytes).toBe('1000')
+        } finally {
+            await consumer.disconnect()
+            await producer.disconnect()
+            await deleteKafkaTopics([topicName])
+        }
+    }, 60_000)
 
     it('writes the queued status of a keyed send, dated by its trigger event', async () => {
         const id = keyedRunId(7, 'transactional-email', `key-${new UUIDT().toString()}`)
