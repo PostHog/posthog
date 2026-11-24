@@ -110,6 +110,26 @@ class TestNonRetryableErrors:
     def test_billing_and_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
         assert any(key in observed_error for key in self.source.get_non_retryable_errors())
 
+    @parameterized.expand(
+        [
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='mixpanel.com', port=443): Max retries exceeded with url: /api/query/engage?project_id=123456 "
+                "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='mixpanel.com', port=443): "
+                'Read timed out. (read timeout=60)"))',
+            ),
+            (
+                "connection_refused",
+                "HTTPSConnectionPool(host='mixpanel.com', port=443): Max retries exceeded with url: /api/query/engage?project_id=123456 "
+                "(Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
+                "Failed to establish a new connection: [Errno 111] Connection refused'))",
+            ),
+        ]
+    )
+    def test_exhausted_connection_retries_are_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
     def test_truncated_export_has_customer_facing_copy(self) -> None:
         # The shared map keys on a literal, so a reworded error would silently lose its copy.
         assert EXPORT_TRUNCATED_ERROR in Transient_Error_Messages

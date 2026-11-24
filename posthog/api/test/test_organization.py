@@ -1278,11 +1278,23 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    @parameterized.expand(
+        [
+            ("posthog_billing", {}, "billing page"),
+            (
+                "vercel_billing",
+                {"billing_provider": "vercel"},
+                "uninstall the PostHog integration from your Vercel team",
+            ),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_cannot_delete_organization_with_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_cannot_delete_organization_with_active_subscription(
+        self, _name, billing_extra, expected_detail, mock_get_license, mock_get_billing
+    ):
         mock_get_license.return_value = True
-        mock_get_billing.return_value = {"has_active_subscription": True}
+        mock_get_billing.return_value = {"has_active_subscription": True, **billing_extra}
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -1291,7 +1303,7 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("active subscription", response.json()["detail"])
+        self.assertIn(expected_detail, response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")

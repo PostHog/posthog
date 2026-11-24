@@ -1,5 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import StrEnum
+from typing import Any
+from uuid import UUID
 
 from django.http import HttpRequest
 
@@ -21,6 +23,8 @@ logger = structlog.get_logger(__name__)
 CURRENT_ALIAS = "@current"
 _SCOPE_RESOLUTION_ATTR = "_posthog_scope_resolution"
 _FLAT_ROUTE_ATTR = "_posthog_flat_route"
+_TOKEN_ON_PROJECT_PATH_ATTR = "_posthog_token_on_project_path"
+_PATH_PROJECT_KWARGS = ("team_id", "project_id")
 
 
 class ScopeSource(StrEnum):
@@ -51,13 +55,58 @@ def record_scope_resolution(request: Request, *, token_team: Callable[[], Team |
 
 
 def _token_decides(request: Request, token_team: Callable[[], Team | None]) -> bool:
+    return _team_from_token(request, token_team) is not None
+
+
+def _team_from_token(request: Request, token_team: Callable[[], Team | None]) -> Team | None:
     # The token lookup can parse the request body, so a request that failed authentication skips it.
     if not request.user.is_authenticated:
-        return False
+        return None
     try:
-        return token_team() is not None
+        return token_team()
     except AuthenticationFailed:
+        return None
+
+
+@frozen
+class TokenOnProjectPath:
+    token_matches_path: bool
+    team_id: int
+    organization_id: UUID
+
+
+def record_token_on_project_path(
+    request: Request, *, token_team: Callable[[], Team | None], path_kwargs: Mapping[str, Any]
+) -> None:
+    """Store on the HttpRequest whether a token decided the project of a route whose path names one."""
+    try:
+        path_values = {name: value for name, value in path_kwargs.items() if name in _PATH_PROJECT_KWARGS}
+        if not path_values:
+            return
+        team = _team_from_token(request, token_team)
+        if team is None:
+            return
+        token_ids = {"team_id": team.id, "project_id": team.project_id}
+        matches = all(_names_id(value, token_ids[name]) for name, value in path_values.items())
+        setattr(
+            request._request,
+            _TOKEN_ON_PROJECT_PATH_ATTR,
+            TokenOnProjectPath(token_matches_path=matches, team_id=team.id, organization_id=team.organization_id),
+        )
+    except Exception:
+        logger.warning("token_on_project_path_record_failed", exc_info=True)
+
+
+def _names_id(path_value: Any, expected_id: int) -> bool:
+    # Parse like parents_query_dict does, so a spelling the router accepts, such as "+123", still compares.
+    try:
+        return int(path_value) == expected_id
+    except (TypeError, ValueError):
         return False
+
+
+def token_on_project_path(request: HttpRequest) -> TokenOnProjectPath | None:
+    return getattr(request, _TOKEN_ON_PROJECT_PATH_ATTR, None)
 
 
 def note_flat_route(request: Request) -> None:

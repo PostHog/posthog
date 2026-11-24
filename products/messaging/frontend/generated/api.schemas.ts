@@ -330,6 +330,79 @@ export interface SendTransactionalPushResponseApi {
 }
 
 /**
+ * Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name.
+ */
+export type SendPushBatchApiMessageData = { [key: string]: unknown }
+
+/**
+ * Values for this recipient's {{ variables.* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there.
+ */
+export type PushBatchRecipientApiMessageData = { [key: string]: unknown }
+
+export interface PushBatchRecipientApi {
+    /**
+     * Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends.
+     * @maxLength 400
+     */
+    distinct_id: string
+    /** Values for this recipient's {{ variables.* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there. */
+    message_data?: PushBatchRecipientApiMessageData
+    /** A unique key for this recipient's notification, 1 to 255 visible ASCII characters, different for each recipient of the batch. Retrying with the same key and the same notification within 24 hours sends nothing new and returns the first send's `message_id`, also when the first send was a single send. */
+    idempotency_key: string
+}
+
+export interface SendPushBatchApi {
+    /** ID of a push template made transactional, which holds the notification's title, body and push channels. */
+    template_id: string
+    /** Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name. */
+    message_data?: SendPushBatchApiMessageData
+    /**
+     * Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.
+     * @maxItems 100
+     */
+    recipients: PushBatchRecipientApi[]
+}
+
+/**
+ * * `queued` - Queued
+ */
+export type PushBatchResultStatusEnumApi =
+    (typeof PushBatchResultStatusEnumApi)[keyof typeof PushBatchResultStatusEnumApi]
+
+export const PushBatchResultStatusEnumApi = {
+    Queued: 'queued',
+} as const
+
+export interface PushBatchErrorApi {
+    /** Why this recipient's notification wasn't queued: `content_too_large`, `invalid_request`, `idempotency_key_reused`, `idempotency_key_in_flight`, `quota_limited`, `transactional_push_paused`, or `delivery_unavailable` when the push pipeline didn't confirm it, so it may still go out. */
+    code: string
+    /** What happened and what to do next, in words a person can read. */
+    detail: string
+    /** The HTTP status that goes with `code`: 429 for `quota_limited`, 409 for `idempotency_key_in_flight`, 422 for `idempotency_key_reused`, 503 for `delivery_unavailable`, and 400 for the others. The batch itself answers 200. */
+    status: number
+    /** True when sending it again with the same `idempotency_key` can succeed: `delivery_unavailable` and `idempotency_key_in_flight`. */
+    retryable: boolean
+}
+
+export interface PushBatchResultApi {
+    /** ID of this recipient's notification, the same for every send with its `idempotency_key`, also when the result is an error. */
+    message_id: string
+    /** `queued` when PostHog accepted the notification. It can still be skipped later, for example when the person has no registered device. Absent with `error`.
+     *
+     * * `queued` - Queued */
+    status?: PushBatchResultStatusEnumApi
+    /** True when an earlier request with the same `idempotency_key` already queued this notification, so no new one was sent. Absent with `error`. */
+    replayed?: boolean
+    /** Why this notification wasn't queued. Absent when it was. */
+    error?: PushBatchErrorApi
+}
+
+export interface SendPushBatchResponseApi {
+    /** One result per recipient, in the order of the request. */
+    results: PushBatchResultApi[]
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
@@ -532,6 +605,7 @@ export type ProviderImportRunApiSettings = { [key: string]: string }
  * * `postmark` - Postmark
  * * `sendgrid` - SendGrid
  * * `mailgun` - Mailgun
+ * * `mailchimp` - Mailchimp
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
@@ -541,6 +615,7 @@ export const ImportProviderKeyEnumApi = {
     Postmark: 'postmark',
     Sendgrid: 'sendgrid',
     Mailgun: 'mailgun',
+    Mailchimp: 'mailchimp',
 } as const
 
 /**
@@ -658,7 +733,8 @@ export interface ProviderImportRunApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -697,7 +773,8 @@ export interface StartProviderImportApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -706,7 +783,7 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.
      * @maxLength 512
      */
     api_key?: string
@@ -757,7 +834,8 @@ export interface ImportProviderOptionApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string

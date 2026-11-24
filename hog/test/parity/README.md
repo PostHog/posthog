@@ -7,17 +7,20 @@ So a byte that differs between the two CLIs breaks every customer who switches f
 `hog schema pull` must write the same module as `posthog-cli exp schema pull`, so a project can switch CLIs without a change to its generated code.
 
 These tests compare hog against goldens recorded from the Rust code.
-The goldens are checked in, so the tests need no Rust toolchain.
+The goldens are checked in, so the tests need nothing from `cli/`. They do need hog-worker, which `pnpm --filter hog unit` builds from `hog/worker/` first. The container goldens are checked by `cargo test` in `hog/worker/`.
 
 ## What is compared
 
-| Test                 | Golden                                                            | Recorded with                                                           |
-| -------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `containers.test.ts` | The content hash of a symbol set container, for 47 inputs         | `cli/examples/hog_parity_oracle.rs`, which calls posthog-cli's own code |
-| `e2e.test.ts`        | Every request the CLI sends, the uploaded bytes and the exit code | The `posthog-cli` binary against `fake-server.ts`                       |
+| Test                       | Golden                                                            | Recorded with                                                           |
+| -------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `hog/worker/src/parity.rs` | The content hash of a symbol set container, for 47 inputs         | `cli/examples/hog_parity_oracle.rs`, which calls posthog-cli's own code |
+| `e2e.test.ts`              | Every request the CLI sends, the uploaded bytes and the exit code | The `posthog-cli` binary against `fake-server.ts`                       |
+
+Every scenario runs the real CLI, so the files it writes and the bytes it uploads come from hog-worker.
+`parity.rs` puts each input into a container with the worker's own code, which holds the zstd the worker is built with to posthog-cli's.
 
 The container inputs sit on every boundary where libzstd's streaming output can differ from one-shot compression: exact multiples of the 128 KiB block, the 2 MiB window, and inputs up to 32 MiB.
-`inputs.ts` generates them from a seed, so large inputs are never checked in.
+`inputs.ts` generates them from a seed, so large inputs are never checked in, and `parity.rs` generates the same bytes.
 
 The end-to-end scenarios cover a first upload, a re-upload of chunks PostHog already has, the multipart POST path, content and release conflicts with and without `--force` and `--skip-on-conflict`, check and start failures, and releases from flags and from git.
 
@@ -31,7 +34,7 @@ Native scenarios compare `hog error-tracking upload` with `posthog-cli symbol-se
 The fixtures cover a fat dSYM, loose Mach-O DWARF files, files without debug info or a build ID, and two files that share a build ID.
 The `--include-source` scenarios put `native/src/` back in that folder first with the `setup` hook, and one scenario leaves it empty to cover sources that can't be read.
 
-The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The `schema-pull` scenarios do the same for each language, and for a types-only TypeScript module (`--sdk none`) written to the default path, a folder, and the path and SDK saved in `posthog.json`. The fake server stores symbol sets for download, built with hog's writers, which the upload scenarios already hold to posthog-cli's bytes.
+The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The `schema-pull` scenarios do the same for each language, and for a types-only TypeScript module (`--sdk none`) written to the default path, a folder, and the path and SDK saved in `posthog.json`. The fake server stores symbol sets for download, built by the test-only writer in `symbol-set-writer.ts`, which both CLIs only read.
 
 `real/` holds real Xcode, Rust and React Native output from getsentry/symbolic's test fixtures, with their MIT license. The `real-` scenarios run uploads, `--include-source`, `inject` and `clone` on them.
 
@@ -71,3 +74,4 @@ bun test/parity/record-e2e.ts "$TARGET/release/posthog-cli"
 Record the JavaScript scenarios with a binary from the same `cli/` version, and keep one bundle per folder in new fixtures: posthog-cli's walk order decides which bundle wins a shared map or a duplicate chunk ID.
 
 Regenerate them when posthog-cli changes what it uploads, and review the diff: a changed golden means hog and posthog-cli no longer agree until hog changes too.
+For a change to posthog-cli's symbol code, that means copying it into `hog/worker/src/` and raising the same dependency versions in `hog/worker/Cargo.toml`.

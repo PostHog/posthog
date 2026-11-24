@@ -19,10 +19,12 @@ from products.messaging.backend.facade.contracts import (
     EmailStatus,
     EmailTracking,
     FieldNotAccepted,
+    IdempotencyKeyInFlight,
     InvalidRecipient,
     InvalidRequest,
     MessageTooLarge,
     PresentAttachment,
+    PushBatchRecipient,
     QueuedEmail,
     QueuedEmailStatus,
     SendWarning,
@@ -53,7 +55,10 @@ from products.messaging.backend.services.transactional_email import (
     transactional_email_stage,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status, keyed_message_id
-from products.messaging.backend.services.transactional_push import send_transactional_push
+from products.messaging.backend.services.transactional_push import (
+    send_transactional_push,
+    send_transactional_push_batch,
+)
 
 __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
@@ -69,11 +74,13 @@ __all__ = [
     "CodeEmail",
     "DeliveryUnavailable",
     "FieldNotAccepted",
+    "IdempotencyKeyInFlight",
     "InvalidRecipient",
     "InvalidRequest",
     "EmailAttachment",
     "MessageTooLarge",
     "PresentAttachment",
+    "PushBatchRecipient",
     "UploadQuotaExceeded",
     "EmailBatchSent",
     "EmailDeliveryStatus",
@@ -104,6 +111,7 @@ __all__ = [
     "send_email_batch",
     "send_transactional_email",
     "send_transactional_push",
+    "send_transactional_push_batch",
     "sender_address_error",
     "sync_transactional_workflow",
     "transactional_email_stage",

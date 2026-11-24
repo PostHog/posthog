@@ -51,6 +51,8 @@ import type {
     RemoveSuppressionRequestApi,
     SendEmailApi,
     SendPushApi,
+    SendPushBatchApi,
+    SendPushBatchResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     SendTransactionalPushResponseApi,
@@ -229,6 +231,27 @@ export const messagingSendPushCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendPushApi),
+    })
+}
+
+export const getMessagingSendPushBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/push_batch/`
+}
+
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const messagingSendPushBatchCreate = async (
+    projectId: string,
+    sendPushBatchApi: SendPushBatchApi,
+    options?: RequestInit
+): Promise<SendPushBatchResponseApi> => {
+    return apiMutator<SendPushBatchResponseApi>(getMessagingSendPushBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendPushBatchApi),
     })
 }
 
@@ -697,8 +720,8 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -718,8 +741,8 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -742,8 +765,8 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -764,8 +787,8 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
