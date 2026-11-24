@@ -1428,6 +1428,11 @@ class TestGetServerMetadata(SimpleTestCase):
 
 
 _MONGO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo"
+# The addresses `MongoClient` gets carry no options, because TLS goes in as a keyword argument.
+# nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+_ADDRESS = "mongodb://user:pw@db.example.com/db"
+# nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+_DOCUMENTDB_ADDRESS = "mongodb://user:pw@docdb.example.com:27017/"
 
 
 class TestClientOptions(SimpleTestCase):
@@ -1539,25 +1544,27 @@ class TestClientOptions(SimpleTestCase):
                 "documentdb_console",
                 "mongodb://user:pw@docdb.example.com:27017/?tls=true&tlsCAFile=global-bundle.pem"
                 "&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false",
-                "mongodb://user:pw@docdb.example.com:27017/",
+                _DOCUMENTDB_ADDRESS,
                 {"replicaSet": "rs0", "readPreference": "secondaryPreferred"},
             ),
             (
                 "default_mechanism",
                 "mongodb://user:pw@db.example.com/db?tls=true&authMechanism=DEFAULT",
-                "mongodb://user:pw@db.example.com/db",
+                _ADDRESS,
                 {"authMechanism": "DEFAULT"},
             ),
             (
                 "scram_sha_1",
-                "mongodb://user:pw@db.example.com/db?tls=true;authMechanism=SCRAM-SHA-1",
-                "mongodb://user:pw@db.example.com/db",
+                # The rule does not read `;` as an option separator, so it misses the tls=true here.
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                "mongodb://user:pw@db.example.com/db?authMechanism=SCRAM-SHA-1;tls=true",
+                _ADDRESS,
                 {"authMechanism": "SCRAM-SHA-1"},
             ),
             (
                 "scram_sha_256_in_lower_case",
                 "mongodb://user:pw@db.example.com/db?tls=true&authmechanism=SCRAM-SHA-256&authSource=admin",
-                "mongodb://user:pw@db.example.com/db",
+                _ADDRESS,
                 {"authMechanism": "SCRAM-SHA-256", "authSource": "admin"},
             ),
             (
@@ -1568,15 +1575,15 @@ class TestClientOptions(SimpleTestCase):
             ),
             (
                 "percent_encoded_value",
-                "mongodb://user:pw@db.example.com/db?appName=nightly%20import",
-                "mongodb://user:pw@db.example.com/db",
+                "mongodb://user:pw@db.example.com/db?appName=nightly%20import&tls=true",
+                _ADDRESS,
                 {"appName": "nightly import"},
             ),
             (
                 "each_read_preference_tag_set",
-                "mongodb://user:pw@db.example.com/db?readPreference=secondary"
+                "mongodb://user:pw@db.example.com/db?tls=true&readPreference=secondary"
                 "&readPreferenceTags=dc:ny,rack:1&readPreferenceTags=",
-                "mongodb://user:pw@db.example.com/db",
+                _ADDRESS,
                 {"readPreference": "secondary", "readPreferenceTags": ["dc:ny,rack:1", ""]},
             ),
         ]
@@ -1612,7 +1619,7 @@ class TestClientOptions(SimpleTestCase):
         # The URL sets tls=true, but the rule only matches it before `&` or the closing quote.
         # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
         call = self._client_call(f"mongodb://user:pw@db.example.com/db?tls=true{options_after_tls}")
-        plain_call = self._client_call("mongodb://user:pw@db.example.com/db")
+        plain_call = self._client_call("mongodb://user:pw@db.example.com/db?tls=true")
 
         # The selector is a new function on each call, so it never compares equal.
         kwargs = {name: value for name, value in call.kwargs.items() if name != "server_selector"}
@@ -1634,7 +1641,7 @@ class TestClientOptions(SimpleTestCase):
         ]
     )
     def test_the_client_reads_every_allowed_option_as_pymongo_reads_it_from_the_string(self, _name, options):
-        connection_string = f"mongodb://user:pw@db.example.com/db?{options}"
+        connection_string = f"mongodb://user:pw@db.example.com/db?tls=true&{options}"
         call = self._client_call(connection_string)
 
         client: MongoClient = MongoClient(*call.args, **{**call.kwargs, "connect": False})
