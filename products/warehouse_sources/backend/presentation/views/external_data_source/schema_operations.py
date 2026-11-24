@@ -52,11 +52,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSource,
     MySQLSource,
     PostgresSource,
-    ReconcilesSchemaMetadata,
     build_default_sync_settings,
     define_added_table_metadata,
     known_source_key,
     new_source_requires_ssl,
+    reconcile_schema_metadata_if_supported,
     supports_adding_tables,
 )
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
@@ -484,8 +484,10 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, ReconcilesSchemaMetadata) and source.supports_column_selection:
-                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
+            else:
+                reconcile_schema_metadata_if_supported(
+                    source, source=instance, source_schemas=schemas, team_id=self.team_id
+                )
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
         # the source row lock or against rows that could still roll back. `sync_result.created` holds

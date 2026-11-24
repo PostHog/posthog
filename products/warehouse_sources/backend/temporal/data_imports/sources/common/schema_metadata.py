@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -6,7 +6,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class ReconcilesSchemaMetadata(Protocol):
+class _ReconcilesSchemaMetadata(Protocol):
     """A source that stores discovered column metadata on its schemas.
 
     Callers check this capability instead of naming the source classes, because importing
@@ -16,3 +16,10 @@ class ReconcilesSchemaMetadata(Protocol):
     def reconcile_schema_metadata(
         self, source: "ExternalDataSource", source_schemas: list["SourceSchema"], team_id: int
     ) -> list[str]: ...
+
+
+def reconcile_schema_metadata_if_supported(
+    source_impl: Any, *, source: "ExternalDataSource", source_schemas: list["SourceSchema"], team_id: int
+) -> None:
+    if isinstance(source_impl, _ReconcilesSchemaMetadata) and source_impl.supports_column_selection:
+        source_impl.reconcile_schema_metadata(source=source, source_schemas=source_schemas, team_id=team_id)
