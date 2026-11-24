@@ -89,12 +89,20 @@ export function AccountPinnedProperties({
         <section className="flex flex-col flex-1 min-h-0 overflow-hidden" data-attr="account-pinned-properties">
             <div
                 className={clsx(
-                    'flex items-start gap-x-2 shrink-0 px-4 pt-4',
+                    'flex shrink-0 px-4 pt-4',
+                    sourceChips.length > 0 ? 'items-start gap-x-2' : 'items-center',
                     layout === 'horizontal' ? 'justify-start' : 'justify-between'
                 )}
             >
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0">
-                    <span className="secondary text-secondary shrink-0">Properties</span>
+                    <span
+                        className={clsx(
+                            'secondary text-secondary shrink-0',
+                            sourceChips.length > 0 && 'inline-flex items-center min-h-[1.625rem]'
+                        )}
+                    >
+                        Properties
+                    </span>
                     {sourceChips.map((chip) =>
                         todayRailNav ? (
                             <QuillTooltip key={chip.key}>
@@ -129,7 +137,7 @@ export function AccountPinnedProperties({
                     <LemonButton
                         size="xsmall"
                         icon={<IconGear />}
-                        className="shrink-0"
+                        className={clsx('shrink-0', sourceChips.length === 0 && layout === 'horizontal' && 'ml-1')}
                         tooltip="Choose pinned properties"
                         aria-label="Configure pinned properties"
                         onClick={onConfigure}
