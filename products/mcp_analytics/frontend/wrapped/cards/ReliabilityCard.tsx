@@ -1,3 +1,4 @@
+import { colors } from '@posthog/brand/colors'
 import { IconStar, IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -5,6 +6,9 @@ import { cn } from 'lib/utils/css-classes'
 import type { MCPWrappedReliabilityCardApi } from '../../generated/api.schemas'
 import { errorLine, formatCallCount, formatPercent, reliabilityLine, toolNameSize } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
+
+// The tiles share one ground, so the badge colour is what tells the good tool from the bad one.
+const TONE_COLORS = { good: colors.teal.darker, bad: colors.coral.core } as const
 
 function ToolAward({
     label,
@@ -24,14 +28,14 @@ function ToolAward({
     tone: 'good' | 'bad'
 }): JSX.Element {
     return (
-        <div
-            className={cn(
-                'MCPWrapped__rise flex flex-col gap-1 rounded-xl px-3 py-2.5',
-                tone === 'good' ? 'bg-white/55' : 'bg-black/10'
-            )}
-        >
+        <div className="MCPWrapped__rise flex flex-col gap-1 rounded-xl bg-white/60 px-3 py-2.5">
             <div className="flex items-center gap-1.5 text-xs font-bold">
-                {icon}
+                <span
+                    className="flex size-5 items-center justify-center rounded-full text-white"
+                    style={{ background: TONE_COLORS[tone] }}
+                >
+                    {icon}
+                </span>
                 {label}
             </div>
             <div className="flex items-end justify-between gap-3">
@@ -71,7 +75,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                     {mvp && (
                         <ToolAward
                             label="Your MVP"
-                            icon={<IconStar className="size-3.5" />}
+                            icon={<IconStar className="size-3" />}
                             tool={mvp.tool}
                             value={formatPercent(1 - mvp.error_rate)}
                             unit="success"
@@ -82,7 +86,7 @@ export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }
                     {struggling && (
                         <ToolAward
                             label="Needs some love"
-                            icon={<IconWarning className="size-3.5" />}
+                            icon={<IconWarning className="size-3" />}
                             tool={struggling.tool}
                             value={formatPercent(struggling.error_rate)}
                             unit="errors"
