@@ -1,8 +1,10 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { DateTime } from 'luxon'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import diagnosticsChannel from 'node:diagnostics_channel'
-import type { ClientRequest } from 'node:http'
+import { type ClientRequest, Agent as HttpAgent } from 'node:http'
+import { Agent as HttpsAgent } from 'node:https'
 import type { Socket } from 'node:net'
 import { TLSSocket } from 'node:tls'
 import { SendMailOptions } from 'nodemailer'
@@ -265,9 +267,29 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-type SendAttempt = { connectionOpened: boolean; sesRefused: boolean; error?: unknown }
+type SendAttempt = { onItsOwnConnection: boolean; connectionOpened: boolean; sesRefused: boolean; error?: unknown }
 
 const currentSendAttempt = new AsyncLocalStorage<SendAttempt>()
+
+// An attempt that refuses a retry once its connection opened must not start on an idle pooled
+// connection: SES can close that connection just as the attempt starts, and the reset would then fail
+// an email that SES never read. Such an attempt opens its own connection, and every other request
+// keeps the SDK's default pool.
+const sesRequestHandler = (): Pick<NodeHttpHandler, 'handle' | 'destroy'> => {
+    const pooledConnections = new NodeHttpHandler()
+    const ownConnections = new NodeHttpHandler({
+        httpAgent: new HttpAgent({ keepAlive: false }),
+        httpsAgent: new HttpsAgent({ keepAlive: false }),
+    })
+    return {
+        handle: (...args) =>
+            (currentSendAttempt.getStore()?.onItsOwnConnection ? ownConnections : pooledConnections).handle(...args),
+        destroy: () => {
+            pooledConnections.destroy()
+            ownConnections.destroy()
+        },
+    }
+}
 
 const markTheAttemptOnceItsConnectionOpens = ({ request }: { request: ClientRequest }): void => {
     const attempt = currentSendAttempt.getStore()
@@ -315,7 +337,11 @@ function trackAttemptsSesMayHaveAccepted(
             if (refuseRetryOnceSesMayHaveAccepted && earlierAttempt) {
                 throw new SesMayHaveSentError(earlierAttempt.error)
             }
-            const attempt: SendAttempt = { connectionOpened: false, sesRefused: false }
+            const attempt: SendAttempt = {
+                onItsOwnConnection: refuseRetryOnceSesMayHaveAccepted,
+                connectionOpened: false,
+                sesRefused: false,
+            }
             attempts.push(attempt)
             try {
                 return await currentSendAttempt.run(attempt, () => next(args))
@@ -756,6 +782,7 @@ export class EmailService {
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
                   endpoint: this.sesConfig.sesEndpoint || undefined,
+                  requestHandler: sesRequestHandler(),
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)

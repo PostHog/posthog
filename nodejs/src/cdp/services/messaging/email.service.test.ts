@@ -2224,14 +2224,28 @@ describe('EmailService', () => {
             let statusOffsetsBeforeSend: TopicPartitionOffset[]
             const socketsHeldInTheTlsHandshake = new Set<net.Socket>()
             let clientHellosHeld = 0
+            const onTheNextClientHello: (() => void)[] = []
             const tlsHandshakeThatNeverAnswers = net.createServer((socket) => {
                 socketsHeldInTheTlsHandshake.add(socket)
-                socket.once('data', () => clientHellosHeld++).resume()
+                socket
+                    .once('data', () => {
+                        clientHellosHeld++
+                        onTheNextClientHello.splice(0).forEach((react) => react())
+                    })
+                    .resume()
             })
             let tlsHandshakeThatNeverAnswersPort: number
 
             const sendThroughATlsHandshakeThatNeverAnswers = (emailService: EmailService): (() => boolean) => {
                 const clientHellosBefore = clientHellosHeld
+                const sendDeadline = new AbortController()
+                const sendDeadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementationOnce(() => {
+                    sendDeadlines.mockRestore()
+                    return sendDeadline.signal
+                })
+                onTheNextClientHello.push(() =>
+                    sendDeadline.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+                )
                 const handler = new NodeHttpHandler()
                 emailService.sesV2Client = sesClientFor(ses, {
                     requestHandler: {
@@ -2272,17 +2286,20 @@ describe('EmailService', () => {
                 teamConfigDb,
                 attachmentSendDeadlineMs,
                 ownershipCheckTimeoutMs,
+                sesEndpoint,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
                 ownershipCheckTimeoutMs?: number
+                sesEndpoint?: string
             } = {}): EmailService =>
                 createService(
                     {
                         ...(teamDailyCap
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
+                        ...(sesEndpoint ? { sesEndpoint } : {}),
                         attachmentSendDeadlineMs,
                         ownershipCheckTimeoutMs,
                     },
@@ -3309,6 +3326,45 @@ describe('EmailService', () => {
                 }
             )
 
+            it('sends an email with files on a connection of its own, not on one an earlier send left open', async () => {
+                const { hostname, port } = new URL(ses.endpoint)
+                const sockets = new Set<net.Socket>()
+                let connectionsToSes = 0
+                const countingProxy = net.createServer((client) => {
+                    connectionsToSes++
+                    const upstream = net.connect(Number(port), hostname)
+                    sockets.add(client).add(upstream)
+                    client.on('error', () => upstream.destroy())
+                    upstream.on('error', () => client.destroy())
+                    client.pipe(upstream).pipe(client)
+                })
+                const proxyPort = await listeningOnLoopback(countingProxy)
+                const emailService = sender({ sesEndpoint: `http://127.0.0.1:${proxyPort}` })
+                const files = invocation.queueParameters
+                try {
+                    send([])
+                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                    invocation.queueParameters = files
+                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+
+                    expect({
+                        connectionsToSes,
+                        deliveredWithFiles: deliveredTo(ses, recipient).filter(
+                            ({ attachments }) => attachments?.length
+                        ),
+                    }).toEqual({
+                        connectionsToSes: 2,
+                        deliveredWithFiles: [
+                            expect.objectContaining({ attachments: deliveredFiles.map((file) => file()) }),
+                        ],
+                    })
+                } finally {
+                    emailService.sesV2Client!.destroy()
+                    sockets.forEach((socket) => socket.destroy())
+                    await new Promise((resolve) => countingProxy.close(resolve))
+                }
+            })
+
             it.each([
                 [9, false, 'retries once more', false, undefined, null],
                 [
@@ -3353,7 +3409,7 @@ describe('EmailService', () => {
                 async (_name, retriesSoFar, isTest, storedReason) => {
                     sendAsTransactionalEmail()
                     invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
-                    const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                    const emailService = sender()
                     const reachedTheHandshake = sendThroughATlsHandshakeThatNeverAnswers(emailService)
 
                     const result = await emailService.executeSendEmail(invocation, isTest)
