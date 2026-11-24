@@ -33,7 +33,7 @@ export function describeLinkTarget(link: string): string {
     }
     const notes = [`[host ${quoteUntrusted(url.hostname, Infinity)}]`]
     if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-        notes.push(`[scheme ${quoteUntrusted(url.protocol.replace(/:$/, ''), 100)}, opens in an app]`)
+        notes.push(`[scheme ${quoteUntrusted(url.protocol.replace(/:$/, ''), 100)}]`)
     }
     if (url.username || url.password) {
         notes.push('[the text before @ is a username, not the host]')
