@@ -29,7 +29,10 @@ use crate::{
         classify_frame_snapshot, unchanged_snapshot_needs_refresh, ErrorTrackingStackFrame,
         FrameResultTtlPolicy,
     },
-    symbolication::symbol::SymbolResolver,
+    symbolication::symbol::{
+        miss_breaker::{FrameMissBreaker, FrameMissBreakerConfig},
+        SymbolResolver,
+    },
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
         dart_minified_names::lookup_minified_type,
@@ -86,6 +89,7 @@ pub struct LocalSymbolResolver {
     context_lines: usize,
     skip_unchanged_rewrites: bool,
     frame_save_async_commit: bool,
+    miss_breaker: FrameMissBreaker,
 }
 
 // Each entry carries the per-frame policy that judged its Postgres freshness, so the
@@ -161,6 +165,14 @@ impl LocalSymbolResolver {
             context_lines: config.context_line_count,
             skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
             frame_save_async_commit: config.frame_save_async_commit,
+            miss_breaker: FrameMissBreaker::new(FrameMissBreakerConfig {
+                mode: config.frame_miss_breaker_mode,
+                window: Duration::from_secs(config.frame_miss_breaker_window_seconds),
+                min_lookups: config.frame_miss_breaker_min_lookups,
+                miss_ratio: config.frame_miss_breaker_miss_ratio,
+                cooldown: Duration::from_secs(config.frame_miss_breaker_cooldown_seconds),
+                probe_lookups: config.frame_miss_breaker_probe_lookups,
+            }),
         }
     }
 
@@ -180,9 +192,12 @@ impl LocalSymbolResolver {
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
-                let records = self
-                    .resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
-                    .await?;
+                let records = if self.miss_breaker.admits(team_id, Instant::now()) {
+                    self.resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
+                        .await?
+                } else {
+                    self.resolve_unsaved(frame, &raw_id, debug_images).await?
+                };
                 Ok::<_, UnhandledError>(CachedFrames {
                     records,
                     ttl_policy,
@@ -208,7 +223,16 @@ impl LocalSymbolResolver {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let stored =
-            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await?;
+            match ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await {
+                Ok(stored) => stored,
+                Err(error) => {
+                    self.miss_breaker
+                        .record(raw_id.team_id, true, Instant::now());
+                    return Err(error);
+                }
+            };
+        self.miss_breaker
+            .record(raw_id.team_id, !stored.fresh, Instant::now());
         if stored.fresh {
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(stored.records);
@@ -237,17 +261,7 @@ impl LocalSymbolResolver {
             None
         };
 
-        let mut records = Vec::with_capacity(resolved.len());
-        for r_frame in &resolved {
-            let record = ErrorTrackingStackFrame::new(
-                r_frame.frame_id.clone(),
-                set.as_ref().map(|s| s.id),
-                r_frame.clone(),
-                r_frame.resolved,
-                r_frame.context.clone(),
-            );
-            records.push(record);
-        }
+        let records = frame_records(&resolved, set.as_ref().map(|s| s.id));
 
         let write_outcome = classify_frame_snapshot(&stored.records, &records);
         let persisted = self.skip_unchanged_rewrites
@@ -269,12 +283,30 @@ impl LocalSymbolResolver {
                 .await?;
         }
 
-        for record in &records {
-            if record.contents.suspicious {
-                metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
-                    .increment(1);
-            }
-        }
+        count_suspicious(&records);
+        Ok(records)
+    }
+
+    // Skips the stored frame read, the symbol set lookup and the save. The UI then shows
+    // these frames without source context.
+    async fn resolve_unsaved(
+        &self,
+        frame: &RawFrame,
+        raw_id: &RawFrameId,
+        debug_images: &[DebugImage],
+    ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
+        let resolved = frame
+            .resolve(
+                raw_id.team_id,
+                &self.catalog,
+                debug_images,
+                self.context_lines,
+            )
+            .await?;
+        assert!(!resolved.is_empty());
+
+        let records = frame_records(&resolved, None);
+        count_suspicious(&records);
         Ok(records)
     }
 
@@ -386,6 +418,29 @@ impl LocalSymbolResolver {
     }
 }
 
+fn frame_records(resolved: &[Frame], symbol_set_id: Option<Uuid>) -> Vec<ErrorTrackingStackFrame> {
+    resolved
+        .iter()
+        .map(|r_frame| {
+            ErrorTrackingStackFrame::new(
+                r_frame.frame_id.clone(),
+                symbol_set_id,
+                r_frame.clone(),
+                r_frame.resolved,
+                r_frame.context.clone(),
+            )
+        })
+        .collect()
+}
+
+fn count_suspicious(records: &[ErrorTrackingStackFrame]) {
+    for record in records {
+        if record.contents.suspicious {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved").increment(1);
+        }
+    }
+}
+
 #[async_trait]
 impl SymbolResolver for LocalSymbolResolver {
     async fn resolve_raw_frame(
@@ -494,7 +549,9 @@ mod test {
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbolication::symbol::records::ErrorTrackingStackFrame,
-        symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
+        symbolication::symbol::{
+            local::LocalSymbolResolver, miss_breaker::FrameMissBreakerMode, SymbolResolver,
+        },
         symbolication::symbol_store::{
             apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
@@ -945,6 +1002,52 @@ mod test {
                 "{chunk_id:?}"
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn open_frame_miss_breaker_stops_saving_only_that_teams_frames(pool: PgPool) {
+        let (mut config, catalog, _server) = setup_test_context(pool.clone(), |_, cl| cl).await;
+        config.frame_miss_breaker_mode = FrameMissBreakerMode::Enforce;
+        config.frame_miss_breaker_min_lookups = 3;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+        // A Hermes frame without a chunk id needs no S3 or HTTP mock.
+        let frame = |column| {
+            RawFrame::Hermes(RawHermesFrame {
+                column: Some(column),
+                source: "index.android.bundle".to_string(),
+                fn_name: "anonymous".to_string(),
+                chunk_id: None,
+                meta: CommonFrameMetadata::default(),
+            })
+        };
+        let (flood_team, normal_team) = (1, 2);
+
+        for column in 0..10 {
+            // A repeated frame between the new ones hits the in-memory cache, which must not
+            // hide the flood.
+            resolver
+                .resolve_raw_frame(flood_team, &frame(0), &[])
+                .await
+                .unwrap();
+            let resolved = resolver
+                .resolve_raw_frame(flood_team, &frame(column), &[])
+                .await
+                .unwrap();
+            assert_eq!(resolved.len(), 1, "column {column}");
+        }
+        resolver
+            .resolve_raw_frame(normal_team, &frame(0), &[])
+            .await
+            .unwrap();
+
+        // The third frame opens the breaker after its own save.
+        let saved: Vec<(i32, i64)> = sqlx::query_as(
+            "SELECT team_id, COUNT(*) FROM posthog_errortrackingstackframe GROUP BY team_id ORDER BY team_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(saved, vec![(flood_team, 3), (normal_team, 1)]);
     }
 
     async fn insert_release(pool: &PgPool, team_id: i32, days_ago: i32) -> Uuid {
