@@ -157,6 +157,7 @@ class TestSafeServerSelector(SimpleTestCase):
         [
             ("direct_connection", "mongodb://user:pw@127.0.0.1:1/db?tls=true&directConnection=true", ""),
             ("lone_host", "mongodb://user:pw@127.0.0.1:1/db?tls=true", ""),
+            ("lone_host_repeated", "mongodb://user:pw@127.0.0.1:1,127.0.0.1:1/db?tls=true", ""),
             ("load_balanced_from_dns", "mongodb+srv://user:pw@cluster0.example.com/db", "loadBalanced=true"),
         ]
     )

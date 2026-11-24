@@ -510,9 +510,11 @@ def _check_single_seed(seeds: Sequence[tuple[str, Any]], team_id: int) -> None:
     in either topology: directConnection, loadBalanced (also from a DNS TXT record), or a lone
     standalone server.
     """
-    if len(seeds) != 1:
+    # `parse_uri` keeps a repeated host, while the client keeps one entry per host.
+    unique_seeds = set(seeds)
+    if len(unique_seeds) != 1:
         return
-    host = seeds[0][0]
+    host = next(iter(unique_seeds))[0]
     is_safe, error = _is_host_safe(host, team_id)
     if is_safe:
         return
