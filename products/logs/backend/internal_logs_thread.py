@@ -4,6 +4,7 @@ import threading
 
 import structlog
 
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async_pool
 
 from products.logs.backend.internal_logs_producer import (
@@ -14,10 +15,10 @@ from products.logs.backend.internal_logs_producer import (
 
 logger = structlog.get_logger(__name__)
 
-# Shorter than LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS, because the web server kills a worker that takes more than
-# 5 seconds to exit (bin/start-backend), and a capture-logs outage must not hold every worker until that kill.
-# The exit waits one second more than this, for the drain to cancel its requests and close its session.
+# Shorter than LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS, so a capture-logs outage does not hold a worker's exit.
+# The exit wait also stays under the dev server's 5 second `--workers-kill-timeout` (bin/start-backend).
 DRAIN_TIMEOUT_SECONDS = 3
+EXIT_WAIT_SECONDS = DRAIN_TIMEOUT_SECONDS + 1
 
 _lock = threading.Lock()
 _pid: int | None = None
@@ -26,10 +27,6 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 
 def _read_api_token(team_id: int) -> str | None:
-    from posthog.models.team import (
-        Team,  # noqa: PLC0415 -- the facade imports this module before the app registry is ready
-    )
-
     # shortcut: one Postgres read for each request to capture-logs, add a cache when a high-volume source uses this
     return Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
 
@@ -48,7 +45,7 @@ def _drain(pid: int, producer: InternalLogsProducer, loop: asyncio.AbstractEvent
     if pid != os.getpid():
         return
     try:
-        asyncio.run_coroutine_threadsafe(producer.drain(DRAIN_TIMEOUT_SECONDS), loop).result(DRAIN_TIMEOUT_SECONDS + 1)
+        asyncio.run_coroutine_threadsafe(producer.drain(DRAIN_TIMEOUT_SECONDS), loop).result(EXIT_WAIT_SECONDS)
     except Exception:
         logger.warning("Failed to drain the internal logs producer at exit", exc_info=True)
 
