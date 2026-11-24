@@ -76,8 +76,6 @@ export const CodeReviewReviewsPrStatusRetrieveParams = () => zod.object({
         ),
 })
 
-export const codeReviewReviewsPrStatusRetrieveQueryRunModeDefault = `flash`
-
 export const CodeReviewReviewsPrStatusRetrieveQueryParams = () => zod.object({
     head_sha: zod
         .string()
@@ -98,9 +96,9 @@ export const CodeReviewReviewsPrStatusRetrieveQueryParams = () => zod.object({
         ),
     run_mode: zod
         .enum(['review', 'review_only', 'resolve_only', 'flash'])
-        .default(codeReviewReviewsPrStatusRetrieveQueryRunModeDefault)
+        .optional()
         .describe(
-            "The `run_mode` the trigger was called with (default 'flash'). Only used with `requested_at`.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
+            'The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
         ),
 })
 

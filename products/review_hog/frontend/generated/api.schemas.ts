@@ -1871,7 +1871,7 @@ export type CodeReviewReviewsPrStatusRetrieveParams = {
      */
     requested_at?: string
     /**
-     * The `run_mode` the trigger was called with (default 'flash'). Only used with `requested_at`.
+     * The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.
      *
      * * `review` - Review
      * * `review_only` - Review only

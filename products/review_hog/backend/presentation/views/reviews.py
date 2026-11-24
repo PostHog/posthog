@@ -508,15 +508,23 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=ReviewTriggerRequestRunMode.FLASH,
         choices=ReviewTriggerRequestRunMode.choices,
-        help_text="The `run_mode` the trigger was called with (default 'flash'). Only used with `requested_at`.",
+        help_text="The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.",
     )
     head_sha = serializers.CharField(
         required=False,
         help_text="The `head_sha` the trigger returned. Lets a turn that was already running on that head when "
         "the request came in answer the request. Only used with `requested_at`.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        # A default mode here could differ from the mode the trigger ran, and a Standard turn would then
+        # answer a Deep request.
+        if attrs.get("requested_at") is not None and not attrs.get("run_mode"):
+            raise serializers.ValidationError(
+                {"run_mode": "Pass the `run_mode` the trigger was called with, together with `requested_at`."}
+            )
+        return attrs
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
@@ -1115,7 +1123,7 @@ class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericV
                 team_id=team_id,
                 pr_url=params.validated_data["pr_url"],
                 requested_at=params.validated_data.get("requested_at"),
-                run_mode=params.validated_data["run_mode"],
+                run_mode=params.validated_data.get("run_mode"),
                 head_sha=params.validated_data.get("head_sha"),
             )
         except InvalidPullRequestURLError:
