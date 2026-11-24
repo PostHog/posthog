@@ -94,7 +94,6 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
     created_by = UserBasicSerializer(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
-    # No help_text, because a description would change the published schema of the field.
     tags = serializers.ListField(required=False)
     user_access_level = serializers.SerializerMethodField(
         method_name="get_saved_metric_access_level",
@@ -106,7 +105,6 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
         "Populated only on single-metric retrieve; always an empty list in list responses."
     )
 
-    # A plain serializer ignores Meta; `get_fields` orders the fields by it.
     class Meta:
         fields = [
             "id",
@@ -122,7 +120,8 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
         ]
 
     def get_fields(self) -> dict[str, serializers.Field]:
-        # DRF puts base-class fields such as `user_access_level` first; the published schema uses Meta's order.
+        # A plain serializer ignores Meta and puts base-class fields such as `user_access_level` first.
+        # The published schema uses the order of Meta.fields.
         fields = super().get_fields()
         return {name: fields[name] for name in self.Meta.fields}
 

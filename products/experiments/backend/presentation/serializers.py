@@ -823,8 +823,6 @@ class ExperimentSavedMetricLinkSerializer(serializers.Serializer):
     """A shared metric's link to one experiment, as the experiment API returns it."""
 
     id = serializers.IntegerField(read_only=True)
-    # The published schema does not mark `experiment`, `saved_metric` and `metadata` read-only, so these
-    # fields are not read-only either. The experiment serializer nests this one read-only, so no input reaches them.
     experiment = serializers.IntegerField(source="experiment_id")
     saved_metric = serializers.IntegerField(source="saved_metric_id")
     metadata = serializers.JSONField(required=False)
