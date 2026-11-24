@@ -19,13 +19,13 @@ from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
 from products.dashboards.backend.facade.enums import (
     DASHBOARD_GRID_COLUMN_COUNT,
     DASHBOARD_GRID_COMPACTION_MODES,
-    DASHBOARD_GRID_SPACING_GAPS,
     DASHBOARD_TILE_GROUP_DEFAULTS as DASHBOARD_TILE_GROUP_DEFAULTS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
     DashboardTileBadge,
     DashboardTileGroupColor,
+    TileSpacing,
 )
 from products.dashboards.backend.facade.widget_configs import WIDGET_CONFIG_MODELS
 from products.dashboards.backend.presentation.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
@@ -211,6 +211,7 @@ def _build_catalog_entry_serializers() -> dict[str, type[serializers.Serializer]
             f"{prefix}CatalogEntryOpenApiSerializer",
             (serializers.Serializer,),
             {
+                # nosemgrep: choices-need-a-class -- one value per generated serializer, ENUM_NAME_OVERRIDES names each
                 "widget_type": serializers.ChoiceField(choices=[widget_type]),
                 "group_id": serializers.CharField(),
                 "group_label": serializers.CharField(),
@@ -442,6 +443,11 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorConfigSource(models.TextChoices):
+    AUTO = "auto", "auto"
+    MANUAL = "manual", "manual"
+
+
 class BreakdownColorConfigSerializer(serializers.Serializer):
     breakdownValue = serializers.CharField(
         allow_blank=True,
@@ -484,7 +490,7 @@ class BreakdownColorConfigSerializer(serializers.Serializer):
     # so the base attribute survives and the entry key stays `source`, which is what the frontend
     # persists.
     source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=["auto", "manual"],
+        choices=BreakdownColorConfigSource.choices,
         required=False,
         allow_null=True,
         help_text="`manual` for a color a person picked, `auto` for one the dashboard assigned.",
@@ -527,7 +533,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="List of quick filter IDs associated with this dashboard.",
     )
     grid_spacing = serializers.ChoiceField(
-        choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
+        choices=TileSpacing.choices,
         required=False,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )

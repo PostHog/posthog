@@ -65,6 +65,14 @@ DASHBOARD_GRID_SPACING_GAPS: dict[str, int] = {
 }
 
 
+class TileSpacing(LabeledStrEnum):
+    TIGHT = "tight", "tight"
+    CONDENSED = "condensed", "condensed"
+    STANDARD = "standard", "standard"
+    RELAXED = "relaxed", "relaxed"
+    WIDE = "wide", "wide"
+
+
 class LayoutCompaction(LabeledStrEnum):
     VERTICAL = "vertical", "vertical"
     HORIZONTAL = "horizontal", "horizontal"
@@ -115,4 +123,5 @@ __all__ = [
     "DashboardUsageCount",
     "LayoutCompaction",
     "TileGroupDisplay",
+    "TileSpacing",
 ]

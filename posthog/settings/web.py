@@ -853,7 +853,6 @@ SPECTACULAR_SETTINGS = {
                 "ultracode",
                 None,
             ],
-            "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
