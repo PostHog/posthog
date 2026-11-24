@@ -91,6 +91,7 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_PATTERN,
     AttachmentNotUploaded,
     AttachmentsRefused,
+    BatchTooLarge,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -2037,9 +2038,14 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def push_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         require_transactional_push_api(self.team)
         try:
-            check_push_batch(request.validated_data["message_data"])
+            check_push_batch(
+                request.validated_data["message_data"],
+                [recipient["message_data"] for recipient in request.validated_data["recipients"]],
+            )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
+        except BatchTooLarge:
+            raise push_batch_too_large() from None
         recipients = push_batch_recipients(request.validated_data)
         reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
         template = self.get_object()

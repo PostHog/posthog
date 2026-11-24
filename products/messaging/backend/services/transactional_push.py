@@ -1,6 +1,7 @@
 """Transactional push notifications: a push template made sendable over the API. Each one is backed by a workflow
 that runs once per send, so sends get the workflow's metrics, run history and versions."""
 
+import json
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,7 @@ from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import send_transactional_push as run_transactional_push_workflow
 
 from products.messaging.backend.facade.contracts import (
+    BatchTooLarge,
     ContentTooLarge,
     DeliveryUnavailable,
     EmailNotQueued,
@@ -48,6 +50,8 @@ TRANSACTIONAL_PUSH_RUN_SCOPE = "transactional-push"
 PUSH_BATCH_PARALLEL_REQUESTS = 10
 # A recipient not reached by then is answered as unconfirmed, so a stalled CDP service can't hold the request.
 PUSH_BATCH_TIMEOUT_SECONDS = 30
+# The same as BATCH_COPIED_BYTES_MAX, which the CDP service applies to an email batch.
+PUSH_BATCH_COPIED_MAX_BYTES = 16 * 1024 * 1024
 # These hold for every recipient, so a batch refused for all of them answers once instead of per recipient.
 WHOLE_BATCH_REFUSALS = (QuotaLimited, TransactionalPushPaused, DeliveryUnavailable)
 
@@ -99,13 +103,21 @@ def send_transactional_push(
     )
 
 
-def check_push_batch(message_data: dict[str, Any]) -> None:
-    """Refuse a batch whose shared data is over the email batch's cap, before it is copied to every recipient."""
+def check_push_batch(message_data: dict[str, Any], recipients_data: Sequence[dict[str, Any]]) -> None:
+    """Refuse a batch whose shared data, or all its copies of data together, are over the email batch's caps."""
     if encoded_size(message_data) > BATCH_SHARED_MAX_BYTES:
         raise ContentTooLarge(
             f"The `message_data` that a batch sends to every recipient can be at most "
             f"{BATCH_SHARED_MAX_BYTES // 1024} KiB. Send larger notifications one at a time."
         )
+    copied = len(recipients_data) * _pipeline_size(message_data) + sum(map(_pipeline_size, recipients_data))
+    if copied > PUSH_BATCH_COPIED_MAX_BYTES:
+        raise BatchTooLarge()
+
+
+def _pipeline_size(value: dict[str, Any]) -> int:
+    """The bytes of the value as the CDP service would write it, which is how an email batch is measured."""
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(errors="backslashreplace"))
 
 
 def send_transactional_push_batch(
