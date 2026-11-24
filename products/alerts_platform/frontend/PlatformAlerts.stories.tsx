@@ -369,7 +369,6 @@ export const ListPaginatedGroupsExpanded: Story = {
 }
 
 // Native clicks rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
-// A disabled alert: Enable alert is live, and its snoozes wait for it ("Enable the alert first").
 export const ListRowMenuDisabledAlertOpen: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
     play: async ({ canvasElement }) => {
@@ -379,7 +378,6 @@ export const ListRowMenuDisabledAlertOpen: Story = {
     },
 }
 
-// An alert its source product owns: every change is disabled, with the source to change it in.
 export const ListRowMenuSourceOwnedOpen: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
     play: async ({ canvasElement }) => {
