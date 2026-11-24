@@ -89,7 +89,7 @@ READERS: dict[str, str] = {
         "firing chart draws the rows the insight stack owns; moved alerts draw from their copies (G3)"
     ),
     "products/logs/backend/temporal/activities.py": "legacy logs evaluator",
-    "products/logs/backend/alert_creation.py": "alert limit counts rows (A6-A8)",
+    "products/logs/backend/alert_creation.py": "alert limit counts the logs rows the platform does not own (G3)",
     "products/alerts/backend/llm_detector_limits.py": "AI cap counts insight-owned rows, then copies (G3)",
     "products/logs/backend/alert_deletion.py": "deletes the row with its copy (G2)",
     "products/logs/backend/native_alerts.py": "validates a native alert as an unsaved row and saves nothing (G3)",

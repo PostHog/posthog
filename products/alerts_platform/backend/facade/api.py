@@ -392,7 +392,6 @@ def count_configurations(
     *,
     team_id: int,
     source_kind: SourceKind,
-    native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
@@ -403,13 +402,13 @@ def count_configurations(
     `exclude_id`, the alert an edit is checked for is left out. With `held_only`, only the ones whose
     settings the platform holds: those with no source row, and the copies it owns.
 
-    A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
-    already counts, and a copy left by a delete from before copies went with their row counts nothing.
+    A source that keeps rows counts the rows it owns and adds `held_only`. That counts a moved alert
+    once, from its copy, also after its row is deleted. A copy its row owns stands for that row, and a
+    copy left by a delete from before copies went with their row counts nothing.
     """
     return platform_reads.count_configurations(
         team_id=team_id,
         source_kind=source_kind.value,
-        native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
         exclude_id=exclude_id,

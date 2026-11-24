@@ -486,15 +486,14 @@ def count_configurations(
     *,
     team_id: int,
     source_kind: str,
-    native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
     held_only: bool = False,
 ) -> int:
-    """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row, and with `held_only` also the copies the platform owns. With
+    """How many alerts of a kind a team has on the platform, whoever owns them. With `held_only`, only
+    the ones with no source row and the copies the platform owns. With
     `exclude_id`, the alert an edit is checked for is left out, by its platform id or a copy's source
     row id. With `source_config_contains`, only the ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
@@ -504,8 +503,6 @@ def count_configurations(
         configurations = configurations.exclude(Q(id=exclude_id) | Q(legacy_configuration_id=exclude_id))
     if source_config_contains:
         configurations = configurations.filter(source_config__contains=source_config_contains)
-    if native_only:
-        configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if held_only:
         configurations = configurations.filter(_HELD)
     if enabled_only:

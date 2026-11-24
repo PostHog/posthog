@@ -1444,22 +1444,28 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{cap}_{kind}_{name}", cap, kind == "native", editing_it, counted)
-            for cap in ("ai_detector", "real_time")
+            (f"{cap}_{kind}_{name}", cap, kind, editing_it, counted)
+            for cap in ("alerts", "ai_detector", "real_time")
             # A copy's row still says daily with no detector, which the caps must not follow.
-            for kind in ("native", "copy")
+            for kind in ("native", "copy", "copy_whose_row_is_gone")
             for name, editing_it, counted in [("counted", False, True), ("left_out_of_its_own_edit", True, False)]
+            # An edit is not checked against the alerts limit.
+            if not (cap == "alerts" and editing_it)
         ]
     )
     def test_the_plan_caps_count_an_alert_the_platform_owns_from_the_platform(
-        self, _name: str, cap: str, native: bool, editing_it: bool, counted: bool
+        self, _name: str, cap: str, kind: str, editing_it: bool, counted: bool
     ) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}
+            {"key": AvailableFeature.ALERTS, "name": "Alerts", "limit": 1},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1},
         ]
         self.organization.save()
+        native = kind == "native"
         if native:
             self._forget_the_insight_row()
+        elif kind == "copy_whose_row_is_gone":
+            AlertConfiguration.objects.filter(id=self.alert.id).delete()
         with team_scope(self.team.id):
             if cap == "ai_detector":
                 stored_config = self._copy().source_config
@@ -1467,11 +1473,13 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     self.copy_id,
                     {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
                 )
-            else:
+            elif cap == "real_time":
                 platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
         excluded = str(self.copy_id if native else self.alert.id) if editing_it else None
 
-        if cap == "ai_detector":
+        if cap == "alerts":
+            is_counted = AlertConfiguration.check_alert_limit(self.team.id, self.organization) is not None
+        elif cap == "ai_detector":
             is_counted = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded) == 1
         else:
             is_counted = (
