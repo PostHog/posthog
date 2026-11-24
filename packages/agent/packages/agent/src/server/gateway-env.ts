@@ -11,9 +11,9 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
 import {
+  fallbackGatewayProduct,
   type GatewayProduct,
   modelIdForGatewayRoute,
-  resolveGatewayProduct,
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
 } from "../utils/gateway";
@@ -73,8 +73,7 @@ export function buildGatewayEnv(
   logger: Logger,
 ): GatewayEnv {
   const { apiKey, apiUrl, projectId, serviceTier } = config;
-  const product =
-    gatewayProduct ?? resolveGatewayProduct({ isInternal, originProduct });
+  const product = gatewayProduct ?? fallbackGatewayProduct(isInternal);
   // Go-gateway runs authenticate with the per-run scoped token minted by the
   // worker (pinned product + on-behalf-of team, per-run spend cap), not the
   // run's per-team OAuth token, whose team has no gateway wallet. A routed
@@ -226,14 +225,12 @@ export interface PiProviderRoute {
 export function buildPiProviderRoute(
   config: Pick<AgentServerConfig, "apiKey" | "apiUrl" | "projectId">,
   {
-    originProduct,
     gatewayProduct,
     aiStage,
     taskId,
     model,
     properties,
   }: {
-    originProduct?: Task["origin_product"] | null;
     gatewayProduct?: GatewayProduct;
     aiStage?: string | null;
     taskId?: string | null;
@@ -244,7 +241,7 @@ export function buildPiProviderRoute(
 ): PiProviderRoute {
   const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
   const target = resolveGatewayTarget({
-    product: gatewayProduct ?? resolveGatewayProduct({ originProduct }),
+    product: gatewayProduct ?? fallbackGatewayProduct(),
     aiStage,
     posthogHost: config.apiUrl,
   });
