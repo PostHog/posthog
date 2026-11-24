@@ -16,9 +16,8 @@ export function propertyEventVolumeQuery(propertyName: string, timezone: string)
                 operator: PropertyOperator.IsSet,
             },
         ],
-        // A fixed first day with explicitDate ends the range now, and ends the previous period at the same time of day
-        // 30 days earlier. A relative range runs both periods to the end of their last day, so a partial today would
-        // be compared with a whole day.
+        // With a fixed first day and explicitDate, the previous period ends at the current time of day 30 days earlier.
+        // A relative range runs it to the end of that day, so a partial today would be compared with a whole day.
         dateRange: {
             date_from: dayjsNowInTimezone(timezone).subtract(29, 'day').format('YYYY-MM-DD'),
             explicitDate: true,

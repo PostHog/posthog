@@ -17,7 +17,6 @@ export interface DefinitionUsageSectionProps {
     queryUsageLoading: boolean
     queryUsageFailed: boolean
     insightsLogicProps: DefinitionInsightsLogicProps
-    /** Shown first, for definitions whose captured volume can be counted. */
     eventVolumeCard?: JSX.Element
 }
 

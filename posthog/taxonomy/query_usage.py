@@ -13,8 +13,7 @@ from posthog.models import Team
 
 QUERY_USAGE_WINDOW_DAYS = 30
 QUERY_USAGE_CACHE_TTL_SECONDS = 24 * 60 * 60
-# A usage row in the days just before the earlier window starts proves that tracking was on for all of it.
-# Without that proof, a team that turned tracking on mid-window would get a comparison against a partial count.
+# A usage row just before the earlier window proves that tracking was on for all of it, so its count is not partial.
 COVERAGE_LOOKBACK_DAYS = 7
 
 
@@ -155,7 +154,6 @@ def _fetch_uncached_query_usage(
 
 def _previous_window_covered(team: Team, app_source: str, windows: QueryUsageWindows) -> bool:
     # The answer depends only on the project, the source and the window, so one lookup serves every definition.
-    # When no row matches, LIMIT 1 cannot stop the scan early, so a repeat of the lookup per definition is expensive.
     cache_key = f"query_usage_coverage:v1:{team.pk}:{app_source}:{windows.previous_start.isoformat()}"
     cached = cache.get(cache_key)
     if isinstance(cached, bool):

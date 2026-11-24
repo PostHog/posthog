@@ -14,6 +14,25 @@ import { propertyEventVolumeQuery } from './propertyEventVolumeQuery'
 
 const formatCount = (value: number): string => value.toLocaleString()
 
+function compareResult(response: unknown, label: 'current' | 'previous'): TrendResult | undefined {
+    const results = (response as TrendsQueryResponse | null)?.results as TrendResult[] | undefined
+    return results?.find((result) => result.compare_label === label)
+}
+
+function changePercent(current: TrendResult | undefined, previous: TrendResult | undefined): number | undefined {
+    if (!current || !previous?.count) {
+        return undefined
+    }
+    return ((current.count - previous.count) / previous.count) * 100
+}
+
+function restingSubtitle(current: TrendResult | undefined, previous: TrendResult | undefined): string | undefined {
+    if (current?.count === 0) {
+        return 'Not captured in the last 30 days'
+    }
+    return previous ? `vs. ${formatCount(previous.count)} prior` : undefined
+}
+
 export function PropertyEventVolumeCard({ propertyName }: { propertyName: string }): JSX.Element {
     const { currentTeamId, timezone } = useValues(teamLogic)
     const theme = useChartTheme()
@@ -22,19 +41,12 @@ export function PropertyEventVolumeCard({ propertyName }: { propertyName: string
         dataNodeLogic({ query, key: `definition-usage-event-volume-${currentTeamId}-${propertyName}` })
     )
 
-    const results = (response as TrendsQueryResponse | null)?.results as TrendResult[] | undefined
-    const current = results?.find((result) => result.compare_label === 'current')
-    const previous = results?.find((result) => result.compare_label === 'previous')
-    const changePercent =
-        current && previous?.count ? ((current.count - previous.count) / previous.count) * 100 : undefined
+    const current = compareResult(response, 'current')
+    const previous = compareResult(response, 'previous')
+    const change = changePercent(current, previous)
     // A flat line at zero reads as a stray border, so a property with no events gets no sparkline.
     const sparkline = current?.count ? current : undefined
-    const subtitle =
-        current?.count === 0
-            ? 'Not captured in the last 30 days'
-            : previous
-              ? `vs. ${formatCount(previous.count)} prior`
-              : undefined
+    const subtitle = restingSubtitle(current, previous)
 
     return (
         <AnalyticsMetricCard
@@ -44,7 +56,7 @@ export function PropertyEventVolumeCard({ propertyName }: { propertyName: string
             value={current?.count}
             formatValue={formatCount}
             showChange={previous != null}
-            change={changePercent != null ? { value: changePercent } : null}
+            change={change != null ? { value: change } : null}
             changeTooltip="Compared with the 30 days before"
             changeBesideValue
             hoverChangeFromPreviousPoint
