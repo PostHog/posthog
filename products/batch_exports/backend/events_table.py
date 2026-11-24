@@ -21,5 +21,5 @@ def batch_exports_read_new_events_table() -> bool:
 
 
 def exports_feature_flag_called_events(team_id: int) -> bool:
-    """Whether an export of `events_json_recent` for `team_id` includes `$feature_flag_called` events."""
+    """Whether a new events schema export of `events_recent` for `team_id` includes `$feature_flag_called` events."""
     return str(team_id) in settings.BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS

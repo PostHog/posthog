@@ -90,14 +90,28 @@ def test_native_events_export_sends_properties_without_storage_defaults(
     assert (json.loads(set_field) if set_field is not None else None) == expected_set
 
 
-_STORED_RECENT_EVENTS = {
+_SENT_AND_EXPORTED_RECENT_PROPERTIES: dict[str, tuple[dict, dict]] = {
     "with-flag": (
-        '{"$browser":"Chrome","$feature_flags":{"checkout":"true"},"page":"/a/b",'
-        '"$set":{"email":"a@example.com"},"$set_once":{"plan":"free"}}',
-        '{"$set":{"email":"a@example.com"},"$set_once":{"plan":"free"}}',
+        {
+            "$browser": "Chrome",
+            "$feature/checkout": True,
+            "page": "/a/b",
+            "$set": {"email": "a@example.com"},
+            "$set_once": {"plan": "free"},
+        },
+        {
+            "$browser": "Chrome",
+            "$feature_flags": {"checkout": "true"},
+            "page": "/a/b",
+            "$set": {"email": "a@example.com"},
+            "$set_once": {"plan": "free"},
+        },
     ),
-    "without-flag": ('{"$browser":"Firefox","$os":"Mac OS X"}', "{}"),
-    "$feature_flag_called": ('{"$feature_flag":"checkout","$feature_flag_response":"true"}', "{}"),
+    "without-flag": ({"$browser": "Firefox", "$os": "Mac OS X"}, {"$browser": "Firefox", "$os": "Mac OS X"}),
+    "$feature_flag_called": (
+        {"$feature_flag": "checkout", "$feature_flag_response": "true"},
+        {"$feature_flag": "checkout", "$feature_flag_response": "true"},
+    ),
 }
 
 
@@ -107,13 +121,13 @@ def _export_recent_events(
     now = dt.datetime.now(tz=dt.UTC)
     sync_execute(
         """
-        INSERT INTO sharded_events_json_recent
-            (uuid, event, properties, person_properties, temporary_properties, team_id, distinct_id, timestamp, inserted_at)
+        INSERT INTO sharded_events_recent
+            (uuid, event, properties, person_properties, team_id, distinct_id, timestamp, inserted_at)
         VALUES
         """,
         [
-            (uuid.uuid4(), event, properties, '{"email":"a@example.com"}', temporary, team_id, "d1", now, now)
-            for event, (properties, temporary) in _STORED_RECENT_EVENTS.items()
+            (uuid.uuid4(), event, json.dumps(sent), '{"email":"a@example.com"}', team_id, "d1", now, now)
+            for event, (sent, _) in _SENT_AND_EXPORTED_RECENT_PROPERTIES.items()
         ],
     )
     filters_str, filter_values = (
@@ -146,7 +160,7 @@ def _export_recent_events(
     ids=["feature-flag-called-left-out", "feature-flag-called-allowed"],
 )
 @pytest.mark.django_db
-def test_native_recent_events_export_sends_stored_documents(
+def test_native_recent_events_export_sends_cleaned_documents(
     team, includes_feature_flag_called: bool, expected_events: set[str]
 ) -> None:
     rows = _export_recent_events(
@@ -164,10 +178,12 @@ def test_native_recent_events_export_sends_stored_documents(
 
     assert {row[0] for row in rows} == expected_events
     for event, properties, person_properties, set_field, set_once_field in rows:
-        assert properties == _STORED_RECENT_EVENTS[event][0]
+        assert json.loads(properties) == _SENT_AND_EXPORTED_RECENT_PROPERTIES[event][1]
         assert person_properties == '{"email":"a@example.com"}'
-        expected_set_fields = ('{"email":"a@example.com"}', '{"plan":"free"}') if event == "with-flag" else (None, None)
-        assert (set_field, set_once_field) == expected_set_fields
+        expected_set_fields = ({"email": "a@example.com"}, {"plan": "free"}) if event == "with-flag" else (None, None)
+        assert (set_field and json.loads(set_field), set_once_field and json.loads(set_once_field)) == (
+            expected_set_fields
+        )
 
 
 @pytest.mark.django_db
@@ -240,7 +256,7 @@ async def test_native_recent_events_export_filters_like_the_native_events_export
     for table, query in (
         ("events_json", native_events_export_query(fields, filters_str)),
         (
-            "events_json_recent",
+            "events_recent",
             native_recent_events_export_query(fields, filters_str, includes_feature_flag_called=False),
         ),
     ):
@@ -249,4 +265,4 @@ async def test_native_recent_events_export_filters_like_the_native_events_export
         )
         exported_events[table] = {row["event"] for row in rows}
 
-    assert exported_events == {"events_json": expected_events, "events_json_recent": expected_events}
+    assert exported_events == {"events_json": expected_events, "events_recent": expected_events}

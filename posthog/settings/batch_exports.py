@@ -110,7 +110,7 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 )
 
 
-# Teams whose exports from `events_json_recent` include `$feature_flag_called` events.
+# Teams whose new events schema exports from `events_recent` include `$feature_flag_called` events.
 # This is a temporary workaround until HogQL exports are generally available and these events can be
 # exported from `flag_evaluations`. Note that `events_json` does not include FFC events regardless.
 BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(

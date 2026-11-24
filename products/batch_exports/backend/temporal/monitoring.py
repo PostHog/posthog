@@ -9,7 +9,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.clickhouse.events_json import EVENTS_JSON_RECENT_TABLE
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -128,8 +127,7 @@ async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[Even
     # the exports send.
     query = (
         build_event_count_by_interval_query(
-            EVENTS_JSON_RECENT_TABLE,
-            includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id),
+            includes_feature_flag_called=exports_feature_flag_called_events(inputs.team_id)
         )
         if batch_exports_read_new_events_table()
         else EVENT_COUNT_BY_INTERVAL

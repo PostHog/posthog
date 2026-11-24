@@ -1,9 +1,9 @@
-"""Typed columns for the `events_json_recent` exports that have filters or custom schema fields.
+"""Typed columns for the recent events exports that have filters or custom schema fields.
 
-Most exports read `events_json_recent` as stored and need nothing here. Filters and custom schema fields are compiled
-for the new events schema, so they read typed JSON subcolumns such as ``events.properties.`$browser` ``. That syntax
-fails on `events_json_recent`, which stores the documents as text. For those exports only,
-`build_typed_events_json_recent_source` wraps the table in a subquery that looks like `events_json`, at the cost of
+Most recent exports send the documents the export cleaner builds from `events_recent` and need nothing here. Filters
+and custom schema fields are compiled for the new events schema, so they read typed JSON subcolumns such as
+``events.properties.`$browser` ``. That syntax fails on the cleaned documents, which are text. For those exports only,
+`build_typed_recent_events_source` wraps the cleaned rows in a subquery that looks like `events_json`, at the cost of
 parsing every row again. The subquery:
 
 - casts `properties`, `person_properties` and `temporary_properties` to the JSON types of `events_json`, from
@@ -11,14 +11,14 @@ parsing every row again. The subquery:
 - stores each top-level object or array as a string of its JSON text before the cast, as the cleaner of `events_json`
   does. HogQL reads a nested property by parsing its top-level member as text, which the stored documents keep as an
   object.
-- keeps the stored text of each document in a `_stored_*` column, so the export still sends the document as stored.
+- keeps the cleaned text of each document in a `_stored_*` column, so the export still sends that document.
 - skips the temporary properties in the typed `properties`, following `is_temporary_event_property` in
   `posthog/clickhouse/events_json.py`. `events_json` keeps them in `temporary_properties` only.
 - computes the `elements_chain_*` columns from the expressions that `events_json` materializes, in
   `EVENTS_JSON_ELEMENTS_COLUMNS`.
 
 Each of these copies a rule that the `events_json` schema owns, so a change to that schema needs the matching change
-here. The module is no longer needed if `events_json_recent` stores typed columns.
+here.
 """
 
 import re
@@ -28,7 +28,6 @@ from collections.abc import Collection, Sequence
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.events_json import (
-    EVENTS_JSON_RECENT_TABLE,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     PERMANENT_SDK_DEBUG_PROPERTIES,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
@@ -45,13 +44,13 @@ from posthog.models.event.sql import (
 if typing.TYPE_CHECKING:
     from products.batch_exports.backend.service import BatchExportField
 
-# The stored text of each document, kept beside the typed columns so the export still sends it as stored.
+# The cleaned text of each document, kept beside the typed columns so the export still sends it.
 STORED_DOCUMENT_FIELD_EXPRESSIONS = {
     "properties": "_stored_properties",
     "person_properties": "_stored_person_properties",
 }
 STORED_TEMPORARY_PROPERTIES_COLUMN = "_stored_temporary_properties"
-# Columns that are typed JSON in `events_json` but are text (or absent) in `events_json_recent`. Filters and custom
+# Columns that are typed JSON in `events_json` but are text (or absent) in the cleaned `events_recent` rows. Filters and custom
 # fields printed for the new events schema read them with JSON subcolumn syntax, which fails on text.
 _TYPED_COLUMN_REFERENCE = re.compile(r"\b(?:properties|person_properties|temporary_properties|elements_chain_\w+)\b")
 
@@ -69,7 +68,7 @@ def needs_typed_columns(
 def _parse_materialized_columns(columns_sql: str) -> list[str]:
     """`<expression> AS <name>` for each `, <name> <type> MATERIALIZED <expression>` line of a column list.
 
-    `events_json_recent` has no materialized `elements_chain_*` columns. Reading the expressions from the DDL of
+    `events_recent` has no materialized `elements_chain_*` columns. Reading the expressions from the DDL of
     `events_json` keeps one definition of them, instead of a copy here that can drift.
     """
     selected = []
@@ -83,7 +82,7 @@ def _parse_materialized_columns(columns_sql: str) -> list[str]:
 def _build_temporary_property_skip_clauses() -> str:
     """JSON type `SKIP` clauses for the paths that `is_temporary_event_property` puts in `temporary_properties`.
 
-    The stored `properties` text of `events_json_recent` includes keys such as `$set`, which `events_json` keeps in
+    The cleaned `properties` text includes keys such as `$set`, which `events_json` keeps in
     `temporary_properties` only. Without these clauses the typed `properties` would also hold them, and a read that
     rebuilds the whole document from both columns, such as the HTTP export's, would send `$set` twice.
 
@@ -131,11 +130,13 @@ _EVENTS_PROPERTIES_WITHOUT_TEMPORARY_JSON_TYPE = (
 )
 
 
-def build_typed_events_json_recent_source() -> str:
-    """`events_json_recent` with its document columns converted to the column types of `events_json`.
+def build_typed_recent_events_source(source: str) -> str:
+    """`source` with its document columns converted to the column types of `events_json`.
 
-    The stored documents leave out the declared defaults that `events_json` reads back, and a declared path converts
-    back to its default when it is absent, so filters and fields match what they match on `events_json`. The stored
+    `source` is the cleaned `events_recent` subquery, which already carries the row filters of the export.
+
+    The cleaned documents leave out the declared defaults that `events_json` reads back, and a declared path converts
+    back to its default when it is absent, so filters and fields match what they match on `events_json`. The cleaned
     `properties` document also carries the temporary properties, which `events_json` keeps in `temporary_properties`
     only, so the conversion skips them there. The `elements_chain_*` columns are materialized in `events_json` only,
     so this computes them the same way.
@@ -156,12 +157,9 @@ def build_typed_events_json_recent_source() -> str:
                 {_stringify_container_members_sql("temporary_properties", {})}, '{TEMPORARY_PROPERTIES_JSON_TYPE}'
             ) AS temporary_properties
         ),
-        {EVENTS_JSON_RECENT_TABLE}.properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["properties"]},
-        {EVENTS_JSON_RECENT_TABLE}.person_properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["person_properties"]},
-        {EVENTS_JSON_RECENT_TABLE}.temporary_properties AS {STORED_TEMPORARY_PROPERTIES_COLUMN},
+        cleaned_events.properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["properties"]},
+        cleaned_events.person_properties AS {STORED_DOCUMENT_FIELD_EXPRESSIONS["person_properties"]},
+        cleaned_events.temporary_properties AS {STORED_TEMPORARY_PROPERTIES_COLUMN},
         {elements_chain_columns}
-    FROM {EVENTS_JSON_RECENT_TABLE}
-    WHERE team_id = %(team_id)s::Int64
-        AND inserted_at >= %(interval_start)s::DateTime64
-        AND inserted_at < %(interval_end)s::DateTime64
+    FROM {source} AS cleaned_events
 )"""

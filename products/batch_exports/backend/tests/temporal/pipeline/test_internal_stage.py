@@ -132,7 +132,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
     if use_native_schema:
-        expected_table = "events_json_recent" if reads_recent_range else "events_json"
+        expected_table = "events_recent" if reads_recent_range else "events_json"
     elif not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     else:
@@ -186,7 +186,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
-    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
+    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent")
     connected_url = get_client.call_args.kwargs["clickhouse_url"]
     assert (connected_url == batch_exports_url) == reads_recent_table
 
@@ -237,7 +237,7 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize(
     "reads_native_table,backfill_days_ago,expected_table",
-    [(False, 3, "distributed_events_recent"), (True, 3, "events_json_recent"), (True, 10, "events_json")],
+    [(False, 3, "distributed_events_recent"), (True, 3, "events_recent"), (True, 10, "events_json")],
     ids=["legacy-recent-table", "native-recent-table", "native-table"],
 )
 async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(

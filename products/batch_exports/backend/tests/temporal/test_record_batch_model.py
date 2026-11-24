@@ -835,7 +835,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
     - the exported `properties` and `person_properties` are the stored documents: flags in the `$feature_flags` map
       with their sentinels, objects and arrays that the cleaner stored as text put back, and no declared-path
       defaults, `$feature/` keys, `$active_feature_flags` or top-level null fields. Temporary properties, such as
-      `$set`, follow the other members, as `events_json_recent` stores them.
+      `$set`, follow the other members, as the export cleaner writes them.
     - `set` and `set_once` come from the temporary properties, and `unset` and `group_set` are empty.
     - filters compiled for the new schema match on the typed columns: a flag through the map, and "is not set" on a
       declared key whose stored value is its `""` default.
