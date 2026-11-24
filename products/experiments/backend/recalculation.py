@@ -28,6 +28,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
@@ -162,7 +163,13 @@ def entries_of_current_configs(
     return current
 
 
-def _current_run_entries(recalc: ExperimentMetricsRecalculation) -> tuple[dict[str, Any], dict[str, Any]]:
+@frozen
+class _CurrentRunEntries:
+    metric_errors: dict[str, Any]
+    metric_retries: dict[str, Any]
+
+
+def _current_run_entries(recalc: ExperimentMetricsRecalculation) -> _CurrentRunEntries:
     """The run's `metric_errors` and `metric_retries` as `entries_of_current_configs` filters them. It builds the configs
     only when an entry holds a display key, so a run without such entries costs no extra queries."""
     metric_errors = recalc.metric_errors if isinstance(recalc.metric_errors, dict) else {}
@@ -171,9 +178,18 @@ def _current_run_entries(recalc: ExperimentMetricsRecalculation) -> tuple[dict[s
         isinstance(entry, dict) and RUN_ENTRY_DISPLAY_KEY in entry
         for entry in (*metric_errors.values(), *metric_retries.values())
     ):
-        return metric_errors, metric_retries
+        return _CurrentRunEntries(metric_errors=metric_errors, metric_retries=metric_retries)
     configs = build_calculation_configs(recalc.experiment)
-    return entries_of_current_configs(metric_errors, configs), entries_of_current_configs(metric_retries, configs)
+    return _CurrentRunEntries(
+        metric_errors=entries_of_current_configs(metric_errors, configs),
+        metric_retries=entries_of_current_configs(metric_retries, configs),
+    )
+
+
+@frozen
+class RunMetricCounts:
+    completed_metrics: int
+    failed_metrics: int
 
 
 def _derive_counters(
@@ -181,7 +197,7 @@ def _derive_counters(
     results: list[dict] | None = None,
     *,
     metric_errors: Mapping[str, Any] | None = None,
-) -> tuple[int, int]:
+) -> RunMetricCounts:
     """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
 
     `failed_metrics`    = metrics with an ExperimentMetricResult row with status=FAILED or a `metric_errors` entry.
@@ -212,7 +228,7 @@ def _derive_counters(
         for uuid, status in status_by_uuid.items()
         if status == ExperimentMetricResult.Status.COMPLETED and uuid not in failed
     )
-    return completed, len(failed)
+    return RunMetricCounts(completed_metrics=completed, failed_metrics=len(failed))
 
 
 def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | None:
@@ -315,17 +331,17 @@ def build_job_payload(
     `metric_errors` and `metric_retries` hold only the entries of the current metric configs, as
     `entries_of_current_configs` defines them, and `failed_metrics` counts those entries.
     """
-    metric_errors, metric_retries = _current_run_entries(recalc)
-    completed_metrics, failed_metrics = _derive_counters(recalc, results=results, metric_errors=metric_errors)
+    entries = _current_run_entries(recalc)
+    counts = _derive_counters(recalc, results=results, metric_errors=entries.metric_errors)
     payload: dict = {
         "id": str(recalc.id),
         "experiment_id": recalc.experiment_id,
         "status": recalc.status,
         "total_metrics": recalc.total_metrics,
-        "completed_metrics": completed_metrics,
-        "failed_metrics": failed_metrics,
-        "metric_errors": metric_errors,
-        "metric_retries": metric_retries,
+        "completed_metrics": counts.completed_metrics,
+        "failed_metrics": counts.failed_metrics,
+        "metric_errors": entries.metric_errors,
+        "metric_retries": entries.metric_retries,
         "trigger": recalc.trigger,
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,

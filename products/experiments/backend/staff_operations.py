@@ -36,6 +36,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RunMetricCounts,
     _derive_counters,
     cancel_recalculation_workflow,
     get_latest_recalculation,
@@ -234,11 +235,11 @@ def _run_result_statuses(recalc: ExperimentMetricsRecalculation) -> list[dict]:
 
 
 def _to_staff_recalculation(recalc: ExperimentMetricsRecalculation, *, with_results: bool) -> StaffRecalculation:
-    completed_metrics = failed_metrics = None
+    counts: RunMetricCounts | None = None
     failures: list[StaffRecalculationFailure] = []
     if with_results:
         results = _run_result_statuses(recalc)
-        completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
+        counts = _derive_counters(recalc, results=results)
         failures = _resolve_failures(recalc, results)
     return StaffRecalculation(
         id=str(recalc.id),
@@ -247,8 +248,8 @@ def _to_staff_recalculation(recalc: ExperimentMetricsRecalculation, *, with_resu
         status=recalc.get_status_display(),
         trigger=recalc.get_trigger_display(),
         total_metrics=recalc.total_metrics,
-        completed_metrics=completed_metrics,
-        failed_metrics=failed_metrics,
+        completed_metrics=counts.completed_metrics if counts is not None else None,
+        failed_metrics=counts.failed_metrics if counts is not None else None,
         created_at=recalc.created_at,
         started_at=recalc.started_at,
         completed_at=recalc.completed_at,
