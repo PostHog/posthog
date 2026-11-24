@@ -433,6 +433,16 @@ class TestSelection(SimpleTestCase):
         if expected == "treatment":
             self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))
 
+    @parameterized.expand(
+        [
+            ("person", "Why did signups drop?", "treatment"),
+            ("sandbox_prompt", "[sandbox_prompt:repo_selection] Choose a repository", "disabled"),
+        ]
+    )
+    def test_title_eligibility(self, name, title, expected) -> None:
+        self.run_record.task.title = title
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, expected)
+
     def test_gate_failure_preserves_delivery(self) -> None:
         self.model.decide.side_effect = RuntimeError
         result = self.selector.prepare(time.monotonic() + 60)

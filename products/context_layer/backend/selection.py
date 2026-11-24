@@ -192,6 +192,7 @@ def selection_flag(run: TaskRun, actor: User) -> FlagDecision:
         or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
+        or run.task.title.startswith("[sandbox_prompt:")
     ):
         return FlagDecision()
     try:
