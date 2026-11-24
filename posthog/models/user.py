@@ -159,14 +159,30 @@ ROLE_CHOICES = (
 _join_current_organization: ContextVar[bool] = ContextVar("user_join_current_organization", default=False)
 
 
+class UserType(models.TextChoices):
+    HUMAN = "human", "Human"
+    SERVICE_ACCOUNT = "service_account", "Service account"
+
+
+class UserQuerySet(models.QuerySet["User"]):
+    def humans(self) -> "UserQuerySet":
+        return self.filter(type=UserType.HUMAN)
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
-    def get_queryset(self):
-        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
+    _queryset_class = UserQuerySet
+
+    # Returns users of every type. A path that must only see people calls `.humans()`.
+    def get_queryset(self) -> UserQuerySet:  # type: ignore[override]
+        queryset = cast(UserQuerySet, super().get_queryset().defer(*DEFERED_ATTRS))
         if _join_current_organization.get():
             queryset = queryset.select_related("current_organization")
         return queryset
+
+    def humans(self) -> UserQuerySet:
+        return self.get_queryset().humans()
 
     @contextmanager
     def joining_current_organization(self) -> Iterator[None]:
@@ -304,6 +320,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
+    # `db_default` keeps raw INSERTs from the Node and Rust services valid, because they do not list this column.
+    type = models.CharField(max_length=32, choices=UserType, default=UserType.HUMAN, db_default=UserType.HUMAN)
     email = models.EmailField(_("email address"), unique=True)
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
@@ -442,6 +460,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             super().save(*args, **kwargs)
         finally:
             self.is_staff = False
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.type == UserType.SERVICE_ACCOUNT
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]
