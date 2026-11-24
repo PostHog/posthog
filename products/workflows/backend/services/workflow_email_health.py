@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import field, replace
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Final, Literal
@@ -509,6 +509,7 @@ class DetectorDecisions:
     # Workflows inside the warning band: over a warn rate, under every pause rate, and not warned
     # within the cooldown. A workflow never appears in both lists; the pause wins.
     warnings: list[PauseDecision]
+    pooled_breaches_to_log: list[PauseDecision] = field(default_factory=list)
 
 
 def find_workflow_email_pauses(*, now: datetime | None = None) -> list[PauseDecision]:
@@ -643,8 +644,13 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
                         transactional_project_warnings.setdefault(flow_id, warning)
                     else:
                         warnings_by_flow[flow_id] = warning
+    pooled_breaches_to_log: list[PauseDecision] = []
     for flow_id, decision in transactional_project_breaches.items():
-        if flow_id not in paused_flow_ids and flow_id not in warnings_by_flow:
+        if flow_id in paused_flow_ids:
+            continue
+        if flow_id in warnings_by_flow:
+            pooled_breaches_to_log.append(decision)
+        else:
             pauses.append(decision)
             paused_flow_ids.add(flow_id)
     for flow_id, warning in transactional_project_warnings.items():
@@ -652,7 +658,7 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
     # A pause found in a longer window outranks a warning found in a shorter one, so the warning
     # list is settled only after every window ran.
     warnings = [decision for flow_id, decision in warnings_by_flow.items() if flow_id not in paused_flow_ids]
-    return DetectorDecisions(pauses=pauses, warnings=warnings)
+    return DetectorDecisions(pauses=pauses, warnings=warnings, pooled_breaches_to_log=pooled_breaches_to_log)
 
 
 def pause_workflow_email_sending(
@@ -781,26 +787,14 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     enabled = settings.WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE
     applied: list[PauseDecision] = []
     failed = 0
+    for decision in decisions.pooled_breaches_to_log:
+        _log_unapplied_breach(decision, "transactional" if enabled else "dry_run")
     for decision in decisions.pauses:
         if not enabled or _exempt(decision):
-            workflow_email_auto_pause_total.labels(
-                signal=decision.threshold.signal,
-                window=decision.threshold.window_label,
-                mode=_unenforced_mode(enabled),
-                scope=_scope(decision),
-            ).inc()
-            logger.info(
-                "would_pause_workflow_email_sending", mode=_unenforced_mode(enabled), **_decision_log_fields(decision)
-            )
+            _log_unapplied_breach(decision, _unenforced_mode(enabled))
             continue
         if decision.transactional:
-            workflow_email_auto_pause_total.labels(
-                signal=decision.threshold.signal,
-                window=decision.threshold.window_label,
-                mode="transactional",
-                scope=_scope(decision),
-            ).inc()
-            logger.warning("would_pause_workflow_email_sending", mode="transactional", **_decision_log_fields(decision))
+            _log_unapplied_breach(decision, "transactional")
             failed += _warn(decision, now=now)
             continue
         try:
@@ -838,6 +832,17 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     if failed:
         logger.warning("workflow_email_health_sweep_partial_failure", failed=failed)
     return applied
+
+
+def _log_unapplied_breach(decision: PauseDecision, mode: str) -> None:
+    workflow_email_auto_pause_total.labels(
+        signal=decision.threshold.signal,
+        window=decision.threshold.window_label,
+        mode=mode,
+        scope=_scope(decision),
+    ).inc()
+    log = logger.warning if mode == "transactional" else logger.info
+    log("would_pause_workflow_email_sending", mode=mode, **_decision_log_fields(decision))
 
 
 def _warn(decision: PauseDecision, *, now: datetime) -> int:

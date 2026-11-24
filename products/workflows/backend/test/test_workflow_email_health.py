@@ -5,12 +5,15 @@ import importlib
 import subprocess
 from datetime import datetime, timedelta
 from typing import TypedDict
+from urllib.parse import urlsplit
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,8 +21,9 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.settings import ses as ses_settings
 from posthog.settings.base_variables import BASE_DIR
@@ -651,6 +655,32 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             (str(sibling.id), "bounce", "1h", "project"),
         }
 
+    def test_a_transactional_project_breach_is_reported_alongside_own_warning(self):
+        self.flow.actions = TRANSACTIONAL_ACTIONS
+        self.flow.save(update_fields=["actions"])
+        sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=TRANSACTIONAL_ACTIONS)
+        self._seed(sent=5_850, complaints=12, at=self.now - timedelta(hours=4))
+        self._seed(sent=150, hard_bounces=30)
+        self._seed(source_id=str(sibling.id), sent=150, hard_bounces=30)
+        labels = {"signal": "bounce", "window": "1h", "mode": "transactional", "scope": "project"}
+        counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
+
+        with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
+            sweep_workflow_email_health(now=self.now)
+
+        assert REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) == counted_before + 2
+        assert {
+            log["hog_flow_id"]
+            for log in logs
+            if log["event"] == "would_pause_workflow_email_sending"
+            and all(log.get(label) == value for label, value in labels.items())
+        } == {str(self.flow.id), str(sibling.id)}
+        assert [
+            (log["signal"], log["window"], log["scope"])
+            for log in logs
+            if log["event"] == "warned_workflow_email_sending" and log["hog_flow_id"] == str(self.flow.id)
+        ] == [("complaint", "24h", "workflow")]
+
     @parameterized.expand(
         [
             (
@@ -1040,6 +1070,38 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert self.flow.email_sending_resumed_at is None
 
 
+def _run_sweep_from_startup(enforced: bool) -> None:
+    now = timezone.now().replace(minute=50, second=0, microsecond=0)
+    with transaction.atomic():
+        _, _, team = Organization.objects.bootstrap(None, name="Enforcement-key test")
+        flow = HogFlow.objects.create(team=team, name="Newsletter")
+        for metric_name, count in (("email_sent", 400), ("email_blocked", 8)):
+            create_app_metric2(
+                team_id=team.id,
+                app_source="hog_flow",
+                app_source_id=str(flow.id),
+                metric_kind="email",
+                metric_name=metric_name,
+                count=count,
+                timestamp=now - timedelta(hours=1),
+            )
+
+        with capture_logs() as logs:
+            sweep_workflow_email_health(now=now)
+
+        flow.refresh_from_db()
+        assert (flow.email_sending_paused_at is not None) is enforced
+        if not enforced:
+            assert any(
+                log["event"] == "would_pause_workflow_email_sending"
+                and log["mode"] == "dry_run"
+                and log["hog_flow_id"] == str(flow.id)
+                for log in logs
+            )
+        transaction.set_rollback(True)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "key,enforced",
     [
@@ -1048,11 +1110,13 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     ],
 )
 def test_django_startup_reads_only_the_enforce_key(key: str, enforced: bool):
+    clickhouse_test_setup.run()
     env = os.environ.copy()
     env.pop("DJANGO_SETTINGS_MODULE", None)
     env.pop("WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED", None)
     env.pop("WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE", None)
-    env.update({key: "true", "TEST": "true"})
+    test_database_url = urlsplit(settings.DATABASE_URL)._replace(path=f"/{connection.settings_dict['NAME']}")
+    env.update({key: "true", "TEST": "true", "DATABASE_URL": test_database_url.geturl()})
 
     subprocess.run(
         [
@@ -1060,7 +1124,8 @@ def test_django_startup_reads_only_the_enforce_key(key: str, enforced: bool):
             "manage.py",
             "shell",
             "-c",
-            f"from django.conf import settings; assert settings.WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE is {enforced}",
+            "from products.workflows.backend.test.test_workflow_email_health import _run_sweep_from_startup\n"
+            f"_run_sweep_from_startup({enforced})",
         ],
         cwd=BASE_DIR,
         env=env,
