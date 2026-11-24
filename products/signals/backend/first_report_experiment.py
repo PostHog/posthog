@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 
@@ -10,37 +10,47 @@ from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.models import SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalTeamConfig
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
-FIRST_REPORT_EXPERIMENT = "self-driving-banger-scout"
-FIRST_REPORT_SCOUT_VARIANTS = frozenset({"test-sol", "test-deepseek"})
+FIRST_REPORT_EXPERIMENT = "self-driving-first-report-model"
+FIRST_REPORT_TERRA_VARIANT = "test-terra"
+# Values that `self-driving-banger-scout` stored on onboarding state for projects that ran the
+# first-report scout. A job still pending from before this experiment reads them.
+_LEGACY_FIRST_REPORT_VARIANTS = frozenset({"test-sol", "test-deepseek"})
+# Onboarding state key for the variant whose exposure the dispatch captured. It is None for an
+# unenrolled project, so the runner checks for the key and not for a value.
+DISPATCHED_VARIANT_KEY = "first_report_dispatched_variant"
+
+DEEPSEEK_FIRST_REPORT_RUNTIME = AgentRuntime(runtime="pi", model="deepseek-ai/deepseek-v4.1-flash-1017-fast")
+TERRA_FIRST_REPORT_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-6.1-terra", reasoning_effort="medium")
 
 
 @frozen
 class FirstReportExperiment:
-    variant: str
-    # None for the control arm, which runs no first-report scout.
-    agent_runtime: AgentRuntime | None
-
-    @property
-    def runs_scout(self) -> bool:
-        return self.agent_runtime is not None
+    variant: str | None
+    agent_runtime: AgentRuntime
 
     def properties(self) -> dict[str, str]:
-        properties = {
-            "experiment_key": FIRST_REPORT_EXPERIMENT,
-            "experiment_variant": self.variant,
-            f"$feature/{FIRST_REPORT_EXPERIMENT}": self.variant,
-        }
-        if self.agent_runtime is not None:
-            properties["runtime"] = self.agent_runtime.runtime
+        properties = {"runtime": self.agent_runtime.runtime}
+        if self.variant is not None:
+            properties.update(
+                {
+                    "experiment_key": FIRST_REPORT_EXPERIMENT,
+                    "experiment_variant": self.variant,
+                    f"$feature/{FIRST_REPORT_EXPERIMENT}": self.variant,
+                }
+            )
         return properties
 
 
-def resolve_first_report_experiment(team: Team, *, raise_on_error: bool = False) -> FirstReportExperiment | None:
+def onboarding_runs_first_report(state: dict[str, Any]) -> bool:
+    return state.get("first_report_scout") is True or state.get("first_report_variant") in _LEGACY_FIRST_REPORT_VARIANTS
+
+
+def resolve_first_report_experiment(team: Team, *, raise_on_error: bool = False) -> FirstReportExperiment:
     try:
         variant = posthoganalytics.get_feature_flag(
             FIRST_REPORT_EXPERIMENT,
@@ -53,27 +63,29 @@ def resolve_first_report_experiment(team: Team, *, raise_on_error: bool = False)
         capture_exception(error)
         if raise_on_error:
             raise
-        return None
-    if variant is None and raise_on_error:
-        raise RuntimeError("First-report experiment evaluation is unavailable")
+        variant = None
+    return _experiment_for_variant(variant)
+
+
+def dispatched_first_report_experiment(team: Team) -> FirstReportExperiment:
+    config = SignalTeamConfig.objects.filter(team_id=team.id).only("onboarding").first()
+    state = (config.onboarding or {}) if config else {}
+    if DISPATCHED_VARIANT_KEY in state:
+        return _experiment_for_variant(state[DISPATCHED_VARIANT_KEY])
+    return resolve_first_report_experiment(team)
+
+
+def _experiment_for_variant(variant: object) -> FirstReportExperiment:
     if variant == "control":
-        return FirstReportExperiment(variant=variant, agent_runtime=None)
-    if variant == "test-sol":
-        return FirstReportExperiment(
-            variant=variant,
-            agent_runtime=AgentRuntime(
-                runtime_adapter="codex", model="gpt-6.1-sol", reasoning_effort="high", service_tier="priority"
-            ),
-        )
-    if variant == "test-deepseek":
-        return FirstReportExperiment(
-            variant=variant,
-            agent_runtime=AgentRuntime(runtime="pi", model="deepseek-ai/deepseek-v4.1-flash-1017-fast"),
-        )
-    return None
+        return FirstReportExperiment(variant="control", agent_runtime=DEEPSEEK_FIRST_REPORT_RUNTIME)
+    if variant == FIRST_REPORT_TERRA_VARIANT:
+        return FirstReportExperiment(variant=FIRST_REPORT_TERRA_VARIANT, agent_runtime=TERRA_FIRST_REPORT_RUNTIME)
+    return FirstReportExperiment(variant=None, agent_runtime=DEEPSEEK_FIRST_REPORT_RUNTIME)
 
 
 def capture_first_report_exposure(team: Team, experiment: FirstReportExperiment) -> None:
+    if experiment.variant is None:
+        return
     try:
         with ph_scoped_capture() as capture:
             capture(

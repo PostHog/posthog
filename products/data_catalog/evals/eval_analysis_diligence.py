@@ -3,6 +3,10 @@
 Each case plants one truth from the scenario pack (``scenario_synthesizer.py``) and pairs a
 deterministic check on the tool chain with a judge on the answer. The two midchain cases seed
 governed metrics instead, and grade that the agent uses them inside a larger task.
+The two no-metric cases seed only metrics that do not fit, so the agent must check the catalog, find no
+match, and then define the measure itself.
+The alert cases quote an alert and ask what caused it. Only the alert names the measure, so the agent must
+find the alert's metric in the catalog before it looks for a cause.
 
 To run the suite, once per surface:
 
@@ -12,11 +16,18 @@ To run the suite, once per surface:
 
 from __future__ import annotations
 
-from products.data_catalog.evals.catalog_seeders import seed_catalog_for_board_update, seed_pricing_metrics
+from products.data_catalog.evals.catalog_seeders import (
+    seed_catalog_for_board_update,
+    seed_catalog_noise_only,
+    seed_operations_catalog,
+    seed_pricing_metrics,
+)
 from products.data_catalog.evals.catalog_synthesizer import (
     ACCOUNT_ENGAGEMENT_METRIC,
     MRR_METRIC,
+    NEW_SIGNUPS_METRIC,
     PAYING_CUSTOMERS_METRIC,
+    TOOL_FAILURE_RATE_METRIC,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scenario_seeder import (
@@ -28,8 +39,11 @@ from products.data_catalog.evals.scenario_seeder import (
     seed_revenue_rep_outlier,
     seed_share_dau,
     seed_share_drop_flag,
+    seed_signup_spike_in_catalog,
     seed_slack_pretax_note,
+    seed_tool_failures_in_catalog,
     seed_upload_double_count,
+    seed_upload_double_count_in_catalog,
     seed_wau_bot_spike,
     seed_wau_spike_with_annotation,
 )
@@ -39,6 +53,8 @@ from products.data_catalog.evals.scenario_synthesizer import (
     CRM_OUTLIER_REP_NAME,
     MCP_EXPORT_FIRST_SEEN_DAYS_AGO,
     MCP_EXPORT_TOOL,
+    MCP_FAILING_TOOL,
+    MCP_FAILURE_RISE_DAYS,
     MCP_SHARE_TOOL,
     ORG_GRAIN_METRIC_NAME,
     POST_TAX_MULTIPLIER,
@@ -85,6 +101,9 @@ _ACTIVE_USERS_MEASURE = (
 )
 # A query that breaks traffic down by a candidate cause of the change.
 _SPIKE_CAUSE = r"referr|utm_|\$browser|\$device_type|\$pathname|\$current_url|mariustechtips|\$os\b"
+
+# The noise catalog's approved daily uploads metric, which the uploads alert is named after.
+_DAILY_UPLOADS_METRIC = "file_uploads_daily"
 
 _CRM_TABLE = synced_table_names(crm_deals_table(build_revenue_rep_outlier()).table_name)
 _SLACK_TABLE = synced_table_names(build_slack_export().table.table_name)
@@ -253,6 +272,91 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             setup=seed_wau_spike_with_annotation,
         ),
         SandboxedEvalCase(
+            name="alert_tool_failure_cause",
+            prompt=(
+                'This alert just fired in our team channel: "Anomaly: Agent tool failure rate is above its '
+                'expected range." What is causing it?'
+            ),
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "metric_found": {"metric_name": TOOL_FAILURE_RATE_METRIC.name},
+                "hypothesis_evidence_queried": {"patterns": [r"tool_name", MCP_FAILING_TOOL]},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Find {TOOL_FAILURE_RATE_METRIC.name} in the catalog before exploring the schema, and use "
+                        "its failure definition: a $mcp_tool_call event whose $mcp_is_error is true. Confirm that the "
+                        f"failure rate rose in the last {MCP_FAILURE_RISE_DAYS} days, break the failures down by tool, "
+                        f"and find that {MCP_FAILING_TOOL} causes them: its failure share rose from about 5% to about "
+                        "a third, and the other tools do not fail."
+                    )
+                },
+            },
+            setup=seed_tool_failures_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="alert_signups_cause",
+            prompt=(
+                'We got this alert last week: "Anomaly: New signups are above the expected range." Do you know '
+                "what was behind it?"
+            ),
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "metric_found": {"metric_name": NEW_SIGNUPS_METRIC.name},
+                "canonical_metric_run": {"metric_name": NEW_SIGNUPS_METRIC.name, "outcome": "succeeded"},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Find {NEW_SIGNUPS_METRIC.name} in the catalog before exploring the schema, and run it to "
+                        "confirm that signed_up events rose about 8 to 10 days ago. Then test candidate causes in the "
+                        "data. The best-supported one is the Marius Tech Tips sponsorship: the new signups came from "
+                        f"YouTube with utm_source={CAMPAIGN_UTM_SOURCE} to the /mariustechtips/ page, and an "
+                        "annotation marks the launch."
+                    )
+                },
+            },
+            setup=seed_signup_spike_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="alert_uploads_jump_cause",
+            prompt=(
+                'Our forecast alert says "File uploads (per day) are above forecast." What is behind the recent jump?'
+            ),
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "metric_found": {"metric_name": _DAILY_UPLOADS_METRIC},
+                "hypothesis_evidence_queried": {"patterns": [r"\$lib_version", r"duplicat", r"having\s+count"]},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Find {_DAILY_UPLOADS_METRIC} in the catalog before exploring the schema, because the alert "
+                        "is named after it. Find that uploaded_file events roughly doubled 3 to 6 days ago while the "
+                        "number of uploading users did not, and that each extra event copies an existing upload but "
+                        f"carries $lib_version {UPLOAD_DUPLICATE_LIB_VERSION}. Conclude that a client release sends "
+                        "duplicate events, not that people upload more."
+                    )
+                },
+            },
+            setup=seed_upload_double_count_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="preview_errors_spread",
+            prompt=(
+                "Some customers say file previews fail with an error. Does this affect many people or only a "
+                "few? Do previews work for most users?"
+            ),
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog and use the approved file preview render error metrics, for "
+                        "example the share of users with a preview render error, to size the problem. Find the "
+                        "'Failed to render PDF preview' RenderError issue. Report that only a few users hit it in the "
+                        "last weeks, a very small share of active users, so it is not widespread and previews work for "
+                        "most users."
+                    )
+                },
+            },
+            setup=seed_operations_catalog,
+        ),
+        SandboxedEvalCase(
             name="avg_dau_no_metric",
             prompt="What's the average DAU of file sharing?",
             expected={
@@ -267,6 +371,57 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_share_dau,
+        ),
+        SandboxedEvalCase(
+            name="usage_claim_one_account",
+            prompt=(
+                "Anixter International says they uploaded far more files in the last 30 days than we bill them for. "
+                "What do our numbers show?"
+            ),
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog for an upload count before writing SQL, and base the count on the "
+                        "governed definition of a file upload. Count the uploaded_file events for the Anixter "
+                        "International account over the last 30 days, state the definition used, and compare it with "
+                        "the claim."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
+        ),
+        SandboxedEvalCase(
+            name="percentile_no_metric",
+            prompt="What's the 95th percentile size of uploaded files over the last 30 days, by file type?",
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog and find that no governed metric measures file size. State the "
+                        "definition used: the 95th percentile of file_size_b on uploaded_file events over the last "
+                        "30 days, per file_type. Say that file_size_b is in bytes, and give the sizes in a readable "
+                        "unit such as MB."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
+        ),
+        SandboxedEvalCase(
+            name="size_change_no_metric",
+            prompt="We're thinking of capping free accounts at 2 GB of storage. How many free accounts are over that today?",
+            expected={
+                "metrics_catalog_queried": {},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        "Check the metrics catalog and find that no governed metric measures account storage. Count "
+                        "the accounts whose plan is personal/free and whose used_mb is above 2 GB. Find that used_mb "
+                        "holds bytes despite its name, so the limit is about 2 billion in that property, not 2,048. "
+                        "State the definition used and which value of 2 GB it applies."
+                    )
+                },
+            },
+            setup=seed_catalog_noise_only,
         ),
         SandboxedEvalCase(
             name="adoption_with_first_seen",

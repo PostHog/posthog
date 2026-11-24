@@ -423,6 +423,22 @@ def live_tile_insight_ids(dashboard_id: int) -> list[int]:
     )
 
 
+def live_tile_insight_ids_on_dashboards(dashboard_ids: Collection[int], *, team_id: int) -> set[int]:
+    """Ids of the insights on the live tiles of these dashboards of this team, leaving out deleted insights, in one query."""
+    if not dashboard_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id=team_id,
+            dashboard_id__in=list(dashboard_ids),
+            insight_id__isnull=False,
+            insight__deleted=False,
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
     """Which of these ids are not a live dashboard of this team, in the order they were given.
 

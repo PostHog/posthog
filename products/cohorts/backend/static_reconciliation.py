@@ -277,9 +277,10 @@ def _clickhouse_row_counts(candidates: list[_Candidate]) -> dict[int, int]:
 def _clickhouse_members(row: Cohort) -> _ClickHouseMembers:
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     kept, kept_params = static_cohort_membership_filter(row.last_replace_marker, row.last_replace_floor)
+    # The copy pages from the nil UUID up, so it never reads one that older query-based inserts wrote.
     # nosemgrep: clickhouse-fstring-param-audit - table name and kept filter from constants, values parameterized
     [(row_count, people)] = sync_execute(
-        f"SELECT count(), uniqExactIf(person_id, {kept}) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        f"SELECT count(), uniqExactIf(person_id, NOT empty(person_id) AND ({kept})) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"team_id": row.team_id, "cohort_id": row.pk, **kept_params},
         workload=Workload.OFFLINE,  # background repair, no person waits for it
         ch_user=ClickHouseUser.COHORTS,

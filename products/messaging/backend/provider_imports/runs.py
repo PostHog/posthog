@@ -17,8 +17,8 @@ from django.utils import timezone
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import report_team_action
-from posthog.models import Team
+from posthog.event_usage import report_team_action, report_user_action
+from posthog.models import Team, User
 
 from products.messaging.backend.models.provider_import_run import (
     ACTIVE_IMPORT_STATUSES,
@@ -37,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     PeopleImportPlan,
     StepCheckpoint,
 )
+from products.messaging.backend.provider_imports.metrics import IMPORT_CONTACTS, IMPORT_RUNS
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
 from products.workflows.backend.facade.api import can_edit_workflows
@@ -59,6 +60,9 @@ MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
 PEOPLE_IMPORT_FAILED_MESSAGE = "Some contacts couldn't become people or join their cohort. Import again to finish."
+PEOPLE_IMPORT_FAILED_CLASS = "PeopleImportFailed"
+# The class a failed step reports when nothing raised, because its workflow ended before the step finished.
+STEP_NOT_FINISHED_CLASS = "StepNotFinished"
 
 
 class ProviderImportAlreadyRunning(Exception):
@@ -183,8 +187,15 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
         if not isinstance(e, ImportStepError):
             logger.exception("Provider import step failed", extra={"run_id": str(run_id), "step": step})
         last_error = str(e)[:500] if isinstance(e, ImportStepError) else UNEXPECTED_ERROR_MESSAGE
+        error_class = type(e).__name__
         try:
-            _update_owned_step(team_id, run_id, step, attempt, lambda progress: progress.update(last_error=last_error))
+            _update_owned_step(
+                team_id,
+                run_id,
+                step,
+                attempt,
+                lambda progress: progress.update(last_error=last_error, error_class=error_class),
+            )
         except (StaleImportAttempt, ImportRunClosed):
             pass
         raise
@@ -220,22 +231,60 @@ def finish_run(team_id: int, run_id: UUID) -> None:
     _close_run(team_id, run_id)
 
 
-def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int]) -> None:
+def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int | None]) -> None:
     """Save how sending a step's contact lists went. A list that failed fails the step, so the run shows it."""
     with transaction.atomic():
         run = _runs(team_id).select_for_update().get(id=run_id)
         if run.status not in ACTIVE_IMPORT_STATUSES:
             return
         progress = run.progress.setdefault(step, _new_step_progress())
+        already_recorded = "people_import" in progress
         progress["people_import"] = dict(outcome)
-        if outcome.get("failed_lists"):
-            progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
+        not_sent = 0
+        if (sent := outcome.get("sent")) is not None:
+            counts = progress.setdefault("counts", {})
+            if "people_to_send" not in counts:
+                # Stored before this count existed: its contacts sit in `people`, and its parts don't say who is new.
+                counts["people_to_send"] = counts.get("people", 0)
+            else:
+                counts["new_people"] = outcome.get("new_people") or 0
+            not_sent = max(counts["people_to_send"] - sent, 0)
+            counts.update(people=sent, not_sent=not_sent)
+            progress["imported"] = sent
+        if not_sent:
+            progress.update(
+                status=ImportStepStatus.FAILED.value,
+                last_error=f"{not_sent:,} {'contact' if not_sent == 1 else 'contacts'} didn't reach PostHog, so their "
+                "people weren't created or updated. Import again to retry.",
+                error_class=PEOPLE_IMPORT_FAILED_CLASS,
+            )
+        elif outcome.get("failed_lists"):
+            progress.update(
+                status=ImportStepStatus.FAILED.value,
+                last_error=PEOPLE_IMPORT_FAILED_MESSAGE,
+                error_class=PEOPLE_IMPORT_FAILED_CLASS,
+            )
         run.save(update_fields=["progress"])
+    if already_recorded:
+        # Temporal ran this again after it saved, and the counter adds each contact once.
+        return
+    _count_contacts(run.provider, step, progress)
+
+
+def _count_contacts(provider: str, step: str, progress: Mapping[str, Any]) -> None:
+    for outcome_name, count in _step_outcomes(progress).items():
+        IMPORT_CONTACTS.labels(provider=provider, step=step, outcome=outcome_name).inc(count)
 
 
 def _people_imports(team_id: int, run_id: UUID, step: str) -> list[PeopleImportPlan]:
-    progress = _runs(team_id).get(id=run_id).progress.get(step, {})
-    return [PeopleImportPlan(**plan) for plan in progress.get("people_imports", [])]
+    run = _runs(team_id).get(id=run_id)
+    plans = run.progress.get(step, {}).get("people_imports", [])
+    return [PeopleImportPlan(**plan, provider=run.provider, step=step) for plan in plans]
+
+
+def _stored_plan(plan: PeopleImportPlan) -> dict[str, Any]:
+    # A worker on the previous release can't load a plan with keys it doesn't know, so the labels stay out.
+    return {key: value for key, value in asdict(plan).items() if key not in ("provider", "step")}
 
 
 def close_stale_runs() -> int:
@@ -377,6 +426,7 @@ def _close_stale_run(team_id: int, run_id: UUID) -> None:
 
 
 def _close_run(team_id: int, run_id: UUID) -> None:
+    unreported_steps: list[str] = []
     with transaction.atomic():
         run = _runs(team_id).select_for_update().get(id=run_id)
         if run.status not in ACTIVE_IMPORT_STATUSES:
@@ -385,17 +435,26 @@ def _close_run(team_id: int, run_id: UUID) -> None:
             progress = run.progress.setdefault(step, _new_step_progress())
             if progress.get("people_imports") and "people_import" not in progress:
                 # The workflow ended before it sent the step's contacts, so their cohorts can't finish.
+                unreported_steps.append(step)
                 for plan in progress["people_imports"]:
                     fail_contacts_cohort(team_id, plan["cohort_id"])
-                progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
+                progress.update(
+                    status=ImportStepStatus.FAILED.value,
+                    last_error=PEOPLE_IMPORT_FAILED_MESSAGE,
+                    error_class=PEOPLE_IMPORT_FAILED_CLASS,
+                )
             if progress["status"] != ImportStepStatus.COMPLETED:
                 progress["status"] = ImportStepStatus.FAILED
+                progress.setdefault("error_class", STEP_NOT_FINISHED_CLASS)
         completed = all(run.progress[step]["status"] == ImportStepStatus.COMPLETED for step in run.steps)
         run.status = ProviderImportStatus.COMPLETED if completed else ProviderImportStatus.FAILED
         run.finished_at = timezone.now()
         run.temporary_api_key = None
         run.save(update_fields=["progress", "status", "finished_at", "temporary_api_key"])
 
+    for step in unreported_steps:
+        _count_contacts(run.provider, step, run.progress[step])
+    IMPORT_RUNS.labels(provider=run.provider, status=run.status).inc()
     _report_finished(run)
 
 
@@ -429,7 +488,7 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
             _add_items(progress, saved.items)
             if saved.people_imports:
                 progress["people_imports"] = progress.get("people_imports", []) + [
-                    asdict(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
+                    _stored_plan(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
                 ]
             progress["checkpoint"] = page.checkpoint
             if page.checkpoint is None:
@@ -496,40 +555,71 @@ def _new_step_progress() -> dict[str, Any]:
 
 def _mark_completed(progress: dict[str, Any]) -> None:
     progress.update(status=ImportStepStatus.COMPLETED.value, last_error=None, checkpoint=None)
+    progress.pop("error_class", None)
+
+
+def _step_outcomes(progress: Mapping[str, Any]) -> dict[str, int]:
+    """How many records a step imported, skipped and failed. A contacts step counts what capture accepted."""
+    people_import = progress.get("people_import", {})
+    counts = progress.get("counts", {})
+    if people_import:
+        if people_import.get("sent") is not None:
+            to_send = counts.get("people_to_send", people_import["sent"])
+            return {
+                "imported": people_import["sent"],
+                "skipped": max(progress.get("processed", 0) - to_send, 0),
+                "failed": counts.get("not_sent", 0),
+            }
+        if people_import.get("people"):
+            return {
+                "imported": people_import["found"],
+                "skipped": max(progress.get("processed", 0) - people_import["people"], 0),
+                "failed": people_import["people"] - people_import["found"],
+            }
+    if progress.get("people_imports"):
+        # The contacts were stored, but sending them never reported back.
+        to_send = counts.get("people_to_send", 0)
+        return {"imported": 0, "skipped": max(progress.get("processed", 0) - to_send, 0), "failed": to_send}
+    imported, failed = progress.get("imported", 0), counts.get("failed", 0)
+    return {
+        "imported": imported,
+        "skipped": max(progress.get("processed", 0) - imported - failed, 0),
+        "failed": failed,
+    }
 
 
 def _report_finished(run: ProviderImportRun) -> None:
+    """One event per run, attributed to the person who started it. It carries no contact data or error message."""
     try:
         team = Team.objects.get(id=run.team_id)
-        duration_seconds = int((run.finished_at - run.created_at).total_seconds()) if run.finished_at else None
-        report_team_action(
-            team,
-            "messaging provider import finished",
-            {
-                "provider": run.provider,
-                "status": run.status,
-                "steps": run.steps,
-                "duration_seconds": duration_seconds,
-                **{f"{step}_status": run.progress[step]["status"] for step in run.steps},
-                **{f"{step}_imported": run.progress[step]["imported"] for step in run.steps},
-            },
-        )
-        report_team_action(
-            team,
-            "workflows import run",
-            {
-                "source": run.provider,
-                "stage": "finished",
-                "dry_run": False,
-                "status": run.status,
-                "steps": run.steps,
-                "duration_seconds": duration_seconds,
-                "statuses": [run.progress[step]["status"] for step in run.steps],
-                "counts": {step: run.progress[step].get("counts", {}) for step in run.steps},
-                "note_count": sum(
-                    len(item.get("notes", [])) for step in run.steps for item in run.progress[step].get("items", [])
+        failed = run.status != ProviderImportStatus.COMPLETED
+        progress = {step: run.progress.get(step, {}) for step in run.steps}
+        properties: dict[str, Any] = {
+            "source": run.provider,
+            "provider": run.provider,
+            "stage": "failed" if failed else "completed",
+            "dry_run": False,
+            "steps": run.steps,
+            "counts": {step: _step_outcomes(step_progress) for step, step_progress in progress.items()},
+            "duration_seconds": int((run.finished_at - run.created_at).total_seconds()) if run.finished_at else None,
+            "retried_chunks": sum(
+                step_progress.get("people_import", {}).get("retried_chunks", 0) for step_progress in progress.values()
+            ),
+        }
+        if failed:
+            properties["error_class"] = next(
+                (
+                    step_progress["error_class"]
+                    for step_progress in progress.values()
+                    if step_progress.get("error_class")
                 ),
-            },
-        )
+                STEP_NOT_FINISHED_CLASS,
+            )
+        user = User.objects.filter(id=run.created_by_id).first()
+        if user is None or not user.distinct_id:
+            report_team_action(team, "workflows import run", properties)
+        else:
+            # The starter may have switched to another organization since.
+            report_user_action(user, "workflows import run", properties, team=team, organization=team.organization)
     except Exception:
         logger.exception("Failed to report the provider import outcome")

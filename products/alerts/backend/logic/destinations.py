@@ -504,6 +504,24 @@ def retire_alert_hog_functions(*, team_id: int, alert_id: str) -> None:
         hog_function.save()
 
 
+def retire_linked_hog_functions(*, team_id: int, alert_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Switches off and soft-deletes the named HogFunctions of one alert, whatever their events. One
+    that filters on another alert is left alone, so a row cannot retire a function it does not send for."""
+    retired = set(
+        HogFunction.objects.filter(
+            team_id=team_id,
+            id__in=list(hog_function_ids),
+            type=HogFunctionType.INTERNAL_DESTINATION,
+            deleted=False,
+            filters__properties__contains=[{"key": "alert_id", "value": str(alert_id)}],
+        )
+        .select_for_update()
+        .values_list("id", flat=True)
+    )
+    HogFunction.objects.filter(team_id=team_id, id__in=retired).update(deleted=True, enabled=False)
+    _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=retired)
+
+
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
     return soft_delete_alert_destinations_for_alerts(
         team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids

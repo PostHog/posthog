@@ -14,7 +14,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
 import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
-import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
+import { TagsFilter } from '../TagsFilter'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
@@ -154,11 +154,7 @@ export function AccountNotesExpansion({
                         className="min-w-64"
                     />
                     <AccountNotesViewSelector logicProps={{ sourceKey: logic.pathString, sourceLogic: logic }} />
-                    <NotesTagsFilter
-                        value={tagsFilter}
-                        onChange={setTagsFilter}
-                        data-attr="account-notes-tags-filter"
-                    />
+                    <TagsFilter value={tagsFilter} onChange={setTagsFilter} data-attr="account-notes-tags-filter" />
                     <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
                 </div>
                 <LemonButton

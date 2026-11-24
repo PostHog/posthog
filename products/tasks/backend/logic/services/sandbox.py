@@ -48,6 +48,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
+    agent_egress_enrollment_environment,
     agent_egress_staging_probe_enabled,
 )
 from products.tasks.backend.logic.services.sandbox_housekeeping import (
@@ -326,7 +327,7 @@ class SandboxConfig(BaseModel):
     @model_validator(mode="after")
     def validate_agent_egress_observation(self) -> Self:
         if self.agent_egress_observation and (
-            not (settings.DEBUG or settings.TEST)
+            not (settings.DEBUG or settings.TEST or agent_egress_enrollment_environment())
             or not self.vm_runtime
             or self.memory_gb < 2
             or self.agent_egress_probe
@@ -499,9 +500,11 @@ def build_agent_runtime_env_prefix(
     benjamin_enabled: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
+    run_policy: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_TASK_RUN_POLICY": run_policy,
         "POSTHOG_AGENT_RUNTIME": agent_runtime,
         "POSTHOG_SANDBOX_ID": sandbox_id,
         "POSTHOG_SANDBOX_RUNTIME": sandbox_runtime,
@@ -868,6 +871,7 @@ class SandboxBase(ABC):
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
         before_launch: Callable[[], None] | None = None,
+        run_policy: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 

@@ -1,9 +1,7 @@
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
-from django.db.models.signals import post_save
-from django.dispatch import receiver
+from django.db import models
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -182,14 +180,3 @@ class Tagger(UUIDTModel):
 
         self.conditions = compiled_conditions
         return super().save(*args, **kwargs)
-
-
-@receiver(post_save, sender=Tagger)
-def tagger_saved(sender, instance, created, **kwargs):
-    from posthog.plugins.plugin_server_api import reload_taggers_on_workers
-
-    # Defer the workers notification until the surrounding transaction commits.
-    # Otherwise a rolled-back create would tell workers to reload a tagger that never existed.
-    transaction.on_commit(
-        lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]), robust=True
-    )

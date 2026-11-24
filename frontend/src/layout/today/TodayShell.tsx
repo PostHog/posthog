@@ -46,6 +46,11 @@ const TodayMonitorSidebar = lazyWithRetry(() =>
         default: m.TodayMonitorSidebar,
     }))
 )
+const TodayDataSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/data/TodayDataSidebar').then((m) => ({
+        default: m.TodayDataSidebar,
+    }))
+)
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -64,6 +69,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
     people: { Sidebar: TodayPeopleSidebar, previews: true },
     release: { Sidebar: ReleaseSidebar },
+    data: { Sidebar: TodayDataSidebar, previews: true },
     settings: { Sidebar: TodaySettingsSidebar },
     products: { Sidebar: TodayProductsPane },
 }

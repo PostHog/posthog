@@ -47,6 +47,27 @@ Reverting the code that registers a schedule does not remove one already registe
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 
+### Error tracking rollout
+
+Keep `platform-alerts-source-error-tracking` closed until the evaluation binding, ingestion change-log producers, and delivery behavior are ready.
+Source registration and configuration APIs alone do not evaluate alerts.
+An enabled configuration without its evaluation binding stays due and contributes to the overdue inventory.
+
+Error tracking alerts do not send resolution notifications.
+Internal notification instances may reset silently so later changes can notify and resting instances can release their slots.
+The intended conversation lifetime is one thread per issue, per alert and destination, independent of those resets.
+Persistent threads across resets still require delivery support; per-issue grouping alone does not provide it.
+
+### Project-wide routing permissions
+
+Routing can redirect alerts from every source.
+Reading receivers and routes requires view access to every registered alert source; tokens also require each source's read scope.
+Changing routing additionally requires organization-admin access and each source's write scope on tokens.
+
+Registering error tracking adds `error_tracking:read` for routing reads and `error_tracking:write` for routing writes.
+Members also need error tracking access to read routing.
+These requirements apply to projects with routing enabled even when `platform-alerts-source-error-tracking` is off.
+
 ### Slack message formatting
 
 - Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.

@@ -313,6 +313,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.asana.com/reference/status-updates",
         "columns": _status_update_columns("portfolio", "on_track, at_risk, off_track, on_hold, complete, dropped"),
     },
+    "task_dependencies": {
+        "description": "One row per task dependency. The row is a task that must be completed before `task_gid` can start.",
+        "docs_url": "https://developers.asana.com/reference/getdependenciesfortask",
+        "columns": _columns(
+            task_gid="Identifier of the task that waits on the task in this row.",
+            resource_subtype="Subtype of the task in this row (e.g. 'default_task', 'milestone', 'approval').",
+            completed="True if the task in this row is marked complete.",
+        ),
+    },
+    "task_dependents": {
+        "description": "One row per task dependent. The row is a task that cannot start until `task_gid` is completed.",
+        "docs_url": "https://developers.asana.com/reference/getdependentsfortask",
+        "columns": _columns(
+            task_gid="Identifier of the task that the task in this row waits on.",
+            resource_subtype="Subtype of the task in this row (e.g. 'default_task', 'milestone', 'approval').",
+            completed="True if the task in this row is marked complete.",
+        ),
+    },
+    "goal_relationships": {
+        "description": "Links between a goal and the goals, projects, portfolios or tasks that support it.",
+        "docs_url": "https://developers.asana.com/reference/getgoalrelationships",
+        "columns": _columns(
+            resource_subtype="Kind of relationship: 'subgoal' or 'supporting_work'.",
+            contribution_weight="Weight from 0 to 1 that the supporting resource's progress adds to the supported goal's progress.",
+            supported_goal="The goal that the supporting resource contributes to.",
+            supporting_resource="The goal, project, portfolio or task that supports the goal.",
+        ),
+    },
+    "time_tracking_categories": {
+        "description": "Categories that time tracking entries can be tagged with, both active and archived.",
+        "docs_url": "https://developers.asana.com/reference/gettimetrackingcategories",
+        "columns": _columns(
+            name="Name of the time tracking category.",
+            color="Color of the category, for display.",
+            is_archived="True if the category is archived. Archived categories cannot be put on new entries but stay on existing ones.",
+        ),
+    },
+    "allocations": {
+        "description": "Resource allocations: the effort a user or placeholder is planned to spend on a project over a date range.",
+        "docs_url": "https://developers.asana.com/reference/getallocations",
+        "columns": _columns(
+            start_date="Day on which the allocation starts.",
+            end_date="Day on which the allocation ends.",
+            effort="Planned effort, as a percentage or a number of hours (`type` and `value`).",
+            assignee="The user or placeholder the allocation is assigned to.",
+            created_by="The user who created the allocation.",
+            parent="The project the allocation is on.",
+            resource_subtype="Subtype of the allocation.",
+        ),
+    },
     "ai_studio_runs": {
         "description": "A single AI Studio run (rule execution), with the credits it consumed. Requires an AI Studio-licensed organization.",
         "docs_url": "https://developers.asana.com/reference/ai-studio-usage-api",

@@ -22,7 +22,7 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import DatabaseField, DecimalDatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
@@ -876,6 +876,27 @@ class TestGetHogqlFieldForColumn(SimpleTestCase):
 
         assert type(field) is expected_type
         assert field.is_nullable()
+
+    @parameterized.expand(
+        [
+            (
+                "precision_and_scale",
+                {"clickhouse": "Decimal(38, 8)", "hogql": "DecimalDatabaseField"},
+                "Decimal(38, 8)",
+                8,
+            ),
+            ("sized_decimal", {"clickhouse": "Decimal64(4)", "hogql": "DecimalDatabaseField"}, "Decimal64(4)", 4),
+            ("precision_only", {"clickhouse": "Decimal(10)", "hogql": "DecimalDatabaseField"}, "Decimal(10)", 0),
+            ("old_style", "Decimal(18, 3)", "Decimal(18, 3)", 3),
+        ]
+    )
+    def test_decimal_column_keeps_its_scale(
+        self, _name: str, column_definition: dict[str, Any] | str, clickhouse_type: str, scale: int
+    ) -> None:
+        field = get_hogql_field_for_column("amount", column_definition, clickhouse_type, is_nullable=False)
+
+        assert isinstance(field, DecimalDatabaseField)
+        assert field.scale == scale
 
 
 class TestUrlPatternChangeGuard(BaseTest):

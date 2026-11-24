@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from datetime import timedelta
 from enum import StrEnum
-from functools import lru_cache, partial
+from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.conf import settings
@@ -246,6 +246,7 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
     log_and_report_insight_activity,
+    memoize_last_call,
     viewable_insight_or_404,
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
@@ -1387,7 +1388,7 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             self._query_variables_mapping(insight.query)
         return self.plan_query(insight)
 
-    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one tile at a time
+    @memoize_last_call
     def insight_result(self, insight: Insight) -> InsightResult:
         tile = self.context.get("dashboard_tile")
         planned = self.context.get("planned_queries", {}).get(tile.id) if tile is not None else None
@@ -3177,7 +3178,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # deep-copies every declared field of the tile + nested insight serializers, which
             # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
             # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
-            # lru_cache never leaks a result from one tile to another.
+            # cache never leaks a result from one tile to another.
             tile_context = {**self.context, **tile_insights_context(sorted_tiles)}
             reused_serializer = DashboardTileSerializer(context=tile_context)
             for order, tile in enumerate(sorted_tiles):

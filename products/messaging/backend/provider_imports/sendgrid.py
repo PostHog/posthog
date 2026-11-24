@@ -96,6 +96,14 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "lists": (("marketing.read",),),
     "domains": (("whitelabel.read",),),
 }
+# SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
+# A key that was given none on purpose looks the same, so these steps skip with a note instead of refusing the key.
+MARKETING_STEPS = ("single_sends", "lists")
+NO_MARKETING_CAMPAIGNS_NOTE = (
+    "Skipped, because this key can't read Marketing Campaigns. Accounts without a Marketing Campaigns plan have "
+    "nothing to import here. If your account has one, give the key marketing.read and design_library.read, then "
+    "import again."
+)
 SUPPRESSION_LISTS: tuple[tuple[str, str, SuppressionSource, str], ...] = (
     # Bounces go first because the first row for an address stays, and only a bounce blocks transactional email.
     ("bounces", "/v3/suppression/bounces", SuppressionSource.BOUNCE, "Imported from SendGrid (bounced)"),
@@ -251,12 +259,9 @@ class SendGridImportProvider(ImportProvider):
     def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
         with _translated_errors():
             _, scopes = connect(credentials.api_key, timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS, max_rate_limit_waits=0)
-        missing = missing_scopes(scopes, steps)
-        if missing:
-            raise ImportCredentialsInvalid(
-                f"This SendGrid API key is missing {', '.join(missing)}. Add these in SendGrid, or turn off the steps "
-                "that need them."
-            )
+        message = missing_scopes_message(missing_scopes_by_step(scopes, steps), self.steps)
+        if message:
+            raise ImportCredentialsInvalid(message)
 
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:
         if not context.api_key:
@@ -265,7 +270,10 @@ class SendGridImportProvider(ImportProvider):
         # A failed run can leave a position in another account's list, and a new key means another account.
         resume = checkpoint if checkpoint and checkpoint.get("key") == fingerprint else None
         with _translated_errors():
-            client, _ = connect(context.api_key)
+            client, scopes = connect(context.api_key)
+            if step in MARKETING_STEPS and not _has_marketing_campaigns(scopes):
+                yield ImportPage(processed=0, save=_save_no_marketing_campaigns)
+                return
             match step:
                 case "suppression_groups":
                     yield _groups_page(client, context)
@@ -291,14 +299,58 @@ class SendGridImportProvider(ImportProvider):
                     raise UnknownImportStep(f"SendGrid has no import step named {step}.")
 
 
-def missing_scopes(scopes: set[str], steps: list[str]) -> list[str]:
-    """The first scope of each requirement the key can't meet, for the steps selected."""
-    missing: list[str] = []
+def missing_scopes_by_step(scopes: set[str], steps: Sequence[str]) -> dict[str, list[str]]:
+    """Each scope the key lacks, with the selected steps that need it. Marketing steps on an account without Marketing
+    Campaigns run anyway and say there's nothing to import."""
+    missing: dict[str, list[str]] = {}
     for step in steps:
+        if step in MARKETING_STEPS and not _has_marketing_campaigns(scopes):
+            continue
         for accepted in STEP_SCOPES.get(step, ()):
-            if not scopes.intersection(accepted) and accepted[0] not in missing:
-                missing.append(accepted[0])
+            if not scopes.intersection(accepted):
+                missing.setdefault(accepted[0], []).append(step)
     return missing
+
+
+def missing_scopes_message(missing: Mapping[str, list[str]], specs: Sequence[ImportStepSpec]) -> str | None:
+    if not missing:
+        return None
+    labels = {spec.key: spec.label for spec in specs}
+    by_steps: dict[tuple[str, ...], list[str]] = {}
+    for scope, needing_steps in missing.items():
+        by_steps.setdefault(tuple(needing_steps), []).append(scope)
+    if len(by_steps) == 1:
+        [(steps, scope_names)] = by_steps.items()
+        step_names = _and_list([labels[s] for s in steps])
+        pronoun = "it" if len(scope_names) == 1 else "them"
+        if len(steps) == 1:
+            needed_by, turn_off = f"the {step_names} step needs", "that step"
+        else:
+            needed_by, turn_off = f"the {step_names} steps need", "those steps"
+        return (
+            f"This SendGrid API key is missing {_and_list(scope_names)}, which {needed_by}. Add {pronoun} in SendGrid, "
+            f"or turn off {turn_off}."
+        )
+    parts = [
+        f"{_and_list(scope_names)} (for {_and_list([labels[s] for s in steps])})"
+        for steps, scope_names in by_steps.items()
+    ]
+    return (
+        f"This SendGrid API key is missing {_and_list(parts)}. Add them in SendGrid, or turn off the steps that "
+        "need them."
+    )
+
+
+def _and_list(items: Sequence[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _has_marketing_campaigns(scopes: set[str]) -> bool:
+    return any(scope.startswith("marketing.") for scope in scopes)
+
+
+def _save_no_marketing_campaigns() -> SavedPage:
+    return SavedPage(imported=0, warnings=(NO_MARKETING_CAMPAIGNS_NOTE,))
 
 
 @contextmanager

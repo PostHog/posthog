@@ -14,6 +14,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.scopes.catalog import APIScopeObject
+from posthog.utils import flag_identity
 
 from products.messaging.backend.facade.contracts import EmailDeliveryStatus, WorkflowEmailSend
 from products.messaging.backend.facade.transactional_email_log import ACTIVITY_WINDOW_DAYS
@@ -124,14 +125,13 @@ class WorkflowEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         user = request.user
-        if not isinstance(user, User) or not posthoganalytics.feature_enabled(
+        identity = flag_identity(user, self.team, self.organization) if isinstance(user, User) else None
+        if identity is None or not posthoganalytics.feature_enabled(
             FEATURE_FLAG,
-            user.distinct_id or str(user.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
+            identity.distinct_id,
+            groups=identity.groups,
+            group_properties=identity.group_properties,
+            person_properties=identity.person_properties,
             send_feature_flag_events=False,
         ):
             raise NotFound()
