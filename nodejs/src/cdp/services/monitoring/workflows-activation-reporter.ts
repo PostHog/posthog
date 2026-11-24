@@ -127,7 +127,8 @@ export class WorkflowsActivationReporter {
             `SELECT posthog_organizationmembership.organization_id, lower(posthog_user.email) AS email
              FROM posthog_organizationmembership
              JOIN posthog_user ON posthog_user.id = posthog_organizationmembership.user_id
-             WHERE posthog_organizationmembership.organization_id = ANY($1::uuid[])`,
+             WHERE posthog_organizationmembership.organization_id = ANY($1::uuid[])
+               AND posthog_user.email IS NOT NULL`,
             [organizationIds],
             'fetchOrganizationMemberEmails'
         )
