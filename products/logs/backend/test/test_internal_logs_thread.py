@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import asyncio
 import threading
 from collections.abc import Callable, Iterator
@@ -11,9 +12,10 @@ import pytest
 from aioresponses import CallbackResult, aioresponses
 
 from posthog.internal_logs import send_internal_log
+from posthog.models.team import Team
 
 from products.logs.backend import internal_logs_thread
-from products.logs.backend.internal_logs_thread import _read_api_token
+from products.logs.backend.internal_logs_thread import TOKEN_CACHE_TTL_SECONDS, _read_api_token
 
 URL = "http://capture-logs.test/i/v1/logs"
 THREAD_NAME = "internal-logs-producer"
@@ -136,3 +138,28 @@ def test_read_api_token_reads_postgres_once_per_team_within_the_ttl(
     with django_assert_num_queries(1):
         assert _read_api_token(team.id) == team.api_token
         assert _read_api_token(team.id) == team.api_token
+
+
+@pytest.mark.django_db
+def test_read_api_token_picks_up_a_rotated_token_after_the_ttl(monkeypatch: pytest.MonkeyPatch, team: Any) -> None:
+    monkeypatch.setattr(internal_logs_thread, "_token_cache", {})
+    start = time.monotonic()
+    monkeypatch.setattr(internal_logs_thread.time, "monotonic", lambda: start)
+    original_token = team.api_token
+    assert _read_api_token(team.id) == original_token
+    Team.objects.filter(id=team.id).update(api_token="phc_rotated_token")
+
+    assert _read_api_token(team.id) == original_token
+    monkeypatch.setattr(internal_logs_thread.time, "monotonic", lambda: start + TOKEN_CACHE_TTL_SECONDS + 1)
+    assert _read_api_token(team.id) == "phc_rotated_token"
+
+
+@pytest.mark.django_db
+def test_read_api_token_does_not_cache_a_missing_team(
+    monkeypatch: pytest.MonkeyPatch, team: Any, django_assert_num_queries: Any
+) -> None:
+    monkeypatch.setattr(internal_logs_thread, "_token_cache", {})
+
+    with django_assert_num_queries(2):
+        assert _read_api_token(team.id + 1) is None
+        assert _read_api_token(team.id + 1) is None
