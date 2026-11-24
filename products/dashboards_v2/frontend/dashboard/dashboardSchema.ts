@@ -60,7 +60,6 @@ export const tilePlaceSchema = z.strictObject({
 /** Which parts of a content tile show. A part that is missing shows. */
 export const contentWidgetPartsSchema = z.strictObject({
     header: z.boolean().optional(),
-    description: z.boolean().optional(),
     footer: z.boolean().optional(),
 })
 
@@ -100,10 +99,16 @@ export const widgetRefSchema = z.strictObject({
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its
  * own tiles. Its height always fits its tiles, so `place.h` of a section tile is worked out, never chosen.
  */
+/** How a section looks. A setting that is missing is on. */
+export const sectionWidgetAppearanceSchema = z.strictObject({
+    border: z.boolean().optional(),
+})
+
 export const sectionWidgetSchema = z.strictObject({
     type: z.literal('section'),
     title: z.string(),
     collapsed: z.boolean().optional(),
+    appearance: sectionWidgetAppearanceSchema.optional(),
     /** The height a person resized the section to, in rows. It still grows past this when its tiles need more. */
     minRows: z.int().positive().optional(),
     get tiles(): z.ZodArray<typeof tileSchema> {

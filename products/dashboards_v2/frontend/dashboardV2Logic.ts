@@ -55,6 +55,11 @@ export interface dashboardV2LogicActions {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -71,7 +76,6 @@ export interface dashboardV2LogicActions {
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
@@ -136,6 +140,11 @@ export interface dashboardV2LogicMeta {
                           }
                           widget:
                               | {
+                                    appearance?:
+                                        | {
+                                              border?: boolean | undefined
+                                          }
+                                        | undefined
                                     collapsed?: boolean | undefined
                                     minRows?: number | undefined
                                     tiles: any
@@ -152,7 +161,6 @@ export interface dashboardV2LogicMeta {
                                     description?: string | undefined
                                     parts?:
                                         | {
-                                              description?: boolean | undefined
                                               footer?: boolean | undefined
                                               header?: boolean | undefined
                                           }
@@ -197,6 +205,11 @@ export interface dashboardV2LogicMeta {
                               }
                               widget:
                                   | {
+                                        appearance?:
+                                            | {
+                                                  border?: boolean | undefined
+                                              }
+                                            | undefined
                                         collapsed?: boolean | undefined
                                         minRows?: number | undefined
                                         tiles: any
@@ -213,7 +226,6 @@ export interface dashboardV2LogicMeta {
                                         description?: string | undefined
                                         parts?:
                                             | {
-                                                  description?: boolean | undefined
                                                   footer?: boolean | undefined
                                                   header?: boolean | undefined
                                               }

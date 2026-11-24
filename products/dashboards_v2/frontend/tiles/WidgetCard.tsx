@@ -60,7 +60,6 @@ export function WidgetCard({
     const definition = findWidget(widgets, widget.type)
     const slots = widgetSlots(definition)
     const showHeader = isPartShown(widget, 'header', slots)
-    const showDescription = isPartShown(widget, 'description', slots)
     const showFooter = isPartShown(widget, 'footer', slots)
     const showBackground = showsBackground(widget, definition?.appearance ?? {})
     const HeaderActions = definition?.HeaderActions
@@ -82,7 +81,7 @@ export function WidgetCard({
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="truncate">{widget.title}</span>
-                            {showDescription && (
+                            {widget.description && (
                                 <Tooltip>
                                     <TooltipTrigger
                                         render={

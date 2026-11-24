@@ -1,4 +1,4 @@
-import { contentRows, dropIntoGrid, settleGrid } from '../grid/gridTiles'
+import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../grid/gridTiles'
 import { bottomOf } from '../grid/placeTiles'
 import { type PresentationEdit, applyPresentationEdit } from '../presentation/presentationEdits'
 import { linkTabSchema } from './dashboardSchema'
@@ -27,6 +27,7 @@ export type LayoutEdit =
     | { edit: 'removeTile'; id: string }
     /** Shows the tile's widget on another grid too. Both tiles then share its content, such as a chart's query. */
     | { edit: 'addToGrid'; id: string; grid: string }
+    | { edit: 'autoLayout'; grid: string; columns: number }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
     | { edit: 'addTab'; title: string; href?: string }
@@ -205,11 +206,12 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             const shown = edit.resized ? findTile(view(dashboard), edit.resized) : null
             const shownCollapsed = shown && isSection(shown) ? shown.widget.collapsed : undefined
             return changeGrid(dashboard, edit.grid, (tiles) =>
-                tiles.map((tile) => {
-                    const place = edit.places[tile.id]
+                tiles.map((placed) => {
+                    const place = edit.places[placed.id]
                     if (!place) {
-                        return tile
+                        return placed
                     }
+                    const tile = resizeSection(placed, place.w, sizeOf)
                     if (edit.resized !== tile.id || !isSection(tile) || (shownCollapsed ?? tile.widget.collapsed)) {
                         return { ...tile, place }
                     }
@@ -229,6 +231,12 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             return changeTileEverywhere(dashboard, edit.id, () => null)
         case 'addToGrid':
             return addToGrid(dashboard, edit)
+        case 'autoLayout': {
+            const grid = findGrid(dashboard, edit.grid)
+            return grid
+                ? changeGrid(dashboard, edit.grid, (tiles) => arrangeInColumns(tiles, grid.cols, edit.columns, sizeOf))
+                : dashboard
+        }
         case 'setWidgetConfig': {
             const edited = findTile(dashboard, edit.id)
             const ref = edited ? widgetRef(edited) : undefined

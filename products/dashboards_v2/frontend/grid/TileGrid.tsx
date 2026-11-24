@@ -22,7 +22,7 @@ import {
 import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
 import { createGridCompactor } from './gridCompactor'
 import { useGridDrag } from './gridDrag'
-import { contentRows, dropIntoGrid, toPlacedItems, withSectionRows } from './gridTiles'
+import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './gridTiles'
 import { type Gesture, type PlacedItem, bottomOf } from './placeTiles'
 import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './resizeFeedback'
 import { scrollParentOf } from './scrollParent'
@@ -96,6 +96,7 @@ export function TileGrid({
     const dropZones = useRef<DropZones | null>(null)
     const lastRows = useRef<number | null>(null)
     const [liveSectionRows, setLiveSectionRows] = useState<Record<string, number>>({})
+    const [liveSectionWidth, setLiveSectionWidth] = useState<{ id: string; w: number } | null>(null)
     const setSectionRows = useCallback((id: string, rows: number | null): void => {
         setLiveSectionRows((previous) => {
             if (rows === null) {
@@ -241,8 +242,10 @@ export function TileGrid({
 
     const children = useMemo(
         () =>
-            shownTiles.map((tile) =>
-                tile.id === GHOST_ID ? (
+            shownTiles.map((shown) => {
+                const tile =
+                    liveSectionWidth?.id === shown.id ? resizeSection(shown, liveSectionWidth.w, sizeOf) : shown
+                return tile.id === GHOST_ID ? (
                     <div key={GHOST_ID} className="TileGrid__drop-preview" />
                 ) : (
                     <div key={tile.id} data-dv2-tile={tile.id} className="TileGrid__tile">
@@ -251,8 +254,8 @@ export function TileGrid({
                         {renderTile(tile, columnWidthPx(width, cols), setSectionRows)}
                     </div>
                 )
-            ),
-        [shownTiles, width, cols, renderTile, setSectionRows, scrollToAdded]
+            }),
+        [shownTiles, liveSectionWidth, sizeOf, width, cols, renderTile, setSectionRows, scrollToAdded]
     )
 
     return (
@@ -323,8 +326,14 @@ export function TileGrid({
                     if (item && resizeFeedback.current) {
                         resizeFeedback.current.item = item
                     }
+                    if (item) {
+                        setLiveSectionWidth((previous) =>
+                            previous?.id === item.i && previous.w === item.w ? previous : { id: item.i, w: item.w }
+                        )
+                    }
                 }}
                 onResizeStop={(finalLayout, _old, item) => {
+                    setLiveSectionWidth(null)
                     resizeFeedback.current?.stop()
                     endResizeFeedback(resizeFeedback.current?.tile ?? null)
                     resizeFeedback.current = null

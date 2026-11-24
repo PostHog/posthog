@@ -44,6 +44,7 @@ A closed section is three rows, enough for its card's header (`GRID.collapsedSec
 Anyone can open or close a section, for their own view only. It is not saved and is not an undo step.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
+A section's tiles can be laid out in 1 to 4 equal columns with Auto layout in its menu (`autoLayout`). Its tiles fill the columns row by row in reading order and keep their heights.
 
 ## Where a tile goes
 
@@ -116,7 +117,7 @@ A type has two parts, so code outside the browser can use the first without Reac
 - A `WidgetDefinition` (`frontend/widgets/widgetDefinition.ts`) is the spec plus the `Component` that renders it. The controller takes these.
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
-A tile's `description` shows in a tooltip on an info icon beside its title, and `parts.description: false` hides the icon.
+A tile's `description` shows in a tooltip on an info icon beside its title.
 
 How the dashboard uses them:
 

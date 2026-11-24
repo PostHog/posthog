@@ -16,12 +16,13 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
+import type { DashboardEdit } from '../dashboard/dashboardEdits'
 import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
 import { everyTile } from '../dashboard/tileTree'
-import { tileAppearanceAction } from '../presentation/tileAppearance'
+import { sectionAppearanceAction, tileAppearanceAction } from '../presentation/tileAppearance'
 import { tilePartsAction } from '../presentation/tileParts'
 import { widgetSlots } from '../widgets/widgetDefinition'
 import { findWidget } from '../widgets/widgetSpec'
@@ -133,6 +134,30 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
     )
 }
 
+const AUTO_LAYOUT_COLUMNS = [1, 2, 3, 4]
+
+function autoLayoutAction(
+    id: string,
+    disabledReason: string | null,
+    onEdit: (edit: DashboardEdit) => void
+): MenuAction {
+    return {
+        key: 'auto-layout',
+        label: 'Auto layout',
+        dataAttr: 'dashboard-v2-section-auto-layout',
+        disabledReason,
+        group: 'display',
+        submenu: AUTO_LAYOUT_COLUMNS.map((columns) => ({
+            key: String(columns),
+            label: columns === 1 ? '1 column' : `${columns} columns`,
+            dataAttr: 'dashboard-v2-section-auto-layout-item',
+            disabledReason,
+            keepOpen: true,
+            onSelect: () => onEdit({ edit: 'autoLayout', grid: id, columns }),
+        })),
+    }
+}
+
 export function useSectionActions(id: string, widget: SectionWidget, onStartRename: () => void): MenuAction[] {
     const { disabledReasonFor, onEdit, tileActions } = useDashboardV2()
     const actions: MenuAction[] = [
@@ -143,6 +168,8 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
             disabledReason: disabledReasonFor('updateSection'),
             onSelect: onStartRename,
         },
+        autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
+        sectionAppearanceAction(id, widget, disabledReasonFor('setSectionAppearance'), onEdit),
         {
             key: 'remove',
             label: 'Remove section and its tiles',

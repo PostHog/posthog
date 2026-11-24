@@ -1,14 +1,16 @@
 import './SectionTile.css'
 import './TileHoverReveal.css'
 
+import clsx from 'clsx'
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { showsBorder } from '../presentation/tileAppearance'
 import { AddTileMenu } from './AddTileMenu'
 import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
 import { TileMenuButton } from './TileMenuButton'
@@ -62,7 +64,7 @@ export function SectionTile({
 
     return (
         <TileContextMenu actions={actions}>
-            <Section>
+            <Section border={showsBorder(widget)}>
                 <SectionHeader
                     actions={
                         (showAdd || hasMenu) && (
@@ -102,9 +104,14 @@ export function SectionTile({
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ children }: { children: ReactNode }): JSX.Element {
+export function Section({ border = true, children }: { border?: boolean; children: ReactNode }): JSX.Element {
     return (
-        <Card size="sm" role="group" className="SectionTile" data-attr="dashboard-v2-section">
+        <Card
+            size="sm"
+            role="group"
+            className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
+            data-attr="dashboard-v2-section"
+        >
             {children}
         </Card>
     )
@@ -183,12 +190,16 @@ export function SectionTitle({
         <div className="flex items-center gap-1 min-w-0">
             <Button
                 size="icon-xs"
+                className="SectionTile__toggle"
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 data-attr="dashboard-v2-section-toggle"
                 onClick={onToggle}
             >
-                {collapsed ? <IconChevronRight /> : <IconChevronDown />}
+                {/* One icon turned, because the down chevron's glyph is drawn smaller than the right one. */}
+                <IconChevronRight
+                    className={clsx('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+                />
             </Button>
             {label}
         </div>

@@ -2,6 +2,7 @@ import type { z } from 'zod'
 
 import type {
     contentWidgetAppearanceSchema,
+    sectionWidgetAppearanceSchema,
     contentWidgetPartsSchema,
     contentWidgetSchema,
     dashboardDocumentSchema,
@@ -50,6 +51,7 @@ export type TimeRange = z.infer<typeof timeRangeSchema>
 export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
 
 export type ContentWidgetAppearance = z.infer<typeof contentWidgetAppearanceSchema>
+export type SectionWidgetAppearance = z.infer<typeof sectionWidgetAppearanceSchema>
 
 export interface WidgetSize {
     w: number
@@ -68,7 +70,7 @@ export type SectionWidget = z.infer<typeof sectionWidgetSchema>
 export type Widget = ContentWidget | SectionWidget
 
 /** A section's height follows its tiles, so `h` and `minH` only cover a new, empty one. */
-export const SECTION_SIZE: WidgetSize = { w: 24, h: 6, minW: 4, minH: 3 }
+export const SECTION_SIZE: WidgetSize = { w: 24, h: 6, minW: 8, minH: 3 }
 
 /** Looks up a content widget's size. Layout code takes it as an argument, so it never imports a widget. */
 export type SizeOf = (widget: ContentWidget) => WidgetSize

@@ -27,6 +27,11 @@
     }
 }
 
+/* Quill shades an expanded button as an open menu's trigger. The toggle's chevron already shows its state. */
+.SectionTile__toggle[aria-expanded='true']:not(:hover) {
+    background-color: transparent;
+}
+
 .SectionTile__body {
     position: relative;
     flex: 1;
@@ -43,4 +48,19 @@
     pointer-events: none;
     border: 1px dashed var(--color-border-primary);
     border-radius: var(--radius);
+}
+
+/* Without its outline and header rule, a section reads as a heading over its tiles. */
+.SectionTile--no-border {
+    box-shadow: none;
+
+    > .SectionTile__header {
+        border-bottom: 0;
+    }
+
+    /* Without an outline the section is hard to find while editing, so it shows one on hover, as a tile does. */
+    .TileGrid--editable .TileGrid__tile:hover > &,
+    .TileGrid--editable .TileGrid__tile:hover > .TileContextMenu__trigger > & {
+        box-shadow: 0 0 0 1px var(--color-border-primary);
+    }
 }
