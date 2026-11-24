@@ -1,8 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { homeItems } from './todayHome'
+import { homeItems } from './todayHomeRows'
 
-describe('todayHome', () => {
+describe('todayHomeRows', () => {
     test.each([
         [{}, ['today']],
         [{ [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true }, ['today', 'inbox-reports']],

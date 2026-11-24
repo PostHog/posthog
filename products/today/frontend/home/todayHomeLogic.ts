@@ -4,9 +4,10 @@ import { router } from 'kea-router'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import { HomeProducts, homeItems, homeProductForPath } from '~/layout/today/todayHome'
 import { TodayPaneProduct } from '~/layout/today/todayPaneProducts'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
+
+import { HomeProducts, homeItems, homeProductForPath } from './todayHomeRows'
 
 export function activeHomeRow(pathname: string): string | null {
     const product = homeProductForPath(removeProjectIdIfPresent(pathname))
