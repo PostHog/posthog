@@ -141,8 +141,8 @@ def _post_to_issue(
     """Comment on one issue unless another open report owns it. Returns whether a comment went out.
 
     A report of the team that holds a claim on the issue and is not closed owns it, so another
-    report posts nothing and logs both report ids. When the owner closes, its comment keeps the "no further work" line, and
-    the next open report that settles can post its own comment.
+    report posts nothing and logs both report ids. When the owner closes, its comment keeps the
+    "no further work" line, and the next open report that settles can post its own comment.
 
     Pending claims survive uncertain POST outcomes. After the lease expires, a later settle checks
     for the stable comment marker before it retries. The lease exceeds the activity timeout.
