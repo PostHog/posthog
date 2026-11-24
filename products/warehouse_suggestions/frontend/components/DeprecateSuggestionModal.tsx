@@ -39,11 +39,18 @@ export const DEPRECATE_ACTION_COPY: Record<DeprecateAction, DeprecateActionCopy>
     },
 }
 
-export const ACTION_CHOICES: LemonRadioOption<DeprecateAction>[] = [
+const MARK_DEPRECATED_DESCRIPTION =
+    'It stays in the data catalog with a deprecated label, so people know not to use it.'
+const MARK_DEPRECATED_REFRESH_NOTE: Record<RefreshChoice, string> = {
+    stop: 'Its stored table is deleted and its refreshes stop.',
+    keep: 'It keeps refreshing.',
+}
+
+const ACTION_CHOICES: LemonRadioOption<DeprecateAction>[] = [
     {
         value: 'deprecate',
         label: 'Mark it deprecated',
-        description: 'It stays in the data catalog with a deprecated label, so people know not to use it.',
+        description: MARK_DEPRECATED_DESCRIPTION,
         'data-attr': 'warehouse-suggestions-deprecate-mark',
     },
     {
@@ -77,12 +84,24 @@ export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     },
 ]
 
+function markDeprecatedDescription(materialized: boolean, keepMaterialized: boolean): string {
+    if (!materialized) {
+        return MARK_DEPRECATED_DESCRIPTION
+    }
+    return `${MARK_DEPRECATED_DESCRIPTION} ${MARK_DEPRECATED_REFRESH_NOTE[keepMaterialized ? 'keep' : 'stop']}`
+}
+
 export function deprecateActionChoices(
     materialized: boolean,
+    keepMaterialized: boolean,
     blockedReasons: Record<DeprecateAction, string | undefined>
 ): LemonRadioOption<DeprecateAction>[] {
     return ACTION_CHOICES.filter((choice) => materialized || choice.value !== 'stop').map((choice) => ({
         ...choice,
+        description:
+            choice.value === 'deprecate'
+                ? markDeprecatedDescription(materialized, keepMaterialized)
+                : choice.description,
         disabledReason: blockedReasons[choice.value],
     }))
 }
@@ -146,7 +165,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         aria-label="What to do"
                         value={deprecateAction}
                         onChange={setDeprecateAction}
-                        options={deprecateActionChoices(materialized, blockedReasons)}
+                        options={deprecateActionChoices(materialized, keepMaterialized, blockedReasons)}
                         radioPosition="top"
                     />
                 </fieldset>

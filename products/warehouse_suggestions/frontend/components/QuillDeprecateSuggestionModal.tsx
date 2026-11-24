@@ -68,7 +68,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                             idPrefix="deprecate-action"
                             value={deprecateAction}
                             onChange={setDeprecateAction}
-                            choices={deprecateActionChoices(materialized, blockedReasons)}
+                            choices={deprecateActionChoices(materialized, keepMaterialized, blockedReasons)}
                             disabled={inFlight}
                         />
                         {materialized && deprecateAction === 'deprecate' && (
