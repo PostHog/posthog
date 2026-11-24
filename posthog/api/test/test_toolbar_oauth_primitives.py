@@ -1,6 +1,9 @@
 import json
+import base64
+import hashlib
+from datetime import timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -8,6 +11,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 import requests
 from oauth2_provider.settings import oauth2_settings
@@ -26,6 +30,10 @@ from posthog.api.oauth.toolbar_service import (
     toolbar_oauth_state_cache,
 )
 from posthog.models import Organization, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+
+TOOLBAR_RESOURCE_SCOPES = [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if ":" in scope]
+PKCE_CODE_VERIFIER = "toolbar-test-code-verifier-" + "x" * 40
 
 
 class TestToolbarOAuthPrimitives(APIBaseTest):
@@ -548,6 +556,131 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert "section1" in location
         assert "other=value" in location
         assert "__posthog_toolbar=code:new_code" in location
+
+
+class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+    def _create_app_without_ceiling(self, scopes: list[str], optional_scopes: list[str]) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=settings.TOOLBAR_OAUTH_APPLICATION_NAME,
+            user=self.user,
+            organization=self.organization,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            algorithm="RS256",
+            is_first_party=True,
+            scopes=scopes,
+            optional_scopes=optional_scopes,
+        )
+
+    def _create_token_pair(self, application: OAuthApplication, scope: str) -> OAuthRefreshToken:
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_toolbar_ceiling_access",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        return OAuthRefreshToken.objects.create(
+            application=application,
+            user=self.user,
+            token="phr_toolbar_ceiling_refresh",
+            access_token=access_token,
+            scoped_teams=[self.team.id],
+        )
+
+    def _post_token(self, body: dict[str, str]):
+        return self.client.post("/oauth/token/", data=urlencode(body), content_type="application/x-www-form-urlencoded")
+
+    def _refresh(self, application: OAuthApplication, refresh_token: OAuthRefreshToken):
+        return self._post_token(
+            {"grant_type": "refresh_token", "client_id": application.client_id, "refresh_token": refresh_token.token}
+        )
+
+    @parameterized.expand(
+        [
+            ("new_app", None, []),
+            ("reused_app_without_ceiling", [], []),
+            ("reused_app_with_stale_ceiling", ["user:read", "user:write"], ["feature_flag:write"]),
+        ]
+    )
+    def test_application_gets_the_toolbar_scope_ceiling(self, _name, existing_scopes, existing_optional_scopes):
+        if existing_scopes is not None:
+            existing = self._create_app_without_ceiling(existing_scopes, existing_optional_scopes)
+
+        app = get_or_create_toolbar_oauth_application(user=self.user)
+
+        app.refresh_from_db()
+        if existing_scopes is not None:
+            assert app.pk == existing.pk
+        assert app.scopes == TOOLBAR_RESOURCE_SCOPES
+        assert app.optional_scopes == []
+
+    @parameterized.expand(
+        [
+            ("toolbar_scopes", None),
+            ("wildcard", "*"),
+        ]
+    )
+    def test_authorization_code_flow_grants_only_toolbar_scopes(self, _name, scope_override):
+        code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(PKCE_CODE_VERIFIER.encode()).digest()).rstrip(b"=").decode()
+        )
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://example.com/page", "code_challenge": code_challenge},
+        )
+        assert response.status_code == 302, response.content
+
+        authorize_url = urlparse(response["Location"])
+        authorize_params = {key: values[0] for key, values in parse_qs(authorize_url.query).items()}
+        if scope_override is not None:
+            authorize_params["scope"] = scope_override
+        response = self.client.get(authorize_url.path, authorize_params)
+        assert response.status_code == 302, response.content
+
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        response = self._post_token(
+            {
+                "grant_type": "authorization_code",
+                "client_id": authorize_params["client_id"],
+                "code": code,
+                "redirect_uri": authorize_params["redirect_uri"],
+                "code_verifier": PKCE_CODE_VERIFIER,
+            }
+        )
+        assert response.status_code == 200, response.content
+
+        granted_scopes = set(response.json()["scope"].split())
+        assert granted_scopes <= set(settings.TOOLBAR_OAUTH_SCOPES)
+        assert granted_scopes - {"openid"} == set(TOOLBAR_RESOURCE_SCOPES)
+
+    def test_refresh_narrows_a_toolbar_token_minted_before_the_ceiling(self):
+        app = self._create_app_without_ceiling([], [])
+        refresh_token = self._create_token_pair(app, "openid user:read user:write")
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._refresh(app, refresh_token)
+
+        assert response.status_code == 200, response.content
+        assert set(response.json()["scope"].split()) == {"openid", "user:read"}
+
+    def test_wildcard_token_cannot_refresh_after_the_ceiling_is_synced(self):
+        app = self._create_app_without_ceiling([], [])
+        refresh_token = self._create_token_pair(app, "*")
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._refresh(app, refresh_token)
+
+        assert response.status_code == 400, response.content
+        assert response.json()["error"] == "invalid_grant"
+        assert not OAuthAccessToken.objects.filter(token="pha_toolbar_ceiling_access").exists()
 
 
 class TestNormalizeAndValidateAppUrl(APIBaseTest):

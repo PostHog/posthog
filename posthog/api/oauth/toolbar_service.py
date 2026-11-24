@@ -5,6 +5,8 @@ Non-obvious behavior documented here:
 - We keep one OAuth app per organization (not global, not per team).
 - The redirect URI is derived from settings.SITE_URL (one per deployment).
 - OAuth state is both signed and one-time-use (cache-backed) to prevent replay.
+- The app's scope ceiling is the toolbar's own scope list, so a request for more
+  scopes than the toolbar asks for (including `*`) resolves to that list.
 """
 
 import re
@@ -26,21 +28,53 @@ from posthog.api.utils import canonicalize_encoded_url, strip_url_userinfo, unpa
 from posthog.models import Team, User
 from posthog.models.oauth import (
     OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthAccessToken,
     OAuthApplication,
     is_loopback_host,
     oidc_signing_key_configured,
+    revoke_application_sessions,
 )
 from posthog.models.organization import Organization
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
 STATE_SIGNER_SALT = "toolbar-oauth-state-v1"
 STATE_VERSION = 1
 CALLBACK_PATH = "/toolbar_oauth/callback"
+WILDCARD_SCOPE = "*"
 
 
 def _get_redirect_uri() -> str:
     return f"{settings.SITE_URL}{CALLBACK_PATH}"
+
+
+def _get_scope_ceiling() -> list[str]:
+    return [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if scope not in ALWAYS_ALLOWED_SCOPES]
+
+
+def _sync_scope_ceiling(application: OAuthApplication) -> None:
+    scope_ceiling = _get_scope_ceiling()
+    if application.scopes == scope_ceiling and not application.optional_scopes:
+        return
+
+    application.scopes = scope_ceiling
+    application.optional_scopes = []
+    application.save(update_fields=["scopes", "optional_scopes"])
+
+    # A refresh keeps a `*` token as `*` even under an explicit ceiling, so the new
+    # ceiling alone does not end those sessions. The toolbar never asks for `*`, so
+    # these tokens come only from a request made outside the toolbar flow. Revoking
+    # every session of the app makes the toolbar sign in again under the ceiling.
+    has_wildcard_tokens = OAuthAccessToken.with_scope(WILDCARD_SCOPE).filter(application=application).exists()
+    if has_wildcard_tokens:
+        revoke_application_sessions(application)
+
+    logger.info(
+        "toolbar_oauth_scope_ceiling_updated",
+        organization_id=application.organization_id,
+        revoked_wildcard_sessions=has_wildcard_tokens,
+    )
 
 
 class ToolbarOAuthStateCache:
@@ -187,6 +221,8 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
                     organization_id=user.organization.pk,
                     redirect_uri=redirect_uri,
                 )
+
+            _sync_scope_ceiling(existing)
             return existing
 
         _require_oidc_signing_key()
@@ -199,6 +235,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             redirect_uris=redirect_uri,
             algorithm="RS256",
             is_first_party=True,
+            scopes=_get_scope_ceiling(),
         )
         logger.info(
             "toolbar_oauth_application_created",
