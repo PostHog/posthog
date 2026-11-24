@@ -1,19 +1,18 @@
 import { IconBolt, IconHourglass } from '@posthog/icons'
 
 import type { MCPWrappedSpeedCardApi } from '../../generated/api.schemas'
-import { formatDuration, speedLine } from '../storyCards'
+import { durationParts, formatDuration, speedLine } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { ToolAward } from './ToolAward'
 
 export function SpeedCard({ card }: { card: MCPWrappedSpeedCardApi }): JSX.Element {
     const { quickest_busy_tool: fastest, slowest_tool: slowest } = card
+    const headline = durationParts(card.p95_duration_ms)
     return (
         <WrappedCard cardKey="speed" kicker="Response times">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className="text-2xl font-bold">under</span>
-                <span className="text-6xl font-bold leading-none tabular-nums">
-                    {formatDuration(card.p95_duration_ms)}
-                </span>
+                <span className="text-6xl font-bold leading-none tabular-nums">{headline.value}</span>
+                <span className="text-2xl font-bold">{headline.longUnit}</span>
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{speedLine(card.p95_duration_ms)}</strong>

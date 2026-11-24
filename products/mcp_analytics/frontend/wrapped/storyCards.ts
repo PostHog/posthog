@@ -159,20 +159,32 @@ export function speedLine(p95Ms: number): string {
     return 'Some calls kept agents waiting.'
 }
 
-export function formatDuration(ms: number): string {
+export interface DurationParts {
+    value: string
+    // The short unit for inline text, and the spelled-out one for a headline.
+    unit: string
+    longUnit: string
+}
+
+export function durationParts(ms: number): DurationParts {
     if (ms < 1) {
-        return '<1 ms'
+        return { value: '<1', unit: 'ms', longUnit: 'millisecond' }
     }
     if (ms < 999.5) {
-        return `${Math.round(ms)} ms`
+        return { value: `${Math.round(ms)}`, unit: 'ms', longUnit: 'milliseconds' }
     }
     if (ms < 59_950) {
-        return `${(ms / 1000).toFixed(1)} s`
+        return { value: (ms / 1000).toFixed(1), unit: 's', longUnit: 'seconds' }
     }
     if (ms < 3_597_000) {
-        return `${(ms / 60_000).toFixed(1)} min`
+        return { value: (ms / 60_000).toFixed(1), unit: 'min', longUnit: 'minutes' }
     }
-    return `${(ms / 3_600_000).toFixed(1)} h`
+    return { value: (ms / 3_600_000).toFixed(1), unit: 'h', longUnit: 'hours' }
+}
+
+export function formatDuration(ms: number): string {
+    const { value, unit } = durationParts(ms)
+    return `${value} ${unit}`
 }
 
 export function formatHour(weekday: number, hour: number): string {
