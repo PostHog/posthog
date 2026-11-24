@@ -106,3 +106,21 @@ describe('generateZodFromSchemaRef — union primitive strictness', () => {
         expect(out).toContain('z.coerce.boolean()')
     })
 })
+
+describe('generateZodFromSchemaRef — keeping unknown keys', () => {
+    it('refuses exclude_properties, because the excluded keys would reach the API', () => {
+        const root = {
+            definitions: {
+                Subject: {
+                    type: 'object',
+                    properties: { kept: { type: 'string' }, hidden: { type: 'string' } },
+                    additionalProperties: false,
+                },
+            },
+        }
+
+        expect(() => generateZodFromSchemaRef(root, 'Subject', ['hidden'], { keepUnknownKeys: true })).toThrow(
+            /exclude_properties cannot be combined with keepUnknownKeys/
+        )
+    })
+})

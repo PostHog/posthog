@@ -190,6 +190,8 @@ class HogQLContext:
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
     # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
+    # Set when the resolver gives a lazy table a copy of a join predicate. `take_join_filters` skips its walk without it.
+    holds_join_filters: bool = field(default=False, compare=False, repr=False)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.
