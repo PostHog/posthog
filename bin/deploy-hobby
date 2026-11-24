@@ -147,7 +147,8 @@ if [ -f .env ]; then
         fi
     done
     # A Fernet key: exactly 32 characters, read as bytes, so 24 random bytes in base64 rather than hex.
-    if ! grep -qE "^CDP_SEALED_STATE_KEYS=(\"[^\"]+\"|'[^']+'|[^\"'[:space:]])" .env; then
+    # The value the shell and compose would read, so quoting, line breaks and repeated lines count as they do there.
+    if [ -z "$(set -a; . ./.env >/dev/null 2>&1; printf '%s' "${CDP_SEALED_STATE_KEYS:-}")" ]; then
         sed -i '/^CDP_SEALED_STATE_KEYS=/d' .env
         echo "CDP_SEALED_STATE_KEYS=$(openssl rand -base64 24)" >> .env
     fi
