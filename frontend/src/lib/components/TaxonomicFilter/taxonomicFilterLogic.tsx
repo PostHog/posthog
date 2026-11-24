@@ -597,9 +597,7 @@ export interface taxonomicFilterLogicValues {
     taxonomicFilterLogicKey: string
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicGroups: TaxonomicFilterGroup[]
-    topMatchItems: (TaxonomicDefinitionTypes & {
-        group: TaxonomicFilterGroupType
-    })[]
+    topMatchItems: TopMatchItem[]
     topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[]
     value: any
 }
@@ -789,18 +787,18 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             arg: any
         ) => Record<string, BuiltLogic<infiniteListLogicType>>
-        topMatchItems: (items: TopMatchItem[]) => TopMatchItem[]
+        topMatchItems: (arg: TopMatchItem[]) => TopMatchItem[]
         anyGroupLoading: (arg: boolean) => boolean
         anyGroupStale: (arg: boolean) => boolean
         loadingGroupTypes: (arg: string) => TaxonomicFilterGroupType[]
@@ -829,9 +827,7 @@ export interface taxonomicFilterLogicMeta {
             intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
-            topMatchItems: (TaxonomicDefinitionTypes & {
-                group: TaxonomicFilterGroupType
-            })[],
+            topMatchItems: TopMatchItem[],
             suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
         ) => TopMatchItem[]
         topMatchItemsWithSkeletons: (
