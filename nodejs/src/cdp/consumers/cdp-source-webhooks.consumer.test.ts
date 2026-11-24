@@ -603,6 +603,15 @@ describe('SourceWebhooksConsumer', () => {
                 expect(getLogs()).toEqual([expect.stringContaining('[Action:trigger] Function completed in')])
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({
+                        app_source: 'hog_flow',
+                        app_source_id: hogFlow.id,
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        count: 1,
+                    }),
+                    expect.objectContaining({
+                        app_source: 'hog_flow_version',
+                        app_source_id: `${hogFlow.id}/${hogFlow.version}`,
                         metric_kind: 'other',
                         metric_name: 'triggered',
                         count: 1,
@@ -942,8 +951,11 @@ describe('SourceWebhooksConsumer', () => {
                         expect(
                             getMetrics()
                                 .filter((metric) => metric.metric_name === 'triggered')
-                                .map((m) => m.count)
-                        ).toEqual([1])
+                                .map((m) => [m.app_source, m.count])
+                        ).toEqual([
+                            ['hog_flow', 1],
+                            ['hog_flow_version', 1],
+                        ])
                         expect(
                             mockProducerObserver
                                 .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
