@@ -54,7 +54,8 @@ For sandbox callers, follow the existing `SANDBOX_AI_GATEWAY_URL` and product ro
 A sandbox run reaches the Go gateway only when the tasks worker mints it a token.
 A new task profile with `billing_product="background_agents"` must add its origin to `BACKGROUND_AGENTS_ORIGINS` in `products/tasks/backend/temporal/process_task/ai_gateway_token.py` and to `Task.SERVER_ONLY_ORIGIN_PRODUCTS`.
 A missing origin is refused with `no_background_agents_provenance`, and the `tasks.gateway_token.refused` metric carries the reason.
-`test_background_agents_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+`test_server_funded_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
+A profile with a dedicated gateway product, such as `account_audit` or `autoresearch`, instead needs the product in `MINTABLE_PRODUCTS`, a provenance check in `mint_refusal`, and an entry in `GATEWAY_PRODUCTS` in `packages/agent/packages/agent/src/utils/gateway.ts`.
 
 For internal products, check with the AI gateway team before adding deployment variables or secrets so existing shared configuration can be reused.
 

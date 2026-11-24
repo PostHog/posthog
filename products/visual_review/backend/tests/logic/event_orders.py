@@ -185,6 +185,24 @@ SCENARIOS = (
         },
     ),
     Scenario(
+        key="three_layer_stack_bottom_lands_first_without_restack",
+        layers=THREE_LAYERS,
+        pictures=THREE_LAYER_PICTURES,
+        # Each layer runs after the layer below it was approved, so every approval is made over the picture below.
+        after={
+            "run G": (),
+            "approve G": ("run G",),
+            "run P": ("approve G",),
+            "approve P": ("run P",),
+            "run C": ("approve P",),
+            "approve C": ("run C",),
+            "queue G": ("approve G",),
+            "land G": ("queue G",),
+            "queue P C": ("land G", "approve C"),
+            "land P C": ("queue P C",),
+        },
+    ),
+    Scenario(
         key="unrelated_pull_requests",
         layers=UNRELATED_LAYERS,
         pictures=UNRELATED_PICTURES,

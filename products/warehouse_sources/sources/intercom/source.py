@@ -2,6 +2,7 @@ from typing import cast
 
 from products.warehouse_sources.sources.intercom._config import IntercomSourceConfig
 from products.warehouse_sources.sources.intercom.intercom import (
+    CURSOR_ENDPOINTS,
     IntercomConversationCursor,
     IntercomResumeConfig,
     intercom_source,
@@ -250,8 +251,6 @@ class IntercomSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            # Only the HITL events table keeps a source cursor; see `_conversation_hitl_events_generator`.
-            cursor_manager=self.get_cursor_manager(inputs)
-            if inputs.schema_name == "conversation_hitl_events"
-            else None,
+            # Only the conversation event tables keep a source cursor; see `_conversation_events_generator`.
+            cursor_manager=self.get_cursor_manager(inputs) if inputs.schema_name in CURSOR_ENDPOINTS else None,
         )

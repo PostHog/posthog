@@ -1544,12 +1544,16 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cuts_each_version_at_its_own_window", {"window": "5m"}, True),
-            ("leaves_out_a_version_with_no_goal", {"window": "5m", "events": []}, False),
+            ("cuts_each_version_at_its_own_window", {"window": "5m"}, "event", datetime(2026, 11, 13, tzinfo=UTC)),
+            ("leaves_out_a_version_with_no_goal", {"window": "5m", "events": []}, "event", None),
+            *(
+                (f"starts_later_for_{trigger}", {"window": "5m"}, trigger, datetime(2026, 11, 28, tzinfo=UTC))
+                for trigger in ("webhook", "tracking_pixel", "manual")
+            ),
         ]
     )
     def test_a_conversion_outcome_reads_each_version_by_the_goal_it_ran_with(
-        self, _name: str, first_version: dict, first_is_read: bool
+        self, _name: str, first_version: dict, first_trigger: str, first_read_from: datetime | None
     ) -> None:
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
         proposal = self._propose(flow_id, step_id="email_1", evidence=_conversion_evidence())
@@ -1558,7 +1562,7 @@ class TestWorkflowProposals(APIBaseTest):
         with team_scope(self.team.id):
             assert (
                 HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
-                    content={"conversion": {**CONVERSION_GOAL, **first_version}}
+                    content={"conversion": {**CONVERSION_GOAL, **first_version}, "trigger": {"type": first_trigger}}
                 )
                 == 1
             )
@@ -1578,10 +1582,13 @@ class TestWorkflowProposals(APIBaseTest):
                 proposal_outcome(team_id=self.team.id, hog_flow_id=UUID(flow_id), proposal_id=proposal["id"])
 
         assert {
-            tuple(call.kwargs["app_source_ids"]): call.kwargs["before"] for call in mock_run_totals.call_args_list
+            tuple(call.kwargs["app_source_ids"]): (call.kwargs["after"], call.kwargs["before"])
+            for call in mock_run_totals.call_args_list
         } == {
-            **({(f"{flow_id}/1",): datetime(2026, 12, 10, 9, tzinfo=UTC)} if first_is_read else {}),
-            (f"{flow_id}/2",): datetime(2026, 12, 3, 9, tzinfo=UTC),
+            **(
+                {(f"{flow_id}/1",): (first_read_from, datetime(2026, 12, 10, 9, tzinfo=UTC))} if first_read_from else {}
+            ),
+            (f"{flow_id}/2",): (datetime(2026, 11, 13, tzinfo=UTC), datetime(2026, 12, 3, 9, tzinfo=UTC)),
         }
 
     @parameterized.expand(
@@ -1629,6 +1636,23 @@ class TestWorkflowProposals(APIBaseTest):
         response = self._post_conversion_proposal(flow_id, _conversion_evidence(window=window))
         assert response.status_code == 400, response.json()
         assert "ending at or before" in response.json()["detail"]
+
+    def test_a_webhook_conversion_window_cannot_start_before_its_run_starts_were_versioned(self) -> None:
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        with team_scope(self.team.id):
+            HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
+                content={"conversion": CONVERSION_GOAL, "trigger": {"type": "webhook"}}
+            )
+        with time_machine.travel("2026-12-10T10:30:00Z", tick=False):
+            refused = self._post_conversion_proposal(
+                flow_id, _conversion_evidence(window="2026-11-27T23:00:00Z/2026-11-30T00:00:00Z")
+            )
+            accepted = self._post_conversion_proposal(
+                flow_id, _conversion_evidence(window="2026-11-28T00:00:00Z/2026-11-30T00:00:00Z")
+            )
+        assert refused.status_code == 400, refused.json()
+        assert "starting at or after 2026-11-28T00:00:00Z" in refused.json()["detail"]
+        assert accepted.status_code == 201, accepted.json()
 
     def test_a_suggestion_cannot_aim_at_conversion_on_a_base_version_that_had_no_goal(self) -> None:
         flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
