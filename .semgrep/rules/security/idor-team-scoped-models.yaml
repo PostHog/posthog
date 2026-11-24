@@ -68,6 +68,7 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckBrand
                               |AEOCheckCitation
                               |AEOCheckSearch
                               |AEOCitationCheck
@@ -357,6 +358,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppRelease
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -500,7 +502,6 @@ rules:
                               |SurveyResponseArchive
                               |TableCertification
                               |Tag
-                              |Tagger
                               |Task
                               |TaskActivity
                               |TaskArtifact
@@ -906,6 +907,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppRelease
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
@@ -1049,7 +1051,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |Tag
-                        |Tagger
                         |Task
                         |TaskActivity
                         |TaskArtifact
@@ -1393,7 +1394,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |TaggedItem
-                        |Tagger
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig

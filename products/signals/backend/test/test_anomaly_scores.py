@@ -32,6 +32,7 @@ from posthog.tasks.alerts.detectors.registry import get_detector
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import deserialize, serialize
 from products.signals.backend.anomaly_scores.config import (
+    AI_JUDGE_PROFILE,
     DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     NO_AI_JUDGE,
@@ -52,6 +53,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     query_cost,
     score_insight,
     score_series,
+    state_identity,
     trends_query_for,
 )
 from products.signals.backend.anomaly_scores.state import TrainDue, train_due
@@ -293,13 +295,13 @@ class TestScoreInsight(SimpleTestCase):
         if waves == 1:
             assert limits[0] == 150
 
-    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets. With the AI
-    # judge, the history of a train step instead, so the judge sees the same history in both steps.
+    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets. The AI judge
+    # does not change the fetch, because its history is fetched only when it is asked.
     @parameterized.expand(
         [
             ("no_smoothing", None, "-6d", NO_AI_JUDGE),
             ("smoothing", 7, "-12d", NO_AI_JUDGE),
-            ("ai_judge", None, "-62d", AIJudgeConfig(team_ids=(7,))),
+            ("ai_judge", None, "-6d", AIJudgeConfig(team_ids=(7,))),
         ]
     )
     def test_a_score_step_fetches_only_the_context_and_new_buckets(
@@ -514,6 +516,34 @@ class TestTrainDue(SimpleTestCase):
             )
             == expected
         )
+
+    @parameterized.expand(
+        [
+            ("judge_added", AI_JUDGE_PROFILE.intervals[IntervalType.DAY], True),
+            ("other_window", dataclasses.replace(DAY_SCORING, detector={**DAY_SCORING.detector, "window": 28}), False),
+            (
+                "other_window_with_judge",
+                dataclasses.replace(
+                    DAY_SCORING,
+                    detector={
+                        "type": "ensemble",
+                        "operator": "and",
+                        "detectors": [{**DAY_SCORING.detector, "window": 28}, {"type": "llm"}],
+                    },
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_a_stored_model_is_current_only_for_scoring_with_the_same_local_part(
+        self, _name: str, scoring: IntervalScoring, current: bool
+    ) -> None:
+        query = trends_query_for(_insight([EventsNode(event="$pageview")]), DEFAULT_PROFILE)
+        team = Team(timezone="UTC")
+
+        stored = state_identity(query, DAY_SCORING, team, DEFAULT_LIMITS)
+
+        assert (state_identity(query, scoring, team, DEFAULT_LIMITS) == stored) is current
 
 
 class TestMetricScoringQuery(SimpleTestCase):

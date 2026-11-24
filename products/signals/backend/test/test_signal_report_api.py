@@ -5489,30 +5489,58 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
         other_teams_report.refresh_from_db()
         assert other_teams_report.status == SignalReport.Status.READY
 
-    def test_bulk_status_labels_reuse_request_user_without_actor_lookups(self):
-        ids = [str(self._create_report().id) for _ in range(3)]
-
-        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
-            with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
-                response = self._post({"ids": ids, "state": "suppressed"})
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        labels = [
-            call.kwargs["properties"]
-            for call in mock_capture.call_args_list
-            if call.kwargs["event"] == "signal_report_status_changed"
+    @parameterized.expand(
+        [
+            ("user", None, True),
+            ("task_called_by_its_creator", "caller", True),
+            ("task_of_another_creator", "other", False),
         ]
+    )
+    def test_bulk_status_labels_resolve_the_actor_once_per_request(self, _name, task_creator, names_caller):
+        headers: dict[str, str] = {}
+        if task_creator:
+            creators = {
+                "caller": self.user,
+                "other": User.objects.create_and_join(self.organization, "other@example.com", None),
+            }
+            Task = apps.get_model("tasks", "Task")
+            task = Task.objects.create(
+                team=self.team, title="task", description="desc", created_by=creators[task_creator]
+            )
+            headers["X-PostHog-Task-Id"] = str(task.id)
+
+        def suppress(count: int) -> tuple[list[dict], list[dict]]:
+            ids = [str(self._create_report().id) for _ in range(count)]
+            with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+                with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(
+                        self._bulk_url(),
+                        data=json.dumps({"ids": ids, "state": "suppressed"}),
+                        content_type="application/json",
+                        headers=headers,
+                    )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            labels = [
+                call.kwargs["properties"]
+                for call in mock_capture.call_args_list
+                if call.kwargs["event"] == "signal_report_status_changed"
+            ]
+            actor_lookups = [
+                query
+                for query in ctx.captured_queries
+                if 'FROM "posthog_user"' in query["sql"] or 'FROM "posthog_task"' in query["sql"]
+            ]
+            return labels, actor_lookups
+
+        _, lookups_for_one = suppress(1)
+        labels, lookups_for_three = suppress(3)
+
         assert len(labels) == 3
         for label in labels:
-            assert label["actor_kind"] == "user"
-            assert label["actor_user_uuid"] == str(self.user.uuid)
-            assert label["actor_distinct_id"] == self.user.distinct_id
-        actor_lookups = [
-            query
-            for query in ctx.captured_queries
-            if query["sql"].startswith('SELECT "posthog_user"."uuid" AS "uuid", "posthog_user"."distinct_id"')
-        ]
-        assert actor_lookups == []
+            assert label["actor_kind"] == ("task" if task_creator else "user")
+            assert label["actor_user_uuid"] == (str(self.user.uuid) if names_caller else None)
+            assert label["actor_distinct_id"] == (self.user.distinct_id if names_caller else None)
+        assert len(lookups_for_three) == len(lookups_for_one)
 
     def test_bulk_deduplicates_ids_preserving_order(self):
         first = self._create_report()

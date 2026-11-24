@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
 
 from products.aeo.backend import brand, catalog
+from products.aeo.backend.check_brands import enrich_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
 from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import (
@@ -46,6 +47,11 @@ class TestAEOPromptAPI(APIBaseTest):
         self.feature_enabled = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
         self.url = f"/api/projects/{self.team.id}/aeo_prompts/"
+
+    def _catalog_cited_domains(self) -> None:
+        # What the task after a run does: catalog the cited domains, then resolve the brands that are new.
+        catalog.sync_brands_from_citations(self.team.pk)
+        enrich_check_brands(self.team.pk)
 
     def _record_check(
         self,
@@ -1062,7 +1068,8 @@ class TestAEOPromptAPI(APIBaseTest):
             answer_text="Acme Ltd! is popular.",
             cited_urls=["https://rival.io/x"],
         )
-        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.")
+        # The engine cited the brand past the hosts the check keeps: only its cited flag knows.
+        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.", cited=True)
 
         create_own_brand(self.team, "example.com")
         rankings = self.client.get(f"{self.url}rankings/").json()
@@ -1070,7 +1077,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert rankings["competitors_confirmed"] is True
         assert [(row["domain"], row["name"], row["answers_mentioning"]) for row in rankings["brands"]] == [
             ("acme.co.uk", "Acme", 1),
-            ("example.com", "example", 0),
+            ("example.com", "example", 1),
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
@@ -1097,6 +1104,7 @@ class TestAEOPromptAPI(APIBaseTest):
         )
 
         create_own_brand(self.team, "example.com")
+        self._catalog_cited_domains()
         rankings = self.client.get(f"{self.url}rankings/").json()
 
         assert rankings["competitors_confirmed"] is False
@@ -1138,7 +1146,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]
         )
 
-        create_own_brand(self.team, "docs.example.com")
+        create_own_brand(self.team, "example.com")
+        self._catalog_cited_domains()
         response = self.client.get(f"{self.url}rankings/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2066,6 +2075,8 @@ class TestAEOKeywordAPI(APIBaseTest):
         self._record(replay, searches=["session replay"], answer_text="Session replay", cited=True, days_ago=10)
 
         create_own_brand(self.team, "example.com")
+        # The brand is added after its answers, so its rows come from the pass a brand edit queues.
+        enrich_check_brands(self.team.pk)
         response = self.client.get(f"{self.url}report/?date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK, response.json()

@@ -33,6 +33,7 @@ class Rule(StrEnum):
     # Any other internal URL, such as a transformation that drops events from `http://localhost:3000`.
     INTERNAL_HOST_REFERENCE = "internal_host_reference"
     REQUEST_CATCHER = "request_catcher"
+    SECURITY_CALLBACK = "security_callback"
     INTERNAL_FUNCTION = "internal_function"
     HUGE_RANGE = "huge_range"
     # `replaceAll(s, '', t)` inserts `t` before every character of `s`, so the string grows with each call.
@@ -87,7 +88,7 @@ _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "rep
 # below the Liquid and Hog memory limits, so a larger range probes those limits instead of building a payload.
 MAX_RANGE_SIZE = 10_000
 
-# Request inspection and tunnel services. The out-of-band interaction domains in `oob_domains.json` count too.
+# Request inspection and tunnel services.
 _REQUEST_CATCHER_DOMAINS = frozenset(
     {
         "webhook.site",
@@ -103,6 +104,10 @@ _REQUEST_CATCHER_DOMAINS = frozenset(
         "ngrok-free.dev",
     }
 )
+
+# Not in `oob_domains.json`, because its other readers refuse every host on it and this rule only alerts.
+_SECURITY_CALLBACK_DOMAINS = frozenset({"bxss.me", "canarytokens.com", "canarytokens.org", "requestrepo.com", "xss.ht"})
+_SECURITY_CALLBACK_TOOL_NAME = re.compile(r"(?:^|[.-])(?:xsshunter|xss-hunter|interactsh)(?:$|[.-])")
 
 # The runtime URL parser skips every slash and backslash after the scheme, so `http:////127.0.0.1` reaches loopback.
 _SCHEME = re.compile(r"https?:[/\\]+", re.IGNORECASE)
@@ -158,6 +163,8 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
         matched.add(Rule.INTERNAL_HOST_REFERENCE)
     if any(_is_request_catcher(host) for host in hosts):
         matched.add(Rule.REQUEST_CATCHER)
+    if any(_is_security_callback(host) for host in hosts):
+        matched.add(Rule.SECURITY_CALLBACK)
     if any(_has_huge_liquid_range(text) for text in _liquid_templates(content)):
         matched.add(Rule.HUGE_RANGE)
     # Unedited template code is PostHog's, such as the hidden workflow templates that call internal functions.
@@ -866,8 +873,17 @@ def _ipv4_number(part: str) -> int | None:
 
 
 def _is_request_catcher(host: str) -> bool:
+    return _in_domains(canonicalize_host(host), _REQUEST_CATCHER_DOMAINS)
+
+
+def _is_security_callback(host: str) -> bool:
     canonical = canonicalize_host(host)
-    in_catcher_domain = any(
-        canonical == domain or canonical.endswith(f".{domain}") for domain in _REQUEST_CATCHER_DOMAINS
+    return (
+        _in_domains(canonical, _SECURITY_CALLBACK_DOMAINS)
+        or matched_oob_domain(canonical) is not None
+        or _SECURITY_CALLBACK_TOOL_NAME.search(canonical) is not None
     )
-    return in_catcher_domain or matched_oob_domain(canonical) is not None
+
+
+def _in_domains(canonical_host: str, domains: frozenset[str]) -> bool:
+    return any(canonical_host == domain or canonical_host.endswith(f".{domain}") for domain in domains)

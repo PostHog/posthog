@@ -40,6 +40,11 @@ posthog/hogql/**/*.md
 # DevEx maintains the resolver and reviews it with that risk in mind.
 packages/owners-yaml/** @PostHog/team-devex
 
+# Migration safety exceptions disable blocking checks and need independent DevEx approval.
+/posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt @PostHog/team-devex
+/posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt @PostHog/team-devex
+/.github/scripts/migration-deletion-allowlist.txt @PostHog/team-devex
+
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
 

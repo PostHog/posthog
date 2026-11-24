@@ -61,7 +61,8 @@ func Run(ctx context.Context, mode, configPath string, reload <-chan os.Signal, 
 		if err != nil {
 			return err
 		}
-		handler, ready = relay, relay.Ready
+		defer relay.Close()
+		handler, ready, reloadConfig = relay, relay.Ready, relay.Reload
 	default:
 		return errors.New("unknown service mode")
 	}
@@ -143,7 +144,6 @@ loop:
 				continue
 			}
 			if reloadConfig == nil {
-				logger.Warn("relay credential changes require restart")
 				continue
 			}
 			if err := reloadConfig(); err != nil {
