@@ -16,7 +16,8 @@
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/ownership.py",
-                "backend/task_profiles.py"
+                "backend/task_profiles.py",
+                "backend/fork_recreation.py"
             ],
             "outputs": [],
             "cache": true

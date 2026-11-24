@@ -9,7 +9,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.bing_webmaster_tools.settings import BASE_URL, ENDPOINT_CONFIGS
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, vendor_retry
 from products.warehouse_sources.sources.sdk.internals import NamingConvention
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -79,6 +79,7 @@ def _api_fault_message(response: requests.Response) -> str | None:
     return None
 
 
+@vendor_retry(suspend_adapter=False)
 def _request_payload(
     session: requests.Session,
     api_key: str,
@@ -86,6 +87,11 @@ def _request_payload(
     params: dict[str, str] | None = None,
     timeout: int = REQUEST_TIMEOUT_SECONDS,
 ) -> Any:
+    # `suspend_adapter=False`: this call's status handling below doesn't raise `RetryableHTTPError`,
+    # so suspending the adapter's own 429/5xx retries would drop that coverage. The decorator only
+    # adds retry for `NETWORK_ERRORS` (e.g. `ChunkedEncodingError` from a chunked response that gets
+    # cut off mid-stream), which the adapter never retries: the body is read lazily, after urllib3's
+    # own retry loop around connecting and the headers has already returned.
     try:
         response = session.get(
             f"{BASE_URL}/{method}",

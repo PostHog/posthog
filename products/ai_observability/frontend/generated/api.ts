@@ -64,6 +64,7 @@ import type {
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
     EvalSuggestionListApi,
+    EvalSuggestionSettingsApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -141,11 +142,11 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
-    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
     PatchedDatasetUpdateApi,
+    PatchedEvalSuggestionSettingsApi,
     PatchedEvaluationApi,
     PatchedEvaluationDirectoryApi,
     PatchedEvaluationReportUpdateApi,
@@ -175,8 +176,6 @@ import type {
     ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
-    TaggerApi,
-    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
     TextReprRequestApi,
@@ -2225,6 +2224,43 @@ export const evaluationSuggestionsDismissCreate = async (
     })
 }
 
+export const getEvaluationSuggestionsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Whether the project gets suggestions.
+ */
+export const evaluationSuggestionsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
+ */
+export const evaluationSuggestionsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedEvalSuggestionSettingsApi?: PatchedEvalSuggestionSettingsApi,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvalSuggestionSettingsApi),
+    })
+}
+
 export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -4170,44 +4206,6 @@ export const llmPromptsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMPromptResolveResponseApi> => {
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/taggers/?${stringifiedParams}`
-        : `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersList = async (
-    projectId: string,
-    params?: TaggersListParams,
-    options?: RequestInit
-): Promise<PaginatedTaggerListApi> => {
-    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

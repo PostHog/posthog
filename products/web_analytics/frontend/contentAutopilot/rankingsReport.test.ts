@@ -25,6 +25,26 @@ describe('rankingsReport', () => {
         ])
     })
 
+    it('orders the lines like the brands table and keeps the color of a brand when the ranks change', () => {
+        const [own, rival, metrics] = EXAMPLE_PROMPT_SET_RANKINGS.brands
+        const chartFor = (brands: AEOPromptSetRankingsApi['brands']): [string, number][] =>
+            rankingsChart({ ...EXAMPLE_PROMPT_SET_RANKINGS, brands }).series.map((series) => [
+                series.domain,
+                series.colorIndex,
+            ])
+
+        expect(chartFor([own, rival, metrics])).toEqual([
+            ['example.com', 0],
+            ['rival.example.org', 2],
+            ['metrics.example.net', 1],
+        ])
+        expect(chartFor([metrics, own, rival])).toEqual([
+            ['metrics.example.net', 1],
+            ['example.com', 0],
+            ['rival.example.org', 2],
+        ])
+    })
+
     it.each([
         [0.41, 0.371, 3.9],
         [0.2, 0.25, -5],

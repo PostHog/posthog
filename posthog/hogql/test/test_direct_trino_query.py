@@ -71,7 +71,7 @@ class TestDirectTrinoQuery(APIBaseTest):
         self.assertIn('"ducklake"."analytics"."materialized_orders"', sql)
         self.assertEqual(executor.direct_dialect, "trino")
         self.assertEqual(executor.direct_values, context.values)
-        self.assertIn("paid", context.values.values())
+        self.assertIn("'paid'", sql)
 
     def test_query_editor_uses_pure_compilation(self) -> None:
         source = self._create_source_and_table()
@@ -104,7 +104,8 @@ class TestDirectTrinoQuery(APIBaseTest):
         runner = HogQLQueryRunner(
             team=self.team,
             query=HogQLQuery(
-                query="SELECT id FROM orders WHERE status = 'paid' LIMIT 1",
+                query="SELECT id FROM orders WHERE status = {status} LIMIT 1",
+                values={"status": "pa\0id"},
                 connectionId=str(source.id),
             ),
         )
@@ -114,6 +115,6 @@ class TestDirectTrinoQuery(APIBaseTest):
         submitted_sql, submitted_values = cursor.execute.call_args.args
         self.assertIn('"ducklake"."analytics"."materialized_orders"', submitted_sql)
         self.assertIn("?", submitted_sql)
-        self.assertNotIn("paid", submitted_sql)
-        self.assertEqual(submitted_values, ["paid"])
+        self.assertNotIn("pa", submitted_sql)
+        self.assertEqual(submitted_values, ["pa\0id"])
         self.assertEqual(response.results, [(7,)])

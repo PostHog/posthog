@@ -1,154 +1,179 @@
 {
-  "comment": "Shared routing contract for the sandbox gateway matchers. Consumed by BOTH packages/agent/packages/agent/src/utils/gateway.test.ts and products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py, so the TypeScript resolver and its Python mirror cannot drift while both suites stay green. A drift means routed runs silently stop minting (or mint unused tokens).",
+  "comment": "Shared routing contract for the sandbox gateway matchers. Consumed by BOTH packages/agent/packages/agent/src/utils/gateway.test.ts and products/tasks/backend/temporal/process_task/tests/test_ai_gateway_token.py. The server resolves `product` from the origin and sends it to the agent, which splits it by stage and matches the allowlist, so the two halves cannot drift while both suites stay green. A drift means routed runs silently stop minting (or mint unused tokens).",
   "resolve_ai_product": [
     {
       "origin_product": "signals_scout",
       "ai_stage": "scout",
       "internal": false,
+      "product": "signals",
       "expected": "signals_scout"
     },
     {
       "origin_product": "scout_suggestions",
       "ai_stage": "scout_suggestions",
       "internal": true,
+      "product": "signals",
       "expected": "signals_scout_suggestions"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "inbox",
       "internal": false,
+      "product": "signals",
       "expected": "signals_inbox"
     },
     {
       "origin_product": "signals_chat",
       "ai_stage": "chat",
       "internal": false,
+      "product": "signals",
       "expected": "signals_chat"
     },
     {
       "origin_product": "signals_chat",
       "ai_stage": null,
       "internal": false,
+      "product": "signals",
       "expected": "signals"
     },
     {
       "origin_product": "signals_scout",
       "ai_stage": "scout:web-analytics",
       "internal": false,
+      "product": "signals",
       "expected": "signals_scout"
     },
     {
       "origin_product": "signals_scout",
       "ai_stage": "scout:customer-analytics-billing-and-usage",
       "internal": false,
+      "product": "signals",
       "expected": "signals_scout"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "research",
       "internal": true,
+      "product": "signals",
       "expected": "signals_research"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "implementation",
       "internal": true,
+      "product": "signals",
       "expected": "signals_implementation"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "repo_selection",
       "internal": true,
+      "product": "signals",
       "expected": "signals_repo_selection"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "custom_agent",
       "internal": true,
+      "product": "signals",
       "expected": "signals_custom_agent"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": null,
       "internal": true,
+      "product": "signals",
       "expected": "signals"
     },
     {
       "origin_product": "signal_report",
       "ai_stage": "match",
       "internal": false,
+      "product": "signals",
       "expected": "signals"
     },
     {
       "origin_product": "loop",
       "ai_stage": "implementation",
       "internal": false,
+      "product": "posthog_code",
       "expected": "posthog_code"
     },
     {
       "origin_product": "slack",
       "ai_stage": null,
       "internal": false,
+      "product": "slack_app",
       "expected": "slack_app"
     },
     {
       "origin_product": "workflow",
       "ai_stage": null,
       "internal": false,
+      "product": "workflows",
       "expected": "workflows"
     },
     {
       "origin_product": "support_reply",
       "ai_stage": null,
       "internal": true,
+      "product": "conversations",
       "expected": "conversations"
     },
     {
       "origin_product": "onboarding",
       "ai_stage": null,
       "internal": false,
+      "product": "onboarding",
       "expected": "onboarding"
     },
     {
       "origin_product": "posthog_ai",
       "ai_stage": null,
       "internal": true,
+      "product": "posthog_ai",
       "expected": "posthog_ai"
     },
     {
       "origin_product": "image_builder",
       "ai_stage": null,
       "internal": true,
+      "product": "background_agents",
       "expected": "background_agents"
     },
     {
       "origin_product": "user_created",
       "ai_stage": null,
       "internal": false,
+      "product": "posthog_code",
       "expected": "posthog_code"
     },
     {
       "origin_product": "review_hog",
       "ai_stage": "validation-c1",
       "internal": true,
+      "product": "review_hog",
       "expected": "review_hog"
     },
     {
       "origin_product": "review_hog",
       "ai_stage": "resolution",
       "internal": true,
+      "product": "review_hog",
       "expected": "review_hog"
     },
     {
       "origin_product": "review_hog",
       "ai_stage": null,
       "internal": true,
+      "product": "review_hog",
       "expected": "review_hog"
     },
     {
       "origin_product": "review_hog",
       "ai_stage": "validation-c1",
       "internal": false,
+      "product": "posthog_code",
       "expected": "posthog_code"
     }
   ],
@@ -157,6 +182,7 @@
       "origin_product": "signals_scout",
       "ai_stage": "scout",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout,signals_research",
       "expected": true
     },
@@ -164,6 +190,7 @@
       "origin_product": "signals_scout",
       "ai_stage": "scout:logs",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout",
       "expected": true
     },
@@ -171,6 +198,7 @@
       "origin_product": "signals_scout",
       "ai_stage": "scout:web-analytics",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout:web-analytics",
       "expected": true
     },
@@ -178,6 +206,7 @@
       "origin_product": "signals_scout",
       "ai_stage": "scout:logs",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout:web-analytics",
       "expected": false
     },
@@ -185,6 +214,7 @@
       "origin_product": "signals_scout",
       "ai_stage": "scout",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout:web-analytics",
       "expected": false
     },
@@ -192,6 +222,7 @@
       "origin_product": "signal_report",
       "ai_stage": "custom_agent",
       "internal": true,
+      "product": "signals",
       "allowlist": " , signals_custom_agent , ",
       "expected": true
     },
@@ -199,6 +230,7 @@
       "origin_product": "loop",
       "ai_stage": null,
       "internal": false,
+      "product": "posthog_code",
       "allowlist": "signals_scout",
       "expected": false
     },
@@ -206,6 +238,7 @@
       "origin_product": "loop",
       "ai_stage": null,
       "internal": false,
+      "product": "posthog_code",
       "allowlist": "posthog_code",
       "expected": true
     },
@@ -213,6 +246,7 @@
       "origin_product": "user_created",
       "ai_stage": null,
       "internal": false,
+      "product": "posthog_code",
       "allowlist": "signals_scout,posthog_code",
       "expected": true
     },
@@ -220,6 +254,7 @@
       "origin_product": "workflow",
       "ai_stage": null,
       "internal": false,
+      "product": "workflows",
       "allowlist": "workflows",
       "expected": true
     },
@@ -227,6 +262,7 @@
       "origin_product": "signal_report",
       "ai_stage": null,
       "internal": true,
+      "product": "signals",
       "allowlist": "signals",
       "expected": true
     },
@@ -234,6 +270,7 @@
       "origin_product": "review_hog",
       "ai_stage": "validation-c1",
       "internal": true,
+      "product": "review_hog",
       "allowlist": "review_hog,signals_scout",
       "expected": true
     },
@@ -241,6 +278,7 @@
       "origin_product": "review_hog",
       "ai_stage": "resolution",
       "internal": true,
+      "product": "review_hog",
       "allowlist": "signals_scout",
       "expected": false
     },
@@ -248,6 +286,7 @@
       "origin_product": "signal_report",
       "ai_stage": "inbox",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_inbox",
       "expected": true
     },
@@ -255,6 +294,7 @@
       "origin_product": "signal_report",
       "ai_stage": "inbox",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_scout,signals_implementation",
       "expected": false
     },
@@ -262,6 +302,7 @@
       "origin_product": "signals_chat",
       "ai_stage": "chat",
       "internal": false,
+      "product": "signals",
       "allowlist": "signals_chat",
       "expected": true
     },
@@ -269,6 +310,7 @@
       "origin_product": "scout_suggestions",
       "ai_stage": "scout_suggestions",
       "internal": true,
+      "product": "signals",
       "allowlist": "signals_scout_suggestions",
       "expected": true
     }

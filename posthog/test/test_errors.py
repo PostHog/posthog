@@ -1,3 +1,8 @@
+from clickhouse_connect.driver.exceptions import (
+    DatabaseError as HttpClientDatabaseError,
+    OperationalError as HttpClientOperationalError,
+    StreamFailureError as HttpClientStreamFailureError,
+)
 from clickhouse_driver.errors import (
     Error as ClickHouseDriverError,
     ServerException,
@@ -7,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.errors import (
     BAD_GET_FALLBACK_MESSAGE,
+    CH_TRANSIENT_ERRORS,
     CLICKHOUSE_ERROR_CODE_LOOKUP,
     CHQueryErrorBadGet,
     CHQueryErrorCannotParseBool,
@@ -14,17 +20,34 @@ from posthog.errors import (
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
     CHQueryErrorNotImplemented,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorUnknownIdentifier,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_message,
+    clickhouse_error_type,
     error_code_from_type,
     internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
+HTTP_CLIENT_URL = "https://clickhouse.example.com:8443"
+
+
+def _http_client_response(code: int, detail: str, name: str) -> str:
+    return f"Code: {code}. DB::Exception: {detail} ({name}) (version 25.8.1.1 (official build))"
+
+
+def _http_client_error(code: int, detail: str, name: str) -> HttpClientDatabaseError:
+    return HttpClientDatabaseError(
+        f"Received ClickHouse exception, code: {code}, server response: "
+        f"{_http_client_response(code, detail, name)} (for url {HTTP_CLIENT_URL})"
+    )
 
 
 class TestWrapClickhouseQueryError:
@@ -487,3 +510,68 @@ class TestWrapClickhouseQueryError:
 
         assert classify_query_error(raw) == category
         assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
+
+    @parameterized.expand(
+        [
+            (
+                "cancelled",
+                _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_on_retried_request",
+                HttpClientOperationalError(str(_http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED"))),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "cancelled_mid_stream",
+                HttpClientStreamFailureError(_http_client_response(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")),
+                CHQueryErrorQueryWasCancelled,
+                QueryErrorCategory.CANCELLED,
+            ),
+            (
+                "per_query_memory_limit",
+                _http_client_error(
+                    241, "Query memory limit exceeded: would use 10.00 GiB, maximum: 9.31 GiB.", "MEMORY_LIMIT_EXCEEDED"
+                ),
+                ClickHouseQueryMemoryLimitExceeded,
+                QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+            ),
+            (
+                "unknown_identifier",
+                _http_client_error(47, "Missing columns: 'privat_column'.", "UNKNOWN_IDENTIFIER"),
+                CHQueryErrorUnknownIdentifier,
+                QueryErrorCategory.USER_ERROR,
+            ),
+        ]
+    )
+    def test_http_client_errors_wrap_like_native_driver_errors(
+        self, _name: str, raw: Exception, wrapped_type: type[Exception], category: QueryErrorCategory
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(raw)
+
+        assert type(wrapped) is wrapped_type
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrapped) == category
+        assert HTTP_CLIENT_URL not in str(wrapped)
+
+    def test_http_client_cancel_reports_its_clickhouse_type_and_is_not_retried(self) -> None:
+        raw = _http_client_error(394, "Query was cancelled.", "QUERY_WAS_CANCELLED")
+
+        assert clickhouse_error_type(raw) == "CHQueryErrorQueryWasCancelled"
+        assert not isinstance(wrap_clickhouse_query_error(raw), CH_TRANSIENT_ERRORS)
+
+    @parameterized.expand(
+        [
+            ("no_code", HttpClientDatabaseError(f"HTTP driver received HTTP status 502 (for url {HTTP_CLIENT_URL})")),
+            (
+                "errors_hidden",
+                HttpClientDatabaseError(f"The ClickHouse server returned an error (for url {HTTP_CLIENT_URL})"),
+            ),
+        ]
+    )
+    def test_http_client_errors_without_a_code_pass_through(self, _name: str, raw: Exception) -> None:
+        assert wrap_clickhouse_query_error(raw) is raw
+        assert classify_query_error(raw) == QueryErrorCategory.ERROR

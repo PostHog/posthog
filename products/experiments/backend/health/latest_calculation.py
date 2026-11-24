@@ -23,11 +23,11 @@ from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
     calculation_metric_name,
-    team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
@@ -36,20 +36,19 @@ from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TO
 _SUGGESTED_NAMES = re.compile(r" Did you mean: [^?]*\?")
 
 
-def load_latest_calculation(experiment: Experiment) -> LatestCalculation | None:
+def load_latest_calculation(experiment: Experiment, *, team_config: TeamExperimentsConfig) -> LatestCalculation | None:
     """The latest finished calculation of the metrics of a launched experiment that isn't archived, or None. Never
     raises: the check that reads it then reports that it couldn't check."""
     if not experiment.is_launched or experiment.archived:
         return None
     try:
-        return _load_latest_calculation(experiment)
+        return _load_latest_calculation(experiment, team_config)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
-    team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+def _load_latest_calculation(experiment: Experiment, team_config: TeamExperimentsConfig) -> LatestCalculation:
     # Metrics that share a uuid share one result and one error on the page.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_calculation_configs(experiment, team_config=team_config):
