@@ -75,7 +75,7 @@ class FunnelQueryContext(QueryContext):
         if not (is_all_time and warehouse_steps):
             return None
         warehouse_earliest = get_earliest_timestamp_from_series(
-            team=self.team, series=list(warehouse_steps.values()), user=self.user
+            team=self.team, series=list(warehouse_steps.values()), user=self.user, limit_context=self.limit_context
         )
         if warehouse_earliest <= EARLIEST_EVENT_TIMESTAMP:  # 1970 for an empty table, 1980 for an all-NULL column
             return None

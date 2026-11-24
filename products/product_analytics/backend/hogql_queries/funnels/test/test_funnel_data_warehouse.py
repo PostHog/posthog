@@ -33,8 +33,11 @@ from posthog.schema import (
     StepOrderValue,
 )
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
@@ -243,6 +246,23 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         assert response.resolved_date_range is not None
         assert response.resolved_date_range.date_from.date() == datetime(2025, 11, 6).date()
+
+    def test_funnels_data_warehouse_all_time_async_lookup_gets_async_time_limit(self):
+        table_name = self.setup_data_warehouse()
+        node = FunnelsDataWarehouseNode(
+            id=table_name,
+            table_name=table_name,
+            id_field="uuid",
+            aggregation_target_field="user_id",
+            timestamp_field="created",
+        )
+        query = FunnelsQuery(dateRange=DateRange(date_from="all"), series=[node, node])
+
+        with time_machine.travel("2025-11-07", tick=False), self.capture_select_queries() as queries:
+            FunnelsQueryRunner(query=query, team=self.team, limit_context=LimitContext.QUERY_ASYNC).calculate()
+
+        lookup = next(q for q in queries if "min(toTimeZone(" in q)
+        assert f"max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME}" in lookup
 
     def test_data_warehouse_trends_keeps_recent_periods_past_1000_intervals(self):
         table_name = self.setup_data_warehouse()
