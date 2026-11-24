@@ -21,6 +21,7 @@ pub mod router;
 pub mod rules;
 pub mod server;
 pub mod stages;
+pub mod team_db_slots;
 pub mod teams;
 pub mod tokenizer;
 pub mod types;

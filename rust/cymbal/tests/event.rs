@@ -9,6 +9,7 @@ use cymbal::{
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
     modes::processing::ProcessingConfig,
+    router::get_router,
     symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, Exception, ExceptionList, Mechanism, ProcessedExceptionProperties,
@@ -22,6 +23,7 @@ use reqwest::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
+use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::utils::MockS3Client;
@@ -745,6 +747,56 @@ async fn same_fingerprint_returns_same_issue(db: PgPool) {
 
     assert_eq!(event1.fingerprint(), event2.fingerprint());
     assert_eq!(event1.issue_id(), event2.issue_id());
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn a_batch_takes_one_team_db_slot_per_new_fingerprint(db: PgPool) {
+    let distinct: Vec<AnyEvent> = (0..4)
+        .map(|i| make_event(vec![make_exception(&format!("FloodError{i}"), "new value")]))
+        .collect();
+    let copies: Vec<AnyEvent> = (0..4)
+        .map(|_| make_event(vec![make_exception("RepeatedError", "same value")]))
+        .collect();
+
+    for (events, expected_hot, message) in [
+        (
+            distinct,
+            true,
+            "four new fingerprints in one batch did not take more than one slot",
+        ),
+        (
+            copies,
+            false,
+            "four copies of one new fingerprint took more than one slot",
+        ),
+    ] {
+        let ctx = utils::build_context(
+            db.clone(),
+            STORAGE_BUCKET.to_string(),
+            Arc::new(TestHarness::create_s3_mock()),
+            |config| {
+                config.team_db_slots_mode = "log".to_string();
+                config.team_db_slots = 1;
+                config.team_hot_window_secs = 3600;
+            },
+        )
+        .await;
+        let request = Request::builder()
+            .method("POST")
+            .header("content-type", "application/json")
+            .uri("/process")
+            .body(Body::from(serde_json::to_vec(&events).unwrap()))
+            .unwrap();
+
+        let response = get_router(ctx.clone()).oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let slots = ctx
+            .team_db_slots
+            .as_ref()
+            .expect("log mode builds the slots");
+        assert_eq!(slots.is_hot(1), expected_hot, "{message}");
+    }
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

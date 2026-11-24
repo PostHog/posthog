@@ -63,19 +63,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
-    let mut config = ProcessingConfig::init_with_defaults().unwrap();
-    config.resolver.object_storage_bucket = storage_bucket.clone();
-    configure(&mut config);
-
-    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
-
-    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
-
-    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
-        .await
-        .unwrap();
-
-    let ctx = Arc::new(app_ctx);
+    let ctx = build_context(db, storage_bucket, s3_client, configure).await;
 
     let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 
@@ -91,6 +79,28 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     let body: T = serde_json::from_slice(body_bytes.to_bytes())
         .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
     (status, body)
+}
+
+#[allow(dead_code)]
+pub(crate) async fn build_context(
+    db: PgPool,
+    storage_bucket: String,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut ProcessingConfig),
+) -> Arc<AppContext> {
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.object_storage_bucket = storage_bucket;
+    configure(&mut config);
+
+    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
+
+    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
+
+    Arc::new(
+        AppContext::new(&config, db, issue_buckets_redis_client)
+            .await
+            .unwrap(),
+    )
 }
 
 async fn ensure_remote_resolution(
@@ -149,18 +159,7 @@ pub(crate) async fn get_raw_response(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
-    let mut config = ProcessingConfig::init_with_defaults().unwrap();
-    config.resolver.object_storage_bucket = storage_bucket.clone();
-
-    ensure_remote_resolution(&mut config, s3_client, db.clone()).await;
-
-    let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
-
-    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
-        .await
-        .unwrap();
-
-    let ctx = Arc::new(app_ctx);
+    let ctx = build_context(db, storage_bucket, s3_client, |_| {}).await;
 
     let res = get_router(ctx).oneshot(request_factory()).await.unwrap();
 

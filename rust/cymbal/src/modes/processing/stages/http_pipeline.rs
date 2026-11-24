@@ -32,6 +32,10 @@ impl Stage for HttpEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
+        // Counted before any processing starts, so the count covers every event of a hot team.
+        if let Some(slots) = &self.app_context.team_db_slots {
+            slots.record_hot_arrivals(batch.inner_ref().iter().map(|event| event.team_id));
+        }
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
         // Sanitize first: pre-processing keeps this copy and returns it unchanged on failure.
