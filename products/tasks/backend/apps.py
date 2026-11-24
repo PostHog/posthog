@@ -22,12 +22,12 @@ class TasksConfig(AppConfig):
         self._register_tag_visibility()
 
     def _register_tag_visibility(self) -> None:
-        from posthog.models.tag_visibility import register_tag_visibility_filter  # noqa: PLC0415
+        from posthog.models.tag_visibility import TagVisibilityContext, register_tag_visibility_filter  # noqa: PLC0415
 
-        def _visible_tasks(team_id: int, user_id: int, user_access_control):
+        def _task_rule(context: TagVisibilityContext):
             # Task reads apply channel and creator visibility regardless of access control.
-            from products.tasks.backend.facade.api import _visible_task_qs  # noqa: PLC0415
+            from products.tasks.backend.visibility import task_readable_for_tag_counts  # noqa: PLC0415
 
-            return _visible_task_qs(team_id, user_id, for_list=True)
+            return task_readable_for_tag_counts(context)
 
-        register_tag_visibility_filter("tasks.Task", _visible_tasks)
+        register_tag_visibility_filter("tasks.Task", _task_rule)

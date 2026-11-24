@@ -22,7 +22,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.models.tag_visibility import TagVisibilityRule, get_tag_visibility_filters, get_tag_visibility_grants
+from posthog.models.tag_visibility import TagVisibilityContext, get_tag_visibility_filters, get_tag_visibility_grants
 from posthog.models.tagged_item_registry import (
     TAGGABLE_MODELS,
     TaggableModel,
@@ -33,7 +33,6 @@ from posthog.permissions import is_service_auth
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
     access_level_satisfied_for_resource,
     model_to_resource,
 )
@@ -533,11 +532,6 @@ def get_taggable_resource(entry: TaggableModel) -> APIScopeObject | None:
     return _TAGGABLE_RESOURCE_OVERRIDES.get(entry.model_label) or model_to_resource(apps.get_model(entry.model_label))
 
 
-def _matches_rule(rule: TagVisibilityRule, context: tuple[int, int, UserAccessControl], entry: TaggableModel) -> Exists:
-    # nosemgrep: orm-field-injection -- both field names come from code: a registered rule and the TAGGABLE_MODELS registry
-    return Exists(rule.resolver(*context).filter(**{rule.object_id_field: OuterRef(entry.object_field)}))
-
-
 class _TagCountPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
@@ -646,9 +640,14 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             if resource is None:
                 visible &= ~Q(content_type=content_type)
                 continue
-            context = (self.team_id, user_id, self.user_access_control)
+            context = TagVisibilityContext(
+                team_id=self.team_id,
+                user_id=user_id,
+                user_access_control=self.user_access_control,
+                object_ref=OuterRef(entry.object_field),
+            )
             # Correlated per tagged item, so a request only checks the tagged items of the tags it counts.
-            conditions = [_matches_rule(rule, context, entry) for rule in get_tag_visibility_filters(entry.model_label)]
+            conditions = [rule(context) for rule in get_tag_visibility_filters(entry.model_label)]
             access_controlled = self._get_access_controlled_objects(entry, resource)
             if access_controlled is not None:
                 conditions.append(Exists(access_controlled.filter(pk=OuterRef(entry.object_field))))
@@ -656,7 +655,7 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 continue
             is_allowed = Q(reduce(operator.and_, conditions))
             for rule in get_tag_visibility_grants(entry.model_label):
-                is_allowed |= Q(_matches_rule(rule, context, entry))
+                is_allowed |= Q(rule(context))
             visible &= ~Q(content_type=content_type) | is_allowed
         return visible
 

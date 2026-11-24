@@ -5095,16 +5095,6 @@ def list_account_meetings(
     return Page(results=views, count=selected.count)
 
 
-def _filter_account_note_links_on_visible_accounts(team_id: int, user_access_control: "UserAccessControl"):
-    # Returns a queryset, unlike the rest of this facade, because core's tag counts correlate it per tagged item.
-    return ResourceNotebook.objects.filter(
-        account_id__in=_accounts_queryset(team_id, user_access_control).values("id"),
-        notebook__team_id=team_id,
-        notebook__deleted=False,
-        notebook__visibility="internal",
-    )
-
-
 def list_account_notebooks(
     team_id: int,
     account_id: str,

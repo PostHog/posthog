@@ -136,7 +136,7 @@ def _set_customer_task_tags(team_id: int, updates: Iterable[tuple[CustomerTask, 
         Tag.objects.filter(team_id=team_id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
 
 
-def _visible_account_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
+def filter_visible_accounts(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
     accounts = Account.objects.for_team(team_id)
     return user_access_control.filter_queryset_by_access_level(accounts, resource="account")
 
@@ -149,26 +149,17 @@ def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> Custom
 
 
 def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[CustomerTask]:
-    visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
+    visible_account_ids = filter_visible_accounts(team_id, user_access_control).values("id")
     account_filter = Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
     return user_access_control.filter_queryset_by_access_level(
         _task_queryset(team_id), resource="customer_task"
     ).filter(account_filter)
 
 
-def filter_customer_tasks_on_visible_accounts(
-    team_id: int, user_access_control: UserAccessControl
-) -> QuerySet[CustomerTask]:
-    visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
-    return CustomerTask.objects.for_team(team_id).filter(
-        Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
-    )
-
-
 def _account_for_write(team_id: int, account_id: UUID | None, user_access_control: UserAccessControl) -> Account | None:
     if account_id is None:
         return None
-    account = _visible_account_queryset(team_id, user_access_control).filter(id=account_id).first()
+    account = filter_visible_accounts(team_id, user_access_control).filter(id=account_id).first()
     if account is None:
         raise CustomerTaskAccountNotFound()
     return account
@@ -867,7 +858,7 @@ def _list_visible_historical_account_ids(
                     continue
     if not historical_account_ids:
         return frozenset()
-    visible_ids = _visible_account_queryset(team_id, user_access_control).filter(id__in=historical_account_ids)
+    visible_ids = filter_visible_accounts(team_id, user_access_control).filter(id__in=historical_account_ids)
     return frozenset(str(account_id) for account_id in visible_ids.values_list("id", flat=True))
 
 
@@ -892,7 +883,7 @@ def list_customer_task_activities(
 def can_access_customer_task_object(*, task: CustomerTask, user_access_control: UserAccessControl, write: bool) -> bool:
     if (
         task.account_id is not None
-        and not _visible_account_queryset(task.team_id, user_access_control).filter(id=task.account_id).exists()
+        and not filter_visible_accounts(task.team_id, user_access_control).filter(id=task.account_id).exists()
     ):
         return False
     return user_access_control.check_access_level_for_object(task, "editor" if write else "viewer")

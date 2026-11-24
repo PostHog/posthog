@@ -11,9 +11,11 @@ from typing import cast
 from django.db.models import BooleanField, Exists, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 
+from posthog.models.tag_visibility import TagVisibilityContext
 from posthog.models.team import Team
 
 from products.tasks.backend.facade.profiles import DrivePolicy, Read, TaskProfile, task_profiles
+from products.tasks.backend.facade.task_run_signals import hidden_task_ids
 from products.tasks.backend.models import Channel, Task
 
 # These origins predate channels and remain team-scoped while their tasks have no channel.
@@ -152,3 +154,16 @@ def public_slack_thread_q() -> Q:
         & Q(Exists(threads.filter(conversation_type__in=public_types)))
         & Q(~Exists(threads.exclude(conversation_type__in=public_types)))
     )
+
+
+def task_readable_for_tag_counts(context: TagVisibilityContext) -> Exists:
+    """Whether the user can read the tagged task, by the same rules as the task list."""
+    tasks = (
+        Task.objects.filter(team_id=context.team_id, deleted=False, pk=context.object_ref)
+        .filter(scout_trial_visibility_q(context.user_id))
+        .filter(task_visibility_q(context.user_id, context.team_id) | public_slack_thread_q())
+    )
+    hidden = hidden_task_ids(context.team_id, context.user_id)
+    if hidden:
+        tasks = tasks.exclude(id__in=hidden)
+    return Exists(tasks)

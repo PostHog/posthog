@@ -14,37 +14,34 @@ from typing import TYPE_CHECKING
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from django.db.models import QuerySet
+    from django.db.models import Exists, OuterRef
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-TagVisibilityResolver = Callable[[int, int, "UserAccessControl"], "QuerySet"]
-"""Takes a team id, a user id and the user's access control, and returns the rows that decide visibility."""
-
 
 @frozen
-class TagVisibilityRule:
-    resolver: TagVisibilityResolver
-    object_id_field: str
-    """The column of the resolver's rows that holds the tagged object's primary key."""
+class TagVisibilityContext:
+    team_id: int
+    user_id: int
+    user_access_control: UserAccessControl
+    object_ref: OuterRef
+    """The primary key of the tagged object, for the rule to correlate against."""
 
+
+TagVisibilityRule = Callable[[TagVisibilityContext], "Exists"]
 
 _filters: dict[str, list[TagVisibilityRule]] = defaultdict(list)
 _grants: dict[str, list[TagVisibilityRule]] = defaultdict(list)
 
 
-def register_tag_visibility_filter(
-    model_label: str, resolver: TagVisibilityResolver, *, object_id_field: str = "pk"
-) -> None:
-    """Count an object of `model_label` only if `resolver` returns it, as well as passing the access-control check."""
-    _filters[model_label].append(TagVisibilityRule(resolver=resolver, object_id_field=object_id_field))
+def register_tag_visibility_filter(model_label: str, rule: TagVisibilityRule) -> None:
+    """Count an object of `model_label` only if `rule` holds, as well as the access-control check."""
+    _filters[model_label].append(rule)
 
 
-def register_tag_visibility_grant(
-    model_label: str, resolver: TagVisibilityResolver, *, object_id_field: str = "pk"
-) -> None:
-    """Count an object of `model_label` that `resolver` returns, even if the access-control check hides it."""
-    _grants[model_label].append(TagVisibilityRule(resolver=resolver, object_id_field=object_id_field))
+def register_tag_visibility_grant(model_label: str, rule: TagVisibilityRule) -> None:
+    """Count an object of `model_label` when `rule` holds, even if the access-control check hides it."""
+    _grants[model_label].append(rule)
 
 
 def get_tag_visibility_filters(model_label: str) -> list[TagVisibilityRule]:
