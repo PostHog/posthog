@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
                     "notebook",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="app_releases",
+                        related_name="+",
                         to="notebooks.notebook",
                     ),
                 ),
