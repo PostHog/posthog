@@ -159,6 +159,7 @@ from .models import (
     SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
@@ -1011,7 +1012,23 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         for field in STEERING_FIELDS.values():
             representation[field] = representation[field] or ""
+        representation["default_autostart_priority"] = effective_autostart_priority(instance).value
         return representation
+
+    def update(self, instance: SignalTeamConfig, validated_data: dict[str, Any]) -> SignalTeamConfig:
+        # A project that never set the switch runs on the threshold `effective_autostart_priority`
+        # gives it. Setting the switch also stores that threshold, so that turning PRs off and on
+        # again does not bring back the P4 column default. A stored P4 with a null switch reads as
+        # never chosen, so only a P4 pick also stores the switch. Any other pick leaves the switch
+        # null, because an explicit True waives the per-reviewer opt-in for trial PRs.
+        if instance.autostart_enabled is None:
+            if validated_data.get("autostart_enabled", False) is None:
+                del validated_data["autostart_enabled"]
+            if "autostart_enabled" in validated_data:
+                validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
+            elif validated_data.get("default_autostart_priority") == AutonomyPriority.P4:
+                validated_data["autostart_enabled"] = True
+        return super().update(instance, validated_data)
 
     def validate_implementation_repositories(self, value: list[str]) -> list[str]:
         try:
@@ -1108,6 +1125,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
                     "false to opt out, so actionable reports still generate and notify but the team "
                     "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
+            "default_autostart_priority": {
+                "help_text": (
+                    "Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). "
+                    "Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. "
+                    "Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true."
                 )
             },
             "default_slack_notification_channel": {
