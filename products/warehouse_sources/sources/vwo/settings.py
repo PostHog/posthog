@@ -1,6 +1,6 @@
 from dataclasses import field, replace
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, ResponseAction, frozen
 
 API_ORIGIN = "https://app.wingify.com/api"
 PAGE_SIZE = 25
@@ -39,6 +39,13 @@ CAMPAIGN_SECTIONS_FANOUT = replace(
     ],
 )
 
+# A flag rule list is per environment and flag. VWO can answer 400 or 404 for a flag that is not in
+# the project of the environment, or one deleted after the flag listing.
+FEATURE_FLAG_RULES_CHILD_ACTIONS: list[ResponseAction] = [
+    {"status_code": 400, "action": "ignore"},
+    {"status_code": 404, "action": "ignore"},
+]
+
 # VWO documents no timestamp filter. Offset ordering and envelopes need verification with a live account.
 ENDPOINTS: dict[str, VWOEndpoint] = {
     "accounts": VWOEndpoint(name="accounts", path="accounts/{account_id}", singleton=True, partition_field="createdOn"),
@@ -50,6 +57,13 @@ ENDPOINTS: dict[str, VWOEndpoint] = {
         path="accounts/{account_id}/campaigns/{campaign_id}/sections",
         primary_keys=("campaign_id", "id"),
         fanout=CAMPAIGN_SECTIONS_FANOUT,
+    ),
+    "custom_widgets": VWOEndpoint(name="custom_widgets", path="accounts/{account_id}/changesets"),
+    "feature_flag_rules": VWOEndpoint(
+        name="feature_flag_rules",
+        path="accounts/{account_id}/environments/{environment_id}/features/{feature_id}/rules",
+        primary_keys=("environment_id", "feature_id", "id"),
+        paginated=True,
     ),
     "feature_flags": VWOEndpoint(name="feature_flags", path="accounts/{account_id}/features", paginated=True),
     "goals": VWOEndpoint(
@@ -64,6 +78,7 @@ ENDPOINTS: dict[str, VWOEndpoint] = {
         paginated=True,
         partition_field="createdOn",
     ),
+    "projects": VWOEndpoint(name="projects", path="accounts/{account_id}/projects", partition_field="createdOn"),
     "variations": VWOEndpoint(
         name="variations",
         path="accounts/{account_id}/campaigns/{campaign_id}/variations",

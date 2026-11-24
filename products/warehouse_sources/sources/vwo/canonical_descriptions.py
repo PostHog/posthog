@@ -38,6 +38,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "variations": "Variations configured for the section.",
         },
     },
+    "custom_widgets": {
+        "description": "Custom widgets that VWO campaigns in the selected workspace can reuse.",
+        "docs_url": "https://developers.wingify.com/v2/reference/get-all-custom-widgets",
+        "columns": {
+            "id": "Custom widget identifier.",
+            "name": "Custom widget name.",
+            "description": "Custom widget description.",
+            "type": "Custom widget type.",
+            "isGlobal": "Whether changes to the widget apply to every campaign that uses it.",
+            "code": "HTML, JavaScript and CSS of the widget.",
+        },
+    },
+    "feature_flag_rules": {
+        "description": "Targeting rules of each Feature Experimentation flag, per environment.",
+        "docs_url": "https://developers.wingify.com/v2/reference/fme-get-all-feature-flags-rules",
+        "columns": {
+            "id": "Rule identifier.",
+            "project_id": "Identifier of the project that holds the environment.",
+            "environment_id": "Identifier of the environment the rule applies to.",
+            "feature_id": "Identifier of the feature flag the rule belongs to.",
+            "name": "Rule name.",
+            "key": "Unique rule key.",
+            "type": "Rule type, such as a rollout, test, personalization or multivariate rule.",
+            "campaignData": "Traffic split and variations of the rule.",
+        },
+    },
     "feature_flags": {
         "description": "Feature flags in the selected VWO workspace, including variables and variations.",
         "docs_url": "https://developers.wingify.com/v2/reference/fme-get-all-feature-flags-of-a-workspace",
@@ -73,6 +99,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Report creation time in UTC.",
             "goals": "Goals associated with the report.",
             "dataIntervalRange": "Time interval covered by the report.",
+        },
+    },
+    "projects": {
+        "description": "Feature Experimentation projects and their environments.",
+        "docs_url": "https://developers.wingify.com/v2/reference/fme-get-feature-flag-projects-and-environments",
+        "columns": {
+            "id": "Project identifier.",
+            "name": "Project name.",
+            "createdOn": "Project creation time in Unix seconds.",
+            "created_at": "Project creation time in UTC.",
+            "modifiedOn": "Project modification time in Unix seconds.",
+            "createdBy": "User who created the project.",
+            "languages": "SDK languages used in the project.",
+            "environments": "Environments of the project, with their id, name and status. SDK keys are removed.",
         },
     },
     "variations": {

@@ -15900,10 +15900,10 @@ Today (8): `accounts`, `campaign_sections`, `campaigns`, `feature_flags`, `goals
 
 Diffed against: <https://developers.wingify.com/v2/llms.txt>
 
-- [ ] `Feature flag rules (GET /accounts/{account_id}/environments/{environment_id_or_key}/features/{feature_id_or_key}/rules)` — targeting rules and rollout state per flag and environment; the flag list alone has no rule detail (high)
-- [ ] `FE projects and environments (GET /accounts/{account_id}/projects)` — lookup for the environments that flag rules are scoped to, and needed to build the rules fan-out (high)
-- [ ] `Custom widgets (GET /accounts/{account_id}/changesets)` — reusable widgets (changesets) shared across campaigns (low)
-- [ ] `Page overview insights (GET /accounts/current/dashboard/insights/stats/overview-api)` — page-level insights stats; grain and filters were not confirmed (low)
+- [x] `Feature flag rules (GET /accounts/{account_id}/environments/{environment_id_or_key}/features/{feature_id_or_key}/rules)` — targeting rules and rollout state per flag and environment; the flag list alone has no rule detail (high)
+- [x] `FE projects and environments (GET /accounts/{account_id}/projects)` — lookup for the environments that flag rules are scoped to, and needed to build the rules fan-out (high)
+- [x] `Custom widgets (GET /accounts/{account_id}/changesets)` — reusable widgets (changesets) shared across campaigns (low)
+- [ ] `Page overview insights (GET /accounts/current/dashboard/insights/stats/overview-api)` — page-level insights stats; grain and filters were not confirmed (low) Skipped: each request needs a required `pageUrl` plus a `from`/`to` range, so it is a per-page report, not a listing.
 
 Note: Parsed the v2 llms.txt index and the OpenAPI JSON embedded in each reference page. Campaigns, variations, sections, goals, metric reports, flags, websites and accounts are synced. Missing are flag rules (need a per-environment, per-flag fan-out) and the projects and environments lookup. Excluded: single-record GETs, share links, SmartCode, website config, deprecated Projects and Features, and the mobile SDK guides.
 

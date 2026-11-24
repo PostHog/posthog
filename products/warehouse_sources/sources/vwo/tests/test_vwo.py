@@ -107,6 +107,7 @@ def test_invalid_envelopes_fail_instead_of_replacing_with_empty_data(body: dict[
         ("accounts", "createdOn", True),
         ("campaigns", "createdOn", False),
         ("metric_reports", "createdOn", False),
+        ("projects", "createdOn", False),
         ("websites", "createdAt", False),
     ],
 )
@@ -166,6 +167,88 @@ def test_campaign_child_with_vwo_errors_still_fails() -> None:
             collection([{"id": 11}, {"id": 12}], False),
             ScriptedResponse(json={"_errors": [{"code": 401, "message": "Authentication Failed"}]}),
         ],
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "Authentication Failed" in str(result.raised)
+    assert result.rows == []
+
+
+def test_projects_drop_environment_sdk_keys() -> None:
+    environments = [{"id": 1, "name": "Production", "isEnabled": True, "token": "sdk-key-example"}, "unexpected"]
+    result = driver().run("projects", [collection([{"id": 7, "createdOn": None, "environments": environments}], False)])
+    assert result.raised is None
+    assert result.rows[0]["environments"] == [{"id": 1, "name": "Production", "isEnabled": True}, "unexpected"]
+
+
+def rules_script(rule_paths: dict[str, list[ScriptedResponse]]) -> Any:
+    return route(
+        {
+            "/accounts/123/projects": [
+                collection(
+                    [
+                        {"id": 1, "environments": [{"id": 20, "token": "sdk-key-example"}, {"id": 10}]},
+                        {"id": 2, "environments": None},
+                    ],
+                    False,
+                )
+            ],
+            "/accounts/123/features": [
+                ScriptedResponse(json={"_data": {"partialCollection": [{"id": 6}] * 25, "totalCount": 26}}),
+                ScriptedResponse(json={"_data": {"partialCollection": [{"id": 5}], "totalCount": 26}}),
+            ],
+            **rule_paths,
+        }
+    )
+
+
+@pytest.mark.parametrize("missing_status", [400, 404])
+def test_feature_flag_rules_walk_each_environment_and_flag_in_id_order(missing_status: int) -> None:
+    result = driver().run(
+        "feature_flag_rules",
+        rules_script(
+            {
+                "/environments/10/features/5/rules": [collection([{"id": 100}, {"id": 101}])],
+                "/environments/10/features/6/rules": [ScriptedResponse(status=missing_status, json={})],
+                "/environments/20/features/5/rules": [collection([])],
+                "/environments/20/features/6/rules": [collection([{"id": 102}], False)],
+            }
+        ),
+    )
+    assert result.raised is None
+    assert [(row["project_id"], row["environment_id"], row["feature_id"], row["id"]) for row in result.rows] == [
+        (1, 10, 5, 100),
+        (1, 10, 5, 101),
+        (1, 20, 6, 102),
+    ]
+    assert [request.path.split("/accounts/123/")[1] for request in result.requests[3:]] == [
+        "environments/10/features/5/rules",
+        "environments/10/features/6/rules",
+        "environments/20/features/5/rules",
+        "environments/20/features/6/rules",
+    ]
+    assert result.committed_states[-1] == VWOResumeConfig(paginator_state={"environment_id": 20, "feature_id": 6})
+
+
+def test_feature_flag_rules_resume_after_the_last_pair_read() -> None:
+    result = driver().run(
+        "feature_flag_rules",
+        rules_script({"/environments/20/features/6/rules": [collection([{"id": 102}])]}),
+        resume_state=VWOResumeConfig(paginator_state={"environment_id": 20, "feature_id": 5}),
+    )
+    assert result.raised is None
+    assert [(row["environment_id"], row["feature_id"], row["id"]) for row in result.rows] == [(20, 6, 102)]
+
+
+def test_feature_flag_rules_with_vwo_errors_still_fail() -> None:
+    result = driver().run(
+        "feature_flag_rules",
+        rules_script(
+            {
+                "/environments/10/features/5/rules": [
+                    ScriptedResponse(json={"_errors": [{"code": 401, "message": "Authentication Failed"}]})
+                ]
+            }
+        ),
     )
     assert isinstance(result.raised, ValueError)
     assert "Authentication Failed" in str(result.raised)

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     ClientConfig,
     Endpoint,
+    OffsetPaginator,
     Resource,
     RESTAPIConfig,
     RESTClient,
@@ -17,11 +19,17 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    create_response_hooks,
     frozen,
     rest_api_resource,
     schema_for_resource,
 )
-from products.warehouse_sources.sources.vwo.settings import API_ORIGIN, ENDPOINTS, VWOEndpoint
+from products.warehouse_sources.sources.vwo.settings import (
+    API_ORIGIN,
+    ENDPOINTS,
+    FEATURE_FLAG_RULES_CHILD_ACTIONS,
+    VWOEndpoint,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +107,14 @@ def endpoint_config(endpoint: VWOEndpoint) -> Endpoint:
 
 
 def normalize_row(endpoint: VWOEndpoint, row: dict[str, Any]) -> dict[str, Any]:
+    if endpoint.name == "projects" and isinstance(row.get("environments"), list):
+        # `token` is the SDK key of the environment, a credential that does not belong in the warehouse.
+        row["environments"] = [
+            {key: value for key, value in environment.items() if key != "token"}
+            if isinstance(environment, dict)
+            else environment
+            for environment in row["environments"]
+        ]
     if endpoint.partition_field:
         value = row.get(endpoint.partition_field)
         row["created_at"] = datetime.fromtimestamp(float(value), tz=UTC) if value is not None else None
@@ -108,10 +124,11 @@ def normalize_row(endpoint: VWOEndpoint, row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def validate_credentials(api_token: str, account_id: str, api_version: str) -> tuple[bool, str | None]:
+def rest_client(api_token: str, api_version: str) -> RESTClient:
     config = client_config(api_token, api_version)
-    client = RESTClient(
+    return RESTClient(
         base_url=config["base_url"],
+        headers=config["headers"],
         auth=APIKeyAuth(api_key=api_token, name="token", location="header"),
         request_timeout=config["request_timeout"],
         retry_budget_seconds=config["retry_budget_seconds"],
@@ -119,6 +136,83 @@ def validate_credentials(api_token: str, account_id: str, api_version: str) -> t
         allow_redirects=False,
         allowed_hosts=[],
     )
+
+
+def _pages(
+    client: RESTClient, endpoint: VWOEndpoint, path: str, hooks: dict[str, Any] | None = None
+) -> Iterator[list[dict[str, Any]]]:
+    paginator = (
+        OffsetPaginator(limit=endpoint.page_size, total_path="_data.totalCount")
+        if endpoint.paginated
+        else SinglePagePaginator()
+    )
+    yield from client.paginate(
+        path=path,
+        paginator=paginator,
+        data_selector=VWOCollectionSelector(skip_missing_envelope=hooks is not None),
+        data_selector_required=True,
+        hooks=hooks,
+    )
+
+
+def feature_flag_rule_rows(
+    client: RESTClient,
+    account_id: str,
+    resumable_source_manager: ResumableSourceManager[VWOResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the rules of every feature flag in every FE environment.
+
+    VWO lists rules per environment and flag only, so this pairs each environment of each project
+    with each flag of the workspace. Pairs are read in id order, and the resume state is the last
+    pair read.
+    """
+    endpoint = ENDPOINTS["feature_flag_rules"]
+    environments: dict[int, Any] = {}
+    for page in _pages(client, ENDPOINTS["projects"], ENDPOINTS["projects"].path.format(account_id=account_id)):
+        for project in page:
+            for environment in project.get("environments") or []:
+                if isinstance(environment, dict) and environment.get("id") is not None:
+                    environments.setdefault(int(environment["id"]), project.get("id"))
+        resumable_source_manager.safe_point()
+    feature_ids: set[int] = set()
+    flags = ENDPOINTS["feature_flags"]
+    for page in _pages(client, flags, flags.path.format(account_id=account_id)):
+        feature_ids.update(int(feature["id"]) for feature in page if feature.get("id") is not None)
+        resumable_source_manager.safe_point()
+
+    done: tuple[int, int] | None = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and "environment_id" in resume.paginator_state:
+            done = (int(resume.paginator_state["environment_id"]), int(resume.paginator_state["feature_id"]))
+
+    hooks = create_response_hooks(FEATURE_FLAG_RULES_CHILD_ACTIONS)
+    for environment_id in sorted(environments):
+        for feature_id in sorted(feature_ids):
+            if done is not None and (environment_id, feature_id) <= done:
+                continue
+            path = endpoint.path.format(account_id=account_id, environment_id=environment_id, feature_id=feature_id)
+            rows = [
+                {
+                    **rule,
+                    "project_id": environments[environment_id],
+                    "environment_id": environment_id,
+                    "feature_id": feature_id,
+                }
+                for page in _pages(client, endpoint, path, hooks)
+                for rule in page
+            ]
+            resumable_source_manager.save_state(
+                VWOResumeConfig(paginator_state={"environment_id": environment_id, "feature_id": feature_id})
+            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+
+def validate_credentials(api_token: str, account_id: str, api_version: str) -> tuple[bool, str | None]:
+    client = rest_client(api_token, api_version)
     try:
         page = next(
             client.paginate(path=f"accounts/{account_id}", data_selector="_data", paginator=SinglePagePaginator())
@@ -159,6 +253,16 @@ def vwo_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
             resumable_source_manager.save_state(VWOResumeConfig(paginator_state=state))
+
+    if endpoint == "feature_flag_rules":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: feature_flag_rule_rows(
+                rest_client(api_token, api_version), account_id, resumable_source_manager
+            ),
+            primary_keys=list(metadata.primary_keys),
+            sort_mode=None,
+        )
 
     if metadata.fanout:
         resource = build_dependent_resource(
