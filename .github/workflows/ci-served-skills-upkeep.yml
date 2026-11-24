@@ -89,12 +89,12 @@ jobs:
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
-                      text: "Served skills upkeep: ${{ steps.report.outputs.pointers }} pointers to unserved skills, ${{ steps.report.outputs.flag_mismatches }} flag mismatches"
+                      text: "[Testing] Served skills upkeep: ${{ steps.report.outputs.pointers }} pointers to unserved skills, ${{ steps.report.outputs.flag_mismatches }} flag mismatches"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: "*Served skills upkeep.* `learn` serves ${{ steps.report.outputs.served }} product skills. ${{ steps.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ steps.report.outputs.flag_mismatches }} served skills with tools behind a flag the list does not declare. The report also has sizes, growth and bot commits."
+                            text: ":test_tube: *Served skills upkeep (testing).* `learn` serves ${{ steps.report.outputs.served }} product skills. ${{ steps.report.outputs.pointers }} places where a served skill names a skill `learn` does not serve. ${{ steps.report.outputs.flag_mismatches }} served skills with tools behind a flag the list does not declare. The report also has sizes, growth and bot commits. This post is a trial for team-context-and-mcp only."
                         - type: "actions"
                           elements:
                             - type: "button"
