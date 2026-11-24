@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -8,13 +8,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { MessageTemplate } from './MessageTemplate'
-import { messageTemplateLogic } from './messageTemplateLogic'
 
 const TEMPLATE_ID = 'tmpl-1'
 
@@ -37,11 +35,8 @@ const PASSWORD_RESET_WITH_DRAFT = {
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
-    let scenePanel: HTMLElement | undefined
-
     afterEach(() => {
         cleanup()
-        scenePanel?.remove()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
@@ -224,49 +219,37 @@ describe('MessageTemplate', () => {
     })
 
     it.each([
-        ['a library template without one keeps the title row alone', { ...ORDER_RECEIPT }, false, 0],
-        ['a library template shows the one it has', { ...ORDER_RECEIPT, description: 'Sent after checkout' }, false, 1],
-        ['a transactional template keeps its tags and description', PASSWORD_RESET_WITH_DRAFT, true, 1],
-    ])('header tags and description: %s', async (_, template, tagsInPage, descriptions) => {
+        ['a library template', ORDER_RECEIPT, {}, 'row'],
+        ['a library template with the menu bar', ORDER_RECEIPT, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true }, 'menu'],
+        ['a library template with the rail', ORDER_RECEIPT, { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, 'menu'],
+        [
+            'a transactional template with the menu bar',
+            PASSWORD_RESET_WITH_DRAFT,
+            { [FEATURE_FLAGS.SCENE_MENU_BAR]: true },
+            'row',
+        ],
+    ])('keeps tags reachable in one place: %s', async (_, template, flags, place) => {
         useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
-        await renderAs(AccessControlLevel.Editor, template.name)
+        await renderAs(AccessControlLevel.Editor, template.name, flags)
 
         await waitFor(() =>
-            expect(!!document.querySelector('[data-attr="message-template-tags-button"]')).toBe(tagsInPage)
+            expect([
+                !!document.querySelector('[data-attr="message-template-tags-button"]'),
+                !!document.querySelector('[data-attr="message-template-menubar-metadata"]'),
+            ]).toEqual([place === 'row', place === 'menu'])
         )
-        expect(screen.queryAllByText(template.description || 'Enter description (optional)')).toHaveLength(descriptions)
     })
 
-    it('edits tags and description from the side panel', async () => {
-        const patches: unknown[] = []
-        useMocks({
-            get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT },
-            patch: {
-                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, unknown>
-                    patches.push(body)
-                    return [200, { ...ORDER_RECEIPT, ...body }]
-                },
-            },
-        })
-        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
-        const panel = document.createElement('div')
-        scenePanel = panel
-        document.body.appendChild(panel)
-        act(() => sceneLayoutLogic.actions.registerScenePanelElement(panel))
-
-        fireEvent.click(await within(panel).findByText('Enter description (optional)'))
-        fireEvent.change(panel.querySelector('textarea')!, { target: { value: 'Sent after checkout' } })
-        fireEvent.blur(panel.querySelector('textarea')!)
+    it.each([
+        ['a library template', ORDER_RECEIPT, true],
+        ['a transactional template', PASSWORD_RESET_WITH_DRAFT, false],
+    ])('description toggle of %s', async (_, template, hasToggle) => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
+        await renderAs(AccessControlLevel.Editor, template.name)
+        expect(await screen.findByText('Enter description (optional)')).toBeInTheDocument()
         await waitFor(() =>
-            expect(messageTemplateLogic({ id: TEMPLATE_ID }).values.template.description).toBe('Sent after checkout')
+            expect(!!document.querySelector('[data-attr="toggle-description-button-collapse"]')).toBe(hasToggle)
         )
-
-        fireEvent.click(within(panel).getByText('Click to add tags'))
-        const input = panel.querySelector<HTMLInputElement>('input')!
-        fireEvent.change(input, { target: { value: 'receipts' } })
-        fireEvent.keyDown(input, { key: 'Enter' })
-        await waitFor(() => expect(patches).toEqual([{ tags: ['receipts'] }]))
     })
 
     it('puts subject, preheader and the content switch of a library template on one row', async () => {

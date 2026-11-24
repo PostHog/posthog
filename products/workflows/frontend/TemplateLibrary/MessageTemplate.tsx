@@ -45,7 +45,6 @@ import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { MessageTemplateSceneMenuBar } from './MessageTemplateSceneMenuBar'
-import { MessageTemplateScenePanel } from './MessageTemplateScenePanel'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -104,6 +103,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
@@ -140,10 +140,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
-    // Until the saved template loads, its type is unknown and its tags look empty.
+    // False until the saved template loads, because its type is unknown and its tags look empty until then.
     const isLibraryTemplate = props.id === 'new' || (originalTemplate.id === props.id && !isTransactional)
-    // An empty one is added from the side panel. A saved one stays while it's cleared, so its row can't vanish mid-edit.
-    const showDescription = isTransactional || !!template.description || !!originalTemplate.description
+    const showMenuBar = sceneMenuBarEnabled && isLibraryTemplate
     const saveDisabledReason =
         editDisabledReason ??
         (draftsEnabled && isSavingDraft
@@ -315,23 +314,20 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {...{ className: 'flex flex-col grow h-full' }}
         >
             <SceneContent className="h-full flex flex-col grow">
-                {isLibraryTemplate && (
-                    <>
-                        <MessageTemplateSceneMenuBar
-                            {...props}
-                            editDisabledReason={editDisabledReason}
-                            saveDisabledReason={saveDisabledReason}
-                            sendTestDisabledReason={sendTestDisabledReason}
-                        />
-                        <MessageTemplateScenePanel {...props} canEdit={!editDisabledReason} />
-                    </>
+                {showMenuBar && (
+                    <MessageTemplateSceneMenuBar
+                        {...props}
+                        editDisabledReason={editDisabledReason}
+                        saveDisabledReason={saveDisabledReason}
+                        sendTestDisabledReason={sendTestDisabledReason}
+                    />
                 )}
                 <SceneTitleSection
                     name={template.name}
-                    description={showDescription ? template.description : null}
+                    description={template.description}
                     resourceType={{ type: 'template' }}
                     canEdit={!editDisabledReason}
-                    descriptionAlwaysVisible={isTransactional}
+                    descriptionAlwaysVisible={!isLibraryTemplate}
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
@@ -498,7 +494,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     }
                 />
 
-                {isTransactional && (
+                {!showMenuBar && (
                     <SceneTags
                         tags={[...(template.tags ?? [])]}
                         onSave={saveTags}

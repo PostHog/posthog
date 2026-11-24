@@ -3,10 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconScreen, IconSend, IconTrash, IconUndo, IconUpload } from '@posthog/icons'
 
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { emailTemplaterLogic, saveWithLatestEmailEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 
-import { SceneDescription } from '~/layout/scenes/components/SceneDescription'
 import {
     SceneMenuBar,
     SceneMenuBarItem,
@@ -14,7 +12,6 @@ import {
     SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps } from './messageTemplateSceneLogic'
@@ -26,12 +23,7 @@ type MessageTemplateSceneMenuBarProps = MessageTemplateSceneLogicProps & {
     sendTestDisabledReason?: string
 }
 
-export function MessageTemplateSceneMenuBar(props: MessageTemplateSceneMenuBarProps): JSX.Element | null {
-    const enabled = useFeatureFlag('SCENE_MENU_BAR')
-    return enabled ? <MessageTemplateSceneMenuBarInner {...props} /> : null
-}
-
-function MessageTemplateSceneMenuBarInner({
+export function MessageTemplateSceneMenuBar({
     editDisabledReason,
     saveDisabledReason,
     sendTestDisabledReason,
@@ -40,7 +32,7 @@ function MessageTemplateSceneMenuBarInner({
     const { template, originalTemplate, templateChanged, isTemplateSubmitting, templateLoading } = useValues(
         messageTemplateLogic(props)
     )
-    const { submitTemplate, resetTemplate, duplicateTemplate, deleteTemplate, saveTags, setTemplateValue } = useActions(
+    const { submitTemplate, resetTemplate, duplicateTemplate, deleteTemplate, saveTags } = useActions(
         messageTemplateLogic(props)
     )
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -131,14 +123,6 @@ function MessageTemplateSceneMenuBarInner({
                     loading={isTemplateSubmitting}
                     dataAttrKey="message-template"
                 />
-                <ScenePanelLabel title="Description">
-                    <SceneDescription
-                        description={template.description || null}
-                        onChange={(description) => setTemplateValue('description', description)}
-                        canEdit={!editDisabledReason}
-                        isLoading={templateLoading}
-                    />
-                </ScenePanelLabel>
             </SceneMenuBarPopover>
         </SceneMenuBar>
     )
