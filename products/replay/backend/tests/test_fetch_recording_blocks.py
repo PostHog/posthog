@@ -58,7 +58,10 @@ class TestFetchRecordingBlocksCommand(BaseTest):
         labels_path.start()
         self.addCleanup(labels_path.stop)
         # A dead proxy, so the test fails if the command sends its requests through HTTP_PROXY.
-        dead_proxy = patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""})
+        dead_proxy = patch.dict(
+            os.environ,
+            {"HTTP_PROXY": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9", "NO_PROXY": "", "no_proxy": ""},
+        )
         dead_proxy.start()
         self.addCleanup(dead_proxy.stop)
 
@@ -81,12 +84,12 @@ class TestFetchRecordingBlocksCommand(BaseTest):
         settings.enable()
         self.addCleanup(settings.disable)
 
-    def _fetch(self) -> dict:
+    def _fetch(self, session_id: str = SESSION_ID) -> dict:
         out = StringIO()
         call_command(
             "fetch_recording_blocks",
             team_id=self.team.pk,
-            session_id=SESSION_ID,
+            session_id=session_id,
             reason="ticket 1",
             out=str(self.out),
             stdout=out,
@@ -114,14 +117,26 @@ class TestFetchRecordingBlocksCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("refused_listing", 403, {"blocks": []}, "recording-api answered 403"),
-            ("empty_listing", 200, {"blocks": []}, "lists no blocks"),
+            ("refused_listing", 403, {"blocks": []}, SESSION_ID, "recording-api answered 403"),
+            ("empty_listing", 200, {"blocks": []}, SESSION_ID, "lists no blocks"),
+            ("no_refs", 200, {"blocks": [{"ref": None}]}, SESSION_ID, "None of the 1 blocks has a ref"),
+            ("path_in_session_id", 200, {"blocks": []}, "../../etc", "must not contain a slash"),
         ]
     )
-    def test_refuses_when_there_is_nothing_to_save(self, _name: str, status: int, listing: dict, error: str) -> None:
+    def test_refuses_when_there_is_nothing_to_save(
+        self, _name: str, status: int, listing: dict, session_id: str, error: str
+    ) -> None:
         FakeRecordingApi.list_status = status
         FakeRecordingApi.listing = listing
 
         with self.assertRaisesMessage(CommandError, error):
-            self._fetch()
+            self._fetch(session_id)
         assert not self.out.exists()
+
+    def test_refuses_an_output_directory_that_holds_files(self) -> None:
+        self.out.mkdir()
+        (self.out / "0007.jsonl").write_text("from an earlier run")
+
+        with self.assertRaisesMessage(CommandError, "is not empty"):
+            self._fetch()
+        assert FakeRecordingApi.seen_tokens == []
