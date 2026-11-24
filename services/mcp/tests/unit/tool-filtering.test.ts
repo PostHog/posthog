@@ -1210,7 +1210,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'aeo-citation-tracking',
+                'web-analytics-content-autopilot',
                 'self-driving-usage-display',
                 'logs-agent-tools',
                 'release-objects',
