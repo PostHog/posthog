@@ -3,13 +3,15 @@ import uuid
 import typing as t
 import datetime as dt
 
-from django.db import connection
+from django.conf import settings
 from django.utils import timezone
 
 import grpc.aio
 import temporalio.common
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
+from temporalio.client import Client
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
@@ -69,27 +71,32 @@ class DeleteManagedProxyInputs:
         }
 
 
-@activity.defn
-async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
-    """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
-    record matching the expected value.
-    """
-    bind_contextvars(organization_id=inputs.organization_id)
-    logger = LOGGER.bind()
-
-    logger.info(
-        "Deleting proxy record %s",
-        inputs.proxy_record_id,
+async def start_proxy_deletion(
+    temporal: Client, record: ProxyRecord, *, id_conflict_policy: WorkflowIDConflictPolicy
+) -> None:
+    await temporal.start_workflow(
+        "delete-proxy",
+        DeleteManagedProxyInputs(
+            organization_id=record.organization_id,
+            proxy_record_id=record.id,
+            domain=record.domain,
+            target_cname=record.target_cname,
+            root_redirect_url=record.root_redirect_url,
+        ),
+        id=f"proxy-delete-{record.id}",
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        id_conflict_policy=id_conflict_policy,
     )
 
-    def delete_record() -> None:
-        from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
 
-        with cloudflare_proxy_lock(inputs.proxy_record_id):
-            connection.connect()
-            ProxyRecord.objects.filter(organization_id=inputs.organization_id, pk=inputs.proxy_record_id).delete()
+@activity.defn
+@on_asyncify_pool
+def delete_proxy_record(inputs: DeleteProxyRecordInputs) -> None:
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
 
-    await on_asyncify_pool(delete_record)()
+    LOGGER.bind(organization_id=inputs.organization_id).info("Deleting proxy record %s", inputs.proxy_record_id)
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        ProxyRecord.objects.filter(organization_id=inputs.organization_id, pk=inputs.proxy_record_id).delete()
 
 
 @activity.defn
@@ -131,8 +138,11 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
 
 
 @activity.defn
-async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
+@on_asyncify_pool
+def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
     """Activity that deletes Cloudflare Custom Hostname for a domain."""
+    from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
     bind_contextvars(organization_id=inputs.organization_id)
     logger = LOGGER.bind()
     logger.info(
@@ -140,37 +150,32 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
         inputs.domain,
     )
 
-    def delete_resources() -> None:
-        from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+    with cloudflare_proxy_lock(inputs.proxy_record_id):
+        errors: list[str] = []
 
-        with cloudflare_proxy_lock(inputs.proxy_record_id):
-            errors: list[str] = []
+        # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
+        # now rely on a single wildcard */* route). Proxies created before this change may have
+        # orphaned per-domain routes; those should be cleaned up via a separate migration script.
+        # Delete Custom Hostname
+        try:
+            hostname = get_custom_hostname_by_domain(inputs.domain)
+            if hostname:
+                delete_custom_hostname(hostname.id)
+                logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
+            else:
+                logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
+        except CloudflareAPIError as e:
+            logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
+            errors.append(f"Custom Hostname deletion failed: {e}")
 
-            # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
-            # now rely on a single wildcard */* route). Proxies created before this change may have
-            # orphaned per-domain routes; those should be cleaned up via a separate migration script.
-            # Delete Custom Hostname
-            try:
-                hostname = get_custom_hostname_by_domain(inputs.domain)
-                if hostname:
-                    delete_custom_hostname(hostname.id)
-                    logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
-                else:
-                    logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
-            except CloudflareAPIError as e:
-                logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
-                errors.append(f"Custom Hostname deletion failed: {e}")
+        try:
+            update_cloudflare_proxy_root_redirect(inputs.domain, None)
+        except CloudflareAPIError as e:
+            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+            errors.append(f"Root redirect deletion failed: {e}")
 
-            try:
-                update_cloudflare_proxy_root_redirect(inputs.domain, None)
-            except CloudflareAPIError as e:
-                logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
-                errors.append(f"Root redirect deletion failed: {e}")
-
-            if errors:
-                raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
-
-    await on_asyncify_pool(delete_resources)()
+        if errors:
+            raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
 
 
 @activity.defn

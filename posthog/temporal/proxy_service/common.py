@@ -92,14 +92,8 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
     return len(pr) > 0
 
 
-async def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, status: str | None = None) -> None:
-    executor = on_asyncify_pool if status == ProxyRecord.Status.VALID else sync_to_async
-    await executor(_update_record)(proxy_record_id=proxy_record_id, message=message, status=status)
-
-
-def _update_record(*, proxy_record_id: uuid.UUID, message: str | None, status: str | None) -> None:
-    close_stale_db_connections()
-    connection.ensure_connection()
+@on_asyncify_pool
+def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, status: str | None = None) -> None:
     records = ProxyRecord.objects.filter(id=proxy_record_id).exclude(status=ProxyRecord.Status.DELETING)
     updates: dict[str, t.Any] = {"updated_at": timezone.now()}
     if message is not None:

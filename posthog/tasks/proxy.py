@@ -1,14 +1,12 @@
 import random
 import asyncio
 
-from django.conf import settings
 from django.db import DatabaseError
 from django.db.models import Q
 
 import requests
 from celery import shared_task
 from redis.exceptions import RedisError
-from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.service import RPCError
 
@@ -17,7 +15,7 @@ from posthog.managed_proxy import (
     cloudflare_proxy_lock,
     deprovision_cloudflare_proxy,
     proxy_domain_can_be_provisioned,
-    reconcile_cloudflare_proxy,
+    restore_cloudflare_proxy,
 )
 from posthog.models import ProxyRecord
 from posthog.models.proxy_record import CLOUDFLARE_DEPROVISIONED_STATES, CLOUDFLARE_RECOVERY_STATES
@@ -27,34 +25,17 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.proxy_service.cloudflare import CloudflareAPIError, update_cloudflare_proxy_root_redirect
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy, is_cloudflare_proxy_by_cname
 from posthog.temporal.proxy_service.create import CreateManagedProxyInputs, start_proxy_provisioning
-from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs
+from posthog.temporal.proxy_service.delete import start_proxy_deletion
 
 PROXY_RECOVERY_TIMEOUT_SECONDS = 30
 PROXY_SWEEP_SPREAD_SECONDS = 45 * 60
-
-
-async def _resume_proxy_deletion(record: ProxyRecord, temporal: Client) -> None:
-    inputs = DeleteManagedProxyInputs(
-        organization_id=record.organization_id,
-        proxy_record_id=record.id,
-        domain=record.domain,
-        target_cname=record.target_cname,
-        root_redirect_url=record.root_redirect_url,
-    )
-    await temporal.start_workflow(
-        "delete-proxy",
-        inputs,
-        id=f"proxy-delete-{record.id}",
-        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-    )
 
 
 async def _resume_proxy(record: ProxyRecord) -> None:
     async with asyncio.timeout(PROXY_RECOVERY_TIMEOUT_SECONDS):
         temporal = await async_connect()
         if record.status == ProxyRecord.Status.DELETING:
-            await _resume_proxy_deletion(record, temporal)
+            await start_proxy_deletion(temporal, record, id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING)
             return
 
         inputs = CreateManagedProxyInputs(
@@ -66,16 +47,12 @@ async def _resume_proxy(record: ProxyRecord) -> None:
         await start_proxy_provisioning(temporal, inputs, resume=True)
 
 
-def enqueue_proxy_reconciliation(organization_id: str, proxy_record_id: str, *, from_sweep: bool = False) -> None:
+def enqueue_proxy_reconciliation(organization_id: str, proxy_record_id: str, *, countdown: int | None = None) -> None:
     try:
-        if from_sweep:
-            reconcile_proxy.apply_async(
-                args=(organization_id, proxy_record_id),
-                kwargs={"from_sweep": True},
-                countdown=random.randrange(PROXY_SWEEP_SPREAD_SECONDS),
-            )
-        else:
+        if countdown is None:
             reconcile_proxy.delay(organization_id, proxy_record_id)
+        else:
+            reconcile_proxy.apply_async(args=(organization_id, proxy_record_id), countdown=countdown)
     except Exception as error:
         capture_exception(error, {"organization_id": organization_id, "proxy_record_id": proxy_record_id})
 
@@ -114,38 +91,35 @@ def reconcile_proxy_root_redirect(proxy_record_id: str) -> None:
     reject_on_worker_lost=True,
 )
 @skip_team_scope_audit
-def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: bool = False) -> None:
+def reconcile_proxy(organization_id: str, proxy_record_id: str) -> None:
     with cloudflare_proxy_lock(proxy_record_id):
         record = (
             ProxyRecord.objects.select_related("organization")
-            .filter(
-                organization_id=organization_id,
-                pk=proxy_record_id,
-                status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
-            )
+            .filter(organization_id=organization_id, pk=proxy_record_id)
             .first()
         )
-        if record is not None:
-            cloudflare = is_cloudflare_proxy(record)
-            active = record.organization.is_active is not False
-            if cloudflare and not active:
-                deprovision_cloudflare_proxy(record)
-            if record.status == ProxyRecord.Status.DELETING:
-                asyncio.run(_resume_proxy(record))
-                return
-            if cloudflare and active:
-                if (
-                    from_sweep
-                    and record.status == ProxyRecord.Status.ERRORING
-                    and record.cloudflare_activation_state not in CLOUDFLARE_RECOVERY_STATES
-                ):
-                    return
-                if proxy_domain_can_be_provisioned(record):
-                    asyncio.run(_resume_proxy(record))
-                return
-            if cloudflare:
-                return
-    reconcile_cloudflare_proxy(organization_id, proxy_record_id, from_sweep=from_sweep)
+        if record is None:
+            return
+
+        cloudflare = is_cloudflare_proxy(record)
+        inactive = record.organization.is_active is False
+        if cloudflare and inactive:
+            deprovision_cloudflare_proxy(record)
+        if record.status == ProxyRecord.Status.DELETING:
+            asyncio.run(_resume_proxy(record))
+            return
+        if inactive or not cloudflare:
+            return
+
+        recovering = record.cloudflare_activation_state in CLOUDFLARE_RECOVERY_STATES
+        if not recovering and record.status != ProxyRecord.Status.ISSUING:
+            return
+        if not proxy_domain_can_be_provisioned(record):
+            return
+        if record.status in (ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING):
+            asyncio.run(_resume_proxy(record))
+        elif record.status in (ProxyRecord.Status.VALID, ProxyRecord.Status.WARNING):
+            restore_cloudflare_proxy(record)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -169,4 +143,6 @@ def reconcile_managed_proxies() -> None:
         "organization_id", "id", "target_cname", "status"
     ).iterator():
         if status == ProxyRecord.Status.DELETING or is_cloudflare_proxy_by_cname(target_cname):
-            enqueue_proxy_reconciliation(str(organization_id), str(proxy_record_id), from_sweep=True)
+            enqueue_proxy_reconciliation(
+                str(organization_id), str(proxy_record_id), countdown=random.randrange(PROXY_SWEEP_SPREAD_SECONDS)
+            )
