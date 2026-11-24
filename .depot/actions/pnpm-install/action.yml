@@ -48,17 +48,9 @@ inputs:
         description: |
             Prefix of the pnpm store cache key. Keep the default for an install that links most of
             the workspace. A job whose filtered install links a small part of it can keep a store
-            of only those packages under its own prefix, which the save step below writes on master.
+            of only those packages under its own prefix, which pnpm-store-cache.yml writes.
         required: false
         default: pnpm
-
-outputs:
-    store-path:
-        description: The pnpm store path, for a job that saves its own store entry.
-        value: ${{ steps.pnpm-store.outputs.path }}
-    store-cache-hit:
-        description: "'true' when the store entry for this exact lockfile was restored."
-        value: ${{ steps.restore.outputs.cache-hit }}
 
 runs:
     using: composite

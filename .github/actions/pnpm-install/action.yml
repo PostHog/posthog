@@ -9,7 +9,7 @@ description: |
     Restore only: .github/workflows/pnpm-store-cache.yml writes the entry on
     master from a cold install, and explains why no consumer may save it.
     A job that installs a small part of the workspace can set `store-key-prefix`
-    to restore a smaller store. That job then writes its own entry on master.
+    to restore a smaller store, which pnpm-store-cache.yml writes from a cold install.
 
     Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
     every run (PRs included, and the post-save can't be gated) and keys on
@@ -47,17 +47,9 @@ inputs:
         description: |
             Prefix of the pnpm store cache key. Keep the default for an install that links most of
             the workspace. A job whose filtered install links a small part of it can restore a
-            store of only those packages under its own prefix, which it then writes itself on master.
+            store of only those packages under its own prefix, which pnpm-store-cache.yml writes.
         required: false
         default: pnpm
-
-outputs:
-    store-path:
-        description: The pnpm store path, for a job that saves its own store entry.
-        value: ${{ steps.pnpm-store.outputs.path }}
-    store-cache-hit:
-        description: "'true' when the store entry for this exact lockfile was restored."
-        value: ${{ steps.restore-store.outputs.cache-hit }}
 
 runs:
     using: composite
@@ -75,7 +67,6 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
-          id: restore-store
           if: inputs.cache == 'true'
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:

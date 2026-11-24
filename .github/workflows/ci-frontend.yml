@@ -473,27 +473,12 @@ jobs:
             # typescript from the root too, so the job installs the root package only. Nothing
             # here reads a workspace package's build output, so no turbo prepare either.
             - name: Install pnpm dependencies
-              id: pnpm-install
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root install --frozen-lockfile
+                  # A small store of its own, written cold by pnpm-store-cache.yml.
                   store-key-prefix: pnpm-root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            # The root store holds a small part of the full store, so it has its own key, and
-            # only master writes it. On a miss the job restores an older root entry. The prune
-            # removes the packages that this lockfile does not link, so the entry does not grow
-            # with each lockfile change.
-            - name: Prune pnpm store
-              if: github.ref == 'refs/heads/master' && steps.pnpm-install.outputs.store-cache-hit != 'true'
-              run: pnpm store prune
-
-            - name: Save pnpm store
-              if: github.ref == 'refs/heads/master' && steps.pnpm-install.outputs.store-cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-install.outputs.store-path }}
-                  key: pnpm-root-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check formatting with oxfmt
               run: pnpm run format:frontend:check
