@@ -40,14 +40,6 @@ def _set_observed(meter: MetricMeter, name: str, values: dict[str, tuple[str, st
     meter.create_gauge(f"{name}_observed_at_seconds", f"Unix time {name} was last set", "s").set(int(time.time()))
 
 
-EXTRACTION_DURATION_BUCKETS = (
-    1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 180.0, 240.0, 300.0, 450.0, 600.0, 900.0,
-    1800.0, 3600.0, 7200.0,
-)  # fmt: skip
-BUFFER_WRITE_DURATION_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0)
-SWEEPER_DURATION_BUCKETS = (10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1200.0, 1500.0, 1800.0, 3600.0)
-
-
 # ---------------------------------------------------------------------------
 # Extraction
 # ---------------------------------------------------------------------------
