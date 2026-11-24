@@ -674,8 +674,14 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert response.status_code == 200, response.content
         assert set(response.json()["scope"].split()) == {"openid", "user:read"}
 
-    def test_wildcard_token_cannot_refresh_after_the_ceiling_is_synced(self):
-        app = self._create_app_without_ceiling([], [])
+    @parameterized.expand(
+        [
+            ("app_without_ceiling", []),
+            ("app_with_ceiling_already_set", TOOLBAR_RESOURCE_SCOPES),
+        ]
+    )
+    def test_wildcard_token_cannot_refresh_after_the_ceiling_is_synced(self, _name, existing_scopes):
+        app = self._create_app_without_ceiling(existing_scopes, [])
         refresh_token = self._create_token_pair(app, "*")
 
         get_or_create_toolbar_oauth_application(user=self.user)

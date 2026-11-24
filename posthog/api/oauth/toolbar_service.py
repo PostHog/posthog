@@ -57,27 +57,22 @@ def _get_scope_ceiling() -> list[str]:
 
 def _sync_scope_ceiling(application: OAuthApplication) -> None:
     scope_ceiling = _get_scope_ceiling()
-    if application.scopes == scope_ceiling and not application.optional_scopes:
-        return
-
-    application.scopes = scope_ceiling
-    application.optional_scopes = []
-    application.save(update_fields=["scopes", "optional_scopes"])
+    if application.scopes != scope_ceiling or application.optional_scopes:
+        application.scopes = scope_ceiling
+        application.optional_scopes = []
+        application.save(update_fields=["scopes", "optional_scopes"])
+        logger.info("toolbar_oauth_scope_ceiling_updated", organization_id=application.organization_id)
 
     # A refresh keeps a `*` token as `*` even under an explicit ceiling, and a code
-    # exchange mints the scopes its grant already holds, so the new ceiling alone does
-    # not end either. The toolbar never asks for `*`, so these come only from a request
+    # exchange mints the scopes its grant already holds, so the ceiling alone does not
+    # end either. The toolbar never asks for `*`, so these come only from a request
     # made outside the toolbar flow. Revoking every session and grant of the app makes
-    # the toolbar sign in again under the ceiling.
-    has_wildcard_sessions = _has_wildcard_tokens_or_grants(application)
-    if has_wildcard_sessions:
+    # the toolbar sign in again under the ceiling. The check runs on every launch, not
+    # only when the ceiling changes, because an authorize request that read the app
+    # before the ceiling was saved can still store a `*` grant after it.
+    if _has_wildcard_tokens_or_grants(application):
         revoke_application_sessions(application)
-
-    logger.info(
-        "toolbar_oauth_scope_ceiling_updated",
-        organization_id=application.organization_id,
-        revoked_wildcard_sessions=has_wildcard_sessions,
-    )
+        logger.info("toolbar_oauth_wildcard_sessions_revoked", organization_id=application.organization_id)
 
 
 def _has_wildcard_tokens_or_grants(application: OAuthApplication) -> bool:
