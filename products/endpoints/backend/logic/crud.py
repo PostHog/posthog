@@ -26,7 +26,12 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
+from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
+    MaterializationRunTrigger,
+    delete_node_from_dag,
+    materialize_saved_query,
+)
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.materialization import EndpointMaterializationService
@@ -453,7 +458,7 @@ class EndpointCrudService:
 
                 def refresh_materialization() -> None:
                     try:
-                        materialize_saved_query(saved_query)
+                        materialize_saved_query(saved_query, trigger=MaterializationRunTrigger.ENDPOINT)
                     except Exception:
                         logger.warning(
                             "failed_to_trigger_materialization_refresh",
