@@ -681,7 +681,8 @@ def test_lint_all_warns_about_a_large_served_skill_without_failing(
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
 
     assert builder.lint_all() is True
-    assert ("move detail into references/" in capsys.readouterr().err) is warns
+    captured = capsys.readouterr()
+    assert ("move detail into references/" in captured.out + captured.err) is warns
 
 
 @pytest.mark.parametrize(
