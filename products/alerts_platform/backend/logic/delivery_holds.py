@@ -217,6 +217,10 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
     two sends. A trigger sent then would open an incident that no resolve follows. So a trigger goes
     out only while its group is still in the firing the held evaluation saw. The message still goes,
     as a late firing does.
+
+    A delivery without a hold can lose the same race to a person's resolve, which sends at once
+    while the trigger's delivery waits or retries. Its trigger is dropped only when the group's row
+    shows that firing ended. A group with no row keeps its trigger, because nothing says it ended.
     """
     triggering = {key for key, action in request.incident_actions.items() if action == IncidentAction.TRIGGER}
     if not triggering:
@@ -226,8 +230,6 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
         .filter(configuration_id=request.configuration_id, evaluation_key=request.evaluation_key)
         .exists()
     )
-    if not held:
-        return frozenset()
     current = {
         grouping_key: (state, _in_utc(firing_started_at))
         for grouping_key, state, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
@@ -238,6 +240,7 @@ def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[Ann
         transition.grouping_key
         for transition in transitions
         if transition.grouping_key in triggering
+        and (held or transition.grouping_key in current)
         and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, _in_utc(transition.episode_started_at))
     )
 
