@@ -118,8 +118,8 @@ class StaffTeamConfigSerializer(serializers.Serializer):
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
             "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. "
-            "An organization whose every team reads the native JSON events table reads as 2 with its events writes kept, "
-            "whatever its stored mode, so that setting moves it back to events as well."
+            "An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, "
+            "so that setting moves it back to events as well."
         ),
     )
     keep_writing_flag_calls_to_events = serializers.BooleanField(

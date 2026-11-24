@@ -253,6 +253,13 @@ class TestReadConfigOfAnOrganizationOnTheNewEventsTable(BaseTest):
                 expected=(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
                 cloud=False,
             ),
+            param(
+                "self_hosted_with_every_project_switched",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                expected=(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+                cloud=False,
+                every_project_switched=True,
+            ),
         ]
     )
     def test_reads_as_mode_2_with_kept_writes_only_when_every_team_reads_the_new_table(
@@ -265,18 +272,23 @@ class TestReadConfigOfAnOrganizationOnTheNewEventsTable(BaseTest):
         other_is_environment: bool = False,
         reads_forced_to_events: bool = False,
         cloud: bool = True,
+        every_project_switched: bool = False,
     ) -> None:
         if other_is_environment:
             self.other_team.parent_team = self.team
             self.other_team.project = self.team.project
             self.other_team.save()
         self._store(stored_mode)
-        listed = self._listed(self.team, self.other_team) if other_team_moved else self._listed(self.team)
+        if every_project_switched:
+            listed = ""
+        else:
+            listed = self._listed(self.team, self.other_team) if other_team_moved else self._listed(self.team)
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
             self.is_cloud(cloud),
             override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", listed),
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", every_project_switched),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             read_config = get_flag_evaluations_read_config(self.organization.id)
