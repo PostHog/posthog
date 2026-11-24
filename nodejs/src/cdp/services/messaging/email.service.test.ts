@@ -2222,6 +2222,21 @@ describe('EmailService', () => {
             let statusProducer: KafkaProducerWrapper
             let statusReader: KafkaConsumer
             let statusOffsetsBeforeSend: TopicPartitionOffset[]
+            const socketsHeldInTheTlsHandshake = new Set<net.Socket>()
+            const tlsHandshakeThatNeverAnswers = net.createServer((socket) => {
+                socketsHeldInTheTlsHandshake.add(socket.resume())
+            })
+            let tlsHandshakeThatNeverAnswersPort: number
+
+            beforeAll(async () => {
+                await new Promise<void>((resolve) => tlsHandshakeThatNeverAnswers.listen(0, '127.0.0.1', resolve))
+                tlsHandshakeThatNeverAnswersPort = (tlsHandshakeThatNeverAnswers.address() as AddressInfo).port
+            })
+
+            afterAll(async () => {
+                socketsHeldInTheTlsHandshake.forEach((socket) => socket.destroy())
+                await new Promise((resolve) => tlsHandshakeThatNeverAnswers.close(resolve))
+            })
 
             const send = (files: StoredFile[], integrationId = 1): void => {
                 invocation.queueParameters = createEmailParams({
@@ -2958,6 +2973,26 @@ describe('EmailService', () => {
                         emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
                 ],
+                [
+                    'the TLS handshake with SES does not finish',
+                    (emailService: EmailService) => {
+                        const handler = new NodeHttpHandler()
+                        emailService.sesV2Client = sesClientFor(ses, {
+                            requestHandler: {
+                                handle: (request: any, options: any) =>
+                                    handler.handle(
+                                        {
+                                            ...request,
+                                            protocol: 'https:',
+                                            hostname: '127.0.0.1',
+                                            port: tlsHandshakeThatNeverAnswersPort,
+                                        },
+                                        options
+                                    ),
+                            },
+                        })
+                    },
+                ],
             ])(
                 'when %s past the deadline, retries the send later and delivers it with its files once',
                 async (_name, fault) => {
@@ -3110,9 +3145,11 @@ describe('EmailService', () => {
                     })
                     const forward = (client: net.Socket): void => {
                         const upstream = net.connect(ses.port, ses.hostname)
+                        let requestBytes = ''
                         let theSendWentOut = false
                         client.on('data', (chunk: Buffer) => {
-                            theSendWentOut ||= chunk.includes(SES_SEND_PATH)
+                            requestBytes += chunk.toString('latin1')
+                            theSendWentOut ||= requestBytes.includes(SES_SEND_PATH)
                             upstream.write(chunk)
                         })
                         upstream.on('data', (chunk: Buffer) => {
