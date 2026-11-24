@@ -32,7 +32,8 @@ THROTTLE_ERRORS = (THROTTLE_USER_ERROR, THROTTLE_IP_ERROR)
 # requests, so the copy names them.
 THROTTLE_RETRY_ERROR = (
     "Bing Webmaster Tools' API rate limit for this API key ran out before this sync finished. "
-    "The page_query_stats and link_counts tables use the most requests, one for each page of a site. "
+    "The page_query_stats and link_counts tables use the most requests: page_query_stats sends one for "
+    "each of a site's top 100 pages, and link_counts one for each page of link results. "
     "If this keeps happening, turn those tables off or set a longer sync frequency."
 )
 # The IP limit counts every customer that shares PostHog's egress address, so syncing fewer
