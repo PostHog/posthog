@@ -83,6 +83,7 @@ export class BucketProxy {
     downloads = 0
     endpoint = ''
     private held: (() => void)[] = []
+    private waitingForAHold: (() => void)[] = []
     private stalled: ServerResponse[] = []
     private bodyStalled: () => void = () => undefined
     private readonly aBodyStalled = new Promise<void>((resolve) => (this.bodyStalled = resolve))
@@ -96,6 +97,10 @@ export class BucketProxy {
 
     get heldRequests(): number {
         return this.held.length + this.stalled.length
+    }
+
+    holding(): Promise<void> {
+        return this.held.length > 0 ? Promise.resolve() : new Promise((resolve) => this.waitingForAHold.push(resolve))
     }
 
     store(): AttachmentStore {
@@ -146,6 +151,9 @@ export class BucketProxy {
         }
         if (this.answer === 'hold' || (this.answer === 'holdCopies' && request.headers['x-amz-copy-source'])) {
             this.held.push(() => this.answerRequest(request, response))
+            for (const heard of this.waitingForAHold.splice(0)) {
+                heard()
+            }
             return
         }
         const upstream = httpRequest(

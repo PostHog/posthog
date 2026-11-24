@@ -5,7 +5,7 @@ import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
-import http from 'node:http'
+import http, { createServer, request as httpRequest } from 'node:http'
 import net, { AddressInfo, LookupFunction } from 'node:net'
 import { register } from 'prom-client'
 import supertest from 'supertest'
@@ -184,7 +184,9 @@ describe('sendDeadlineMsFor', () => {
         ['files at the size limit', LARGEST_SEND_FILE_BYTES, 45_000, undefined],
         ['files past the size limit', LARGEST_SEND_FILE_BYTES * 2, 45_000, undefined],
         ['empty files, under a small-send deadline of 20 s', 0, 20_000, 20_000],
+        ['files half the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES / 2, 32_500, 20_000],
         ['files at the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES, 45_000, 20_000],
+        ['files half the size limit, under a small-send deadline of 10 s', LARGEST_SEND_FILE_BYTES / 2, 18_235, 10_000],
         ['empty files, under a small-send deadline past the largest', 0, 45_000, 50_000],
     ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs, smallestMs) => {
         expect(sendDeadlineMsFor(fileBytes, smallestMs)).toBe(deadlineMs)
@@ -2712,41 +2714,160 @@ describe('EmailService', () => {
                 }
             )
 
+            const aFifthOfTheSizeLimit = (): Promise<StoredFile> =>
+                uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
+            const halfTheSizeLimit = (): Promise<StoredFile> =>
+                uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
+            type HeldCall = { holding: () => Promise<void>; release: () => void; close?: () => Promise<void> }
+            const theDownload = (): Promise<HeldCall> => {
+                bucket.answer = 'hold'
+                return Promise.resolve(bucket)
+            }
+            const theSesAnswer = async (emailService: EmailService): Promise<HeldCall> => {
+                let heard!: () => void
+                const asked = new Promise<void>((resolve) => (heard = resolve))
+                let release!: () => void
+                const released = new Promise<void>((resolve) => (release = resolve))
+                const server = createServer((request, response) => {
+                    heard()
+                    const upstream = httpRequest(
+                        new URL(request.url!, ses.endpoint),
+                        { method: request.method, headers: request.headers },
+                        (answer) =>
+                            void released.then(() =>
+                                answer.pipe(response.writeHead(answer.statusCode!, answer.headers))
+                            )
+                    )
+                    upstream.on('error', () => response.destroy())
+                    request.pipe(upstream)
+                })
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                emailService.sesV2Client = sesClientFor(ses, {
+                    endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+                })
+                return {
+                    holding: () => asked,
+                    release,
+                    close: () => {
+                        server.closeAllConnections()
+                        return new Promise((resolve) => server.close(() => resolve()))
+                    },
+                }
+            }
+            // The send clock moves only when the test moves it, by the row's step at the held call. Timers and
+            // I/O run for real, so time a slow runner spends on them cannot carry a send past its deadline.
             it.each([
-                ['retries a small send', () => Promise.resolve(pdf), retriedLoad, 0],
                 [
-                    'sends a send of a tenth of the size limit, whose deadline grows with its bytes',
-                    () => uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 10)),
+                    'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
+                    () => Promise.resolve(pdf),
+                    undefined,
+                    theDownload,
+                    19_000,
+                    retriedLoad,
+                    0,
+                ],
+                [
+                    'a download answered after 19 s, a small send under a configured 30 s deadline, sends',
+                    () => Promise.resolve(pdf),
+                    30_000,
+                    theDownload,
+                    19_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'a download answered after 46 s, a small send under a configured 50 s deadline, which stops at 45 s, sends nothing and retries',
+                    () => Promise.resolve(pdf),
+                    50_000,
+                    theDownload,
+                    46_000,
+                    retriedLoad,
+                    0,
+                ],
+                [
+                    'a download answered after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
+                    halfTheSizeLimit,
+                    undefined,
+                    theDownload,
+                    20_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'an SES answer that comes after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
+                    halfTheSizeLimit,
+                    undefined,
+                    theSesAnswer,
+                    20_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'a download answered after 24 s, a send of a fifth of the size limit, whose deadline is 22.6 s, sends nothing and retries',
+                    aFifthOfTheSizeLimit,
+                    undefined,
+                    theDownload,
+                    24_000,
+                    retriedLoad,
+                    0,
+                ],
+                [
+                    'a download answered after 32 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
+                    halfTheSizeLimit,
+                    20_000,
+                    theDownload,
+                    32_000,
+                    sent,
+                    1,
+                ],
+                [
+                    'a download answered after 18 s, a send of half the size limit under a configured 10 s deadline, which grows to 18.2 s, sends',
+                    halfTheSizeLimit,
+                    10_000,
+                    theDownload,
+                    18_000,
                     sent,
                     1,
                 ],
             ])(
-                'given a download that takes 1.1 s, past the 1 s deadline of a small send, %s',
-                async (_case, file, expected, deliveries) => {
-                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                'on the send deadline, given %s',
+                async (_case, file, attachmentSendDeadlineMs, holdCall, answeredAfterMs, expected, deliveries) => {
                     send([await file()])
-                    const timers: { ms: number; controller: AbortController }[] = []
+                    const emailService = sender({ attachmentSendDeadlineMs })
+                    const held = await holdCall(emailService)
+                    pinDate(Date.now())
+                    const pending: { endsAt: number; controller: AbortController }[] = []
                     const timeouts = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
                         const controller = new AbortController()
-                        timers.push({ ms, controller })
+                        pending.push({ endsAt: Date.now() + ms, controller })
                         return controller.signal
                     })
-                    bucket.answer = 'hold'
-                    try {
-                        const sending = emailService.executeSendEmail(invocation)
-                        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
-                        for (const { controller } of timers.filter(({ ms }) => ms <= 1_100)) {
-                            controller.abort(
-                                new DOMException('The operation was aborted due to timeout', 'TimeoutError')
-                            )
+                    const advanceSendClock = (ms: number): void => {
+                        jest.setSystemTime(Date.now() + ms)
+                        for (const { endsAt, controller } of pending) {
+                            if (endsAt <= Date.now() && !controller.signal.aborted) {
+                                controller.abort(
+                                    new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+                                )
+                            }
                         }
-                        bucket.release()
-                        const result = await sending
+                    }
+                    try {
+                        const outcome = emailService.executeSendEmail(invocation).then(outcomeOf)
+                        const heldBeforeTheSendReturned = await Promise.race([
+                            held.holding().then(() => true),
+                            outcome.then(() => false),
+                        ])
+                        expect(heldBeforeTheSendReturned).toBe(true)
+                        advanceSendClock(answeredAfterMs)
+                        held.release()
 
-                        expect(outcomeOf(result)).toEqual(expected)
+                        expect(await outcome).toEqual(expected)
                         expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
                     } finally {
                         timeouts.mockRestore()
+                        jest.useRealTimers()
+                        await held.close?.()
                     }
                 }
             )
