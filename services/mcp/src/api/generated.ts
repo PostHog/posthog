@@ -62187,6 +62187,20 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationsConversionSourceKind = typeof MarketingAnalyticsRecommendationsConversionSourceKind[keyof typeof MarketingAnalyticsRecommendationsConversionSourceKind];
+
+
+    export const MarketingAnalyticsRecommendationsConversionSourceKind = {
+      Posthog: 'posthog',
+      GoogleAds: 'google_ads',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationsConversionSource {
+      /** Names of the conversion goals CPAs count. Empty for `google_ads`. */
+      goalNames: string[];
+      kind: MarketingAnalyticsRecommendationsConversionSourceKind;
+    }
+
     export type MarketingAnalyticsRecommendationsDataGapKind = typeof MarketingAnalyticsRecommendationsDataGapKind[keyof typeof MarketingAnalyticsRecommendationsDataGapKind];
 
 
@@ -62356,6 +62370,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -108184,6 +108200,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** The conversions CPAs count. Null when no Google Ads account was read. */
+      conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */

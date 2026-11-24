@@ -17,6 +17,8 @@ from posthog.schema import (
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationsConversionSource,
+    MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
@@ -125,6 +127,7 @@ class PostHogConversions:
     unmatched_campaigns: tuple[str, ...] = ()
     # Why each marked goal that the other marked goals are counted without was skipped.
     skipped_goals: tuple[str, ...] = ()
+    counted_goals: tuple[str, ...] = ()
 
 
 class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
@@ -270,6 +273,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             by_campaign=dict(by_campaign),
             unmatched_campaigns=_unmatched_campaigns(sum(by_campaign.values()), unmatched),
             skipped_goals=tuple(goal.message for goal in skipped),
+            counted_goals=tuple(names),
         )
 
     @cached_property
@@ -366,7 +370,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 )
             )
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=dedupe_account_agnostic_rules(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
+            results=dedupe_account_agnostic_rules(results),
+            disclaimer=DISCLAIMER,
+            dataGaps=data_gaps,
+            conversionSource=_conversion_source(posthog) if ads else None,
         )
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
@@ -1014,6 +1021,16 @@ def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]
     if total < UNMATCHED_MIN_SHARE * (matched_conversions + total):
         return ()
     return tuple(sorted(named, key=lambda campaign: -named[campaign]))
+
+
+def _conversion_source(posthog: PostHogConversions | None) -> MarketingAnalyticsRecommendationsConversionSource:
+    if posthog is None or posthog.by_campaign is None:
+        return MarketingAnalyticsRecommendationsConversionSource(
+            kind=MarketingAnalyticsRecommendationsConversionSourceKind.GOOGLE_ADS, goalNames=[]
+        )
+    return MarketingAnalyticsRecommendationsConversionSource(
+        kind=MarketingAnalyticsRecommendationsConversionSourceKind.POSTHOG, goalNames=list(posthog.counted_goals)
+    )
 
 
 def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecommendationsDataGap]:

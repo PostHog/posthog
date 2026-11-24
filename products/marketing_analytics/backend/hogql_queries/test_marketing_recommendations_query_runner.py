@@ -16,6 +16,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     DateRange,
     GenericCachedQueryResponse,
+    MarketingAnalyticsRecommendationsConversionSource,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
     MarketingAnalyticsTableQueryResponse,
@@ -623,11 +624,21 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
     @parameterized.expand(
         [
-            ("google_ads_conversions_without_a_marked_goal", False, "user signed up", None, (), None, [], []),
+            ("google_ads_conversions_without_a_marked_goal", False, "user signed up", None, (), None, [], [], None),
             # Google Ads reports Broad as the cheapest campaign, but PostHog sees no sign up from it.
-            ("marked_goal_replaces_google_ads_conversions", True, "user signed up", None, (), None, ["Broad"], []),
+            (
+                "marked_goal_replaces_google_ads_conversions",
+                True,
+                "user signed up",
+                None,
+                (),
+                None,
+                ["Broad"],
+                [],
+                ["Sign ups"],
+            ),
             # Summed, four $500 sign ups would count as 2,000 conversions.
-            ("summed_goal_counts_conversions", True, "user signed up", "sum", (), None, ["Broad"], []),
+            ("summed_goal_counts_conversions", True, "user signed up", "sum", (), None, ["Broad"], [], ["Sign ups"]),
             (
                 "unmatched_utm_campaign_keeps_campaigns_without_conversions_unjudged",
                 True,
@@ -637,6 +648,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 None,
                 [],
                 ["posthog_campaigns_unmatched"],
+                ["Sign ups"],
             ),
             (
                 "not_ready_falls_back",
@@ -647,8 +659,19 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "not_ready",
                 [],
                 ["posthog_conversions_not_ready"],
+                None,
             ),
-            ("failed_query_falls_back", True, "user signed up", None, (), "error", [], ["posthog_conversions_failed"]),
+            (
+                "failed_query_falls_back",
+                True,
+                "user signed up",
+                None,
+                (),
+                "error",
+                [],
+                ["posthog_conversions_failed"],
+                None,
+            ),
             (
                 "truncated_table_falls_back",
                 True,
@@ -658,8 +681,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "truncated",
                 [],
                 ["posthog_conversions_failed"],
+                None,
             ),
-            ("unusable_goal_falls_back", True, None, None, (), None, [], ["posthog_conversion_goals_unusable"]),
+            ("unusable_goal_falls_back", True, None, None, (), None, [], ["posthog_conversion_goals_unusable"], None),
             (
                 "partly_unusable_goals_count_the_others",
                 True,
@@ -669,6 +693,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 None,
                 ["Broad"],
                 ["posthog_conversion_goals_unusable"],
+                ["Sign ups"],
                 True,
             ),
         ]
@@ -683,6 +708,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         table: str | None,
         reviewed: list[str],
         gaps: list[str],
+        counted_goals: list[str] | None,
         unusable_second_goal: bool = False,
     ) -> None:
         goal = {
@@ -753,6 +779,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         # Exact spent $1,000 on four sign ups.
         assert all(rec.cpa is not None and rec.cpa.bestCampaign == 250 for rec in review)
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+        assert response.conversionSource == MarketingAnalyticsRecommendationsConversionSource(
+            kind="google_ads" if counted_goals is None else "posthog", goalNames=counted_goals or []
+        )
         # The fallback must not be served as fresh once the precompute it waited for lands.
         refreshed = datetime(2026, 1, 30, tzinfo=UTC)
         cached = CachedMarketingAnalyticsRecommendationsQueryResponse(

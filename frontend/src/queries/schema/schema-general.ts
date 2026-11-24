@@ -9364,6 +9364,15 @@ export interface MarketingAnalyticsRecommendationsDataGap {
     message: string
 }
 
+/** `posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports. */
+export type MarketingAnalyticsRecommendationsConversionSourceKind = 'posthog' | 'google_ads'
+
+export interface MarketingAnalyticsRecommendationsConversionSource {
+    kind: MarketingAnalyticsRecommendationsConversionSourceKind
+    /** Names of the conversion goals CPAs count. Empty for `google_ads`. */
+    goalNames: string[]
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -9399,6 +9408,8 @@ export interface MarketingAnalyticsRecommendationsQueryResponse extends Analytic
     disclaimer: string
     /** Data the rules needed but could not read, so some figures use a fallback. */
     dataGaps?: MarketingAnalyticsRecommendationsDataGap[]
+    /** The conversions CPAs count. Null when no Google Ads account was read. */
+    conversionSource?: MarketingAnalyticsRecommendationsConversionSource | null
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =

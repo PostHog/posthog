@@ -211,6 +211,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSourceKind as MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
@@ -7435,6 +7436,17 @@ class MarketingAnalyticsRecommendationResolution(BaseModel):
             "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
         ),
     )
+
+
+class MarketingAnalyticsRecommendationsConversionSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalNames: list[str] = Field(
+        ...,
+        description="Names of the conversion goals CPAs count. Empty for `google_ads`.",
+    )
+    kind: MarketingAnalyticsRecommendationsConversionSourceKind
 
 
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
@@ -22592,6 +22604,10 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
+    )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
         description=("Data the rules needed but could not read, so some figures use a fallback."),
@@ -25165,6 +25181,10 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -32256,6 +32276,10 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,

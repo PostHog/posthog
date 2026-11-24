@@ -15,6 +15,7 @@ import {
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationsQueryResponse,
 } from '~/queries/schema/schema-general'
 
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -283,6 +284,20 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
+function respondWith(response: Partial<MarketingAnalyticsRecommendationsQueryResponse>): Mocks['post'] {
+    return {
+        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+            200,
+            {
+                results: RESULTS,
+                disclaimer: DISCLAIMER,
+                conversionSource: { kind: 'google_ads', goalNames: [] },
+                ...response,
+            },
+        ],
+    }
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -302,12 +317,7 @@ const MOCKS: Mocks = {
             previous: null,
         },
     },
-    post: {
-        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-            200,
-            { results: RESULTS, disclaimer: DISCLAIMER },
-        ],
-    },
+    post: respondWith({}),
 }
 
 const meta: Meta<typeof RecommendationsSection> = {
@@ -409,6 +419,21 @@ const SOURCES_WITH_GAPS = [
 
 const MOCKS_WITH_GAPS: Mocks = {
     ...MOCKS,
+    post: respondWith({
+        dataGaps: [
+            {
+                kind: 'posthog_conversions_not_ready',
+                message:
+                    'PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. Check again in a few minutes.',
+            },
+            {
+                kind: 'conversion_action_tables_not_synced',
+                campaignTable: 'example.campaign',
+                message:
+                    'CPAs count the primary conversion actions, because campaign_conversion_action_stats is not synced. Sync it to count only the selected conversion actions.',
+            },
+        ],
+    }),
     get: {
         ...MOCKS.get,
         '/api/environments/:team_id/external_data_sources/': {
@@ -438,6 +463,48 @@ export const MissingTablesInModal: Story = {
     },
 }
 
+export const PostHogConversionGapsInModal: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: respondWith({
+                    conversionSource: { kind: 'posthog', goalNames: ['Sign ups', 'Purchases'] },
+                    dataGaps: [
+                        {
+                            kind: 'posthog_conversion_goals_unusable',
+                            message:
+                                'CPAs count only the marked goals that can be counted: Demo requests has no event or action to count.',
+                        },
+                        {
+                            kind: 'posthog_campaigns_unmatched',
+                            message:
+                                'PostHog conversions from 2 utm_campaign values match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. The UTM audit lists them; map each one to its campaign in campaign name mappings.',
+                        },
+                    ],
+                }),
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        // The section has a button with the same label, so the modal's is found by its data-attr.
+        const modal = within(canvasElement.ownerDocument.body)
+        await modal.findByText('CPAs from your PostHog goals: Sign ups, Purchases')
+        const modalButton = canvasElement.ownerDocument.querySelector<HTMLElement>(
+            '[data-attr="marketing-recommendations-modal-data-gaps"]'
+        )
+        await userEvent.click(modalButton as HTMLElement)
+    },
+}
+
 function withResolved(
     state: (
         row: MarketingAnalyticsRecommendation
@@ -446,7 +513,7 @@ function withResolved(
     const results = RESULTS.map((row) => {
         const resolved = state(row)
         return resolved === 'detected'
-            ? { ...row, detectedChange: 'negative_keyword' }
+            ? { ...row, detectedChange: 'negative_keyword' as const }
             : resolved
               ? {
                     ...row,
@@ -460,12 +527,7 @@ function withResolved(
     })
     return {
         ...MOCKS,
-        post: {
-            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-                200,
-                { results, disclaimer: DISCLAIMER },
-            ],
-        },
+        post: respondWith({ results }),
     }
 }
 
