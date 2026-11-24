@@ -1301,7 +1301,22 @@ class Resolver(CloningVisitor):
                 for cte in node.ctes.values():
                     if self._scalar_alias_reads_from(cte, from_scalar_aliases, local_names):
                         from_scalar_aliases[cte.name] = cte
+                # Forward references to a deferred alias must also wait for FROM. Otherwise an
+                # inherited alias of the same name could be captured with the wrong table type.
+                dependents: dict[str, set[str]] = {}
+                for cte in node.ctes.values():
+                    if cte.cte_type == "column":
+                        for dependency in _field_roots(cte.expr, deep=True) & local_names:
+                            dependents.setdefault(dependency, set()).add(cte.name)
+                queue = list(from_scalar_aliases)
+                while queue:
+                    for name in dependents.get(queue.pop(), ()):
+                        if name not in from_scalar_aliases:
+                            from_scalar_aliases[name] = node.ctes[name]
+                            queue.append(name)
                 if from_scalar_aliases:
+                    for name in from_scalar_aliases:
+                        self.ctes.pop(name, None)
                     # Something read before FROM finishes resolves its alias on first use, see _resolve_pending_alias.
                     self._pending_from_aliases[id(node_type)] = (
                         dict(from_scalar_aliases),
@@ -1310,7 +1325,6 @@ class Resolver(CloningVisitor):
                     )
             for cte in node.ctes.values():
                 if cte.name in from_scalar_aliases:
-                    self.ctes.pop(cte.name, None)
                     continue
                 resolved_cte = self.visit(cte)
                 self._mark_if_table_bound(resolved_cte, node_type)

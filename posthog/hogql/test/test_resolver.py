@@ -1013,6 +1013,18 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_forward_local_alias_shadows_outer_constant_before_from(self):
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            resolve_types(
+                self._select(
+                    "WITH '' AS x SELECT (WITH (SELECT x) AS y, t.properties AS x "
+                    "SELECT (SELECT y FROM raw_persons AS t LIMIT 1) "
+                    "FROM (SELECT '' AS properties) AS t)"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+
     def test_scalar_alias_with_its_own_from_does_not_bind_an_outer_table_field(self):
         with self.assertRaisesRegex(QueryError, "Unable to resolve field: n"):
             resolve_types(
