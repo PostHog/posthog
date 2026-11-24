@@ -1987,18 +1987,21 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def test_matches_action_reads_flag_calls_from_flag_evaluations(
         self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[tuple]
     ):
-        flag_step = {
+        flag_step: dict[str, object] = {
             "event": "$feature_flag_called",
             "properties": [{"key": "$feature_flag", "value": "probe-flag", "type": "event", "operator": "exact"}],
         }
+        pageview_step: dict[str, object] = {"event": "$pageview"}
+        url_step: dict[str, object] = {"event": "$pageview", "url": "example.com"}
         actions = {
-            key: create_action(team=self.team, name=name, steps_json=steps).id
-            for key, name, steps in (
-                ("flag", "probe flag", [flag_step]),
-                ("mixed", "probe flag or pageview", [flag_step, {"event": "$pageview"}]),
-                ("pageview", "pageview", [{"event": "$pageview"}]),
-                ("url_mixed", "probe flag or url pageview", [flag_step, {"event": "$pageview", "url": "example.com"}]),
-            )
+            "flag": create_action(team=self.team, name="probe flag", steps_json=[flag_step]).id,
+            "mixed": create_action(
+                team=self.team, name="probe flag or pageview", steps_json=[flag_step, pageview_step]
+            ).id,
+            "pageview": create_action(team=self.team, name="pageview", steps_json=[pageview_step]).id,
+            "url_mixed": create_action(
+                team=self.team, name="probe flag or url pageview", steps_json=[flag_step, url_step]
+            ).id,
         }
 
         rows = [tuple(row) for row in self._run(query.format(**actions), mode).results]
