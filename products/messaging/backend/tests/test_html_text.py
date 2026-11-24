@@ -72,6 +72,24 @@ class TestTextFromHtml(SimpleTestCase):
                 True,
                 "Unsubscribe ({{ unsubscribe_url }})",
             ),
+            (
+                "marketing_send_with_fragment_keeps_bare_placeholder",
+                '<a href="{{ unsubscribe_url }}#preferences">Unsubscribe</a>',
+                True,
+                "Unsubscribe ({{ unsubscribe_url }})",
+            ),
+            (
+                "marketing_send_with_path_continuation_is_not_rewritten",
+                '<a href="{{ unsubscribe_url }}../../account">Open account</a>',
+                True,
+                "Open account",
+            ),
+            (
+                "marketing_send_with_placeholder_as_label_is_not_duplicated",
+                '<a href="{{unsubscribe_url}}">{{unsubscribe_url}}</a>',
+                True,
+                "{{unsubscribe_url}}",
+            ),
             ("transactional_send", '<a href="{{unsubscribe_url}}">Unsubscribe</a>', False, "Unsubscribe"),
         ]
     )

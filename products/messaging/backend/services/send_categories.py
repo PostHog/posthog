@@ -133,9 +133,9 @@ def _require_room_or_existing_live(team_id: int, requested: SendCategoryDefiniti
         < SEND_CATEGORY_LIMIT
     ):
         return None
-    # The category management API doesn't take the send lock, so check once more in case it just made this key live
+    # The category management API doesn't take the send lock, so lock and re-read this key in case it just became live
     # while SEND_CATEGORY_LIMIT other categories are already live.
-    existing = _category_with_key(team_id, requested.key)
+    existing = MessageCategory.objects.select_for_update().filter(team_id=team_id, key=requested.key).first()
     if existing is not None:
         _require_matching_type(existing, requested)
         if not existing.deleted:

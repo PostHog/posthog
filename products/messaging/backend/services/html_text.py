@@ -38,6 +38,9 @@ VOID_TAGS = frozenset(
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 # Matches ECMAScript \s so Django and CDP agree on {{ unsubscribe_url }}.
 _JS_WHITESPACE = r"[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]"
+_JS_WHITESPACE_RUN = re.compile(rf"{_JS_WHITESPACE}+")
+_C0_AND_SPACE = "".join(chr(code) for code in range(0x21))
+UNSUBSCRIBE_HREF = "{{ unsubscribe_url }}"
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
 # Leading C0 controls/space match WHATWG URL trimming used by CDP's link check.
 _UNSUBSCRIBE_HREF_PREFIX = re.compile(rf"[\x00-\x20]*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
@@ -102,7 +105,7 @@ class _TextParser(HTMLParser):
         if self.hidden_from is not None:
             return
         self.parts.append(WHITESPACE.sub(" ", data))
-        if stripped := data.strip():
+        if stripped := _JS_WHITESPACE_RUN.sub(" ", data).strip():
             self.label_text.append(stripped)
             self.label_length += len(stripped)
 
@@ -127,10 +130,19 @@ class _TextParser(HTMLParser):
         if href is not None:
             if href.startswith(LINK_SCHEMES):
                 self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
-            elif self.keep_unsubscribe_link and _UNSUBSCRIBE_HREF_PREFIX.match(href) is not None:
+            elif self._is_unsubscribe_link(href):
                 self.open_links.append(
-                    _OpenLink(depth=len(self.open_tags), href="{{ unsubscribe_url }}", label_start=self.label_length)
+                    _OpenLink(depth=len(self.open_tags), href=UNSUBSCRIBE_HREF, label_start=self.label_length)
                 )
+
+    def _is_unsubscribe_link(self, href: str) -> bool:
+        if not self.keep_unsubscribe_link:
+            return False
+        match = _UNSUBSCRIBE_HREF_PREFIX.match(href)
+        if match is None:
+            return False
+        rest = href[match.end() :]
+        return not rest.strip(_C0_AND_SPACE) or rest.lstrip("\t\n\r").startswith(("?", "#"))
 
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)
@@ -156,13 +168,21 @@ class _TextParser(HTMLParser):
             self.parts.append(LINE_END)
 
     def _label_is(self, link: _OpenLink) -> bool:
-        if self.label_length - link.label_start != len(link.href):
+        span = self.label_length - link.label_start
+        if link.href == UNSUBSCRIBE_HREF:
+            if not (len("{{unsubscribe_url}}") <= span <= len(UNSUBSCRIBE_HREF)):
+                return False
+            return UNSUBSCRIBE_PLACEHOLDER.fullmatch(self._label_suffix(span)) is not None
+        if span != len(link.href):
             return False
+        return self._label_suffix(span) == link.href
+
+    def _label_suffix(self, span: int) -> str:
         label: list[str] = []
         length = 0
         for text in reversed(self.label_text):
-            if length >= len(link.href):
+            if length >= span:
                 break
             label.append(text)
             length += len(text)
-        return "".join(reversed(label))[length - len(link.href) :] == link.href
+        return "".join(reversed(label))[length - span :]

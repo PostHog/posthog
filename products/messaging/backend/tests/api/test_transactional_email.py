@@ -1157,9 +1157,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["code"] == "sandbox_recipient_not_member"
         assert self._setup_url(None) in response.json()["detail"]
         assert "PostHog test sender" in response.json()["detail"]
+        (sandbox,) = self._sandbox_senders()
         category = MessageCategory.objects.get(team=self.team, key="newsletter")
-        assert cdp.received[0]["send"]["message_category"] == {"id": str(category.id), "type": "marketing"}
-        assert cdp.emails() == []
+        (forwarded,) = cdp.received
+        assert forwarded["to"] == "outsider@example.com"
+        assert forwarded["send"]["from"] == {"integrationId": sandbox.id}
+        assert forwarded["send"]["message_category"] == {"id": str(category.id), "type": "marketing"}
 
     def _seed_categories(self, count: int) -> None:
         MessageCategory.objects.bulk_create(
@@ -3804,7 +3807,13 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
 
     def _commit_once_the_send_waits(
-        self, send_pid: int, write: Callable[[], Any], written: threading.Event, *, under_the_send_lock: bool
+        self,
+        send_pid: int,
+        write: Callable[[], Any],
+        written: threading.Event,
+        send_done: threading.Event,
+        *,
+        under_the_send_lock: bool,
     ) -> Any:
         try:
             with transaction.atomic():
@@ -3817,10 +3826,13 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 result = write()
                 written.set()
                 wait_until(
-                    lambda: self._send_is_blocked_by_this_session(send_pid),
+                    lambda: self._send_is_blocked_by_this_session(send_pid) or send_done.is_set(),
                     timeout=30,
                     interval=0.05,
                     message="the send never waited on the other write, so the two did not race",
+                )
+                assert self._send_is_blocked_by_this_session(send_pid), (
+                    "the send finished without waiting on the other write, so the two did not race"
                 )
             return result
         finally:
@@ -3860,17 +3872,13 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("restores_at_limit", True, send_categories.SEND_CATEGORY_LIMIT - 1),
-            ("creates_at_limit", False, send_categories.SEND_CATEGORY_LIMIT - 1),
-            ("restores_with_100_others_live", True, send_categories.SEND_CATEGORY_LIMIT),
-            ("creates_with_100_others_live", False, send_categories.SEND_CATEGORY_LIMIT),
+            ("restores_at_limit", True),
+            ("creates_at_limit", False),
         ]
     )
-    def test_a_category_another_send_makes_at_the_limit_is_used(
-        self, cdp_post, _flag, _capture, _name, archived, other_live_categories
-    ):
+    def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        self._seed_categories(other_live_categories)
+        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
         if archived:
             category = MessageCategory.objects.create(
                 team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
@@ -3888,16 +3896,52 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                 ).id
 
         written = threading.Event()
+        send_done = threading.Event()
         with ThreadPoolExecutor(max_workers=1) as pool:
             other_send = pool.submit(
-                self._commit_once_the_send_waits, self._send_pid(), write, written, under_the_send_lock=True
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                write,
+                written,
+                send_done,
+                under_the_send_lock=True,
             )
             assert written.wait(timeout=30)
-            response = self._send_newsletter()
+            try:
+                response = self._send_newsletter()
+            finally:
+                send_done.set()
             category_id = other_send.result(timeout=30)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
+
+    def test_a_category_restored_in_the_app_at_the_limit_is_used(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT)
+        category = MessageCategory.objects.create(
+            team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
+        )
+        written = threading.Event()
+        send_done = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            app = pool.submit(
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                lambda: MessageCategory.objects.filter(id=category.id).update(deleted=False),
+                written,
+                send_done,
+                under_the_send_lock=False,
+            )
+            assert written.wait(timeout=30)
+            try:
+                response = self._send_newsletter()
+            finally:
+                send_done.set()
+            app.result(timeout=30)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
 
     def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
@@ -3909,16 +3953,21 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             for key in ("promos", "newsletter")
         )
         restored = threading.Event()
+        send_done = threading.Event()
         with ThreadPoolExecutor(max_workers=1) as pool:
             other_send = pool.submit(
                 self._commit_once_the_send_waits,
                 self._send_pid(),
                 lambda: MessageCategory.objects.filter(id=promos.id).update(deleted=False),
                 restored,
+                send_done,
                 under_the_send_lock=True,
             )
             assert restored.wait(timeout=30)
-            response = self._send_newsletter()
+            try:
+                response = self._send_newsletter()
+            finally:
+                send_done.set()
             other_send.result(timeout=30)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -3933,6 +3982,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
         inserted = threading.Event()
+        send_done = threading.Event()
         with ThreadPoolExecutor(max_workers=1) as pool:
             app = pool.submit(
                 self._commit_once_the_send_waits,
@@ -3943,10 +3993,14 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                     ).id
                 ),
                 inserted,
+                send_done,
                 under_the_send_lock=False,
             )
             assert inserted.wait(timeout=30)
-            response = self._send_newsletter()
+            try:
+                response = self._send_newsletter()
+            finally:
+                send_done.set()
             category_id = app.result(timeout=30)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
