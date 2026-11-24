@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
     SourceDescription,
 )
+from products.alerts_platform.backend.facade.grouping import clipped_to, encoded_length
 from products.logs.backend.logs_url_params import build_logs_url_params
 
 SEED_LOOKBACK: Final = dt.timedelta(days=14)
@@ -80,18 +81,13 @@ def _identity(
         },
         # The full values the logs link filters on, because labels are cut for display.
         detail={
-            "pattern": _clipped(pattern),
-            "pattern_complete": len(pattern.encode()) <= MAX_PATTERN_DETAIL,
+            "pattern": clipped_to(pattern, MAX_PATTERN_DETAIL),
+            "pattern_complete": encoded_length(pattern) <= MAX_PATTERN_DETAIL,
             "pattern_version": version,
             "service_name": service,
             "severity_text": severity,
         },
     )
-
-
-def _clipped(pattern: str) -> str:
-    """The pattern cut to `MAX_PATTERN_DETAIL` bytes, so wide characters cannot push the detail over its budget."""
-    return pattern.encode()[:MAX_PATTERN_DETAIL].decode(errors="ignore")
 
 
 def _utc(moment: dt.datetime) -> dt.datetime:

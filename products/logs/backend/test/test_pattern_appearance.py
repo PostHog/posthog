@@ -6,7 +6,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.pattern_appearance import LOGS_PATTERN_FEED, _logs_url
+from products.alerts_platform.backend.facade.payload import payload_bytes
+from products.logs.backend.pattern_appearance import LOGS_PATTERN_FEED, _identity, _logs_url
 
 T0 = dt.datetime(2026, 11, 4, 12, 0, tzinfo=dt.UTC)
 
@@ -83,3 +84,12 @@ def test_a_pattern_too_long_for_a_message_link_falls_back_to_service_and_severit
 
     assert len(url) <= 2000
     assert "filterGroup" not in parse_qs(urlparse(url).query)
+
+
+def test_a_long_wide_character_pattern_keeps_its_detail_inside_the_platform_budget() -> None:
+    # The platform measures the detail as ASCII-escaped JSON, where each of these characters takes 6 bytes.
+    seen = _identity("api", "error", 5, "接続が切断されました。" * 70, "prod", "", T0, T0)
+
+    # Over 4,096 bytes, the platform drops the whole detail, and the message loses its pattern and link filters.
+    assert payload_bytes(seen.detail) <= 4096
+    assert seen.detail["pattern_complete"] is False
