@@ -93,6 +93,10 @@ def _public_suffixes() -> "TLDExtract":
     return tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 
+def _is_public_suffix(host: str) -> bool:
+    return _public_suffixes()(host).suffix == host
+
+
 def normalize_allowed_hosts(entries: Iterable[str]) -> list[str]:
     """`normalize_listed_hosts` without domains that host other people's sites, such as vercel.app.
 
@@ -100,10 +104,15 @@ def normalize_allowed_hosts(entries: Iterable[str]) -> list[str]:
     """
     hosts = normalize_listed_hosts(entries)
     for host in hosts:
-        if _public_suffixes()(host).suffix == host:
+        own_domain = f"example.{host}"
+        # A wildcard suffix such as *.compute.amazonaws.com covers the subdomains but not the domain itself.
+        covers_wildcard_suffix = _is_public_suffix(own_domain)
+        if covers_wildcard_suffix:
+            own_domain = f"my-site.{own_domain}"
+        if covers_wildcard_suffix or _is_public_suffix(host):
             raise RequestListEntryError(
                 f"'{host}' would allow every site on {host}, including other people's. "
-                f"Enter your own domain, like example.{host}."
+                f"Enter your own domain, like {own_domain}."
             )
     return hosts
 

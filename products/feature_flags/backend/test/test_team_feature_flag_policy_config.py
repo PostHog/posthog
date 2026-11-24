@@ -80,11 +80,18 @@ class TestNormalizeAllowedHosts(SimpleTestCase):
     def test_accepts(self, _name: str, host: str) -> None:
         assert normalize_allowed_hosts([host]) == [host]
 
-    @parameterized.expand([("shared_hosting", "Vercel.app"), ("registry", "co.uk")])
-    def test_rejects_a_domain_that_other_people_use(self, _name: str, host: str) -> None:
+    @parameterized.expand(
+        [
+            ("shared_hosting", "Vercel.app", "example.vercel.app"),
+            ("registry", "co.uk", "example.co.uk"),
+            ("parent_of_wildcard_suffix", "compute.amazonaws.com", "my-site.example.compute.amazonaws.com"),
+        ]
+    )
+    def test_rejects_a_domain_that_other_people_use(self, _name: str, host: str, suggested_host: str) -> None:
         assert normalize_listed_hosts([host]) == [host.lower()]
-        with self.assertRaisesRegex(RequestListEntryError, f"like example.{host.lower()}"):
+        with self.assertRaisesRegex(RequestListEntryError, f"like {suggested_host}"):
             normalize_allowed_hosts([host])
+        assert normalize_allowed_hosts([suggested_host]) == [suggested_host]
 
 
 class TestNormalizeListedIps(SimpleTestCase):
