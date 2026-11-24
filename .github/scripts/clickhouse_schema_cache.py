@@ -39,11 +39,15 @@ BACKUP_DISK = "ci_schema_cache"  # .github/clickhouse-schema-cache/backup-disk.x
 BACKUP_DIR = "/var/lib/clickhouse/ci_schema_cache"
 BACKUP_NAME = "snapshot"
 USER_DATABASES = "database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')"
+# ops_query_log_archive_v3_mv copies system.query_log into these, so their row counts move with
+# every query the server runs, this snapshot's included.
+QUERY_LOG_TABLES = ("query_log_archive_v3_buffer", "sharded_query_log_archive_v3")
 SNAPSHOT_QUERIES = (
     "SELECT 'database', name, engine FROM system.databases WHERE name NOT IN "
     "('system', 'information_schema', 'INFORMATION_SCHEMA') ORDER BY ALL",
     f"SELECT 'table', database, replaceRegexpAll(name, '{UUID_SQL}', '<uuid>'), engine, "
-    f"replaceRegexpAll(create_table_query, '{UUID_SQL}', '<uuid>'), toString(total_rows) "
+    f"replaceRegexpAll(create_table_query, '{UUID_SQL}', '<uuid>'), "
+    f"if(name IN {QUERY_LOG_TABLES}, '', toString(total_rows)) "
     f"FROM system.tables WHERE {USER_DATABASES} ORDER BY ALL",
     f"SELECT 'column', database, replaceRegexpAll(table, '{UUID_SQL}', '<uuid>'), position, name, type, "
     f"default_kind, default_expression, compression_codec FROM system.columns WHERE {USER_DATABASES} ORDER BY ALL",
@@ -169,6 +173,10 @@ def _restore(directory: Path) -> None:
     if functions.strip():
         _container("clickhouse-client", "--multiquery", stdin=functions.encode())
     _query(f"RESTORE DATABASE {DATABASE} FROM Disk('{BACKUP_DISK}', '{BACKUP_NAME}')")
+    # Restored dictionaries load lazily, and SYSTEM RELOAD DICTIONARIES skips those never loaded.
+    # Load the ones the migrations loaded, so a broken one fails here rather than in a test.
+    for name in (directory / "dictionaries.txt").read_text().split():
+        _query(f"SYSTEM RELOAD DICTIONARY {name}")
 
 
 def load(directory: Path, checkout: Path) -> bool:
@@ -244,6 +252,11 @@ def _backup(directory: Path, checkout: Path, before: Path) -> str:
         "SELECT create_query || ';' FROM system.functions WHERE origin = 'SQLUserDefined' ORDER BY name FORMAT TSVRaw"
     )
     (directory / "functions.sql").write_text(functions)
+    loaded = _query(
+        "SELECT backQuote(database) || '.' || backQuote(name) FROM system.dictionaries "
+        f"WHERE database = '{DATABASE}' AND status = 'LOADED' ORDER BY ALL FORMAT TSVRaw"
+    )
+    (directory / "dictionaries.txt").write_text(loaded)
     shutil.copy(checkout, directory / "fingerprint.json")
     _copy(f"{SERVICE}:{BACKUP_DIR}/{BACKUP_NAME}", str(directory / BACKUP_NAME))
     return migrated
