@@ -1,6 +1,7 @@
 import json
 import hashlib
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -20,11 +21,11 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE
 
-from products.messaging.backend.facade.contracts import TemplateTypeChanged
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_PUSH_API_FLAG,
+    MessageTemplatesViewSet,
     TransactionalEmailTeamBurstThrottle,
 )
 from products.messaging.backend.services.transactional_email import make_transactional
@@ -203,16 +204,34 @@ class TestTransactionalPushTemplates(APIBaseTest):
         template.refresh_from_db()
         assert str(template.transactional_hog_flow_id) == linked
 
-    def test_a_template_changed_to_push_after_the_scope_check_is_not_made_sendable(self, _flag):
-        template = self._template()
+    @parameterized.expand([("email_turned_push", False), ("deleted_push_restored", True)])
+    def test_a_template_that_changes_after_the_scope_check_is_not_made_sendable(self, _flag, _name, starts_deleted):
+        template = self._template(deleted=starts_deleted)
+        if not starts_deleted:
+            MessageTemplate.objects.filter(id=template.id).update(type="email")
+        check = MessageTemplatesViewSet.dangerously_get_required_scopes
 
-        with self.assertRaises(TemplateTypeChanged):
-            make_transactional(
-                self.team.id, template.id, user_id=self.user.id, from_integration_id=None, template_type="email"
+        def check_then_change(view: Any, *args: Any) -> list[str] | None:
+            scopes = check(view, *args)
+            MessageTemplate.objects.filter(id=template.id).update(type="push", deleted=False)
+            return scopes
+
+        with patch.object(MessageTemplatesViewSet, "dangerously_get_required_scopes", check_then_change):
+            response = self._pak_client(["transactional_email:write"]).post(
+                f"{self.templates_url}{template.id}/make_transactional/", {}, format="json"
             )
 
+        assert response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND), response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
+
+    @parameterized.expand([("email_scope", "transactional_email:write"), ("push_scope", "transactional_push:write")])
+    def test_either_send_scope_gets_404_for_an_unknown_template(self, _flag, _name, scope):
+        response = self._pak_client([scope]).post(
+            f"{self.templates_url}{uuid4()}/make_transactional/", {}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
         template = self._template()
