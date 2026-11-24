@@ -1,5 +1,8 @@
 ---
 name: building-html-canvases
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Author a PostHog canvas with semantic HTML, CSS, and direct browser APIs — documents, articles,
   generative graphics, 2D canvas and WebGL experiences, and focused experiments where React

@@ -1,5 +1,7 @@
 ---
 name: modeling-warehouse-foundations
+metadata:
+  audience: customer
 description: >
   Shared foundations for building reusable data models in PostHog, on either of two stacks: PostHog-native
   data-warehouse views / materialized views (HogQL, via the view-* MCP tools), or an external dbt project

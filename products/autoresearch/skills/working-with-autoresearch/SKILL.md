@@ -1,5 +1,8 @@
 ---
 name: working-with-autoresearch
+metadata:
+  audience: customer
+  feature_flag: autoresearch
 description: >
   Use PostHog Autoresearch, agent-driven predictive models: ask "who will do X in the next N days?",
   let an agent train a model, then score people daily into a person property and

@@ -1,5 +1,7 @@
 ---
 name: downloading-batch-export-files
+metadata:
+  audience: customer
 description: >
   Export PostHog events, persons, sessions, or the results of a HogQL query on demand and download the resulting
   files. Use when the user asks to download/export raw PostHog data, export HogQL query results, create a one-off

@@ -1,5 +1,7 @@
 ---
 name: finding-sessions-to-watch
+metadata:
+  audience: customer
 description: >
   Guides a user from "I want to watch recordings but don't know which ones" to a short, high-signal
   list of sessions worth watching. Use when the user asks which sessions or replays to watch, wants

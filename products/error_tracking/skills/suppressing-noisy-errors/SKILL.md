@@ -1,5 +1,7 @@
 ---
 name: suppressing-noisy-errors
+metadata:
+  audience: customer
 description: >
   Create PostHog error tracking suppression rules to drop high-volume,
   low-value errors at ingestion. Use when the user asks "stop capturing

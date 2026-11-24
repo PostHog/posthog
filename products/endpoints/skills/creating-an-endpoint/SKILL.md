@@ -1,5 +1,7 @@
 ---
 name: creating-an-endpoint
+metadata:
+  audience: customer
 description: >
   Create a PostHog endpoint with the right shape on the first try — covers query kind choice, name
   conventions, what to expose as variables (HogQL code_name vs insight breakdown),

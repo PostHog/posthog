@@ -1,5 +1,7 @@
 ---
 name: sending-transactional-emails
+metadata:
+  audience: customer
 description: >-
   Set up PostHog transactional emails: one-off emails that code sends to one person, such as password resets,
   sign-in codes, magic links, verification emails, receipts, and invites. Use whenever the user works on

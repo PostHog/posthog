@@ -1,5 +1,7 @@
 ---
 name: authoring-insight-alerts
+metadata:
+  audience: customer
 description: >
   Author insight alerts that notify when a trends, SQL, or funnel insight crosses a bound, changes sharply,
   or looks anomalous. Use when the user asks to alert on a metric or insight, get notified when a number

@@ -56,11 +56,19 @@ Published skills must not require internal skill files to complete their main wo
 
 ### Who the skill is for
 
-Every product skill is published, but the MCP server's `learn` command serves a customer's agent only the skills listed in `services/mcp/src/skills/served-skills.json`.
-`hogli lint:skills` fails until each product skill has exactly one of these:
+Every product skill is published, but the MCP server's `learn` command does not serve every one.
+Each product skill states its audience under `metadata` in its frontmatter, and `hogli lint:skills` fails without one:
 
-- An entry in that file, for a skill a customer's agent can follow with only what a customer has. Write `"<skill-name>": {}`, or `{"feature_flag": "<flag>"}` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill. CODEOWNERS requires a review from `team-context-and-mcp` for that file.
-- `audience: internal` under `metadata` in the frontmatter, for a skill written for a PostHog job or for staff, such as a scout runbook.
+- `audience: customer`, for a skill a customer's agent can follow with only what a customer has.
+- `audience: scout`, for the instructions that a scheduled scout run follows.
+- `audience: internal`, for any other PostHog job or for staff.
+
+`learn` serves `customer` and `scout` skills.
+Add `feature_flag: <flag>` under `metadata` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill.
+
+The MCP server reads the served skills from `services/mcp/src/generated/served-skills.json`.
+When a header changes who gets a skill, run `hogli lint:skills -- --fix` and commit that file.
+CODEOWNERS requires a review from `team-context-and-mcp` for it.
 
 `hogli init:skill` scaffolds published product skills.
 For internal guidance, extend an existing `.agents/skills/` entry where possible.

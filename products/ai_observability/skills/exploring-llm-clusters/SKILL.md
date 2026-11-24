@@ -1,5 +1,7 @@
 ---
 name: exploring-llm-clusters
+metadata:
+  audience: customer
 description: 'Investigate AI observability clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
 ---
 

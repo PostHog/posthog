@@ -1,5 +1,7 @@
 ---
 name: migrating-from-email-providers
+metadata:
+  audience: customer
 description: 'Move a team from an email API provider such as Resend, Postmark, SendGrid, Mailgun or Mailchimp to PostHog: import the suppression list, unsubscribes, topics, mailing lists, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend, Postmark, SendGrid, Mailgun or Mailchimp to PostHog, "switch to PostHog", or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
 ---
 

@@ -1,5 +1,7 @@
 ---
 name: triaging-error-issues
+metadata:
+  audience: customer
 description: >
   Triage PostHog error tracking issues during a daily or on-call review.
   Use when the user asks "what's broken?", "what new errors do we have?",

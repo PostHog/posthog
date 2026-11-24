@@ -1,5 +1,8 @@
 ---
 name: diagnosing-ci-and-merge-bottlenecks
+metadata:
+  audience: customer
+  feature_flag: engineering-analytics
 description: 'Diagnoses CI and pull request pipeline health for a GitHub repo with the engineering analytics MCP tools: pull-requests, workflow-health, pr-lifecycle, engineering-analytics-flaky-tests, engineering-analytics-team-ci-health, and the CI cost tools. Use when asked whether CI is getting faster or slower, which GitHub Actions workflow is slow or failing, how long PRs take from open to merge, which open PRs have failing or pending CI, where one pull request is stuck, what a failing test costs, which team owns the flakiest tests, or what CI costs for a PR or workflow. Triggers on "engineering analytics", "is CI getting slower", "slow workflow", "flaky CI", "time to merge", "cycle time", "PR throughput", "failing checks", "where is PR <n> stuck", "CI long pole", "CI cost". For a verdict on one CI failure use investigating-ci-failures. To save these numbers as insights use turning-engineering-analytics-into-insights.'
 ---
 

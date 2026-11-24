@@ -1,5 +1,7 @@
 ---
 name: diagnosing-sdk-health
+metadata:
+  audience: customer
 description: >
   Diagnoses the health of a project's PostHog SDK integrations — which SDKs are out of date
   and how to fix them. Use when a user asks about PostHog SDK versions, outdated SDKs, upgrade

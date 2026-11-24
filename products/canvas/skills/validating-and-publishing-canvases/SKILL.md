@@ -1,5 +1,8 @@
 ---
 name: validating-and-publishing-canvases
+metadata:
+  audience: customer
+  feature_flag: today-rail-nav
 description: >
   Validate and publish a canvas source project safely: the source-project shape, declared
   capabilities, reading the current version pointer, iterating on validation diagnostics, guarded

@@ -13,6 +13,7 @@ description: >
   "test/compare scout prompts", "generate scout rubrics", "structured output from a scout", "scout output to Slack",
   "leave a note for / give feedback to a scout".
 metadata:
+  audience: customer
   owner_team: signals
 ---
 
