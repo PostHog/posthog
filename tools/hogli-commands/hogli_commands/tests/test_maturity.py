@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from hogli_commands.product import hoglint_status
-from hogli_commands.product.hoglint_status import HoglintDebt, IsolatedLevel, IsolatedPasses, claims_isolated
+from hogli_commands.product.hoglint_status import HoglintDebt, IsolatedLevel, IsolatedPasses
 from hogli_commands.product.maturity import ProductScore, generate_detail
 
 QUERY_OUTPUT = {
@@ -38,6 +38,10 @@ LEDGER = (
 def _write_turbo(product_dir: Path, tasks: dict) -> None:
     product_dir.mkdir(parents=True)
     (product_dir / "turbo.json").write_text(json.dumps({"extends": ["//"], "tasks": tasks}))
+    scripts = dict.fromkeys(tasks, "echo")
+    (product_dir / "package.json").write_text(
+        json.dumps({"name": f"@posthog/products-{product_dir.name}", "scripts": scripts})
+    )
 
 
 def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str) -> None:
@@ -45,27 +49,6 @@ def _fake_query(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, s
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
     monkeypatch.setattr(hoglint_status.subprocess, "run", run)
-
-
-class TestClaimsIsolated:
-    @pytest.mark.parametrize(
-        "tasks, expected",
-        [
-            ({"backend:contract-check": {"inputs": ["backend/facade/**"], "outputs": []}}, True),
-            ({"backend:contract-check": {"outputs": []}}, False),
-            ({"backend:test": {"dependsOn": ["backend:contract-check"]}}, False),
-            (None, False),
-        ],
-        ids=["narrowed_inputs", "task_without_inputs", "task_named_only_in_another_task", "no_turbo_json"],
-    )
-    def test_claims_only_a_narrowed_contract_check(self, tmp_path: Path, tasks: dict | None, expected: bool) -> None:
-        product_dir = tmp_path / "harbor"
-        if tasks is None:
-            product_dir.mkdir()
-        else:
-            _write_turbo(product_dir, tasks)
-
-        assert claims_isolated(product_dir) is expected
 
 
 class TestIsolatedLevel:

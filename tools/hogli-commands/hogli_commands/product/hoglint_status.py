@@ -1,8 +1,8 @@
 """What hoglint says about each product: the Isolated level and the debt it carries.
 
 The Isolated level comes from files: `level:isolated <product>` lines in `hoglint.ledger` say the
-product passes, and a `backend:contract-check` task with `inputs` in `products/<name>/turbo.json`
-says it claims the level. The debt comes from `hoglint query --by package --json`, which groups
+product passed when the ledger was last written, and `baseline.claims_isolated_level` says whether
+it claims the level, read the way hoglint's turbo adapter reads a claim. The debt comes from `hoglint query --by package --json`, which groups
 finding rows by the source module's `package` label, hoglint's own attribution. A row's status is
 `accepted` (in the ledger), `new` (blocks) or `advisory` (its rule never blocks, so it is no debt).
 """
@@ -15,31 +15,11 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .baseline import claims_isolated_level
+
 LEDGER_FILE = "hoglint.ledger"
 ISOLATED_LEVEL_RULE = "level:isolated"
-CONTRACT_CHECK_TASK = "backend:contract-check"
 QUERY_COMMAND = ("query", "--by", "package", "--json")
-
-
-def claims_isolated(product_dir: Path) -> bool:
-    """Whether the product's turbo.json narrows `backend:contract-check` to its own inputs."""
-    turbo_json = product_dir / "turbo.json"
-    if not turbo_json.is_file():
-        return False
-    try:
-        config = json.loads(turbo_json.read_text())
-    except json.JSONDecodeError:
-        return False
-    if not isinstance(config, dict):
-        return False
-    tasks = config.get("tasks")
-    if not isinstance(tasks, dict):
-        return False
-    task = tasks.get(CONTRACT_CHECK_TASK)
-    if not isinstance(task, dict):
-        return False
-    inputs = task.get("inputs")
-    return isinstance(inputs, list) and len(inputs) > 0
 
 
 @dataclass(frozen=True)
@@ -96,7 +76,7 @@ class IsolatedLevel:
     @staticmethod
     def of(product: str, product_dir: Path, passes: IsolatedPasses) -> IsolatedLevel:
         return IsolatedLevel(
-            claims=claims_isolated(product_dir),
+            claims=claims_isolated_level(product_dir),
             passes=product in passes.products,
             known=passes.exists,
         )
@@ -154,7 +134,8 @@ class HoglintDebt:
     def load(repo_root: Path) -> HoglintDebt:
         """Run the query once for every product."""
         result = subprocess.run(
-            [sys.executable, "-m", "hoglint", *QUERY_COMMAND],
+            # -P keeps the checkout off sys.path, so a stray hoglint module in it cannot replace the pinned package.
+            [sys.executable, "-P", "-m", "hoglint", *QUERY_COMMAND],
             cwd=repo_root,
             capture_output=True,
             text=True,

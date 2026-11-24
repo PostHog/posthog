@@ -360,7 +360,7 @@ def _hoglint_lines(ps: ProductScore) -> list[str]:
     """The Isolated level and the debt per rule, shown beside the scores but not scored."""
     lines: list[str] = []
     if ps.isolated is not None:
-        lines.append(f"  {'isolated':17s}  {ps.isolated.detail}")
+        lines.append(f"  {'isolated':17s}  {ps.isolated.detail} (as recorded in hoglint.ledger)")
     if ps.debt is None:
         lines.append(f"  hoglint debt unavailable: {ps.debt_unavailable}")
         return lines
