@@ -784,7 +784,7 @@ describe('RecordingApi', () => {
                 { key: KEY, start_byte: 0, end_byte: 999, start_timestamp: '', end_timestamp: '' },
             ])
             mockService.getBlockByRef.mockResolvedValue({ ok: true, data: Buffer.from('{"type":2}') })
-            })
+        })
 
         afterEach(() => {
             server.close()
@@ -824,11 +824,7 @@ describe('RecordingApi', () => {
         })
 
         it.each([
-            [
-                'the delete route',
-                () => supertest(app).post('/api/projects/1/recordings/delete').send({}),
-                401,
-            ],
+            ['the delete route', () => supertest(app).post('/api/projects/1/recordings/delete').send({}), 401],
             [
                 'a GET route that is not a block route',
                 () => supertest(app).get('/api/projects/1/recordings/session-123'),
