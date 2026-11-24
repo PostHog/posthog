@@ -879,7 +879,6 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
         with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             for did in ("user_a", "user_b", "user_c", "user_d", "user_e", "user_app"):
                 _create_person(team_id=self.team.pk, distinct_ids=[did])
-            # Crosses from the site into the app.
             self._event("$pageview", "user_a", a, "2024-01-01T10:00:00Z", SITE_HOST, "/", **desktop)
             self._event("$pageview", "user_a", a, "2024-01-01T10:02:00Z", APP_HOST, "/dashboard", **desktop)
             self._event("$pageview", "user_a", a, "2024-01-01T10:05:00Z", APP_HOST, "/settings", **desktop)
@@ -887,7 +886,6 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
             self._event("$pageview", "user_c", c, "2024-01-01T12:00:00Z", SITE_HOST, "/", **desktop)
             self._event("$pageview", "user_c", c, "2024-01-01T12:03:00Z", SITE_HOST, "/pricing", **desktop)
             self._event("$pageview", "user_d", d, "2024-01-01T13:00:00Z", SITE_HOST, "/blog", **mobile)
-            # Crosses from the app into the site.
             self._event("$pageview", "user_e", e, "2024-01-01T14:00:00Z", APP_HOST, "/login", **desktop)
             self._event("$pageview", "user_e", e, "2024-01-01T14:02:00Z", SITE_HOST, "/pricing", **desktop)
             # An app session: screens only, so it has no bounce value and no host.
@@ -949,8 +947,6 @@ class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
             assert dimensional["session duration"][0] is None
 
     def test_overview_previous_period_matches_live(self):
-        # The current day is empty and the previous day holds every session, so the previous values come from
-        # the compare period of both tables.
         date_range = DateRange(date_from="2024-01-02", date_to="2024-01-02")
         properties = [_host(APP_HOST)]
         live_types, live = self._run(LIVE, properties, date_range, compare=True)
