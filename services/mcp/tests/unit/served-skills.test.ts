@@ -47,4 +47,13 @@ describe('served skills', () => {
     ])('rejects $label, so a typo cannot change who gets a skill', ({ entry }) => {
         expect(() => parseServedSkills({ skills: { 'some-skill': entry }, context_mill_skills: {} })).toThrow()
     })
+
+    it('rejects a name listed in both sections, so the second entry cannot drop a flag', () => {
+        expect(() =>
+            parseServedSkills({
+                skills: { 'some-skill': { feature_flag: 'gate' } },
+                context_mill_skills: { 'some-skill': {} },
+            })
+        ).toThrow('listed in both sections: some-skill')
+    })
 })
