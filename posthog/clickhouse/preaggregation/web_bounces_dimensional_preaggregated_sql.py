@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
     -- Every host the session viewed, sorted, with '' for events without $host. A host filter matches a session
-    -- when any of its hosts matches, as the live query does per event. `host` is the session's first host.
+    -- when any of its hosts matches, as the live query does per event. `host` is one of them.
     hosts Array(String),
 
     -- Aggregate states for bounce-rate and session-duration metrics.
