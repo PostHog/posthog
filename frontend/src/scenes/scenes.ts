@@ -335,6 +335,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
+    [Scene.ToolbarOAuthError]: {
+        name: 'Toolbar sign-in error',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
+    },
     [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.AccountConnected]: {
         name: 'Account connected',
@@ -948,6 +955,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
+    // pinned: Django serves these toolbar sign-in paths (posthog/urls.py). When it refuses a request there,
+    // it renders the app with the error in the app context.
+    '/toolbar_oauth/authorize': [Scene.ToolbarOAuthError, 'toolbarOAuthAuthorizeError'],
+    '/toolbar_oauth/callback': [Scene.ToolbarOAuthError, 'toolbarOAuthCallbackError'],
+    '/api/user/redirect_to_site': [Scene.ToolbarOAuthError, 'toolbarRedirectToSiteError'],
+    '/authorize_and_redirect': [Scene.ToolbarOAuthError, 'toolbarAuthorizeAndRedirectError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],

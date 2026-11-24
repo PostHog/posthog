@@ -199,6 +199,7 @@ export enum Scene {
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
+    ToolbarOAuthError = 'ToolbarOAuthError',
     Tracing = 'Tracing',
     TracingRetentionNew = 'TracingRetentionNew',
     TracingRetentionDetail = 'TracingRetentionDetail',

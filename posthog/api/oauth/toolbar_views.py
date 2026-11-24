@@ -1,13 +1,37 @@
 from typing import cast
 from urllib.parse import urlencode, urlparse
 
-from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.models import User
 from posthog.utils import render_template
+
+
+def render_toolbar_oauth_error(
+    request: HttpRequest,
+    *,
+    title: str,
+    message: str,
+    status_code: int,
+    detail: str | None = None,
+    links_to_authorized_urls: bool = False,
+) -> HttpResponse:
+    """Render the app's toolbar sign-in error page, which reads this error from the app context."""
+    return render_template(
+        "index.html",
+        request,
+        context={
+            "toolbar_oauth_error": {
+                "title": title,
+                "message": message,
+                "detail": detail,
+                "links_to_authorized_urls": links_to_authorized_urls,
+            },
+        },
+        status_code=status_code,
+    )
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -27,19 +51,15 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
         hostname = redirect_url.hostname or request.GET["redirect"]
-        return render_template(
-            "toolbar_oauth_error.html",
+        return render_toolbar_oauth_error(
             request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
+            title="Domain not authorized",
+            message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+            detail=(
+                f"The hostname {hostname} needs to be added to your project's "
+                "authorized URLs before the toolbar can be used on this site."
+            ),
+            links_to_authorized_urls=True,
             status_code=403,
         )
 

@@ -774,6 +774,7 @@ def _build_template_context(
         "oauth_scope_resolution",
         "oauth_ema_issuer_consent",
         "oauth_reauthentication_required",
+        "toolbar_oauth_error",
     ):
         if caller_key in context:
             posthog_app_context[caller_key] = context.pop(caller_key)

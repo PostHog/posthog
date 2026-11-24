@@ -63,6 +63,7 @@ from posthog.api.oauth.toolbar_service import (
     refresh_tokens,
     validate_and_consume_toolbar_oauth_state,
 )
+from posthog.api.oauth.toolbar_views import render_toolbar_oauth_error
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
@@ -168,7 +169,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_safe_cache, render_template, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
@@ -1930,19 +1931,15 @@ def toolbar_oauth_authorize(request):
         if exc.code == "forbidden_app_url":
             parsed_redirect = urllib.parse.urlparse(redirect_url)
             hostname = parsed_redirect.hostname or redirect_url
-            return render_template(
-                "toolbar_oauth_error.html",
+            return render_toolbar_oauth_error(
                 request,
-                context={
-                    "error_title": "Domain not authorized",
-                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                    "error_detail": (
-                        f"The hostname {hostname} needs to be added to your project's "
-                        "authorized URLs before the toolbar can be used on this site."
-                    ),
-                    "error_code": "403",
-                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-                },
+                title="Domain not authorized",
+                message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                detail=(
+                    f"The hostname {hostname} needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                links_to_authorized_urls=True,
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -2005,14 +2002,10 @@ def toolbar_oauth_callback(request):
     except ToolbarOAuthError as exc:
         if exc.code == "invalid_state":
             # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
-            return render_template(
-                "toolbar_oauth_error.html",
+            return render_toolbar_oauth_error(
                 request,
-                context={
-                    "error_title": "This toolbar sign-in expired",
-                    "error_message": "Open the toolbar from your site again to start a new sign-in.",
-                    "error_code": str(exc.status_code),
-                },
+                title="This toolbar sign-in expired",
+                message="Open the toolbar from your site again to start a new sign-in.",
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -2293,19 +2286,15 @@ def redirect_to_site(request):
             app_url=app_url,
             team_id=team.id,
         )
-        return render_template(
-            "toolbar_oauth_error.html",
+        return render_toolbar_oauth_error(
             request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
+            title="Domain not authorized",
+            message="The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+            detail=(
+                f"The hostname {hostname} needs to be added to your project's "
+                "authorized URLs before the toolbar can be used on this site."
+            ),
+            links_to_authorized_urls=True,
             status_code=403,
         )
 

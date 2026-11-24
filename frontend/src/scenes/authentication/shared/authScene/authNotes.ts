@@ -89,6 +89,9 @@ export const AUTH_NOTES = {
         done: ['inbox zero', 'one email lighter'],
         failed: ['hmm', "that link didn't work"],
     },
+    toolbarOAuth: {
+        error: ['posthog toolbar', "it couldn't open"],
+    },
     desktopBridge: {
         default: ['posthog desktop', 'opening the app'],
     },

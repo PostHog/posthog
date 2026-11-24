@@ -505,8 +505,12 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
 
         assert response.status_code == 400
-        assert b"This toolbar sign-in expired" in response.content
-        assert b"Open the toolbar from your site again" in response.content
+        assert response.context["posthog_app_context"]["toolbar_oauth_error"] == {
+            "title": "This toolbar sign-in expired",
+            "message": "Open the toolbar from your site again to start a new sign-in.",
+            "detail": None,
+            "links_to_authorized_urls": False,
+        }
 
     def test_callback_app_url_root_domain(self):
         self.team.app_urls = ["https://example.com"]

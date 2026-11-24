@@ -2457,6 +2457,18 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(response.headers.get("location"), None)
+            self.assertEqual(
+                response.context["posthog_app_context"]["toolbar_oauth_error"],
+                {
+                    "title": "Domain not authorized",
+                    "message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+                    "detail": (
+                        f"The hostname {urlparse(url).hostname} needs to be added to your project's "
+                        "authorized URLs before the toolbar can be used on this site."
+                    ),
+                    "links_to_authorized_urls": True,
+                },
+            )
 
         # hostnames
         assert_allowed_url("https://www.example.com")
