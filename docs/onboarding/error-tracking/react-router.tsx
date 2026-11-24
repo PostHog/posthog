@@ -7,7 +7,7 @@ import { StepDefinition } from '../steps'
 export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const installSteps = getReactRouterInstallSteps(ctx).filter((step) => step.title !== 'Add the PostHogProvider')
+    const installSteps = getReactRouterInstallSteps(ctx, { includeProvider: false })
 
     const browserStep: StepDefinition = {
         title: 'Capture browser exceptions',
@@ -18,7 +18,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                     {dedent`
                         React Router catches every error thrown while rendering a route or running a loader, action or fetcher, and shows the route's \`ErrorBoundary\`, so these errors never reach the browser's global error handlers. Turn on exception autocapture with \`capture_exceptions: true\` for everything else, and pass an \`onError\` handler to the router for the errors it catches.
 
-                        \`onError\` also receives responses you throw on purpose (\`throw data(..., { status: 404 })\`, unknown URLs) and the browser's copy of a server error, which React Router renames to "Unexpected Server Error" and which the server captures with its full stack. Skip both.
+                        \`onError\` also receives responses you throw on purpose (\`throw data(..., { status: 404 })\`, unknown URLs) and, in production builds, the browser's copy of a server error, which React Router renames to "Unexpected Server Error". The server captures the original with its full stack. Skip both.
 
                         In framework mode, the router is \`<HydratedRouter>\` in \`app/entry.client.tsx\` (run \`npx react-router reveal entry.client\` if your app does not have this file yet):
                     `}
@@ -64,7 +64,15 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                 />
                 <Markdown>
                     {dedent`
-                        In data mode, pass the same handler to \`<RouterProvider router={router} onError={onError} />\`. \`onError\` needs React Router 7.11 or later. On 7.8.2 to 7.10, pass the same handler as \`unstable_onError\` and type it with \`unstable_ClientOnErrorFunction\`. On older versions, capture inside a \`useEffect\` in every \`ErrorBoundary\` your routes export, with the same two checks. Do not capture in an \`ErrorBoundary\` as well as in \`onError\`: each error would arrive twice. A \`PostHogErrorBoundary\` around the router never sees these errors, because React Router's own boundaries catch them first.
+                        Which prop to use depends on your React Router version:
+
+                        - **7.11 or later:** \`onError\`, as above.
+                        - **7.8.2 to 7.10:** pass the same handler as \`unstable_onError\` and type it with \`unstable_ClientOnErrorFunction\`.
+                        - **Earlier versions:** capture inside a \`useEffect\` in every \`ErrorBoundary\` your routes export, with the same two checks.
+
+                        In data mode, pass the handler to \`<RouterProvider router={router} onError={onError} />\` and skip the server steps below. In declarative mode (\`<BrowserRouter>\`), React Router has no error boundaries of its own: follow the [React guide](https://posthog.com/docs/error-tracking/installation/react) instead.
+
+                        Do not also capture in an \`ErrorBoundary\`: each error would arrive twice. In framework and data mode, a \`PostHogErrorBoundary\` around the router never sees these errors, because React Router's own boundaries catch them first.
                     `}
                 </Markdown>
             </>
@@ -78,7 +86,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
             <>
                 <Markdown>
                     {dedent`
-                        In framework mode, loaders, actions, middleware and server rendering run on your server, and their errors never reach the browser: React Router sends the browser "Unexpected Server Error" instead. Install \`posthog-node\` and create one client for the server process. \`enableExceptionAutocapture\` captures errors no request handles, such as a rejected promise nobody awaits.
+                        In framework mode, loaders, actions, middleware and server rendering run on your server, and their errors never reach the browser: React Router sends the browser "Unexpected Server Error" instead. Install \`posthog-node\` and create one client for the server process. \`enableExceptionAutocapture\` captures errors no request handles, such as a rejected promise nobody awaits, from the moment the client exists: create it when the module loads, not on first use.
                     `}
                 </Markdown>
                 <CodeBlock
@@ -86,6 +94,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                         { language: 'bash', file: 'npm', code: 'npm install posthog-node' },
                         { language: 'bash', file: 'yarn', code: 'yarn add posthog-node' },
                         { language: 'bash', file: 'pnpm', code: 'pnpm add posthog-node' },
+                        { language: 'bash', file: 'bun', code: 'bun add posthog-node' },
                     ]}
                 />
                 <CodeBlock
@@ -96,8 +105,8 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                             code: dedent`
                                 import { PostHog } from 'posthog-node'
 
-                                export const posthog = new PostHog(process.env.POSTHOG_PROJECT_TOKEN!, {
-                                  host: process.env.POSTHOG_HOST,
+                                export const posthog = new PostHog('<ph_project_token>', {
+                                  host: '<ph_client_api_host>',
                                   enableExceptionAutocapture: true,
                                 })
                             `,
@@ -106,23 +115,9 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                 />
                 <Markdown>
                     {dedent`
-                        Set \`POSTHOG_PROJECT_TOKEN\` and \`POSTHOG_HOST\` where the server runs. \`react-router-serve\` does not read \`.env\` files, and Vite does not replace \`process.env\` in the server build.
-
-                        The snippets on this page need \`posthog-node\` 6 or later. If your app pins \`posthog-node\` 5, pass the two values separately: in version 5 the second argument is the distinct ID.
+                        On Vercel, Netlify or another serverless host, the function can stop as soon as the response is sent. Pass the platform's \`waitUntil\` so queued events are still sent, for example \`waitUntil\` from \`@vercel/functions\`: \`new PostHog('<ph_project_token>', { host: '<ph_client_api_host>', waitUntil })\`. On Cloudflare Workers, follow the [Cloudflare Workers guide](https://posthog.com/docs/libraries/cloudflare-workers) to create the client.
                     `}
                 </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'typescript',
-                            file: 'posthog-node 5',
-                            code: dedent`
-                                const { distinctId, properties } = posthogRequestContext(request)
-                                posthog.captureException(error, distinctId, properties)
-                            `,
-                        },
-                    ]}
-                />
             </>
         ),
     }
@@ -134,7 +129,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
             <>
                 <Markdown>
                     {dedent`
-                        A server exception links to the person and session replay that caused it only when it carries the browser's distinct ID and session ID. Page loads and React Router's data requests send the PostHog cookie; API clients configured with \`tracing_headers\` send \`X-POSTHOG-DISTINCT-ID\` and \`X-POSTHOG-SESSION-ID\`. Read the headers first, then the cookie, and drop a session that has expired:
+                        A server exception links to the person and session replay that caused it only when it carries the browser's distinct ID and session ID. API clients configured with \`tracing_headers\` send \`X-POSTHOG-DISTINCT-ID\` and \`X-POSTHOG-SESSION-ID\`. Page loads and React Router's data requests send only the PostHog cookie. Read the headers first, then your project's cookie, and drop a session that has expired:
                     `}
                 </Markdown>
                 <CodeBlock
@@ -143,44 +138,65 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                             language: 'typescript',
                             file: 'app/lib/posthog-request.server.ts',
                             code: dedent`
+                                // posthog-js defaults. Change SESSION_IDLE_MS if you set session_idle_timeout_seconds.
                                 const SESSION_IDLE_MS = 30 * 60 * 1000
                                 const SESSION_MAX_MS = 24 * 60 * 60 * 1000
 
+                                function readCookie(request: Request, name: string): string | undefined {
+                                  for (const part of request.headers.get('cookie')?.split(';') ?? []) {
+                                    const [key, ...value] = part.trim().split('=')
+                                    if (key === name) return value.join('=')
+                                  }
+                                }
+
                                 function fromCookie(request: Request): { distinctId?: string; sessionId?: string } {
-                                  const match = request.headers.get('cookie')?.match(/(?:^|;\\s*)ph_[^=]+_posthog=([^;]+)/)
-                                  if (!match) return {}
+                                  const raw = readCookie(request, 'ph_<ph_project_token>_posthog')
+                                  if (!raw) return {}
                                   try {
-                                    const state = JSON.parse(decodeURIComponent(match[1]))
-                                    const [lastActivity, sessionId, sessionStart] = state.$sesid ?? []
+                                    const state = JSON.parse(decodeURIComponent(raw))
+                                    const [lastActivity, sessionId, sessionStart = lastActivity] = Array.isArray(state.$sesid) ? state.$sesid : []
                                     const now = Date.now()
-                                    const active = now - lastActivity < SESSION_IDLE_MS && now - sessionStart < SESSION_MAX_MS
+                                    const active = Math.abs(now - lastActivity) < SESSION_IDLE_MS && Math.abs(now - sessionStart) < SESSION_MAX_MS
                                     return { distinctId: state.distinct_id, sessionId: active ? sessionId : undefined }
                                   } catch {
                                     return {}
                                   }
                                 }
 
-                                // Analytics context only: never use these IDs to authorize anything.
-                                export function posthogRequestContext(request: Request) {
+                                function visitor(request: Request): { distinctId?: string; $session_id?: string; $user_agent?: string } {
+                                  // Visitors who opted out are not linked
+                                  if (readCookie(request, '__ph_opt_in_out_<ph_project_token>') === '0') return {}
                                   const header = (name: string) => request.headers.get(name)?.trim() || undefined
                                   const cookie = fromCookie(request)
                                   const distinctId = header('x-posthog-distinct-id') ?? cookie.distinctId
-                                  const url = new URL(request.url)
                                   return {
                                     distinctId: distinctId === '$posthog_cookieless' ? undefined : distinctId,
-                                    properties: {
-                                      $session_id: header('x-posthog-session-id') ?? cookie.sessionId,
-                                      $current_url: url.origin + url.pathname,
-                                      $request_method: request.method,
-                                      $request_path: url.pathname,
-                                      $user_agent: request.headers.get('user-agent') ?? undefined,
-                                    },
+                                    $session_id: header('x-posthog-session-id') ?? cookie.sessionId,
+                                    $user_agent: request.headers.get('user-agent') ?? undefined,
+                                  }
+                                }
+
+                                // For captureException only. Never use these IDs to authorize anything.
+                                export function posthogExceptionContext(request: Request) {
+                                  const url = new URL(request.url)
+                                  // Client navigations request /page.data, and /_root.data (React Router 7) or /_.data (React Router 8)
+                                  // for the home page: report the page
+                                  const path = url.pathname.replace(/\\/_(root)?\\.data$/, '/').replace(/\\.data$/, '')
+                                  const { distinctId, ...properties } = visitor(request)
+                                  return {
+                                    distinctId,
+                                    properties: { ...properties, $current_url: url.origin + path, $request_method: request.method, $request_path: path },
                                   }
                                 }
                             `,
                         },
                     ]}
                 />
+                <Markdown>
+                    {dedent`
+                        The distinct ID of an anonymous visitor is included: exceptions never create person profiles, so server errors group with the same visitor's browser errors. If visitors can opt out of tracking, set \`opt_out_capturing_persistence_type: 'cookie'\` in \`posthog.init\`, so the server can see the choice. posthog-js stores it in localStorage by default.
+                    `}
+                </Markdown>
             </>
         ),
     }
@@ -192,9 +208,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
             <>
                 <Markdown>
                     {dedent`
-                        Export \`handleError\` from \`app/entry.server.tsx\` (run \`npx react-router reveal entry.server\` if your app does not have this file yet). React Router calls it for errors in loaders, actions, middleware, resource routes and server rendering, on both page loads and data requests. It also calls it for requests the browser cancelled and for the 404 and 405 responses it creates itself: skip those.
-
-                        Errors thrown while streaming, after the first part of the page was sent, skip \`handleError\` and reach React's \`onError\` in the same file instead. Capture there too, once \`shellRendered\` is set:
+                        Export \`handleError\` from \`app/entry.server.tsx\` (run \`npx react-router reveal entry.server\` if your app does not have this file yet). React Router calls it for errors in loaders, actions, middleware, resource routes and server rendering, on both page loads and data requests. It also calls it for requests the browser cancelled and for the 404 and 405 responses it creates itself: skip those. Exporting \`handleError\` replaces React Router's own error log, so log the error yourself. Add to \`app/entry.server.tsx\`:
                     `}
                 </Markdown>
                 <CodeBlock
@@ -205,31 +219,83 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                             code: dedent`
                                 import { isRouteErrorResponse, type HandleErrorFunction } from 'react-router'
                                 import { posthog } from './lib/posthog.server'
-                                import { posthogRequestContext } from './lib/posthog-request.server'
+                                import { posthogExceptionContext } from './lib/posthog-request.server'
 
                                 export const handleError: HandleErrorFunction = (error, { request }) => {
-                                  if (request.signal.aborted || isRouteErrorResponse(error)) return
-                                  posthog.captureException(error, posthogRequestContext(request))
+                                  if (request.signal.aborted) return
                                   console.error(error)
+                                  if (isRouteErrorResponse(error)) return
+                                  posthog.captureException(error, posthogExceptionContext(request))
                                 }
-
-                                // In handleRequest, in the renderToPipeableStream options:
-                                //   onError(error) {
-                                //     responseStatusCode = 500
-                                //     if (shellRendered && !request.signal.aborted) {
-                                //       posthog.captureException(error, posthogRequestContext(request))
-                                //       console.error(error)
-                                //     }
-                                //   },
                             `,
                         },
                     ]}
                 />
                 <Markdown>
                     {dedent`
-                        In React Router 7, \`handleError\` works without the \`v8_middleware\` flag. If you deploy to a serverless or edge runtime, use \`posthog-node/edge\` there and \`await posthog.flush()\` before the request ends.
+                        Errors thrown while streaming, after the first part of the page was sent, skip \`handleError\` and reach React's \`onError\` in the same file instead. Capture them there too, in the \`renderToPipeableStream\` options (\`renderToReadableStream\` on edge runtimes):
                     `}
                 </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/entry.server.tsx',
+                            code: dedent`
+                                onError(error: unknown) {
+                                  responseStatusCode = 500
+                                  if (shellRendered && !request.signal.aborted) {
+                                    posthog.captureException(error, posthogExceptionContext(request))
+                                    console.error(error)
+                                  }
+                                },
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        React Router does not call \`handleError\` for a promise that a loader returns and the page renders with \`<Await>\`, and the browser receives it as "Unexpected Server Error", which the browser step skips. Capture those rejections in the loader, and give the \`<Await>\` an \`errorElement\`: without one, a rejection during a page load also reaches the stream \`onError\` and arrives twice.
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/routes/product.tsx',
+                            code: dedent`
+                                import { posthog } from '~/lib/posthog.server'
+                                import { posthogExceptionContext } from '~/lib/posthog-request.server'
+                                import type { Route } from './+types/product'
+
+                                export async function loader({ params, request }: Route.LoaderArgs) {
+                                  const reviews = getReviews(params.id).catch((error) => {
+                                    posthog.captureException(error, posthogExceptionContext(request))
+                                    throw error
+                                  })
+                                  return { reviews }
+                                }
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        These snippets use the \`posthog-node\` 6 call form. On \`posthog-node\` 5, pass the distinct ID and the properties separately:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'posthog-node 5',
+                            code: dedent`
+                                const { distinctId, properties } = posthogExceptionContext(request)
+                                posthog.captureException(error, distinctId, properties)
+                            `,
+                        },
+                    ]}
+                />
             </>
         ),
     }
@@ -240,7 +306,9 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
         content: (
             <Markdown>
                 {dedent`
-                    Throw an error from a loader, run \`npm run build\`, and start the production server with the server variables set. \`npm start\` runs \`react-router-serve\`, which does not read \`.env\`, so load it yourself, for example with \`node --env-file=.env ./node_modules/@react-router/serve/dist/cli.js ./build/server/index.js\`. Open the page: one exception should arrive from \`posthog-node\` with the page's URL and your browser's session, and none from the browser for the same error.
+                    Throw an error from a loader, then run \`npm run build\` and \`npm start\`. Load another page first, so posthog-js sets its cookie, then open the failing page, and also navigate to it from another page. Each should send one exception from \`posthog-node\` with the page's URL and your browser's session, and none from the browser for the same error.
+
+                    Test with a production build: in \`react-router dev\`, React Router sends the browser the original server error, so each error arrives twice.
 
                     [Check for exceptions in PostHog](https://app.posthog.com/activity/events)
                 `}
