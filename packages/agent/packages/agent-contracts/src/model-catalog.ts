@@ -43,6 +43,7 @@ export interface ListedModel {
   reasoning_efforts?: string[];
   input_per_mtok?: number;
   output_per_mtok?: number;
+  allowed?: boolean;
 }
 
 export interface ModelCost {

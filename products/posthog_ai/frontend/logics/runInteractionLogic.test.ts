@@ -1448,6 +1448,28 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('also check the result')
     })
 
+    it('resumes a finished run on its own harness when the model list does not describe its model', async () => {
+        runInteractionLogic({
+            taskId: TASK_ID,
+            runId: RUN_ID,
+            onRunStarted,
+            currentModel: 'gpt-5.5-codex',
+            currentRuntimeAdapter: 'codex',
+            currentEffort: 'xhigh',
+        })
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ runtime_adapter: 'codex', model: 'gpt-5.5-codex', reasoning_effort: 'xhigh' }),
+            expect.anything()
+        )
+    })
+
     it.each(['failure', 'missing run'])(
         'restores the submitted message ahead of a newer draft after %s',
         async (outcome) => {

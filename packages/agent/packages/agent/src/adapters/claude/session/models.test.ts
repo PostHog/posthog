@@ -192,6 +192,8 @@ describe("resolveEffortForModel", () => {
     ["claude-haiku-4-5", undefined, undefined],
     ["moonshotai/kimi-k3", undefined, undefined],
     ["@cf/zai-org/glm-5.2", undefined, undefined],
+    ["claude-opus-9", undefined, "high"],
+    ["zai-org/glm-9", undefined, undefined],
     // An explicit choice is always honored, including on adaptive-only models.
     ["claude-opus-4-8", "low", "low"],
     ["claude-fable-5", "max", "max"],

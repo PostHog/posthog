@@ -58,9 +58,11 @@ export function getEffortsForModel(
 // model the catalogue hasn't described — the fallback lineup is Claude-only.
 export function getRuntimeAdapterForModel(
     catalogue: ModelChoiceApi[],
-    model: string | null | undefined
+    model: string | null | undefined,
+    runningAdapter?: string | null
 ): RuntimeAdapterEnumApi {
-    return catalogueEntry(catalogue, model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
+    const running = Object.values(RuntimeAdapterEnumApi).find((adapter) => adapter === runningAdapter)
+    return catalogueEntry(catalogue, model)?.runtime_adapter ?? running ?? RuntimeAdapterEnumApi.Claude
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
@@ -223,18 +225,26 @@ export function buildServerResolvedRunCreateRequest(
  * differently — so which runtime a model belongs to has to be decided in one place rather than assumed at each
  * call site. Everything else the caller needs (branch, resume id, message) rides along in `rest`.
  */
+export interface RunningSelection {
+    adapter?: string | null
+    effort?: string | null
+}
+
 export function buildRunCreateRequest(
     catalogue: ModelChoiceApi[],
     model: string,
     reasoningEffort: ReasoningEffortEnumApi,
     permissionMode: PermissionMode,
-    rest: Partial<TaskRunCreateRequestSchemaApi>
+    rest: Partial<TaskRunCreateRequestSchemaApi>,
+    running: RunningSelection = {}
 ): TaskRunCreateRequestSchemaApi {
     // A model with no effort control rejects any effort at all — `get_reasoning_effort_error` answers
     // "Supported values: none" — so the field is left off rather than sent with a display fallback.
-    const effort = getEffortsForModel(catalogue, model).length ? reasoningEffort : undefined
+    const entry = catalogueEntry(catalogue, model)
+    const runningEffort = Object.values(ReasoningEffortEnumApi).find((candidate) => candidate === running.effort)
+    const effort = entry ? (entry.supported_efforts.length ? reasoningEffort : undefined) : runningEffort
 
-    if (getRuntimeAdapterForModel(catalogue, model) === CodexRuntimeAdapterEnumApi.Codex) {
+    if (getRuntimeAdapterForModel(catalogue, model, running.adapter) === CodexRuntimeAdapterEnumApi.Codex) {
         return {
             ...rest,
             runtime_adapter: CodexRuntimeAdapterEnumApi.Codex,

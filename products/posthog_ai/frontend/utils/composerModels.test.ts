@@ -161,18 +161,23 @@ describe('composerModels', () => {
         expect(getModelCost(priced, model)?.multiplier ?? null).toBe(expected)
     })
 
-    // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
-    // sendable request rather than an undefined adapter.
-    it('falls back to the claude adapter for an unknown model', () => {
+    it.each([
+        ['some-unreleased-model', {}, 'claude', undefined],
+        ['some-unreleased-model', { adapter: 'codex', effort: 'max' }, 'codex', 'max'],
+        ['some-unreleased-model', { adapter: 'codex' }, 'codex', undefined],
+        ['some-unreleased-model', { adapter: 'not-a-runtime', effort: 'not-an-effort' }, 'claude', undefined],
+        ['gpt-5.6-luna', { adapter: 'claude', effort: 'max' }, 'codex', 'high'],
+    ])('builds a request for %s with running selection %j on %s at %s', (model, running, adapter, effort) => {
         const request = buildRunCreateRequest(
             CATALOGUE,
-            'some-unreleased-model',
+            model,
             ReasoningEffortEnumApi.High,
             InitialPermissionModeEnumApi.Auto as PermissionMode,
-            {}
+            {},
+            running
         )
 
-        expect(request).toMatchObject({ runtime_adapter: 'claude' })
+        expect(request).toMatchObject({ runtime_adapter: adapter, reasoning_effort: effort })
     })
 
     // Some models take no reasoning effort at all, and the backend rejects any value for them

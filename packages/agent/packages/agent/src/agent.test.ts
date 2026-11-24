@@ -68,6 +68,58 @@ describe("Agent", () => {
     );
   });
 
+  it.each([
+    ["an offered version", "gpt-6.2-sol", true, "gpt-6.2-sol"],
+    [
+      "an older version the gateway still serves",
+      "gpt-6-sol",
+      true,
+      "gpt-6-sol",
+    ],
+    ["an older version its plan locks", "gpt-6-sol", false, "gpt-6.2-sol"],
+    ["a model the gateway no longer lists", "gpt-9-gone", true, "gpt-6.2-sol"],
+  ])(
+    "starts a saved Codex session on %s",
+    async (_case, savedModel, olderAllowed, expectedModel) => {
+      const version = (id: string, released: string, allowed = true) => ({
+        id,
+        owned_by: "openai",
+        family: "gpt-sol",
+        release_date: released,
+        allowed,
+      });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          data: [
+            version("gpt-6-sol", "2026-09-22", olderAllowed),
+            version("gpt-6.1-sol", "2026-09-29"),
+            version("gpt-6.2-sol", "2026-11-17"),
+          ],
+        }),
+      });
+      const agent = new Agent({
+        posthog: {
+          apiUrl: "https://us.posthog.com",
+          getApiKey: vi.fn().mockResolvedValue(`pha_${_case}`),
+          projectId: 1,
+        },
+        skipLogPersistence: true,
+      });
+
+      await agent.run("task-1", "run-1", {
+        adapter: "codex",
+        model: savedModel,
+        repositoryPath: "/tmp/repo",
+      });
+
+      const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+        [AcpConnectionConfig],
+      ];
+      expect(config.codexOptions?.model).toBe(expectedModel);
+    },
+  );
+
   it("uses machine authentication for a ChatGPT subscription", async () => {
     const agent = new Agent({ skipLogPersistence: true });
 
