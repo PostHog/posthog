@@ -134,6 +134,8 @@ def _shape_refusal(runner: TrendsQueryRunner) -> str | None:
         return "compare"
     if query.samplingFactor is not None and query.samplingFactor != 1:
         return "sampling"
+    if query.modifiers is not None and query.modifiers.model_dump(exclude_none=True):
+        return "modifiers"
     if query.conversionGoal is not None:
         return "conversion_goal"
     if query.marketingAnalyticsCostFallback is not None:
