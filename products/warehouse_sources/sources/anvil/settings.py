@@ -183,6 +183,77 @@ eid
 createdAt
 """
 
+# User `preferences`, `onboarding`, and `extra` are free-form JSON, so memberships keep only the
+# user's identity and account fields.
+_ORGANIZATION_USER_ITEM_FIELDS = """
+role
+externalId
+user {
+eid
+email
+name
+firstName
+lastName
+role
+verifiedEmail
+createdAt
+updatedAt
+}
+createdAt
+updatedAt
+"""
+
+# Template `config` and `signers` are free-form JSON that can hold draft signer names and
+# emails, so templates keep their flags and the ids of the casts and packets they link.
+_ETCH_TEMPLATE_ITEM_FIELDS = """
+eid
+name
+isFree
+isRepeatable
+casts {
+eid
+}
+etchPackets {
+eid
+}
+createdAt
+updatedAt
+"""
+
+# Forge `config`, `fieldInfo`, and `examplePayload` are large webform definitions and sample
+# answers, so forges keep their version and publish state and the workflow they belong to.
+_FORGE_ITEM_FIELDS = """
+eid
+name
+slug
+isRequired
+versionNumber
+versionId
+latestDraftVersionNumber
+publishedNumber
+publishedAt
+hasUnpublishedChanges
+hasBeenPublished
+weld {
+eid
+}
+createdAt
+updatedAt
+archivedAt
+"""
+
+_ORGANIZATION_USER_INVITE_ITEM_FIELDS = """
+eid
+role
+externalId
+name
+email
+acceptedAt
+revokedAt
+createdAt
+updatedAt
+"""
+
 
 @dataclass(frozen=True)
 class AnvilNestedList:
@@ -207,6 +278,15 @@ class AnvilEndpointConfig:
     fan_out_weld_datas: bool = False
     # Child lists read from inside parent pages; walked in order when there is more than one.
     nested_lists: tuple[AnvilNestedList, ...] = ()
+    # Read the unpaginated `organizationUsers` list of every organization in the single
+    # organizations query.
+    organization_users: bool = False
+    # Unpaginated list field on Organization (`forges`, `organizationUserInvites`), read for
+    # every organization in the single organizations query.
+    organization_list_field: str | None = None
+    # List field on Organization that takes `limit` and `offset` but returns a bare list with no
+    # page metadata (`etchTemplates`).
+    organization_offset_list_field: str | None = None
     # Anvil eids are 20-character object identifiers unique across their system, so a row's
     # own eid is a table-wide key even for fan-out children.
     primary_keys: list[str] = field(default_factory=lambda: ["eid"])
@@ -221,6 +301,18 @@ ANVIL_ENDPOINTS: dict[str, AnvilEndpointConfig] = {
         partition_key=None,
         description="The Anvil organizations your API key's user belongs to",
     ),
+    "organization_users": AnvilEndpointConfig(
+        item_fields=_ORGANIZATION_USER_ITEM_FIELDS,
+        organization_users=True,
+        # A membership has no eid of its own; a user holds at most one membership per organization.
+        primary_keys=["organizationEid", "userEid"],
+        description="Members of each Anvil organization with their role and the dates they joined",
+    ),
+    "organization_user_invites": AnvilEndpointConfig(
+        item_fields=_ORGANIZATION_USER_INVITE_ITEM_FIELDS,
+        organization_list_field="organizationUserInvites",
+        description="Invitations to join each Anvil organization, with their role and when they were accepted or revoked",
+    ),
     "casts": AnvilEndpointConfig(
         item_fields=_CAST_ITEM_FIELDS,
         organization_page_field="casts",
@@ -230,6 +322,11 @@ ANVIL_ENDPOINTS: dict[str, AnvilEndpointConfig] = {
         item_fields=_WELD_ITEM_FIELDS,
         organization_page_field="welds",
         description="Workflow definitions, fetched per organization",
+    ),
+    "forges": AnvilEndpointConfig(
+        item_fields=_FORGE_ITEM_FIELDS,
+        organization_list_field="forges",
+        description="Webforms with their version and publish state, fetched per organization",
     ),
     "weld_datas": AnvilEndpointConfig(
         item_fields=_WELD_DATA_ITEM_FIELDS,
@@ -243,6 +340,11 @@ ANVIL_ENDPOINTS: dict[str, AnvilEndpointConfig] = {
         item_fields=_ETCH_PACKET_ITEM_FIELDS,
         organization_page_field="etchPackets",
         description="E-signature packets with their signer status, fetched per organization",
+    ),
+    "etch_templates": AnvilEndpointConfig(
+        item_fields=_ETCH_TEMPLATE_ITEM_FIELDS,
+        organization_offset_list_field="etchTemplates",
+        description="E-signature templates that packets are created from, fetched per organization",
     ),
     "submissions": AnvilEndpointConfig(
         item_fields=_SUBMISSION_ITEM_FIELDS,

@@ -9,10 +9,11 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 
 import { ContentAutopilotKeywordModifierTerms } from './ContentAutopilotKeywordModifierTerms'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
-import { KEYWORDS_DAYS, type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
+import { type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
+import { windowRange } from './utils'
 
 export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
-    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords } =
+    const { modifiers, modifiersLoading, modifiersError, modifierKeyword, keywords, filters } =
         useValues(contentAutopilotKeywordsLogic)
     const { loadModifiers, setModifierKeyword } = useActions(contentAutopilotKeywordsLogic)
 
@@ -53,7 +54,7 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                 ) : modifiers.modifiers.length === 0 ? (
                     <p className="m-0 text-muted" data-attr="content-autopilot-keywords-modifiers-empty">
                         {modifiers.answers === 0
-                            ? `No answers ${modifierKeyword ? `searched for "${modifierKeyword}" ` : ''}in the last ${KEYWORDS_DAYS} days.`
+                            ? `No answers ${modifierKeyword ? `searched for "${modifierKeyword}" ` : ''}${windowRange(modifiers)}.`
                             : 'The engines searched only for words your prompts already contain. Only some engines report the searches they run.'}
                     </p>
                 ) : (
@@ -111,13 +112,16 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 <ContentAutopilotKeywordModifierTerms
                                     modifiers={group.modifiers}
                                     baselineCitedRate={modifiers.baseline_cited_rate}
+                                    dateFrom={modifiers.window_from}
+                                    dateTo={modifiers.window_to}
+                                    branded={filters.branded}
                                 />
                             ),
                         }}
                         footer={
                             <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(modifiers.answers, 'answer')} in the last {KEYWORDS_DAYS} days. Your
-                                site is cited in{' '}
+                                Over {pluralize(modifiers.answers, 'answer')} {windowRange(modifiers)}. Your site is
+                                cited in{' '}
                                 {modifiers.baseline_cited_rate === null
                                     ? '-'
                                     : percentage(modifiers.baseline_cited_rate, 0)}{' '}

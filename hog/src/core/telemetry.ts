@@ -4,24 +4,36 @@ import { z } from 'zod'
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { INGESTION_HOSTS } from '@/posthog/host'
+import { detectInstallMethod, type InstallKind } from '@/updates/install-method'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
 import { detectCi, isRunningInCI } from './ci'
-import { parseJsonOrUndefined } from './json'
+import { JsonObject, parseJsonOrUndefined } from './json'
 import type { Runtime } from './runtime'
 import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = INGESTION_HOSTS.us
+const TELEMETRY_BATCH_URL = new URL('/batch/', INGESTION_HOSTS.us)
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
-const SEND_TIMEOUT_MS = 5000
+export const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
+
+export const TelemetryBatch = z.object({ api_key: z.string(), batch: z.array(JsonObject).min(1) })
+
+export function postBatch(fetch: (url: URL, init: RequestInit) => Promise<Response>, body: string): Promise<Response> {
+    return fetch(TELEMETRY_BATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    })
+}
 
 interface QueuedEvent {
     event: string
@@ -86,6 +98,7 @@ export class Telemetry {
     private enabled: boolean
     private loggedIn: AccessKey | undefined
     readonly invocationId = randomUUID()
+    private installKind: Promise<InstallKind | null> | undefined
     commandName: string | undefined
     credentials: (() => Promise<Credentials>) | undefined
 
@@ -138,6 +151,19 @@ export class Telemetry {
             distinct_id: sender.distinctId,
             properties: { ...sender.properties, ...properties },
         }))
+        // Attempt to send telemetry in the background, except if:
+        //   1. we're in debug mode, where we need to print the result
+        //   2. we're in CI where we can just take a bit longer to avoid the job being killed
+        //
+        // If attempting to send it in the background fails then let's just send it inline
+        if (!debug && !isRunningInCI(this.runtime.env)) {
+            const backgroundJobCreated = await this.runtime.sendTelemetryInBackground?.(this.body(batch))
+
+            if (backgroundJobCreated) {
+                return
+            }
+        }
+
         await this.post(batch, debug)
     }
 
@@ -157,7 +183,12 @@ export class Telemetry {
                   distinctId: randomUUID(),
                   installId: '',
                   identified: false,
-                  properties: { ...this.commonProperties(), invocation_id: undefined, $process_person_profile: false },
+                  properties: {
+                      ...this.commonProperties(),
+                      install_method: await this.installMethod(),
+                      invocation_id: undefined,
+                      $process_person_profile: false,
+                  },
               }
         const sent = await this.post(
             [
@@ -195,6 +226,7 @@ export class Telemetry {
             identified: identity?.distinctId !== undefined,
             properties: {
                 ...this.commonProperties(),
+                install_method: await this.installMethod(),
                 install_id: installId,
                 // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
                 env_id: key && isCloudHost(key.host) ? key.projectId : null,
@@ -208,12 +240,7 @@ export class Telemetry {
 
     private async post(batch: BatchEvent[], debug: boolean): Promise<boolean> {
         try {
-            const response = await this.runtime.fetch(new URL('/batch/', TELEMETRY_HOST), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: this.runtime.telemetryToken, batch }),
-                signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-            })
+            const response = await postBatch(this.runtime.fetch, this.body(batch))
             if (debug) {
                 this.runtime.writeStderr(`[debug] telemetry: sent ${batch.length} events, ${response.status}\n`)
             }
@@ -226,6 +253,10 @@ export class Telemetry {
             }
             return false
         }
+    }
+
+    private body(batch: BatchEvent[]): string {
+        return JSON.stringify({ api_key: this.runtime.telemetryToken, batch })
     }
 
     private commonProperties(): Record<string, unknown> {
@@ -307,6 +338,15 @@ export class Telemetry {
             organization: project?.organization ?? user?.organization?.id,
             project: project?.uuid,
         }
+    }
+
+    // Only the kind leaves the machine: the path can hold a user name or a project's folder.
+    private installMethod(): Promise<InstallKind | null> {
+        this.installKind ??= detectInstallMethod(this.runtime).then(
+            (method) => method.kind,
+            () => null
+        )
+        return this.installKind
     }
 
     // A random ID kept next to the credentials, so usage counts machines instead of runs. It says

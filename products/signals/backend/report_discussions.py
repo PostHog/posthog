@@ -18,8 +18,26 @@ scout note: the task's creator must pass `user_can_steer_scouts`. Every other ro
 status, and task id, with a null summary. Nothing records who wrote a summary, and `set_summary`
 accepts any member on a null-channel discussion task, the usual inbox case. With default access that
 member can leave a scout note anyway, and the scout reads a summary as evidence, never as
-instructions. The question itself is never returned: the discussion note already carries it behind
+instructions. An inbox question is never returned: the discussion note already carries it behind
 the full steering gate, including the credential scopes this read cannot recover.
+
+A reply in a report's Slack thread starts a discussion too (`record_slack_report_discussion`), and
+no note carries its question. The tasks facade returns such a task only when its thread is in a
+public Slack channel, never a private channel or a direct message. Its summary follows the same
+gate. Other people in the thread can send the task turns, and the thread reaches its agent as
+context, but everyone who can shape the summary could already post in the same public thread.
+Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` action row that the
+Slack flow wrote when it linked the task, never from the task description, which a `task:write`
+credential can rewrite. It is returned under the same gate. A Slack user is verified as a PostHog
+user, and has no credential scopes to check.
+
+`started_by` names the task's creator: the person who opened Ask AI, or whose Slack message started
+the task, never the others in a thread. It says whose question a discussion was, not who wrote its
+summary, since any member can rewrite an inbox summary, so the tool and the prompt never let a scout
+attribute an outcome to it. It follows the row, not the steering gate, because it names a member the
+scout can already list with `scout-members-list`. It is null for a task with no creator, and for a
+creator who no longer has access to the project, so a scout never learns the name of someone it could
+not route a report to. It carries no email: the user UUID matches a member row.
 """
 
 from __future__ import annotations
@@ -36,7 +54,7 @@ from posthog.models import Team, User
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
 from products.signals.backend.dismissal_notes import user_can_steer_scouts
-from products.signals.backend.models import SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutRun
 from products.tasks.backend.facade.api import TaskOriginProduct
 from products.tasks.backend.facade.team_task_summaries import list_team_task_summaries
 
@@ -52,6 +70,7 @@ MAX_RUNS_SCANNED = 1_000
 
 _MAX_TITLE_CHARS = 200
 _MAX_SUMMARY_CHARS = 4_000
+_MAX_QUESTION_CHARS = 4_000
 
 
 class ReportInvolvement(models.TextChoices):
@@ -59,16 +78,31 @@ class ReportInvolvement(models.TextChoices):
     EDITED = "edited"
 
 
+class DiscussionSource(models.TextChoices):
+    INBOX = "inbox"
+    SLACK = "slack"
+
+
+@frozen
+class DiscussionStarter:
+    user_uuid: str
+    first_name: str
+    last_name: str
+
+
 @frozen
 class ReportDiscussion:
     report_id: str
     report_title: str
     involvement: ReportInvolvement
+    source: DiscussionSource
     task_id: str
     created_at: datetime
     active_at: datetime
     status: str | None
     task_summary: str | None
+    question: str | None
+    started_by: DiscussionStarter | None
 
 
 def list_report_discussions(
@@ -111,26 +145,41 @@ def list_report_discussions(
     tasks = list_team_task_summaries(
         team_id=team.id,
         task_ids=list(report_by_task),
-        origin_products=[TaskOriginProduct.SIGNAL_REPORT],
+        origin_products=[TaskOriginProduct.SIGNAL_REPORT, TaskOriginProduct.SLACK],
         active_after=active_after,
         limit=limit,
     )
-    steering_creators = _creators_who_may_steer(team, (task.created_by_id for task in tasks if task.summary))
+    slack_questions = _slack_questions(
+        team_id=team.id,
+        report_ids=[report_by_task[task.task_id] for task in tasks if task.origin_product == TaskOriginProduct.SLACK],
+    )
+    steering_creators = _creators_who_may_steer(
+        team,
+        (task.created_by_id for task in tasks if task.summary or (task.created_by_id, task.task_id) in slack_questions),
+    )
+    starters = _current_members(team, (task.created_by_id for task in tasks))
 
     discussions: list[ReportDiscussion] = []
     for task in tasks:
         discussion_report_id = report_by_task[task.task_id]
-        summary = task.summary if task.created_by_id in steering_creators else None
+        may_steer = task.created_by_id in steering_creators
+        summary = task.summary if may_steer else None
+        question = slack_questions.get((task.created_by_id, task.task_id)) if may_steer else None
         discussions.append(
             ReportDiscussion(
                 report_id=discussion_report_id,
                 report_title=report_titles[discussion_report_id][:_MAX_TITLE_CHARS],
                 involvement=involvement[discussion_report_id],
+                source=DiscussionSource.SLACK
+                if task.origin_product == TaskOriginProduct.SLACK
+                else DiscussionSource.INBOX,
                 task_id=task.task_id,
                 created_at=task.created_at,
                 active_at=task.active_at,
                 status=task.run_status,
                 task_summary=summary[:_MAX_SUMMARY_CHARS] if summary else None,
+                question=question[:_MAX_QUESTION_CHARS] if question else None,
+                started_by=starters.get(task.created_by_id) if task.created_by_id is not None else None,
             )
         )
     return discussions
@@ -156,9 +205,45 @@ def _touched_reports(*, team_id: int, skill_name: str, report_id: str | None) ->
     return involvement
 
 
+def _slack_questions(*, team_id: int, report_ids: list[str]) -> dict[tuple[int | None, str], str]:
+    """The opening Slack message of each discussion task on these reports, keyed by (creator, task id).
+
+    The action row keeps one entry per person and report, so an earlier task by the same person on the
+    same report has no question here.
+    """
+    if not report_ids:
+        return {}
+    rows = (
+        SignalReportAction.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=SignalReportAction.ActionType.SLACK_DISCUSSION)
+        .values_list("user_id", "metadata")
+    )
+    return {
+        (user_id, str(metadata["task_id"])): question
+        for user_id, metadata in rows
+        if isinstance(metadata, dict)
+        and metadata.get("task_id")
+        and isinstance(question := metadata.get("question"), str)
+        and question.strip()
+    }
+
+
 def _creators_who_may_steer(team: Team, creator_ids: Iterable[int | None]) -> set[int]:
     """The task creators who could have left a scout note by hand on this project."""
     ids = {creator_id for creator_id in creator_ids if creator_id is not None}
     if not ids:
         return set()
     return {user.id for user in User.objects.filter(id__in=ids) if user_can_steer_scouts(user, team)}
+
+
+def _current_members(team: Team, user_ids: Iterable[int | None]) -> dict[int, DiscussionStarter]:
+    """The users who still have access to this project, keyed by user id."""
+    ids = {user_id for user_id in user_ids if user_id is not None}
+    if not ids:
+        return {}
+    return {
+        user_id: DiscussionStarter(user_uuid=str(uuid), first_name=first_name, last_name=last_name)
+        for user_id, uuid, first_name, last_name in team.all_users_with_access()
+        .filter(id__in=ids)
+        .values_list("id", "uuid", "first_name", "last_name")
+    }

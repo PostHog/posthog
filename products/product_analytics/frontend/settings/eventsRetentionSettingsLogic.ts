@@ -142,13 +142,13 @@ export const eventsRetentionSettingsLogic = kea<eventsRetentionSettingsLogicType
         updateProjectRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
             posthog.capture('events retention updated', { level: 'project' })
-            dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
+            dataRetentionBannerLogic.findMounted()?.actions.loadRetention()
         },
         updateOrganizationRetentionSuccess: () => {
             lemonToast.success('Events retention updated')
             posthog.capture('events retention updated', { level: 'organization' })
             actions.loadProjectRetention()
-            dataRetentionBannerLogic.findMounted()?.actions.loadRetentionMonths()
+            dataRetentionBannerLogic.findMounted()?.actions.loadRetention()
         },
     })),
     afterMount(({ actions }) => {

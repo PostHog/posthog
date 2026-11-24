@@ -173,7 +173,10 @@ export const ExperimentExposureQueryResponseSchema = z.object({
 })
 
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema> &
-    Pick<Schemas.ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+    Pick<
+        Schemas.ExperimentExposureQueryResponse,
+        'health_findings' | 'health_checks' | 'sample_ratio_mismatch' | 'bias_risk' | 'warnings'
+    >
 
 type HealthFinding = Schemas.ExperimentHealthFinding | Schemas.ExperimentExposureHealthFinding
 type HealthCheck = Schemas.ExperimentHealthCheckResult | Schemas.ExperimentExposureHealthCheck
@@ -185,11 +188,20 @@ export type ExperimentHealthDetails = {
     not_run: string[]
 }
 
-type ExposureCounts = Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+type ExposureCounts = Pick<
+    ExperimentExposureQueryResponse,
+    'total_exposures' | 'sample_ratio_mismatch' | 'bias_risk' | 'timeseries' | 'date_range' | 'warnings'
+>
 
 export type ExperimentHealthOverview = {
     summary: string
     findings: Pick<HealthFinding, 'severity' | 'code' | 'title'>[]
+    details: string
+}
+
+export type ExperimentPreLaunchHealth = {
+    summary: string
+    findings: HealthFinding[]
     details: string
 }
 
@@ -475,12 +487,27 @@ export function overviewHealth(details: ExperimentHealthDetails): ExperimentHeal
     }
 }
 
+// Unlike the overview, this keeps each finding in full. Some checks run only on a draft, so experiment-health-get on the
+// launched experiment can't return those findings again.
+export function preLaunchHealth(details: ExperimentHealthDetails): ExperimentPreLaunchHealth {
+    return {
+        summary: summaryText(details),
+        findings: details.findings,
+        details:
+            "These are the configuration checks of the draft, read just before the launch. A finding does not stop the launch. Tell the user each finding and its fix. A fix that says what to do before the launch is now a step to take on the running experiment. If that step changes the feature flag, tell the user to also move the experiment's start date to after the change, because users exposed before it can switch variants.",
+    }
+}
+
+// The query response also carries its cache and scan metadata, which an agent can't act on.
 function exposureCounts({
-    health_findings: _findings,
-    health_checks: _checks,
-    ...counts
+    total_exposures,
+    sample_ratio_mismatch,
+    bias_risk,
+    timeseries,
+    date_range,
+    warnings,
 }: ExperimentExposureQueryResponse): ExposureCounts {
-    return counts
+    return { total_exposures, sample_ratio_mismatch, bias_risk, timeseries, date_range, warnings }
 }
 
 export function transformExperimentHealth(

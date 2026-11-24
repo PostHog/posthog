@@ -96,6 +96,10 @@ def test_region_is_a_connection_host_field() -> None:
         ("GetInsights", "POST", "/insights/get"),
         ("GetRemediationsV2", "POST", "/GetRemediationsV2"),
         ("ListExposuresByRemediationV2", "POST", "/ListExposuresByRemediationV2"),
+        ("DescribeProductsV2", "GET", "/productsV2"),
+        ("GetSoftwareV2", "POST", "/softwarev2"),
+        ("GetFindingsTrendsV2", "POST", "/findingsTrendsv2"),
+        ("GetResourcesTrendsV2", "POST", "/resourcesTrendsv2"),
     ],
 )
 def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
@@ -452,7 +456,7 @@ def test_standards_controls_resume_skips_finished_subscriptions(next_token: str 
 
 
 @pytest.mark.parametrize(
-    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2"]
+    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2", "products_v2"]
 )
 def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
     endpoint_config = ENDPOINTS[endpoint]
@@ -715,3 +719,113 @@ def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str 
     assert (row["product_uid"], row["finding_uid"]) == (PRODUCT, "example-finding")
     assert row["modified_time"] == dt.datetime(2025, 5, 2, tzinfo=dt.UTC)
     assert row["finding_info"] == finding["finding_info"]
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,expected",
+    [
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageType": "library", "ResourceCount": 3}]},
+            {"package_name": "openssl", "package_version": "", "package_type": "library", "resource_count": 3},
+        ),
+        (
+            "software_v2",
+            {"Software": [{"PackageName": "openssl", "PackageVersion": "3.0.2", "PackageType": "library"}]},
+            {"package_name": "openssl", "package_version": "3.0.2", "package_type": "library"},
+        ),
+        (
+            "findings_trends_v2",
+            {
+                "Granularity": "Daily",
+                "TrendsMetrics": [
+                    {
+                        "Timestamp": "2025-05-01T00:00:00Z",
+                        "TrendsValues": {"SeverityTrends": {"Critical": 2, "High": 5, "Unknown": 0}},
+                    }
+                ],
+            },
+            {
+                "granularity": "Daily",
+                "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC),
+                "critical": 2,
+                "high": 5,
+                "unknown": 0,
+            },
+        ),
+        (
+            "resources_trends_v2",
+            {
+                "Granularity": "Weekly",
+                "TrendsMetrics": [
+                    {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {"ResourcesCount": {"AllResources": 40}}}
+                ],
+            },
+            {"granularity": "Weekly", "timestamp": dt.datetime(2025, 5, 1, tzinfo=dt.UTC), "all_resources": 40},
+        ),
+        (
+            "products_v2",
+            {"ProductsV2": [{"ProductV2Name": "Example scanner", "CompanyName": "Example", "Categories": ["CVE"]}]},
+            {"product_v2_name": "Example scanner", "company_name": "Example", "categories": ["CVE"]},
+        ),
+    ],
+)
+def test_v2_aggregate_rows_fill_their_primary_keys(
+    endpoint: str, body: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json=body)])
+    assert result.raised is None
+    assert result.rows == [expected]
+    assert all(expected.get(key) is not None for key in ENDPOINTS[endpoint].primary_keys)
+
+
+@pytest.mark.parametrize("endpoint", ["findings_trends_v2", "resources_trends_v2"])
+def test_trends_keep_their_window_across_a_resume(endpoint: str) -> None:
+    metric = {"Timestamp": "2025-05-01T00:00:00Z", "TrendsValues": {}}
+    first_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [metric], "NextToken": "page-2"})
+    failure = ScriptedResponse(status=400, json={}, headers={"x-amzn-ErrorType": "InternalException"})
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        first = driver().run(endpoint, [first_page, failure])
+    assert isinstance(first.raised, AwsSecurityHubError)
+    window = ("2025-03-03T12:00:00Z", "2025-06-01T12:00:00Z")
+    assert [(r.json()["StartTime"], r.json()["EndTime"]) for r in first.requests] == [window, window]
+    assert first.requests[1].json()["NextToken"] == "page-2"
+    checkpoint = first.committed_states[-1]
+
+    last_page = ScriptedResponse(json={"Granularity": "Daily", "TrendsMetrics": [], "NextToken": None})
+    with time_machine.travel(dt.datetime(2025, 6, 1, 14, tzinfo=dt.UTC), tick=False):
+        resumed = driver().run(endpoint, [last_page], resume_state=checkpoint)
+    assert resumed.raised is None
+    payload = resumed.requests[0].json()
+    assert (payload["StartTime"], payload["EndTime"], payload["NextToken"]) == (*window, "page-2")
+    assert resumed.response is not None and resumed.response.sort_mode is None
+
+    with time_machine.travel(dt.datetime(2025, 6, 1, 12, tzinfo=dt.UTC), tick=False):
+        with scripted_network([last_page]) as network:
+            assert validate_credentials(config(), VERSION, endpoint) == (True, None)
+    probe = network.requests_log[0].json()
+    assert (probe["StartTime"], probe["EndTime"]) == ("2025-05-31T12:00:00Z", "2025-06-01T12:00:00Z")
+
+
+@pytest.mark.parametrize(
+    "endpoint,error_type,cleared",
+    [
+        ("software_v2", "ValidationException", True),
+        ("software_v2", "ThrottlingException", False),
+        ("findings_trends_v2", "ValidationException", False),
+    ],
+)
+def test_rejected_software_token_clears_the_checkpoint(endpoint: str, error_type: str, cleared: bool) -> None:
+    saved = AwsSecurityHubResumeConfig(
+        next_token="old-token", updated_after="2025-03-03T12:00:00Z", cutoff="2025-06-01T12:00:00Z"
+    )
+    rejection = ScriptedResponse(
+        status=400, json={"message": "Invalid token"}, headers={"x-amzn-ErrorType": error_type}
+    )
+    result = driver().run(endpoint, [rejection], resume_state=saved)
+    assert isinstance(result.raised, AwsSecurityHubError)
+    assert result.raised.code == error_type
+    assert result.requests[0].json()["NextToken"] == "old-token"
+    assert (result.final_state is None) is cleared
+    errors = AwsSecurityHubSource().get_non_retryable_errors()
+    assert not any(pattern in str(result.raised) for pattern in errors)

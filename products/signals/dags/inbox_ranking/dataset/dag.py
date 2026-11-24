@@ -269,6 +269,43 @@ def peak_rss_metadata() -> dict[str, dagster.MetadataValue]:
     return {"peak_rss_mib": dagster.MetadataValue.int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)}
 
 
+def write_partition(
+    context: dagster.AssetExecutionContext,
+    table_name: str,
+    client,
+    bucket: str,
+    key: str,
+    table: pa.Table,
+    *,
+    snapshot_date: str | None = None,
+    schema_version: int | None = None,
+) -> None:
+    """`write_parquet` for the dt=D object of `table_name`, which also captures one
+    `inbox_ranking_dataset_partition_written` event, so a missing partition shows without Dagster."""
+    bytes_written = write_parquet(
+        client, bucket, key, table, snapshot_date=snapshot_date, schema_version=schema_version
+    )
+    # telemetry imports the training modules, which import this module.
+    from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
+        capture_training_events,
+        dataset_partition_written_event,
+    )
+
+    capture_training_events(
+        context,
+        context.partition_key,
+        [
+            dataset_partition_written_event(
+                table=table_name,
+                run_id=context.run_id,
+                rows=table.num_rows,
+                bytes_written=bytes_written,
+                schema_version=schema_version,
+            )
+        ],
+    )
+
+
 def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str) -> None:
     """Stamp product + feature + dagster run tags into the thread's query tags so every ClickHouse
     query this asset issues (sync_execute and HogQL alike) is attributable in system.query_log.
@@ -620,40 +657,65 @@ def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _artefact_judgments(
-    report_ids: list[str], snapshot_end: datetime.datetime
-) -> dict[str, dict[str, str | bool | None]]:
-    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON. `already_addressed` comes from the same actionability artefact, so
-    it follows the same cutoff rules rather than the current `SignalReport.latest_already_addressed`.
+@frozen
+class JudgmentArtefact:
+    report_id: str
+    team_id: int
+    artefact_type: str
+    content: str | None
+    # When the artefact got the content it holds: its last edit, else its creation.
+    written_at: datetime.datetime
+
+
+def judgment_artefacts_as_of(report_ids: list[str], cutoff: datetime.datetime) -> Iterator[JudgmentArtefact]:
+    """The latest priority and actionability artefact of each report created before the cutoff,
+    left out when it was edited at or after the cutoff.
 
     Artefacts are appended in normal operation but the API permits editing one in place
     (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
     current content is not necessarily what it held at the cutoff. The latest pre-cutoff row is
-    therefore chosen first and then nulled if it was edited afterwards: skipping edited rows during
+    therefore chosen first and then dropped if it was edited afterwards: skipping edited rows during
     selection instead would hand back the judgment they superseded, which was already stale at the
-    cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
-    status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | bool | None]] = {}
+    cutoff — silently wrong where a missing judgment is merely unknown. The genuinely immutable
+    classification is status_event_priority/actionability, snapshotted onto each transition in the
+    label stream."""
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
                 type__in=JUDGMENT_TYPES,
-                created_at__lt=snapshot_end,
+                created_at__lt=cutoff,
             )
             .order_by("report_id", "type", "-created_at")
             .distinct("report_id", "type")
-            .values_list("report_id", "type", "content", "updated_at")
+            .values_list("report_id", "team_id", "type", "content", "created_at", "updated_at")
         )
-        for report_id, artefact_type, content, updated_at in artefacts.iterator(chunk_size=2000):
+        for report_id, team_id, artefact_type, content, created_at, updated_at in artefacts.iterator(chunk_size=2000):
             # A null updated_at is a row predating the field, never an edit.
-            if updated_at is not None and updated_at >= snapshot_end:
+            if updated_at is not None and updated_at >= cutoff:
                 continue
-            facts = judgment_facts(artefact_type, content)
-            if facts is None:
-                continue
-            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
+            yield JudgmentArtefact(
+                report_id=str(report_id),
+                team_id=team_id,
+                artefact_type=artefact_type,
+                content=content,
+                written_at=_as_utc(updated_at or created_at),
+            )
+
+
+def _artefact_judgments(
+    report_ids: list[str], snapshot_end: datetime.datetime
+) -> dict[str, dict[str, str | bool | None]]:
+    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
+    the artefact content JSON, under the cutoff rules of `judgment_artefacts_as_of`.
+    `already_addressed` comes from the same actionability artefact, so it follows the same cutoff
+    rules rather than the current `SignalReport.latest_already_addressed`."""
+    judgments: dict[str, dict[str, str | bool | None]] = {}
+    for artefact in judgment_artefacts_as_of(report_ids, snapshot_end):
+        facts = judgment_facts(artefact.artefact_type, artefact.content)
+        if facts is None:
+            continue
+        judgments.setdefault(artefact.report_id, no_judgment_facts()).update(facts)
     return judgments
 
 
@@ -957,7 +1019,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, STATE_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
+    write_partition(context, STATE_TABLE, s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=STATE_SCHEMA))
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1100,7 +1162,9 @@ def inbox_report_reviewers(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, REVIEWERS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        REVIEWERS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1192,7 +1256,7 @@ def _snapshot_report_embeddings(
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table, partition_key)
-    write_parquet(s3_client(), bucket, key, arrow_table)
+    write_partition(context, table, s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1362,7 +1426,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
             f"with this run produced {table.num_rows}: a union can only grow, so this is a bug in the merge rather "
             "than a source change. Refusing the write to keep archived rows the source may no longer hold."
         )
-    write_parquet(client, bucket, key, table)
+    write_partition(context, SIGNAL_EMBEDDINGS_TABLE, client, bucket, key, table)
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(table.num_rows),
@@ -1407,7 +1471,9 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     rows = merge_label_streams(stream_rows, datetime.date.fromisoformat(partition_key))
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, LABELS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        LABELS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1482,7 +1548,9 @@ def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> No
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, USER_INTERACTIONS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        USER_INTERACTIONS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -1541,7 +1609,9 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     table = project_vectors(labels, consented, snapshot_end, CONTEXT_KINDS)
 
     key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
-    write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
+    write_partition(
+        context, PROJECT_VECTORS_TABLE, client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION
+    )
     context.add_output_metadata(
         {
             **peak_rss_metadata(),
@@ -1607,7 +1677,7 @@ def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     del embeddings
 
     key = partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)
-    write_parquet(client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
+    write_partition(context, USER_VECTORS_TABLE, client, bucket, key, table, schema_version=USER_VECTORS_SCHEMA_VERSION)
     users = set(
         zip(table.column("organization_id").to_pylist(), table.column("user_distinct_id").to_pylist(), strict=True)
     )
@@ -1733,7 +1803,7 @@ def _snapshot_activity_summary_vectors(
     client = s3_client()
     existing = read_parquet_if_exists(client, bucket, key)
     table = fresh if existing is None else merge_activity_summary_vectors(existing, fresh, consent_team_ids)
-    write_parquet(client, bucket, key, table, schema_version=schema_version)
+    write_partition(context, table_name, client, bucket, key, table, schema_version=schema_version)
 
     team_ids = table.column("team_id").to_pylist()
     user_ids = table.column("user_id").to_pylist()
@@ -1914,7 +1984,9 @@ def inbox_report_scored_facts(context: dagster.AssetExecutionContext) -> None:
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SCORED_FACTS_TABLE, partition_key)
-    write_parquet(
+    write_partition(
+        context,
+        SCORED_FACTS_TABLE,
         s3_client(),
         bucket,
         key,
@@ -2199,7 +2271,7 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     table = pa.Table.from_pylist(rows, schema=MODEL_DATA_SCHEMA)
 
     partition_key_path = partition_object_key(prefix, MODEL_DATA_TABLE, partition_key)
-    write_parquet(client, bucket, partition_key_path, table, snapshot_date=partition_key)
+    write_partition(context, MODEL_DATA_TABLE, client, bucket, partition_key_path, table, snapshot_date=partition_key)
     latest_key = latest_object_key(prefix, MODEL_DATA_TABLE)
     wrote_latest = latest_is_stale(object_snapshot_date(client, bucket, latest_key), partition_key)
     if wrote_latest:

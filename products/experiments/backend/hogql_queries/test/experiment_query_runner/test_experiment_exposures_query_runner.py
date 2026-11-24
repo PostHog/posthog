@@ -1,6 +1,6 @@
 import re
 from contextlib import nullcontext
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -8,6 +8,7 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import OperationalError
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -20,22 +21,28 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthCheckStatus,
+    ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
+    HogQLQueryResponse,
     MultipleVariantHandling,
 )
 
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.shared_link_user import SharedLinkUser
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
@@ -56,6 +63,7 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 )
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 LEAVES_OUT_TEST_ACCOUNTS = {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
 KEEPS_MATCHING_USERS = {"key": "email", "value": "@example.org", "operator": "icontains", "type": "person"}
@@ -108,20 +116,112 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertIn("has no variants", str(ctx.exception))
 
-    def test_refuses_warehouse_native_exposure_criteria_as_a_query_error(self):
-        # The request carries its own criteria, so a warehouse-native exposure reaches the runner
-        # without a save. It must fail as a query error (a 400), not as a server error.
-        query = self._null_multivariate_query()
-        query.exposure_criteria = ExperimentExposureCriteria(
-            exposure_config=ExperimentWarehouseNativeExposureConfig(
-                connection_id="00000000-0000-0000-0000-000000000000",
-                query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
-                unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
-            )
+    def _warehouse_native_query(self, connection_id: str) -> ExperimentExposureQuery:
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=ExperimentExposureCriteria(
+                exposure_config=ExperimentWarehouseNativeExposureConfig(
+                    connection_id=connection_id,
+                    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                )
+            ),
         )
 
-        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
-            ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+    def test_warehouse_native_exposures_come_from_the_warehouse(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        with (
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.execute_hogql_query"
+            ) as warehouse,
+        ):
+            warehouse.return_value = HogQLQueryResponse(
+                columns=["day", "variant", "exposures"],
+                results=[
+                    [date(2024, 1, 2), "control", 3],
+                    [date(2024, 1, 2), "test", 2],
+                    [date(2024, 1, 3), "control", 1],
+                    [date(2024, 1, 3), MULTIPLE_VARIANT_KEY, 1],
+                ],
+            )
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._warehouse_native_query(str(connection.id))
+            ).calculate()
+
+        statement = warehouse.call_args.kwargs
+        assert statement["send_raw_query"] is True
+        assert statement["connection_id"] == str(connection.id)
+        assert "FROM exposures" in statement["query"]
+        assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
+        assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
+        control = next(series for series in response.timeseries if series.variant == "control")
+        assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
+        assert response.exposed_by_library is None
+        # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
+        assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+
+    def test_publishing_and_shared_links_need_access_to_the_connection(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        query = self._warehouse_native_query(str(connection.id))
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            # Publishing a link to the query asks the runner's access hook, and records only an access control error.
+            self.assertEqual(
+                denied_query_resources(self.user, self.team, [query.model_dump(mode="json")]),
+                ["external_data_source"],
+            )
+            # A shared link reads without a user, and the cached totals would otherwise answer it.
+            share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            with self.assertRaises(DjangoPermissionDenied):
+                ExperimentExposuresQueryRunner(team=self.team, query=query, user=SharedLinkUser(share))
+
+    def test_a_warehouse_native_exposure_on_a_missing_connection_is_a_query_error(self):
+        # The request carries its own criteria, so a connection that does not exist reaches the runner without
+        # a save. It must fail as a query error (a 400), not as a server error.
+        with (
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            ExperimentExposuresQueryRunner(
+                team=self.team, query=self._warehouse_native_query("00000000-0000-0000-0000-000000000000")
+            ).calculate()
+
+        assert "does not exist, or you do not have access" in str(ctx.exception)
 
     def test_missing_experiment_raises_validation_error(self):
         # Cached exposure queries can outlive their experiment; a stale id must
@@ -1668,11 +1768,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("reader_of_the_flag", True, None, "split_changed"),
             ("userless_run", False, None, None),
             ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
+            ("exposure_action", True, None, "split_changed", True),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None
+        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None, exposure_action: bool = False
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1700,6 +1801,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
+        if exposure_action:
+            action = create_action(name="Flag call", team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+            self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
         query = self._running_exposure_query()
         if end_date is not None:
             self.experiment.end_date = end_date
@@ -1711,8 +1815,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ).calculate()
 
         self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+            [(finding.code, finding.subcode, finding.actions) for finding in response.health_findings or []],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.SRM,
+                    subcode,
+                    [ExperimentExposureHealthFindingActionKind.MOVE_START_DATE] if exposure_action else [],
+                )
+            ],
         )
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

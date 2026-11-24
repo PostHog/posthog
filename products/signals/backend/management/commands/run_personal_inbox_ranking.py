@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team, User
 
-from products.signals.backend.personal_ranking.config import effective_config, read_config
+from products.signals.backend.personal_ranking.config import config_for_user, effective_config, read_config
 from products.signals.backend.personal_ranking.logic import build_personal_ranking
 
 
@@ -26,7 +26,7 @@ class Command(BaseCommand):
         user = User.objects.filter(id=options["user_id"]).first()
         if team is None or user is None:
             raise CommandError("Unknown team or user.")
-        config = read_config()
+        config = config_for_user(read_config(), user.id)
         self.stdout.write(
             "config: " + ", ".join(f"{name}: {value}" for name, value in effective_config(config).items())
         )

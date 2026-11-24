@@ -110,6 +110,7 @@ export class PostHogAPIClient {
     prompt: string;
     history: string;
     runtime_version: string;
+    exclude: string[];
   }): Promise<ContextSelectionResponse> {
     const response = await this.apiRequest<unknown>(
       `/api/projects/${this.getTeamId()}/context_layer/selection/prepare/`,

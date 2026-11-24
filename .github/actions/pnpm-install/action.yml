@@ -34,6 +34,13 @@ inputs:
             the shared per-repo GITHUB_TOKEN core bucket.
         required: false
         default: ${{ github.token }}
+    cache:
+        description: |
+            'false' installs from a cold store: no pnpm store, lockfile verdict or Node tool cache
+            is restored. Any job on master can write those caches, and pnpm checks store files only
+            against index files that travel in the same entry, so a release build turns them off.
+        required: false
+        default: 'true'
 
 runs:
     using: composite
@@ -43,6 +50,7 @@ runs:
           with:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
+              cache: ${{ inputs.cache }}
 
         - name: Get pnpm store path
           id: pnpm-store
@@ -50,6 +58,7 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
+          if: inputs.cache == 'true'
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -67,6 +76,7 @@ runs:
           run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm lockfile verdict
+          if: inputs.cache == 'true'
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl

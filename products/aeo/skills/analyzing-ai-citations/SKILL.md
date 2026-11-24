@@ -38,13 +38,13 @@ papercuts that make the first query fail.
 | `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                             |
 | `posthog:external-data-sources-list` | Find the Search Console source and its table names                                       |
 | `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)    |
-| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                             |
+| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/ai-visibility`                                 |
 
 ## Before you start
 
 - **The feature is flag-gated.** Every `aeo-prompts-*` tool and the API behind it require the
-  `aeo-citation-tracking` feature flag for the user's organization. A 403 with
-  "This feature is not available." means the flag is off, not a scope problem.
+  `web-analytics-content-autopilot` feature flag for the user. A 403 with the code
+  `feature_flag_required` means the flag is off, not a scope problem.
 - **Scopes.** Reads (`list`, `get`, `topics`, `checks`, `stats`, `versions`) need
   `web_analytics:read`; writes (`update`, `archive`, `import`) need `web_analytics:write`.
   A missing scope surfaces as `Missing PostHog API scope: 'web_analytics:read'` (the API says
@@ -54,7 +54,7 @@ papercuts that make the first query fail.
 - **Is the runner active on this project?** Run
   `SELECT count() FROM system.aeo_citation_checks WHERE created_at >= now() - INTERVAL 14 DAY`.
   Zero rows means no prompts are being checked for this project. The scheduled runner only
-  covers allowlisted projects with the flag on; it runs once a day at 07:30 UTC.
+  covers projects with active prompts whose organization is enabled for it; it runs once a day at 07:30 UTC.
 
 ## Data sources
 
@@ -208,8 +208,8 @@ crawler hits need `$http_log`) are in [ai-traffic-join](./references/ai-traffic-
 ## Links back to the UI
 
 Build links with `generate-app-url`, never by hand. The prompt set and each prompt's detail
-live under `/web/content-autopilot` (Prompts tab):
-`generate-app-url {url: "/web/content-autopilot"}`.
+live under `/web/ai-visibility` (Prompts tab):
+`generate-app-url {url: "/web/ai-visibility"}`.
 
 ## References
 

@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../utils/quotaTestUtils'
 import { stoppedByFreeCredits } from './scannerCopy'
-import { ScannerStatusFields, scannerStatus, spendAgainstLimit } from './scannerStatus'
+import { ScannerStatusFields, isOffByChoice, scannerStatus, spendAgainstLimit } from './scannerStatus'
 
 const NOW = dayjs('2026-05-12T12:00:00Z')
 
@@ -14,6 +14,7 @@ const HEALTHY: ScannerStatusFields = {
     credit_limit: null,
     limit_from_free_credits: false,
     sweep_throttle_factor: 1,
+    sweep_interval_minutes: 5,
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
     filter_error: null,
@@ -69,7 +70,11 @@ describe('scannerStatus', () => {
         ],
         [
             'not delayed while a throttled sweep waits out its longer interval',
-            { sweep_throttle_factor: 12, last_swept_at: NOW.subtract(2, 'hour').toISOString() },
+            {
+                sweep_throttle_factor: 12,
+                sweep_interval_minutes: 60,
+                last_swept_at: NOW.subtract(2, 'hour').toISOString(),
+            },
             {},
             'throttled',
         ],
@@ -79,8 +84,30 @@ describe('scannerStatus', () => {
             { drought: DROUGHT },
             'delayed',
         ],
-        ['no matches ahead of throttled', { sweep_throttle_factor: 3 }, { drought: DROUGHT }, 'no_matches'],
-        ['throttled when the read budget stretches the cadence', { sweep_throttle_factor: 3 }, {}, 'throttled'],
+        [
+            'not delayed while a low-yield sweep waits out its hourly interval',
+            { sweep_interval_minutes: 60, last_swept_at: NOW.subtract(2, 'hour').toISOString() },
+            {},
+            'running',
+        ],
+        [
+            'paused ahead of the delay a paused sweep would otherwise read as',
+            { sweep_interval_minutes: null, last_swept_at: NOW.subtract(3, 'hour').toISOString() },
+            {},
+            'paused',
+        ],
+        [
+            'no matches ahead of throttled',
+            { sweep_throttle_factor: 3, sweep_interval_minutes: 15 },
+            { drought: DROUGHT },
+            'no_matches',
+        ],
+        [
+            'throttled when the read budget stretches the cadence',
+            { sweep_throttle_factor: 3, sweep_interval_minutes: 15 },
+            {},
+            'throttled',
+        ],
     ])('%s', (_name, scannerOverrides, options, expected) => {
         const status = scannerStatus(
             { ...HEALTHY, ...scannerOverrides },
@@ -101,11 +128,14 @@ describe('scannerStatus', () => {
         ).toEqual({ kind: 'off', reason: expected })
     })
 
-    it('reports the stretched interval so the strip can say how often it checks', () => {
+    it("reports the backend's interval so the strip can say how often it checks", () => {
         expect(
-            scannerStatus({ ...HEALTHY, sweep_throttle_factor: 12 }, { quotaExhausted: false, drought: null, now: NOW })
+            scannerStatus(
+                { ...HEALTHY, sweep_interval_minutes: 60 },
+                { quotaExhausted: false, drought: null, now: NOW }
+            )
         ).toMatchObject({
-            kind: 'throttled',
+            kind: 'running',
             intervalMinutes: 60,
         })
     })
@@ -166,5 +196,16 @@ describe('scannerStatus', () => {
                 quota
             )
         ).toEqual(expected)
+    })
+
+    test.each([
+        ['never turned on', { enabled: false, disabled_reason: null }, true],
+        ['turned off by hand', { enabled: false, disabled_reason: 'manual' }, true],
+        ['already scheduled', { enabled: true, disabled_reason: null }, false],
+        ['out of free credits', { enabled: false, disabled_reason: 'free_credits_used' }, false],
+        ['no AI consent', { enabled: false, disabled_reason: 'no_ai_consent' }, false],
+        ['not loaded', null, false],
+    ] as const)('isOffByChoice: %s', (_, scanner, expected) => {
+        expect(isOffByChoice(scanner)).toBe(expected)
     })
 })

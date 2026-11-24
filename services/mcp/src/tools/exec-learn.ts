@@ -13,6 +13,7 @@ import {
 // that receive a learn catalog. Shared with scripts/generate-exec-docs.ts so the
 // published docs can't drift from the runtime declaration.
 export const LEARN_COMMAND_LINE = 'learn <topic...> - load one or more learning topics\n'
+export const LEARN_TOOL_NAME = 'learn'
 
 export interface ExecLearnGuide {
     id: string

@@ -27,6 +27,7 @@ import {
     getHeatmapSettingsWithSorting,
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
+    sortHeatmapColumns,
     sortHeatmapRows,
 } from './twoDimensionalHeatmapUtils'
 
@@ -272,6 +273,10 @@ export function TwoDimensionalHeatmap({
         }
     }, [heatmapData.xValues, heatmapSettings, sorting, updateChartSettings])
 
+    const sortedXValues = useMemo(
+        () => sortHeatmapColumns(heatmapData.xValues, heatmapSettings.xAxisSortOrder),
+        [heatmapData.xValues, heatmapSettings.xAxisSortOrder]
+    )
     const sortedYValues = useMemo(
         () => sortHeatmapRows(heatmapData.yValues, heatmapData.cellValues, sorting),
         [heatmapData.cellValues, heatmapData.yValues, sorting]
@@ -371,7 +376,7 @@ export function TwoDimensionalHeatmap({
                                     yAxisLabel
                                 )}
                             </th>
-                            {heatmapData.xValues.map((xValue, index) => (
+                            {sortedXValues.map((xValue, index) => (
                                 <th
                                     key={`${xValue}-${index}`}
                                     className="border border-border px-2 py-1 text-left"
@@ -416,7 +421,7 @@ export function TwoDimensionalHeatmap({
                                 <th className="sticky left-0 z-10 bg-surface-primary border border-border px-2 py-1 text-left">
                                     {yValue}
                                 </th>
-                                {heatmapData.xValues.map((xValue) => {
+                                {sortedXValues.map((xValue) => {
                                     const cellValue = heatmapData.cellValues[yValue]?.[xValue] ?? null
                                     const cellColor =
                                         cellValue === null

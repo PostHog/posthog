@@ -4,8 +4,8 @@ import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 
-import { AnalyticsPinButton } from './AnalyticsPinButton'
 import { scenePinTarget } from './analyticsPinnedLogic'
 
 export function AnalyticsScenePinButton({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
@@ -16,5 +16,5 @@ export function AnalyticsScenePinButton({ dataAttrKey }: { dataAttrKey: string }
     if (!todayRailNav || !target) {
         return null
     }
-    return <AnalyticsPinButton target={target} size="icon-sm" dataAttr={`${dataAttrKey}-title-pin`} />
+    return <SidebarPinButton target={target} size="icon-sm" dataAttr={`${dataAttrKey}-title-pin`} />
 }

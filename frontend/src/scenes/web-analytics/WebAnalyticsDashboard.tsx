@@ -667,7 +667,6 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.AGENTS:
             return <AgentAnalyticsFilters tabs={tabs} />
         case ProductTab.CONTENT_AUTOPILOT:
-        case ProductTab.BOT_ANALYTICS:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />

@@ -3,6 +3,7 @@ from .backfill import (
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -20,6 +21,7 @@ from .cohort import (
     CohortType,
     get_or_create_internal_test_users_cohort,
 )
+from .realtime_request import RealtimeCohortRequest, RealtimeCohortRequestKind, RealtimeCohortRequestState
 from .team_access import RealtimeCohortAccessPurpose, RealtimeCohortLevel, RealtimeCohortTeamAccess
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "CohortBackfillChunk",
     "CohortBackfillChunkStatus",
     "CohortBackfillKind",
+    "CohortBackfillRefusal",
     "CohortBackfillRun",
     "CohortBackfillRunCohort",
     "CohortBackfillRunStatus",
@@ -41,6 +44,9 @@ __all__ = [
     "CohortType",
     "RealtimeCohortAccessPurpose",
     "RealtimeCohortLevel",
+    "RealtimeCohortRequest",
+    "RealtimeCohortRequestKind",
+    "RealtimeCohortRequestState",
     "RealtimeCohortTeamAccess",
     "get_or_create_internal_test_users_cohort",
 ]

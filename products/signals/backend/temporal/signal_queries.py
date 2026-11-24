@@ -125,6 +125,25 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
     )
 
 
+def fetch_report_signal_ids(*, team: Team, report_id: str, limit: int) -> list[str]:
+    """Return the ids of every signal a report holds, deleted ones included, up to `limit`."""
+    result = execute_hogql_query(
+        query_type="SignalsFetchIdsForReport",
+        query=f"""
+            SELECT document_id
+            FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+            WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+            ORDER BY document_id ASC
+            LIMIT {limit}
+        """,
+        team=team,
+        placeholders=_report_placeholders(report_id),
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
+    )
+    return [str(row[0]) for row in result.results or []]
+
+
 _RETRACT_PAGE_SIZE = 500
 
 

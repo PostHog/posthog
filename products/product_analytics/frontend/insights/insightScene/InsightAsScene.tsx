@@ -7,7 +7,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightSceneLogic, insightSceneTabId } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,7 +27,6 @@ import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/h
 import { InsightModals } from 'products/product_analytics/frontend/insights/insightScene/InsightModals'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
-import { InsightFlagCalledBanner } from './banners/InsightFlagCalledBanner'
 import { InsightQueryScanBanner } from './banners/InsightQueryScanBanner'
 import { InsightRetentionBanner } from './banners/InsightRetentionBanner'
 import { InsightWarehouseSyncBanner } from './banners/InsightWarehouseSyncBanner'
@@ -53,6 +52,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,
         variablesOverride,
+        tabId: insightSceneTabId(dashboardId),
     })
     const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
 
@@ -107,8 +107,6 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 {insightId === 'new' && isEditing && <InsightHomeGuide query={query} />}
 
                 <InsightRetentionBanner insightProps={insightProps} />
-
-                <InsightFlagCalledBanner insightProps={insightProps} />
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
 

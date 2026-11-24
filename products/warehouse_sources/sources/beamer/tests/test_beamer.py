@@ -1,11 +1,11 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.beamer._config import BeamerSourceConfig
-from products.warehouse_sources.sources.beamer.beamer import BeamerResumeConfig, _format_datetime, validate_credentials
+from products.warehouse_sources.sources.beamer.beamer import BeamerResumeConfig, validate_credentials
 from products.warehouse_sources.sources.beamer.source import BeamerSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
@@ -16,19 +16,6 @@ def _driver() -> SourceDriver:
 
 def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
     return ScriptedResponse(json=rows)
-
-
-class TestFormatDatetime:
-    @parameterized.expand(
-        [
-            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
-            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
-            ("date_value", date(2026, 3, 4), "2026-03-04T00:00:00Z"),
-            ("string_passthrough", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
-        ]
-    )
-    def test_format_datetime(self, _name: str, value: object, expected: str) -> None:
-        assert _format_datetime(value) == expected
 
 
 class TestValidateCredentials:

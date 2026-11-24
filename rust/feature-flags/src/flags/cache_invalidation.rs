@@ -4,8 +4,9 @@
 //! Consumer: the `flags-cache-builder` binary in this crate.
 //!
 //! The fixtures at `rust/feature-flags/tests/fixtures/flags_cache_invalidation_v1.json`,
-//! `flags_cache_invalidation_v1_shadow.json` and
-//! `flags_cache_invalidation_v1_refresh.json` are the contract. Both this crate and
+//! `flags_cache_invalidation_v1_shadow.json`,
+//! `flags_cache_invalidation_v1_refresh.json` and
+//! `flags_cache_invalidation_v1_cohort.json` are the contract. Both this crate and
 //! the Python side round-trip against the same on-disk files
 //! (`products/feature_flags/backend/test/test_flags_cache_messages.py`),
 //! so a schema drift on either side fails CI. The Rust struct mirrors the Python
@@ -32,9 +33,10 @@ pub enum Operation {
 }
 
 /// What raised the invalidation. `Edit` is a flag change reaching a signal
-/// handler; `Refresh` is the hourly expiry sweep asking for a rebuild before the
-/// entry's TTL runs out. The consumer builds both identically — the value exists
-/// so a build, a failure and an end-to-end latency can be attributed to the path
+/// handler. `Cohort` is a cohort change that affects the team's flags. `Refresh`
+/// is the hourly expiry sweep asking for a rebuild before the entry's TTL runs
+/// out. The consumer builds all three identically. The value exists so a
+/// build, a failure and an end-to-end latency can be attributed to the path
 /// that caused them. Without it the sweep's volume buries the edit path, which
 /// is the one with a serve-latency expectation.
 ///
@@ -45,6 +47,7 @@ pub enum Operation {
 pub enum Source {
     #[default]
     Edit,
+    Cohort,
     Refresh,
 }
 
@@ -52,6 +55,7 @@ impl Source {
     pub fn as_label(&self) -> &'static str {
         match self {
             Source::Edit => "edit",
+            Source::Cohort => "cohort",
             Source::Refresh => "refresh",
         }
     }
@@ -93,7 +97,7 @@ pub struct FlagsCacheInvalidation {
     /// `source` a parse error to an older consumer, which counts it, logs it,
     /// stores the offset and drops it. There is no DLQ record, so nothing can be
     /// replayed — the team stays stale until the verifier repairs it. Nothing may
-    /// emit `refresh` in a region until the builder deployed there understands it.
+    /// emit a `source` variant in a region until the builder deployed there has it.
     #[serde(default, skip_serializing_if = "Source::is_edit")]
     pub source: Source,
 }

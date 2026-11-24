@@ -16,11 +16,9 @@ export function QuillFunnelSingleStepState({
         <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
             <EmptyHeader>
                 <QuillInsightEmptyStateIcon icon={<IconFunnels />} />
-                <EmptyTitle>Add another step!</EmptyTitle>
-                <EmptyDescription>
-                    <span className="block">
-                        You're almost there! Funnels require at least two steps before calculating.
-                    </span>
+                <EmptyTitle className="text-lg">Add another step!</EmptyTitle>
+                <EmptyDescription className="text-sm">
+                    <span className="block">Funnels require at least two steps before calculating.</span>
                     {actionable && (
                         <span className="block">
                             Once you have two steps defined, additional changes will recalculate automatically.

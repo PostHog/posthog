@@ -33,8 +33,8 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
     query: dict[str, Any] | None = None
     experiment_targeting: dict[str, Any] | None = None
+    scope: dict[str, Any] | None = None
     sampling_rate: float | None = None
-    sampling_mode: str | None = None
     # The balanced per-variant rates the dispatching tick sampled at, so even per-variant counts
     # don't read as even traffic ("control sampled at 1.1%, test at 100%"). Set by the tick, not
     # `from_scanner`: the rates depend on live rollout shares the scanner row doesn't carry.
@@ -63,8 +63,8 @@ class ScannerSnapshot(BaseModel, frozen=True):
             scanner_config=scanner.scanner_config,
             query=scanner.query,
             experiment_targeting=scanner.experiment_targeting,
+            scope=scanner.scope,
             sampling_rate=scanner.sampling_rate,
-            sampling_mode=scanner.sampling_mode,
         )
 
     @classmethod
@@ -86,7 +86,6 @@ class BackfillScannerSnapshot(ScannerSnapshot, frozen=True):
     # Required here (the base records them optionally): the candidate walk cannot run without them.
     query: dict[str, Any]
     sampling_rate: float = Field(ge=0.0, le=1.0)
-    sampling_mode: str
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "BackfillScannerSnapshot":

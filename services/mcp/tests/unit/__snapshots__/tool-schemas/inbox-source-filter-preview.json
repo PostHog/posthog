@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expression": {
+            "description": "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.",
+            "maxLength": 16384,
+            "type": "string"
+        },
+        "source_product": {
+            "description": "Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "source_type": {
+            "description": "Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.",
+            "maxLength": 100,
+            "type": "string"
+        }
+    },
+    "required": ["source_product", "source_type", "expression"],
+    "type": "object"
+}

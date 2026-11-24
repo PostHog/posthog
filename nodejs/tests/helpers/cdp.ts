@@ -8,6 +8,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
@@ -30,6 +31,7 @@ function buildTestCdpProducerRegistry(
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
+        [MSK_CDP_INTAKE_PRODUCER]: kafkaProducer,
     })
 }
 

@@ -5,10 +5,7 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '~/common/config'
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '~/common/config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '~/common/config/kafka-topics'
 import { isProdEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
@@ -46,16 +43,20 @@ export {
  */
 export type RecordingApiAuthConfig = {
     RECORDING_API_JWT_SECRET: string
+    // Verifies the read-only tokens staff mint on toolbox pods. It never signs or verifies a delete or write token.
+    RECORDING_API_STAFF_JWT_SECRET: string
 }
 
 // Local defaults that match the Django and Temporal minters. They are public in this repo, so a cloud process never accepts them.
 export const DEV_RECORDING_API_JWT_SECRET = 'dev-recording-api-jwt-secret'
 export const DEV_RECORDING_API_BLOCKS_JWT_SECRET = 'dev-recording-api-blocks-jwt-secret'
+export const DEV_RECORDING_API_STAFF_JWT_SECRET = 'dev-recording-api-staff-jwt-secret'
 
 export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
     return {
         // Dev/test default matches the Django/Temporal minters so local end-to-end calls validate.
         RECORDING_API_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_JWT_SECRET,
+        RECORDING_API_STAFF_JWT_SECRET: isProdEnv() ? '' : DEV_RECORDING_API_STAFF_JWT_SECRET,
     }
 }
 
@@ -188,17 +189,12 @@ export type RecordingApiConfig = Pick<
 export type RecordingApiOutputsConfig = {
     RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
     RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
-
-    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
-    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
 }
 
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
     return {
         RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }
 

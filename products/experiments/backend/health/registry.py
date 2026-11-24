@@ -481,6 +481,15 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
 
 
+def not_checked_health(checks: Sequence[HealthCheck], reason: str) -> ExperimentHealth:
+    """Every check as not checked with one reason, for an experiment whose inputs no check can read. An empty list
+    would read as an experiment without checks, which hides that its problems go unreported."""
+    return ExperimentHealth(
+        findings=(),
+        checks=tuple(_result(check, ExperimentHealthCheckStatus.NOT_CHECKED, reason, {}, ()) for check in checks),
+    )
+
+
 def _read[T: (CheckValues, CheckRows)](read: Callable[[HealthContext], T] | None, ctx: HealthContext, empty: T) -> T:
     if read is None:
         return empty

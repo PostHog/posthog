@@ -186,9 +186,8 @@ sanitize_message_body = partial(
 
 
 # Zero-width space inserted after `.` and `:` to break auto-link patterns.
-# We previously used `&#46;` / `&#58;` HTML entities, but Customer.io's
-# template engine (TinyMCE-backed) decodes them on output, defeating the
-# defang. ZWSP is a real Unicode codepoint, so it survives JSON transit and
+# HTML entities such as `&#46;` / `&#58;` don't work, because template
+# engines can decode them on output, which defeats the defang. ZWSP is a real Unicode codepoint, so it survives JSON transit and
 # the ESP's template rendering. It's invisible to the recipient, but breaks
 # the `\w+\.\w+` and `[a-z]+://` patterns mail-client auto-linkers scan for.
 _ZWSP = "​"
@@ -200,8 +199,8 @@ def _defang_match(match: "re.Match[str]") -> str:
 
 def sanitize_email_string(value: str) -> str:
     """
-    Sanitize a string for inclusion in email content (Customer.io
-    `message_data` properties or Django email templates). Steps:
+    Sanitize a string for inclusion in email content (Workflows template
+    properties or Django email templates). Steps:
 
     1. NFKC-normalize so fullwidth / compatibility forms can't bypass the
        URL regexes (e.g. `ｈｔｔｐ：／／` → `http://`).

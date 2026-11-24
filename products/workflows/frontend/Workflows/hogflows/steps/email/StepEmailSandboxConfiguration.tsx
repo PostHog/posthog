@@ -48,7 +48,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                     action={
                         sandboxSetup.canSetUp
                             ? {
-                                  children: provisionError ? 'Try again' : 'Set up the sandbox sender',
+                                  children: provisionError ? 'Try again' : 'Set up the PostHog test sender',
                                   loading: provisioning,
                                   onClick: () => provisionSandboxSender('sender_control'),
                               }

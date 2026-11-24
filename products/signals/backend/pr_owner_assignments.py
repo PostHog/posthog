@@ -51,7 +51,7 @@ class PROwnerAssignmentService:
         if member is None:
             return OwnerIdentity(linked_user=False, proof=None)
 
-        source = self._identity_source(member, login)
+        source = github_identity_source(member, login)
         if source is None:
             return OwnerIdentity(linked_user=True, proof=None)
         source_name, github_user_id = source
@@ -66,34 +66,6 @@ class PROwnerAssignmentService:
                 expires_at=now + IDENTITY_PROOF_TTL,
             ),
         )
-
-    @staticmethod
-    def _identity_source(
-        member: User, login: str
-    ) -> tuple[Literal["github_user_integration", "github_oauth"], int] | None:
-        integrations = getattr(member, "_prefetched_github_user_integrations", None)
-        if integrations is None:
-            integrations = member.integrations.filter(kind=UserIntegration.IntegrationKind.GITHUB)
-        for integration in integrations:
-            github_user = integration.config.get("github_user")
-            if not isinstance(github_user, dict) or str(github_user.get("login") or "").lower() != login:
-                continue
-            try:
-                return "github_user_integration", int(github_user["id"])
-            except (KeyError, TypeError, ValueError):
-                return None
-
-        social_accounts = getattr(member, "_prefetched_github_social_auth", None)
-        if social_accounts is None:
-            social_accounts = member.social_auth.filter(provider="github")
-        for account in social_accounts:
-            if str((account.extra_data or {}).get("login") or "").lower() != login:
-                continue
-            try:
-                return "github_oauth", int(account.uid)
-            except (TypeError, ValueError):
-                return None
-        return None
 
     def record(
         self,
@@ -117,3 +89,32 @@ class PROwnerAssignmentService:
             attribution=ArtefactAttribution.system(),
         )
         return assignment
+
+
+def github_identity_source(
+    member: User, login: str
+) -> tuple[Literal["github_user_integration", "github_oauth"], int] | None:
+    """The source and immutable GitHub user id of the account the member linked under `login`."""
+    integrations = getattr(member, "_prefetched_github_user_integrations", None)
+    if integrations is None:
+        integrations = member.integrations.filter(kind=UserIntegration.IntegrationKind.GITHUB)
+    for integration in integrations:
+        github_user = integration.config.get("github_user")
+        if not isinstance(github_user, dict) or str(github_user.get("login") or "").lower() != login:
+            continue
+        try:
+            return "github_user_integration", int(github_user["id"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    social_accounts = getattr(member, "_prefetched_github_social_auth", None)
+    if social_accounts is None:
+        social_accounts = member.social_auth.filter(provider="github")
+    for account in social_accounts:
+        if str((account.extra_data or {}).get("login") or "").lower() != login:
+            continue
+        try:
+            return "github_oauth", int(account.uid)
+        except (TypeError, ValueError):
+            return None
+    return None

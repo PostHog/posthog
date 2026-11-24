@@ -61,7 +61,8 @@
         "@types/react-dom": "^18.3.7",
         "@vitejs/plugin-react": "catalog:",
         "jest": "^29.7.0",
-        "typescript": "catalog:",
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:",
         "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     },

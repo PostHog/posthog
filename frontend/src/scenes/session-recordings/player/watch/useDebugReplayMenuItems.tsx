@@ -18,6 +18,7 @@ export function useDebugReplayMenuItems(enabled: boolean): { items: LemonMenuIte
     const { sessionRecordingId, debugRecordingPreparing } = useValues(sessionRecordingPlayerLogic)
     const { taskIdBySessionRecordingId, openingSessionRecordingId } = useValues(debugReplayChatLogic)
     const { openDebugChat } = useActions(debugReplayChatLogic)
+    const { setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const [promptModalOpen, setPromptModalOpen] = useState(false)
 
     const contextItems = useMemo(() => buildDebugReplayContextItems(sessionRecordingId), [sessionRecordingId])
@@ -28,7 +29,10 @@ export function useDebugReplayMenuItems(enabled: boolean): { items: LemonMenuIte
     }
 
     const preparingReason = debugRecordingPreparing ? PREPARING : undefined
-    const openPrompt = (): void => setPromptModalOpen(true)
+    const openPrompt = (): void => {
+        setIsFullScreen(false)
+        setPromptModalOpen(true)
+    }
     const items = taskIdBySessionRecordingId[sessionRecordingId]
         ? [
               {

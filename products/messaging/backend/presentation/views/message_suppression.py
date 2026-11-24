@@ -135,7 +135,7 @@ class BulkAddSuppressionsResultSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Number of distinct addresses received, after lowercasing.")
     created = serializers.IntegerField(help_text="Number of addresses added to the suppression list.")
     already_present = serializers.IntegerField(
-        help_text="Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list."
+        help_text="Number of addresses that already had an entry. A manual entry or a spam complaint keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list."
     )
 
 
@@ -259,7 +259,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def bulk_add_suppressions(self, request: Request, **kwargs: Any) -> Response:
-        """Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe."""
+        """Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe."""
         self._require_editor_access()
         serializer = BulkAddSuppressionsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

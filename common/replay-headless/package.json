@@ -18,6 +18,7 @@
     },
     "scripts": {
         "build": "node build.mjs",
+        "build:phone": "node build-phone.mjs",
         "test": "jest"
     },
     "dependencies": {

@@ -6,6 +6,7 @@ import typing as t
 import asyncio
 import datetime as dt
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import grpc.aio
@@ -59,6 +60,24 @@ LOGGER = get_logger(__name__)
 # where a single on-demand diagnostics run instead shares its tighter budget across several checks.
 PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 
+# The probe sends only an Authorization header, so capture v1 answers with this `error` code, and
+# only when that header reaches it. Our proxy guides forward only `phc_`, `phs_` and `phx_` tokens.
+CAPTURE_V1_PROBE_HEADERS = {"Authorization": "Bearer phc_probe"}
+CAPTURE_V1_MISSING_REQUIRED_HEADERS = "missing_required_headers"
+
+# (connect, read) for each capture v1 probe. `requests` applies a bare number to the connect and to
+# each socket read separately, so a tuple keeps the worst case explicit. Capture answers this probe
+# with one small JSON body, so one read covers it.
+CAPTURE_V1_PROBE_TIMEOUT_S = (3.0, 5.0)
+
+# Capture v1 routes the v1 SDK majors send to, each with the reason a missing route matters.
+# `captureAi` has its own route, served by a separate capture deployment, so a proxy can forward
+# one and not the other.
+CAPTURE_V1_ROUTES = (
+    ("/i/v1/analytics/events", "v1 SDKs send events there"),
+    ("/i/v1/ai/events", "v1 SDKs send AI events there"),
+)
+
 # Every way a resolver reports "no answer". One left uncaught fails the run instead of
 # recording the DNS problem.
 DNS_LOOKUP_FAILURES = (
@@ -78,9 +97,12 @@ CLOUDFLARE_IPS_TIMEOUT_S = 3.0
 # Each check must outlast the network calls it makes, or Temporal kills it first and the run
 # reports an opaque timeout instead of the problem the check found. Worst cases:
 #   check_dns                 two lookups plus the Cloudflare address list = 13s
-#   check_proxy_is_live       the POST plus the socket connect and TLS handshake = 10s
+#   check_proxy_is_live       three phases in sequence, each starting with a 2s pinning lookup
+#                             (DNS_RESOLUTION_LIFETIME_SECONDS): the /i/v0 POST (5s connect + 5s
+#                             read), the two v1 POSTs in parallel (3s connect + 5s read), then the
+#                             socket connect and TLS handshake (5s each) = 34s
 #   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
-CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
+CHECK_START_TO_CLOSE = dt.timedelta(seconds=40)
 
 # Two attempts at the budget above, plus the retry interval between them.
 CHECK_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=90)
@@ -339,6 +361,10 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
             warnings=[],
         )
     probe_base = f"https://{proxy_record.domain}"
+    errors: list[str] = []
+    # Managed proxies share our routing, so with /i/v0 passing, a v1 miss points at our routing or
+    # a capture outage the customer can't act on. It's reported as a warning, not an error.
+    warnings: list[str] = []
 
     # send dummy event to check the proxy is working
     try:
@@ -366,6 +392,13 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
         response.raise_for_status()
 
+        # A missing v1 route doesn't stop the certificate check below, so an expiring certificate
+        # is still reported alongside it.
+        # In parallel, so the two probes share one timeout budget instead of adding up.
+        with ThreadPoolExecutor(max_workers=len(CAPTURE_V1_ROUTES)) as pool:
+            v1_warnings = pool.map(lambda route: _check_capture_v1_route(probe_base, *route), CAPTURE_V1_ROUTES)
+        warnings.extend(w for w in v1_warnings if w is not None)
+
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
         # an attacker-controlled domain can't stall this raw socket the way it could the POST above -
@@ -379,8 +412,8 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         verdict = validate_url_and_pin_ips(f"{probe_base}/")
         if not verdict.allowed:
             return CheckActivityOutput(
-                errors=["Proxy domain does not resolve to a public address"],
-                warnings=[],
+                errors=[*errors, "Proxy domain does not resolve to a public address"],
+                warnings=warnings,
             )
         chosen_ip = select_pinned_ip(verdict.pinned_ips)
         # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
@@ -397,10 +430,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         assert isinstance(cert["notAfter"], str)
         expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
         if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
-            return CheckActivityOutput(
-                errors=["Live proxy certificate is expiring soon"],
-                warnings=[],
-            )
+            errors.append("Live proxy certificate is expiring soon")
     except SSRFBlockedError:
         # Not a RequestException, so without this handler the activity raises and the schedule
         # retries a refusal that can never change.
@@ -450,14 +480,58 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # Raw-socket cert fetch failed (timeout, refused connection, TLS error). requests exceptions
         # are handled above; this catches the stdlib socket/ssl errors the cert probe can raise.
         return CheckActivityOutput(
-            errors=[f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
-            warnings=[],
+            errors=[*errors, f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
+            warnings=warnings,
         )
 
     return CheckActivityOutput(
-        errors=[],
-        warnings=[],
+        errors=errors,
+        warnings=warnings,
     )
+
+
+def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str | None:
+    """Return a warning if the proxy doesn't forward this capture v1 route, or None if it does.
+
+    The v1 SDK majors (posthog-ios 4, posthog-android 4, posthog_flutter 6, posthog-python 8) send
+    every analytics event to /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no
+    fallback, so a proxy that forwards /i/v0 but not /i/v1 drops all of those events.
+
+    The probe sends an Authorization header and none of the other PostHog headers. Capture checks
+    Authorization first and the other headers next (rust/capture/src/v1/context.rs), so it answers
+    400 with `error: missing_required_headers` and ingests nothing. That code proves the request
+    reached capture with its Authorization header: a bare 4xx can come from whatever sits in front
+    of capture, and a proxy that drops the header gets `missing_authorization` instead.
+    """
+    try:
+        # Same pinning as the /i/v0 probe: the domain's DNS could answer differently by now.
+        response = pinned_request(
+            "POST",
+            f"{probe_base}{path}",
+            headers=CAPTURE_V1_PROBE_HEADERS,
+            json={},
+            timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
+        )
+    # A timeout, a dropped connection or a 5xx can come from a capture deploy rather than a missing
+    # route, and the banner stays up until the next daily run, so those don't claim a missing route.
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        return _unverified_capture_v1_route(path, e.__class__.__name__)
+    except (requests.exceptions.RequestException, SSRFBlockedError) as e:
+        return f"Proxy does not forward {path} ({e.__class__.__name__}); {consequence}"
+    try:
+        body = response.json()
+    # The domain owner controls this body, and a deeply nested one raises RecursionError.
+    except (ValueError, RecursionError):
+        body = None
+    if isinstance(body, dict) and body.get("error") == CAPTURE_V1_MISSING_REQUIRED_HEADERS:
+        return None
+    if response.status_code >= 500:
+        return _unverified_capture_v1_route(path, f"got {response.status_code}")
+    return f"Proxy does not forward {path} (got {response.status_code}); {consequence}"
+
+
+def _unverified_capture_v1_route(path: str, detail: str) -> str:
+    return f"Couldn't check whether the proxy forwards {path} ({detail}). The next daily check tries again."
 
 
 @dataclass

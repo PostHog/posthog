@@ -1,3 +1,4 @@
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import {
   LOOPBACK_PROXY_TOKEN,
   SECRET_HEADERS,
@@ -7,9 +8,40 @@ import {
 
 const REDACTED = "[REDACTED]";
 
+function gitlabSecrets(): string[] {
+  const token = process.env.GITLAB_TOKEN?.trim();
+  return token ? [...new Set([token, encodeURIComponent(token)])] : [];
+}
+
+function redactGitlabSecrets(text: string): string {
+  return gitlabSecrets().reduce(
+    (value, secret) => value.replaceAll(secret, REDACTED),
+    text,
+  );
+}
+
+function gitlabPartialPrefixLength(text: string): number {
+  let longest = 0;
+  for (const secret of gitlabSecrets()) {
+    for (
+      let length = Math.min(secret.length - 1, text.length);
+      length > longest;
+      length--
+    ) {
+      if (text.endsWith(secret.slice(0, length))) {
+        longest = length;
+        break;
+      }
+    }
+  }
+  return longest;
+}
+
 interface CompiledRule {
   head: RegExp;
   tail: RegExp;
+  fixedLength?: boolean;
+  partial?: RegExp;
 }
 
 function escapeLiteral(value: string): string {
@@ -25,12 +57,19 @@ const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?|\\[ux][0-9A-Fa-f]{0,3}|${
 
 function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
   const start = rule.wordStart ? WORD_START : "";
-  return `${start}${escapeLiteral(rule.prefix)}${rule.body.source}${repeat}`;
+  const count = rule.bodyLength ? `{${rule.bodyLength}}` : repeat;
+  return `${start}${escapeLiteral(rule.prefix)}${rule.body.source}${count}`;
 }
 
 const RULES: CompiledRule[] = TOKEN_RULES.map((rule) => ({
   head: new RegExp(tokenSource(rule, "*"), "g"),
   tail: new RegExp(`^${rule.body.source}*`),
+  fixedLength: rule.bodyLength !== undefined,
+  partial: rule.bodyLength
+    ? new RegExp(
+        `${rule.wordStart ? WORD_START : ""}${escapeLiteral(rule.prefix)}${rule.body.source}{0,${rule.bodyLength - 1}}$`,
+      )
+    : undefined,
 }));
 
 // A JWT body contains dots, so a match can end in sentence punctuation. The dots belong to
@@ -91,6 +130,18 @@ function loopbackPrefixLength(text: string): number {
   return 0;
 }
 
+function fixedLengthHoldLength(context: string, text: string): number {
+  const source = context + text;
+  let longest = 0;
+  for (const rule of RULES) {
+    const match = rule.partial?.exec(source);
+    if (match && match.index >= context.length) {
+      longest = Math.max(longest, match[0].length);
+    }
+  }
+  return longest;
+}
+
 const SECRET_HEADER_NAMES = new Set(SECRET_HEADERS);
 
 function isSecretHeader(name: unknown): boolean {
@@ -106,14 +157,33 @@ function partialPrefixLength(text: string): number {
   return 0;
 }
 
+function heldLength(context: string, text: string): number {
+  const gitlabHeld = gitlabPartialPrefixLength(text);
+  const seenByRules = text.slice(0, text.length - gitlabHeld);
+  return Math.max(
+    loopbackPrefixLength(text),
+    gitlabHeld + partialPrefixLength(seenByRules),
+    gitlabHeld + fixedLengthHoldLength(context, seenByRules),
+  );
+}
+
+function redactTokens(context: string, text: string): string {
+  return (context + text)
+    .replace(TOKEN, (match, offset: number) =>
+      offset < context.length ? match : REDACTED + trailingDots(match),
+    )
+    .slice(context.length);
+}
+
 export function redactSecrets(value: string): string;
 export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
   if (typeof value === "string") {
-    return value
-      .replace(TOKEN, (match) => REDACTED + trailingDots(match))
-      .replace(LOOPBACK_PROXY_TOKEN, `$1${REDACTED}`);
+    return redactTokens("", redactGitlabSecrets(value)).replace(
+      LOOPBACK_PROXY_TOKEN,
+      `$1${REDACTED}`,
+    );
   }
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
@@ -182,6 +252,11 @@ function isTextChunk(event: Record<string, unknown>): event is TextEvent {
   );
 }
 
+function canArriveMidMessage(event: Record<string, unknown>): boolean {
+  const notification = event.notification as { method?: unknown } | undefined;
+  return notification?.method === POSTHOG_NOTIFICATIONS.CONSOLE;
+}
+
 function withText(event: TextEvent, text: string): TextEvent {
   return {
     ...event,
@@ -220,11 +295,18 @@ export class SecretEventRedactor {
   private context = "";
 
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
+    if (canArriveMidMessage(event)) {
+      return [redactSecrets(event) as Record<string, unknown>];
+    }
     const events: Record<string, unknown>[] = [];
     const chunk = isTextChunk(event);
     const kind = chunk ? event.notification.params.update.sessionUpdate : null;
     if (!chunk || kind !== this.chunkKind) {
-      if (this.pending) events.push(this.pending);
+      if (this.pending) {
+        // Text held for a GitLab credential has not been through the token rules.
+        const held = this.pending.notification.params.update.content.text;
+        events.push(withText(this.pending, redactTokens(this.context, held)));
+      }
       this.pending = null;
       this.active = null;
       this.context = "";
@@ -251,13 +333,17 @@ export class SecretEventRedactor {
       if (remainder === dots) heldDots = dots.length;
       else if (remainder.length > 0) this.active = null;
     }
+    text = redactGitlabSecrets(text);
+    const gitlabHeld = gitlabPartialPrefixLength(text);
+    let gitlabSuffix = gitlabHeld ? text.slice(-gitlabHeld) : "";
+    if (gitlabHeld) text = text.slice(0, -gitlabHeld);
     const context = this.context;
     for (const rule of RULES) {
       text = (context + text)
         .replace(rule.head, (match, offset: number, source: string) => {
           if (offset < context.length) return match;
           const dots = trailingDots(match);
-          if (offset + match.length === source.length) {
+          if (!rule.fixedLength && offset + match.length === source.length) {
             this.active = rule;
             heldDots = dots.length;
           }
@@ -265,6 +351,12 @@ export class SecretEventRedactor {
         })
         .slice(context.length);
     }
+    if (this.active && gitlabSuffix) {
+      const match = this.active.tail.exec(gitlabSuffix)?.[0] ?? "";
+      gitlabSuffix = gitlabSuffix.slice(match.length);
+      if (gitlabSuffix) this.active = null;
+    }
+    text += gitlabSuffix;
     text = text.replace(
       LOOPBACK_PROXY_TOKEN,
       (match, host: string, offset: number, source: string) => {
@@ -280,9 +372,7 @@ export class SecretEventRedactor {
       redactSecrets(withText(event, "")) as TextEvent,
       text,
     );
-    const held = this.active
-      ? heldDots
-      : Math.max(partialPrefixLength(text), loopbackPrefixLength(text));
+    const held = this.active ? heldDots : heldLength(context, text);
     this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {

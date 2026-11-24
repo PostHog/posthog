@@ -490,26 +490,31 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
-    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+    it('reports the DRF error code and backend request id of a failed response', async () => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,
             status: 400,
             statusText: '',
-            headers: new Headers(),
+            headers: new Headers({ 'X-Request-ID': 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }),
             json: () =>
                 Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
         })
 
-        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+        const failure = await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch((e) => e)
 
+        // Lowercased, so it equals `request_id` on the backend log lines of the same request.
+        const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         expect(posthog.capture).toHaveBeenCalledWith(
             'client_request_failure',
             expect.objectContaining({
                 pathname: '/api/users/@me/two_factor_validate/',
                 status: 400,
                 code: 'token_invalid',
+                http_request_id: requestId,
             })
         )
+        expect(failure).toBeInstanceOf(ApiError)
+        expect(failure.requestId).toBe(requestId)
     })
 
     describe('OAuth mode auth headers', () => {
@@ -597,6 +602,52 @@ describe('API helper', () => {
             await api.get('https://agent-proxy.example.com/v1/runs/1/stream')
             const [, options] = fakeFetch.mock.calls[0]
             expect(options.headers['X-PostHog-Client-Build']).toBeUndefined()
+        })
+    })
+
+    describe('events table header', () => {
+        type PageModules = { pageApi: typeof api; pageFetchEventSource: typeof fetchEventSourceModule }
+
+        function loadPage(url: string): PageModules {
+            window.history.replaceState({}, '', url)
+            let modules: PageModules | undefined
+            jest.isolateModules(() => {
+                const apiModule = require('lib/api')
+                apiModule.ApiConfig.setCurrentTeamId(2)
+                modules = { pageApi: apiModule.default, pageFetchEventSource: require('@microsoft/fetch-event-source') }
+            })
+            return modules!
+        }
+
+        afterEach(() => {
+            window.history.replaceState({}, '', '/')
+        })
+
+        it.each([
+            {
+                request: 'a query',
+                send: async ({ pageApi }: PageModules): Promise<Record<string, string>> => {
+                    await pageApi.create('/api/environments/2/query/', { query: {} })
+                    return fakeFetch.mock.calls[0][1].headers
+                },
+            },
+            {
+                request: 'the dashboard tile stream',
+                send: async ({ pageApi, pageFetchEventSource }: PageModules): Promise<Record<string, string>> => {
+                    const fetchEventSourceSpy = jest
+                        .spyOn(pageFetchEventSource, 'fetchEventSource')
+                        .mockReturnValueOnce(new Promise<void>(() => {}))
+                    await pageApi.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), jest.fn())
+                    return fetchEventSourceSpy.mock.calls[0][1].headers as Record<string, string>
+                },
+            },
+        ])('sends the table the page loaded with on $request after the page rewrites its URL', async ({ send }) => {
+            const page = loadPage('/sql?ph_new_events_schema=0')
+            window.history.replaceState({}, '', '/sql')
+
+            const headers = await send(page)
+
+            expect(headers['X-PostHog-New-Events-Schema']).toEqual('0')
         })
     })
 

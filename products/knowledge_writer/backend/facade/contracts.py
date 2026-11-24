@@ -1,12 +1,10 @@
-from typing import Annotated, ClassVar, Literal, Protocol, TypeVar
+from typing import Annotated, ClassVar, Literal, Protocol
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
-
-RawEvent = TypeVar("RawEvent", contravariant=True)
+from .enums import CriterionEffect, DocsChangeKind, DocsRequestSource, MergeCheckFailure
 
 TASK_ORIGIN_KEY_MAX_LENGTH = 128
 
@@ -26,7 +24,27 @@ class DocsRequest:
     dedupe_id: DedupeId
     requested_by: str | None = None
     requested_by_user_id: int | None = None
-    skip_judge: bool = False
+    docs_content_root: str | None = None
+    source_repository: str | None = None
+    source_commit_sha: str | None = None
+    source_author_login: str | None = None
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class CriterionResult:
+    criterion: str
+    value: str
+    source: str
+    evidence: str
+    effect: CriterionEffect
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class VerdictTrace:
+    repository: str
+    pull_request_number: int | None
+    low_confidence: bool
+    criteria: tuple[CriterionResult, ...]
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
@@ -36,7 +54,9 @@ class AdapterVerdict:
     needs_docs: bool
     reason: str
     request: DocsRequest | None
+    trace: VerdictTrace | None = None
     failure_reason: MergeCheckFailure | None = None
+    check_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):
@@ -45,11 +65,9 @@ class AdapterVerdict:
             raise ValueError("request.source must match verdict.source")
 
 
-class Adapter(Protocol[RawEvent]):
+class Adapter(Protocol):
     source: ClassVar[DocsRequestSource]
     instructions: ClassVar[str]
-
-    def assess(self, event: RawEvent) -> AdapterVerdict: ...
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
@@ -59,17 +77,21 @@ class MergeCheckReport:
     title: str
     needs_docs: bool
     reason: str
+    repository: str
+    pull_request_number: int
     change_kind: DocsChangeKind | None = None
     page_urls: tuple[str, ...] = ()
     evidence: str = ""
+    low_confidence: bool = False
+    criteria: tuple[CriterionResult, ...] = ()
+    docs_content_root: str | None = None
+    author_login: str | None = None
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
 class DocsCommandRequest:
     repository: str
     pull_request_number: int
-    pull_request_url: str
-    head_sha: str
     note: str
     requested_by: str
     requested_by_user_id: int
@@ -82,8 +104,6 @@ IntakeStatus = Literal[
     "capped",
     "shadow",
     "docs_in_source_repo",
-    "section_busy",
-    "joined",
     "started",
 ]
 

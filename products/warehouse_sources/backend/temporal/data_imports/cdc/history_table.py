@@ -436,7 +436,9 @@ def drop_history_table(
         # cdc_only links the schema to its history table.
         if locked.table_id == table.id and not keep:
             locked.table = None
-            update_fields.append("table")
+            # The table's access rules go with it, so its source's rules must not take over for a live query.
+            locked.live_query_enabled = False
+            update_fields.extend(["table", "live_query_enabled"])
         locked.save(update_fields=update_fields, skip_activity_log=True)
         if not keep:
             table.soft_delete()

@@ -55,7 +55,7 @@ Config shape has one SSOT; UI metadata stays hand-written.
 | OpenAPI config             | `backend/widget_specs/openapi.py`                                     | Stub DRF serializers + Pydantic `model_json_schema()` via `pydantic_openapi.py` postprocessing |
 | FE config Zod              | `frontend/generated/widget-configs.zod.ts` + `widget-config-schemas/` | Codegen — `hogli build:widget-types` (Orval `generateReusableSchemas`)                         |
 | FE config property keys    | `frontend/generated/widget-config-property-keys.json`                 | Codegen — `generate-widget-config-zod.mjs` (parity tests)                                      |
-| Widget date presets        | `frontend/generated/widget-date-from-options.json`                    | Codegen — `build-dashboard-widget-types.py` (`constants.py` values + labels)                   |
+| Widget date presets        | `frontend/generated/widget-date-from-options.json`                    | Codegen — `scripts/build_widget_types.py` (`constants.py` values + labels)                     |
 | Widget form field picks    | `frontend/generated/widget-form-fields.json`                          | Codegen — `WidgetSpec.form_fields` in `registry.py`                                            |
 | FE UI catalog              | `frontend/widget_types/catalog.ts`                                    | Yes — layouts, copy                                                                            |
 | FE previews                | `frontend/widgets/previews/dashboardWidgetPreviews.ts`                | Yes — preview component per widget type (kept out of the catalog so the app shell stays small) |

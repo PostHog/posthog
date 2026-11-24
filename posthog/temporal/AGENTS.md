@@ -28,7 +28,7 @@ The semgrep rule `temporal-logger-no-keyword-fields` blocks this at review time.
 ## Subtree-specific docs (read when working in that area)
 
 - [`data_imports/`](../../products/warehouse_sources/backend/temporal/data_imports/README.md) — data warehouse import pipelines (moved to the warehouse_sources product).
-- [`data_modeling/`](./data_modeling/AGENTS.md) — v1 frozen / v2 active split.
+- [`data_modeling/`](../../products/data_modeling/backend/temporal/AGENTS.md) — materialization workflows and activities (moved to the data_modeling product).
 - [`slack_app`](../../products/slack_app/backend/temporal/README.md) — Slack app workflows, the repo-selection eval script, and post-deploy checks for the repo discovery agent (moved to the slack_app product).
 - [`signals emission`](../../products/signals/backend/emission/AGENTS.md) — signal emission for data-imports events (moved to the signals product).
 - [`experiments timeseries`](../../products/experiments/backend/temporal/timeseries/README.md) — the daily experiment timeseries workflows (moved to the experiments product).

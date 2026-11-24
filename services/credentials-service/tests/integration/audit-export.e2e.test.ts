@@ -1,6 +1,6 @@
-// The audit exporter and the retention step against a real Postgres in a container.
+// The audit exporter against a real Postgres in a container.
 
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -12,13 +12,14 @@ import {
     EXPORT_LOCK_KEY,
     captureSender,
 } from '@/audit/exporter'
-import { pruneAuditLog } from '@/audit/retention'
+import { measureAuditExportLag } from '@/audit/lag'
 import { runMigrations } from '@/db/migrate'
 import { insertAuditRows } from '@/integrations/audit'
 import { register } from '@/metrics'
 
+import { createAuditExtensions, startPostgresWithPartman } from './postgres'
+
 const FAKE_SECRET = 'fake-secret-value-z9y8x7'
-const DAY_MS = 86_400_000
 
 let container: StartedPostgreSqlContainer
 let pool: Pool
@@ -28,6 +29,7 @@ const RUNTIME_ROLE = 'credentials_runtime_export_test'
 
 const entry = (operation: string) => ({
     actor: { deployment: 'cdp-api', caller: 'tests', userId: 7, jti: 'jti-fake-0001', requestId: 'req-1' },
+    occurredAt: new Date(),
     operation,
     outcome: 'ok',
     ownerType: 'team',
@@ -64,7 +66,8 @@ async function metricValue(name: string, labels: Record<string, string> = {}): P
 }
 
 beforeAll(async () => {
-    container = await new PostgreSqlContainer('postgres:17-alpine').start()
+    container = await startPostgresWithPartman('test')
+    await createAuditExtensions(container.getConnectionUri())
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 8 })
     await pool.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD 'not-a-real-password'`)
     await runMigrations({
@@ -76,7 +79,7 @@ beforeAll(async () => {
     runtimeUrl.username = RUNTIME_ROLE
     runtimeUrl.password = 'not-a-real-password'
     runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 4 })
-}, 120_000)
+}, 300_000)
 
 beforeEach(async () => {
     await pool.query('TRUNCATE audit_log')
@@ -92,7 +95,7 @@ describe('AuditExporter', () => {
     it('exports each row once, in batches, and never again', async () => {
         await seed(5)
         const { sent, send } = recorder()
-        const exporter = new AuditExporter(pool, send, 2)
+        const exporter = new AuditExporter(pool, send, 2, 'test')
 
         expect(await exporter.tick()).toBe('exported')
         expect(sent.map((batch) => batch.length)).toEqual([2, 2, 1])
@@ -107,7 +110,7 @@ describe('AuditExporter', () => {
         await seed(3)
         const { sent, send } = recorder()
 
-        expect(await new AuditExporter(runtimePool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(runtimePool, send, 10, 'test').tick()).toBe('exported')
         expect(await exportedCount()).toBe(3)
         expect(sent.flat()).toHaveLength(3)
 
@@ -116,7 +119,6 @@ describe('AuditExporter', () => {
             /permission denied/
         )
         await expect(runtimePool.query('DELETE FROM audit_log')).rejects.toThrow(/permission denied/)
-        await expect(pruneAuditLog(runtimePool, { retentionDays: 0 })).rejects.toThrow(/permission denied/)
     })
 
     it('marks rows by key when their timestamps differ only in microseconds', async () => {
@@ -128,22 +130,23 @@ describe('AuditExporter', () => {
         )
         const { sent, send } = recorder()
 
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('exported')
         expect(sent.flat()).toHaveLength(5)
         expect(await exportedCount()).toBe(5)
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('idle')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('idle')
     })
 
     it('sends the documented event shape', async () => {
         await seed(1, 'resolve')
         const { sent, send } = recorder()
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
 
         const [event] = sent[0]!
         expect(event).toMatchObject({ event: AUDIT_EVENT, distinct_id: AUDIT_DISTINCT_ID })
         expect(event!.uuid).toMatch(/^[0-9a-f-]{36}$/)
         expect(event!.properties).toEqual({
             $process_person_profile: false,
+            environment: 'test',
             deployment: 'cdp-api',
             caller: 'tests',
             user_id: 7,
@@ -172,7 +175,8 @@ describe('AuditExporter', () => {
                 }
                 sent.push(events)
             },
-            10
+            10,
+            'test'
         )
 
         expect(await exporter.tick()).toBe('failed')
@@ -192,7 +196,7 @@ describe('AuditExporter', () => {
         try {
             await holder.query('SELECT pg_advisory_lock($1)', [EXPORT_LOCK_KEY])
             const { sent, send } = recorder()
-            expect(await new AuditExporter(pool, send, 10).tick()).toBe('not_leader')
+            expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('not_leader')
             expect(sent).toHaveLength(0)
             expect(await exportedCount()).toBe(0)
         } finally {
@@ -200,7 +204,7 @@ describe('AuditExporter', () => {
             holder.release()
         }
         const { sent, send } = recorder()
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('exported')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('exported')
         expect(sent.flat()).toHaveLength(2)
     })
 
@@ -208,8 +212,8 @@ describe('AuditExporter', () => {
         await seed(6)
         const { sent, send } = recorder()
         const results = await Promise.all([
-            new AuditExporter(pool, send, 2).tick(),
-            new AuditExporter(pool, send, 2).tick(),
+            new AuditExporter(pool, send, 2, 'test').tick(),
+            new AuditExporter(pool, send, 2, 'test').tick(),
         ])
         expect(results).toContain('exported')
         const uuids = sent.flat().map((event) => event.uuid)
@@ -217,22 +221,18 @@ describe('AuditExporter', () => {
         expect(uuids).toHaveLength(6)
     })
 
-    it('reports the age of the oldest unexported row as lag', async () => {
+    it('reports the age of the oldest unexported row independently of the exporter', async () => {
         await seed(1)
-        await pool.query("UPDATE audit_log SET occurred_at = now() - interval '2 minutes'")
-        const { send } = recorder()
-        const failing = new AuditExporter(
-            pool,
-            async () => {
-                throw new Error('down')
-            },
-            10
+        await pool.query(
+            `INSERT INTO audit_log (deployment, operation, outcome, occurred_at)
+             VALUES ('d', 'older', 'ok', now() - interval '2 minutes')`
         )
-        await failing.tick()
+        const { send } = recorder()
+        await measureAuditExportLag(pool)
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBeGreaterThanOrEqual(119)
 
-        await new AuditExporter(pool, send, 10).tick()
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
+        await measureAuditExportLag(pool)
         expect(await metricValue('credentials_service_audit_export_lag_seconds')).toBe(0)
     })
 
@@ -253,7 +253,7 @@ describe('AuditExporter', () => {
             },
             fakeFetch
         )
-        await new AuditExporter(pool, send, 10).tick()
+        await new AuditExporter(pool, send, 10, 'test').tick()
 
         expect(bodies).toHaveLength(1)
         expect(bodies[0]).not.toContain(FAKE_SECRET)
@@ -274,61 +274,7 @@ describe('AuditExporter', () => {
             },
             fakeFetch
         )
-        expect(await new AuditExporter(pool, send, 10).tick()).toBe('failed')
+        expect(await new AuditExporter(pool, send, 10, 'test').tick()).toBe('failed')
         expect(await exportedCount()).toBe(0)
     })
 })
-
-describe('pruneAuditLog', () => {
-    const ageRows = async (days: number, operation: string): Promise<void> => {
-        await pool.query(`UPDATE audit_log SET occurred_at = now() - $1::int * interval '1 day' WHERE operation = $2`, [
-            days,
-            operation,
-        ])
-    }
-
-    it('deletes only rows older than the window, in several batches', async () => {
-        await seed(5, 'old')
-        await seed(2, 'recent')
-        await ageRows(31, 'old')
-        await ageRows(29, 'recent')
-
-        expect(await pruneAuditLog(pool, { retentionDays: 30, batchSize: 2, deleteUnexported: true })).toBe(5)
-        const left = await pool.query('SELECT operation FROM audit_log')
-        expect(left.rows.map((row) => row.operation)).toEqual(['recent', 'recent'])
-    })
-
-    it('keeps old rows that were never exported, and deletes old rows that were', async () => {
-        await seed(3, 'old')
-        await ageRows(40, 'old')
-        await pool.query(
-            `UPDATE audit_log SET exported_at = now()
-             WHERE id = (SELECT id FROM audit_log ORDER BY id LIMIT 1)`
-        )
-
-        expect(await pruneAuditLog(pool, { retentionDays: 30 })).toBe(1)
-        expect((await pool.query('SELECT 1 FROM audit_log')).rowCount).toBe(2)
-    })
-
-    it('keeps everything when nothing is old enough', async () => {
-        await seed(3)
-        expect(await pruneAuditLog(pool, { retentionDays: 30 })).toBe(0)
-        expect((await pool.query('SELECT 1 FROM audit_log')).rowCount).toBe(3)
-    })
-
-    it('skips when another pod holds the lock', async () => {
-        await seed(1)
-        await ageRows(40, 'resolve')
-        const holder = await pool.connect()
-        try {
-            await holder.query('SELECT pg_advisory_lock($1)', [7_201_002])
-            expect(await pruneAuditLog(pool, { retentionDays: 30, deleteUnexported: true })).toBeNull()
-            expect((await pool.query('SELECT 1 FROM audit_log')).rowCount).toBe(1)
-        } finally {
-            await holder.query('SELECT pg_advisory_unlock($1)', [7_201_002])
-            holder.release()
-        }
-    })
-})
-
-void DAY_MS

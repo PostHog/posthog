@@ -1,34 +1,10 @@
-import { useActions, useValues } from 'kea'
-
-import { IconPlus } from '@posthog/icons'
-import {
-    Button,
-    Card,
-    CardContent,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemTitle,
-    Progress,
-    ProgressLabel,
-    Text,
-} from '@posthog/quill'
-
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { Card, CardContent, Heading, Progress, ProgressLabel, Text } from '@posthog/quill'
 
 import { ReleaseLifecycle } from './ReleaseLifecycle'
-import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
-import { releaseLogic } from './releaseLogic'
+import { ReleaseNextSteps } from './ReleaseNextSteps'
 import { REVIEW_AFTER_DAYS, ReleaseRow, STAGE_COLOR } from './releaseUtils'
 
 export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
-    const { canEditReleases } = useValues(releaseLogic)
-    const { openSchedule } = useActions(releaseLogic)
-    const step = row.nextStep
-
     return (
         <Card data-attr="release-status">
             <CardContent className="flex flex-col gap-5">
@@ -51,61 +27,7 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                         </Text>
                     </Progress>
                 )}
-                {step ? (
-                    <Item
-                        variant="outline"
-                        tone={row.needsDecision ? 'info' : 'default'}
-                        data-attr="release-next-step-callout"
-                    >
-                        <ItemContent>
-                            <ItemTitle>{`Next: ${step.title.charAt(0).toLowerCase()}${step.title.slice(1)}`}</ItemTitle>
-                            <ItemDescription>{step.detail}</ItemDescription>
-                        </ItemContent>
-                        <ItemActions className="flex-wrap">
-                            {!row.flags.length && canEditReleases && (
-                                <>
-                                    <div className="w-56">
-                                        <ReleaseLinkFlagCombobox row={row} placeholder="Find a flag" />
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={urls.featureFlag('new')} />}
-                                        data-attr="release-create-flag"
-                                    >
-                                        <IconPlus />
-                                        Create a flag
-                                    </Button>
-                                </>
-                            )}
-                            {step.secondaryLabel && step.secondaryTo && (
-                                <Button
-                                    variant="outline"
-                                    nativeButton={false}
-                                    render={<LinkPrimitive to={step.secondaryTo} />}
-                                    data-attr="release-next-step-secondary"
-                                >
-                                    {step.secondaryLabel}
-                                </Button>
-                            )}
-                            {step.label && (
-                                <Button
-                                    variant={step.urgent ? 'primary' : 'outline'}
-                                    {...(step.scheduleFlagId !== undefined
-                                        ? { onClick: () => openSchedule(step.scheduleFlagId as number) }
-                                        : { nativeButton: false, render: <LinkPrimitive to={step.to ?? ''} /> })}
-                                    data-attr="release-next-step"
-                                >
-                                    {step.label}
-                                </Button>
-                            )}
-                        </ItemActions>
-                    </Item>
-                ) : (
-                    <Text size="xs" variant="muted">
-                        Nothing needs a decision right now.
-                    </Text>
-                )}
+                <ReleaseNextSteps row={row} />
             </CardContent>
         </Card>
     )

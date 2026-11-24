@@ -12,7 +12,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
-import type { AlertPatternPreviewResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    AlertPatternPreviewResponseApi,
+    SourceFilterCatalogApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -42,6 +45,7 @@ interface PanelState {
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
     externalConnections: boolean
+    linearConnected: boolean
     // Team config (signals/config)
     anomalyScoringAvailable: boolean
     anomalyScoringEnabled: boolean
@@ -79,6 +83,14 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
                   },
               ]
             : []),
+        ...(state.linearConnected
+            ? [
+                  {
+                      ...sourceConfig(SignalSourceProduct.Linear, SignalSourceType.Issue, true),
+                      config: { hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 1 } },
+                  },
+              ]
+            : []),
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
         ),
@@ -99,6 +111,27 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         },
         sourceConfig(SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue, state.healthChecksArmed),
     ]
+}
+
+function connectedWarehouseSources(state: PanelState): string[] {
+    return [
+        ...(state.externalConnections ? ['Github', 'Jira', 'Sentry'] : []),
+        ...(state.linearConnected ? ['Linear'] : []),
+    ]
+}
+
+const LINEAR_FILTER_CATALOG: SourceFilterCatalogApi = {
+    source_product: 'linear',
+    source_type: 'issue',
+    catalog_version: 1,
+    filter_fields: [
+        {
+            name: 'assignee_id',
+            type: 'string',
+            description: 'ID of the user assigned to the issue. Null when the issue is unassigned.',
+        },
+    ],
+    starter_expressions: ['assignee_id IS NULL'],
 }
 
 /** Ten scanners, so the roster's per-scanner list renders on and off rows, the filter, and the cap. */
@@ -286,6 +319,10 @@ function PanelHarness(state: PanelState): JSX.Element {
                     anomaly_scoring_enabled: state.anomalyScoringEnabled,
                 },
             ],
+            '/api/projects/:team_id/signals/source_configs/filter_catalogs/': () => [
+                200,
+                { results: state.linearConnected ? [LINEAR_FILTER_CATALOG] : [] },
+            ],
             '/api/projects/:team_id/signals/source_configs/': () =>
                 state.sourceConfigsUnavailable
                     ? [500, { detail: 'A server error occurred.' }]
@@ -309,11 +346,11 @@ function PanelHarness(state: PanelState): JSX.Element {
             '/api/environments/:team_id/external_data_sources/': () => [
                 200,
                 {
-                    count: state.externalConnections ? 3 : 0,
+                    count: connectedWarehouseSources(state).length,
                     next: null,
                     previous: null,
-                    results: state.externalConnections
-                        ? ['Github', 'Jira', 'Sentry'].map((source_type, index) => ({
+                    results: connectedWarehouseSources(state).length
+                        ? connectedWarehouseSources(state).map((source_type, index) => ({
                               id: `source-${index}`,
                               source_type,
                               status: 'Completed',
@@ -374,6 +411,7 @@ const meta: Meta<typeof PanelHarness> = {
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
         externalConnections: false,
+        linearConnected: false,
         anomalyScoringAvailable: true,
         anomalyScoringEnabled: true,
     },
@@ -519,6 +557,19 @@ export const ProductAnalyticsAlertScope: Story = {
 /** Connected tools stay in the roster even when they are off. */
 export const ExternalSourcesConnected: Story = {
     args: { externalConnections: true },
+}
+
+/** Linear opened with source filters on: the teams line, then the button that opens the filter editor. */
+export const LinearSourceFilter: Story = {
+    args: { linearConnected: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_SOURCE_FILTERS],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Linear')
+        await userEvent.click(expandButton)
+    },
 }
 
 export const SourceCatalogFiltered: Story = {

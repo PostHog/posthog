@@ -19,7 +19,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -73,6 +73,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
 from products.experiments.backend.health.context import load_health_context
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -169,9 +170,24 @@ from products.notifications.backend.facade.api import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-
 logger = structlog.get_logger(__name__)
+
+
+class _SavedMetricLinkWriteSerializer(serializers.ModelSerializer):
+    # Checks that both ids exist and that the metadata is not null, and answers a 400 when they fail.
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = ["experiment", "saved_metric", "metadata"]
+
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    serializer = _SavedMetricLinkWriteSerializer(
+        data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
+        context=context,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -1312,8 +1328,6 @@ class ExperimentService:
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
         self._reject_live_create_under_launch_policy(is_draft)
-        if not is_draft:
-            self._reject_warehouse_native_launch(exposure_criteria)
 
         ensured = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -1355,6 +1369,10 @@ class ExperimentService:
 
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
+        # Warehouse rows have no conversion window the statement can wait out, and a team default of "on" would
+        # make every warehouse-native metric refuse to run. The save stores the setting off, as for test accounts.
+        if warehouse_native_exposure_config(exposure_criteria) is not None:
+            only_count_matured_users = False
 
         # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
         if (
@@ -1847,13 +1865,6 @@ class ExperimentService:
         if feature_flag.deleted:
             raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
 
-    @staticmethod
-    def _reject_warehouse_native_launch(exposure_criteria: dict | None) -> None:
-        """Nothing runs a warehouse-native query yet, so a launched experiment would only fail every
-        calculation. The exposure stands for the experiment: a warehouse-native experiment always has one."""
-        if warehouse_native_exposure_config(exposure_criteria) is not None:
-            raise ValidationError("Warehouse-native sources cannot run yet. Use them on a draft experiment only.")
-
     def _validate_flag_for_launch(self, experiment: Experiment, feature_flag: FeatureFlag) -> None:
         """Flag guards shared by launch_experiment and the PATCH(start_date) launch path.
 
@@ -2054,16 +2065,12 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data["id"],
-                    "metadata": saved_metric_data.get("metadata"),
-                },
+            _create_saved_metric_link(
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric_data["id"],
+                metadata=saved_metric_data.get("metadata"),
                 context=context,
             )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
 
     # ------------------------------------------------------------------
     # Launch
@@ -2074,6 +2081,20 @@ class ExperimentService:
     # out of an atomic block would roll back the just-created ChangeRequest). The flag
     # is flipped through the gate first, so an ApprovalRequired aborts before any
     # experiment mutation.
+    def assert_user_may_run_warehouse_native_sources(self, experiment: Experiment) -> None:
+        """A launch and a manual recalculation send the experiment's sources to the customer's warehouse with no
+        user to check. So the acting user needs the access a save needs, even when the sources are unchanged."""
+        validate_experiment_warehouse_native_sources(
+            exposure_criteria=experiment.exposure_criteria,
+            metrics=[
+                *(experiment.metrics or []),
+                *(experiment.metrics_secondary or []),
+                *self._linked_saved_metric_queries(experiment),
+            ],
+            team=self.team,
+            user=self.user,
+        )
+
     def launch_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Launch a draft experiment: validate readiness, set start_date, activate feature flag.
 
@@ -2082,7 +2103,7 @@ class ExperimentService:
         """
         if not experiment.is_draft:
             raise ValidationError("Experiment has already been launched.")
-        self._reject_warehouse_native_launch(experiment.exposure_criteria)
+        self.assert_user_may_run_warehouse_native_sources(experiment)
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
@@ -3808,6 +3829,18 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        # An update keeps the criteria as the client sent them. A filled-in default would move the legacy
+        # calculation key, which hashes the stored criteria, and so reset the results. The warehouse-native
+        # rule is the exception, because the runner refuses the experiment until the setting is stored off.
+        if warehouse_native_exposure_config(update_data.get("exposure_criteria")) is not None:
+            update_data = {
+                **update_data,
+                "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
+            }
+        if warehouse_native_exposure_config(
+            update_data.get("exposure_criteria", experiment.exposure_criteria)
+        ) is not None and update_data.get("only_count_matured_users", experiment.only_count_matured_users):
+            update_data = {**update_data, "only_count_matured_users": False}
         if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
             # The rule spans the exposure and every metric, so the fields left out of the update are read
             # from the experiment. An update that touches none of them skips the check, so a connection
@@ -3826,11 +3859,8 @@ class ExperimentService:
                 team=self.team,
                 user=self.user,
             )
-        if "start_date" in update_data or _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
-            # Covers a draft that launches and a launched experiment that switches its sources.
-            if update_data.get("start_date", experiment.start_date) is not None:
-                self._reject_warehouse_native_launch(update_data.get("exposure_criteria", experiment.exposure_criteria))
-
+        elif update_data.get("start_date") is not None and experiment.start_date is None:
+            self.assert_user_may_run_warehouse_native_sources(experiment)
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -4029,16 +4059,12 @@ class ExperimentService:
                             existing_link.metadata = new_metadata
                             existing_link.save(update_fields=["metadata", "updated_at"])
                     else:
-                        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                            data={
-                                "experiment": experiment.id,
-                                "saved_metric": saved_metric_id,
-                                "metadata": new_metadata,
-                            },
+                        _create_saved_metric_link(
+                            experiment_id=experiment.id,
+                            saved_metric_id=saved_metric_id,
+                            metadata=new_metadata,
                             context=context,
                         )
-                        saved_metric_serializer.is_valid(raise_exception=True)
-                        saved_metric_serializer.save()
 
             # (stats_config / excluded_variants / duplicate-metric-uuid validation
             # runs before the flag write above so a 400 can't leave a committed flag
@@ -4272,12 +4298,23 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
+        # `deleted` is nullable, so a restore is any write that leaves it not true. The flag API
+        # rejects a null before this point, but this service has callers of its own.
+        restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
+        if restoring:
+            assert_experiment_restorable(experiment)
+            # Every flag write in this method runs before the restore reaches the database, so
+            # the flag would still read as owned by nothing and the experiment approval policies
+            # would not match it. Ordering the writes the other way would put the flag change
+            # outside the approval gate it has to pass, so a restore carries nothing else.
+            if feature_flag_config or any(update_data.get(field) is not None for field in ("start_date", "holdout")):
+                raise ValidationError(
+                    "Cannot restore an experiment and change its feature flag in one step. "
+                    "Restore the experiment first, then make the other change."
+                )
+
+        if not experiment.deleted and update_data.get("deleted") is True:
+            assert_experiment_deletable(experiment)
 
         if experiment.is_rule_linked:
             self._validate_rule_linked_update(experiment, update_data, feature_flag_config)

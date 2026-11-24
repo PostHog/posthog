@@ -6,8 +6,15 @@ from time_machine import travel
 from products.warehouse_sources.sources.sdk import UnknownResourceError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 from products.warehouse_sources.sources.triple_whale._config import TripleWhaleSourceConfig
+from products.warehouse_sources.sources.triple_whale.settings import ENDPOINTS
 from products.warehouse_sources.sources.triple_whale.source import TripleWhaleSource
 from products.warehouse_sources.sources.triple_whale.triple_whale import TripleWhaleResumeConfig
+
+END_TIME = "2024-03-02T12:34:56+00:00"
+
+
+def sql_page(count: int, start: int = 0) -> ScriptedResponse:
+    return ScriptedResponse(json={"success": True, "data": [{"order_id": str(i)} for i in range(start, start + count)]})
 
 
 @travel("2024-03-02T12:34:56+00:00", tick=False)
@@ -46,19 +53,76 @@ def test_orders_paginate_by_total_and_advance_month_without_losing_nested_data()
     ]
 
 
+@travel(END_TIME, tick=False)
+@pytest.mark.parametrize(
+    ("schema_name", "start_date", "responses", "expected"),
+    [
+        (
+            "orders",
+            "2024-02-28",
+            [sql_page(1000), sql_page(3, 1000), sql_page(0)],
+            [
+                ("2024-02-28", "2024-02-29", 0, "2024-02-28", 1000),
+                ("2024-02-28", "2024-02-29", 1000, "2024-03-01", 0),
+                ("2024-03-01", "2024-03-02", 0, "2024-04-01", 0),
+            ],
+        ),
+        (
+            "customers",
+            "2024-01-15",
+            [sql_page(1000), sql_page(1000, 1000), sql_page(0)],
+            [
+                ("2024-01-15", "2024-03-02", 0, "2024-01-15", 1000),
+                ("2024-01-15", "2024-03-02", 1000, "2024-01-15", 2000),
+                ("2024-01-15", "2024-03-02", 2000, "9999-12-31", 0),
+            ],
+        ),
+    ],
+)
+def test_sql_tables_page_with_limit_and_offset_until_a_short_page(
+    schema_name: str,
+    start_date: str,
+    responses: list[ScriptedResponse],
+    expected: list[tuple[str, str, int, str, int]],
+) -> None:
+    config = TripleWhaleSourceConfig(api_key="test-key", shop="example.myshopify.com", start_date=start_date)
+    result = SourceDriver(TripleWhaleSource(), config).run(schema_name, responses)
+    assert result.raised is None
+    assert len(result.rows) == sum(len(r.json["data"]) for r in responses)
+    sql = ENDPOINTS[schema_name].sql
+    assert [request.json() for request in result.requests] == [
+        {
+            "shopId": "example.myshopify.com",
+            "query": f"{sql} LIMIT 1000 OFFSET {offset}",
+            "period": {"startDate": start, "endDate": end},
+        }
+        for start, end, offset, _, _ in expected
+    ]
+    assert [(state.window_start, state.offset) for state in result.committed_states] == [
+        (window_start, next_offset) for _, _, _, window_start, next_offset in expected
+    ]
+
+
 @travel("2024-03-02T12:34:56+00:00", tick=False)
-@pytest.mark.parametrize("schema_name", ["orders_with_journeys", "summary_page"])
+@pytest.mark.parametrize("schema_name", ["orders_with_journeys", "summary_page", "ads"])
 def test_resume_keeps_date_range_and_skips_written_pages(schema_name: str) -> None:
     config = TripleWhaleSourceConfig(api_key="test-key", shop="example.myshopify.com", start_date="2024-01-01")
     is_orders = schema_name == "orders_with_journeys"
+    is_sql = schema_name == "ads"
     state = TripleWhaleResumeConfig(
         window_start="2024-02-29",
         end_time="2024-02-29T23:59:59+00:00",
         page=2 if is_orders else 1,
         seen=1 if is_orders else 0,
+        offset=2000 if is_sql else 0,
     )
     row = {"order_id": 2} if is_orders else {"metricName": "revenue", "value": 5}
-    response = {"totalForRange": 2, "ordersWithJourneys": [row]} if is_orders else {"metrics": [row]}
+    if is_orders:
+        response: dict[str, object] = {"totalForRange": 2, "ordersWithJourneys": [row]}
+    elif is_sql:
+        response = {"success": True, "data": [row]}
+    else:
+        response = {"metrics": [row]}
     result = SourceDriver(TripleWhaleSource(), config).run(
         schema_name, [ScriptedResponse(json=response)], resume_state=state
     )
@@ -69,6 +133,10 @@ def test_resume_keeps_date_range_and_skips_written_pages(schema_name: str) -> No
         assert body["page"] == 2
         assert body["startDate"] == "2024-02-29T00:00:00.000+00:00"
         assert body["endDate"] == "2024-02-29T23:59:59.000+00:00"
+        assert result.rows == [row]
+    elif is_sql:
+        assert body["period"] == {"startDate": "2024-02-29", "endDate": "2024-02-29"}
+        assert body["query"].endswith("LIMIT 1000 OFFSET 2000")
         assert result.rows == [row]
     else:
         assert body["period"] == {"start": "2024-02-29", "end": "2024-02-29"}
@@ -104,16 +172,19 @@ def test_daily_metrics_attach_reporting_date_and_checkpoint_empty_days() -> None
 
 @travel("2024-03-02T12:34:56+00:00", tick=False)
 @pytest.mark.parametrize(
-    ("body", "message"),
+    ("schema_name", "body", "message"),
     [
-        ({"ordersWithJourneys": [], "totalForRange": 1}, "empty page"),
-        ({"ordersWithJourneys": [], "totalForRange": -1}, "invalid order count"),
-        ({"ordersWithJourneys": [], "error": "Forbidden"}, "attribution error"),
+        ("orders_with_journeys", {"ordersWithJourneys": [], "totalForRange": 1}, "empty page"),
+        ("orders_with_journeys", {"ordersWithJourneys": [], "totalForRange": -1}, "invalid order count"),
+        ("orders_with_journeys", {"ordersWithJourneys": [], "error": "Forbidden"}, "attribution error"),
+        ("products", {"success": False, "message": "Unknown column", "data": []}, "could not run the table query"),
     ],
 )
-def test_orders_fail_instead_of_publishing_incomplete_data(body: dict[str, object], message: str) -> None:
+def test_tables_fail_instead_of_publishing_incomplete_data(
+    schema_name: str, body: dict[str, object], message: str
+) -> None:
     config = TripleWhaleSourceConfig(api_key="test-key", shop="example.myshopify.com", start_date="2024-03-01")
-    result = SourceDriver(TripleWhaleSource(), config).run("orders_with_journeys", [ScriptedResponse(json=body)])
+    result = SourceDriver(TripleWhaleSource(), config).run(schema_name, [ScriptedResponse(json=body)])
     assert isinstance(result.raised, ValueError)
     assert message in str(result.raised)
     assert result.rows == []

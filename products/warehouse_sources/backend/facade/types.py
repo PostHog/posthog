@@ -61,6 +61,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
     recommended: bool
+    # Set when the decision model picked this field, so a caller can trust it over name rules.
+    picked_by_model: bool
     notes: list[str]
 
 

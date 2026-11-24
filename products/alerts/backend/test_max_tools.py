@@ -14,11 +14,17 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertSt
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.alerts_platform.backend.facade.api import get_configuration, subscriber_user_ids_by_public_id
+from products.alerts.backend.test.insight_alerts import move_to_platform
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    owned_copies_by_legacy_id,
+    subscriber_user_ids_by_public_id,
+)
 from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
@@ -182,6 +188,16 @@ class TestUpsertAlertTool(BaseTest):
             self.user.id,
         )
         assert subscribers == {alert_id: (self.user.id,)}
+        logged = [
+            row
+            async for row in ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="AlertConfiguration",
+                item_id=str(alert_id),
+                detail__type="alert_subscription_change",
+            ).values_list("activity", "user_id")
+        ]
+        assert logged == [("created", self.user.id)]
 
         with mock.patch("posthog.event_usage.report_user_action") as report:
             updated_content, _ = await tool._arun_impl(
@@ -801,6 +817,36 @@ class TestUpsertAlertTool(BaseTest):
         assert check(alert, threshold), f"Check failed for {_name}"
         assert alert.next_check_at is not None
         assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(self):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, lower_threshold=100.0)
+        await sync_to_async(move_to_platform)(alert)
+        # A write that bypasses every API leaves the row apart from the copy.
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(skip_weekend=True)
+
+        content, _ = await self._setup_tool()._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
+        )
+
+        assert "updated successfully" in content
+
+        def _copy() -> PlatformAlertConfigurationView:
+            with team_scope(self.team.id):
+                return owned_copies_by_legacy_id(
+                    team_id=self.team.id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=[alert.id]
+                )[alert.id]
+
+        copy = await sync_to_async(_copy)()
+        assert (copy.source_config["condition"]["threshold"]["bounds"], copy.source_config["skip_weekend"]) == (
+            {"lower": 100.0, "upper": 200.0},
+            False,
+        )
+        row = await AlertConfiguration.objects.select_related("threshold").aget(id=alert.id)
+        assert row.threshold is not None
+        assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

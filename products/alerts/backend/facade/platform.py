@@ -6,8 +6,6 @@ modules here import `posthog.tasks.alerts.utils`.
 
 import uuid
 
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_alert_backfill import follow_insight_alert as follow_alert
 from products.alerts.backend.platform_alert_reads import (
     moved_alert_check_page,
     moved_alert_fired_checks,
@@ -16,6 +14,7 @@ from products.alerts.backend.platform_alert_reads import (
 from products.alerts.backend.platform_insight_alert import (
     delete_native_insight_alert,
     enable_native_insight_alert,
+    moved_alert_settings,
     native_insight_alert_ids_by_insight,
     native_insight_alert_matches,
     native_insight_alert_view,
@@ -38,15 +37,6 @@ from products.alerts.backend.platform_subscribers import (
     sync_alert_subscriber_destinations,
 )
 
-
-def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
-    """Copies an insight alert that was just created or turned back on to the platform, if its team
-    runs insight alerts there."""
-    alert = AlertConfiguration.objects.select_related("threshold").filter(team_id=team_id, id=alert_id).first()
-    if alert is not None:
-        follow_alert(alert)
-
-
 __all__ = [
     "close_moved_alert_firings",
     "create_native_alert",
@@ -54,10 +44,10 @@ __all__ = [
     "delete_alert_destinations_and_copy",
     "delete_native_insight_alert",
     "enable_native_insight_alert",
-    "follow_insight_alert",
     "hand_over_new_alert",
     "moved_alert_check_page",
     "moved_alert_fired_checks",
+    "moved_alert_settings",
     "moved_alert_statuses",
     "native_insight_alert_matches",
     "native_insight_alert_ids_by_insight",
@@ -71,3 +61,11 @@ __all__ = [
     "write_moved_alert_edit",
     "write_native_alert_edit",
 ]
+
+
+def queue_delivery_test(*, team_id: int, alert_id: uuid.UUID, alert_name: str, insight_short_id: str) -> None:
+    """Queues the test message to the alert's destination rows that the alerts platform sends.
+    Raises when the task cannot be queued."""
+    from products.alerts.backend.tasks.tasks import send_insight_alert_delivery_test  # noqa: PLC0415 - cycle
+
+    send_insight_alert_delivery_test.delay(team_id, str(alert_id), alert_name, insight_short_id)

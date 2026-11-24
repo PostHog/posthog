@@ -4,12 +4,21 @@ import { Button, Card } from '@posthog/quill'
 import { CodeLine, Language } from 'lib/components/CodeSnippet'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-export function QuillMetricCodeBlock({ code, language }: { code: string; language: Language }): JSX.Element {
+export function QuillMetricCodeBlock({
+    code,
+    language,
+    wrap = false,
+}: {
+    code: string
+    language: Language
+    /** Wraps long lines instead of scrolling sideways, for a narrow space such as a table cell. */
+    wrap?: boolean
+}): JSX.Element {
     return (
         <Card flush className="relative py-0">
             <div className="overflow-x-auto py-2.5 ps-3 pe-10">
-                <div className="w-max font-mono text-xs">
-                    <CodeLine text={code} language={language} wrapLines={false} />
+                <div className={wrap ? 'font-mono text-xs' : 'w-max font-mono text-xs'}>
+                    <CodeLine text={code} language={language} wrapLines={wrap} />
                 </div>
             </div>
             <div className="absolute end-1.5 top-1.5">

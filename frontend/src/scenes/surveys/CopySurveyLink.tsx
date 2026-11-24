@@ -4,10 +4,16 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+// Firefox's tracking protection blocks posthog.com on the sandboxed survey page, so cloud links live on a domain it doesn't list.
+const SURVEY_ORIGIN_FOR_APP_ORIGIN: Record<string, string> = {
+    'https://us.posthog.com': 'https://posthogsurveys.com',
+    'https://eu.posthog.com': 'https://eu.posthogsurveys.com',
+}
+
 export function getSurveyUrl(surveyId: string): string {
-    const url = new URL(window.location.origin)
-    url.pathname = `/external_surveys/${surveyId}`
-    return url.toString()
+    const appOrigin = window.location.origin
+    const surveyOrigin = SURVEY_ORIGIN_FOR_APP_ORIGIN[appOrigin]
+    return surveyOrigin ? `${surveyOrigin}/${surveyId}` : `${appOrigin}/external_surveys/${surveyId}`
 }
 
 export function getEmbedSnippet(surveyId: string): string {
