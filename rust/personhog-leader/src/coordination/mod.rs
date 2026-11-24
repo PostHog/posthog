@@ -78,12 +78,14 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 ///     drops the partition's cache (and its write fence) after the
 ///     routing table has flipped to the new owner.
 ///   - `resume_partition` (fired when a handoff is cancelled while this
-///     pod still owns the partition): lifts the write fence so the
+///     pod still owns the partition): admits strong reads at once, then
+///     lifts the write fence once the changelog epoch is back, so the
 ///     still-owning pod serves normally again.
 ///
-/// Reads are never fenced: while writes are frozen the cached state
-/// cannot change, so the old owner's cache remains the latest state
-/// right up to cutover.
+/// The fence refuses strong reads too. The frozen cache is the latest
+/// state only until cutover, and this pod keeps the cache past cutover
+/// until it observes `Complete`, so a read from a router with a stale
+/// table would otherwise miss the writes the new owner has acked.
 pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
@@ -467,8 +469,8 @@ impl HandoffHandler for LeaderHandoffHandler {
             fill.abort();
         }
         self.fenced.release(partition);
-        self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
+        self.inflight.unfence(partition);
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
@@ -496,6 +498,7 @@ impl HandoffHandler for LeaderHandoffHandler {
     async fn resume_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "handoff cancelled; re-admitting writes");
         self.check_authority(partition, "resume")?;
+        self.inflight.admit_reads(partition);
         // The cancelled handoff's target may have gotten as far as
         // acquiring the changelog fence, which leaves this pod's producer
         // epoch-stale — every write would fail as fenced until the next

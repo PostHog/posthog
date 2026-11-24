@@ -103,6 +103,7 @@ fn base() -> HandoffModel {
         reads: 1,
         crashes: 0,
         rejoins: 0,
+        router_expiries: 0,
         router_joins: 0,
         zombie_window: 0,
         hold_pods: 0,
@@ -120,6 +121,7 @@ fn base() -> HandoffModel {
         quiet_start: true,
         freeze_checks_strays: true,
         park_behind_key: true,
+        reads_fenced: true,
     }
 }
 
@@ -286,6 +288,51 @@ fn strong_reads_are_complete_across_cutover() {
     }
     .explore("strong_reads_are_complete_across_cutover")
     .assert_properties();
+}
+
+/// A handoff between two live pods that a lease-expired router never
+/// sees: a pod dies, its partition moves, the pod rejoins and the
+/// rebalance moves a partition back. The router keeps routing to the old
+/// owner, which still holds its cache until it converges on `Complete`.
+fn stale_router_across_a_live_handoff() -> HandoffModel {
+    HandoffModel {
+        partitions: 2,
+        writes: 1,
+        reads: 1,
+        crashes: 1,
+        rejoins: 1,
+        router_expiries: 1,
+        ..base()
+    }
+}
+
+/// The handoff fence refuses the stale router's strong read, so no read
+/// is answered from a cache the new owner has written past.
+#[test]
+fn a_stale_router_cannot_read_past_cutover() {
+    let checker =
+        stale_router_across_a_live_handoff().explore("a_stale_router_cannot_read_past_cutover");
+    assert!(checker.discovery("strong_reads_complete").is_none());
+    assert!(checker.discovery("no_lost_acked_write").is_none());
+    assert!(checker.discovery("no_split_write_acceptance").is_none());
+}
+
+/// The rejected rule: with reads left unfenced, the old owner answers the
+/// stale router from its frozen cache after the new owner acked a write.
+#[test]
+fn without_the_read_fence_a_stale_router_reads_past_cutover() {
+    let checker = HandoffModel {
+        reads_fenced: false,
+        ..stale_router_across_a_live_handoff()
+    }
+    .explore_until(
+        "without_the_read_fence_a_stale_router_reads_past_cutover",
+        &["strong_reads_complete"],
+    );
+    assert!(
+        checker.discovery("strong_reads_complete").is_some(),
+        "an unfenced old owner must serve the stale router a stale read"
+    );
 }
 
 /// Epoch fencing must close the residual at two partitions too — each

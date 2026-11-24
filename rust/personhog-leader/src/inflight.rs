@@ -18,6 +18,10 @@ use dashmap::{DashMap, DashSet};
 ///   began, so a late write can only come from a router serving with a
 ///   stale view — accepting it would advance the Kafka HWM past the point
 ///   warming snapshots, silently losing the write from the new owner.
+///   The fence refuses strong reads as well (`is_read_fenced`), because
+///   the cache behind it stops being the latest state at cutover. The
+///   two lift separately on a cancelled handoff: reads need only this
+///   pod's ownership, while writes also need the changelog epoch back.
 ///
 /// Callers obtain a guard via `begin(partition)` and drop it once the
 /// write's outcome is known; the handoff protocol fences the partition,
@@ -27,6 +31,7 @@ use dashmap::{DashMap, DashSet};
 pub struct InflightTracker {
     partitions: DashMap<u32, Arc<AtomicUsize>>,
     fenced: DashSet<u32>,
+    reads_fenced: DashSet<u32>,
 }
 
 impl InflightTracker {
@@ -84,7 +89,16 @@ impl InflightTracker {
     /// starts waiting on the inflight count, so no write can slip in
     /// between the count reaching zero and the drained ack being written.
     pub fn fence(&self, partition: u32) {
+        self.reads_fenced.insert(partition);
         self.fenced.insert(partition);
+    }
+
+    /// Serve strong reads for the partition again while writes stay
+    /// rejected. For a cancelled handoff: the assignment never moved, so
+    /// this pod's cache is still the latest state, and reads must not
+    /// wait on the broker round trip that re-admits writes.
+    pub fn admit_reads(&self, partition: u32) {
+        self.reads_fenced.remove(&partition);
     }
 
     /// Re-admit writes for the partition: the handoff completed (the
@@ -92,11 +106,17 @@ impl InflightTracker {
     /// the partition through a fresh warm. Idempotent.
     pub fn unfence(&self, partition: u32) {
         self.fenced.remove(&partition);
+        self.reads_fenced.remove(&partition);
     }
 
     /// Whether writes for the partition are currently rejected.
     pub fn is_fenced(&self, partition: u32) -> bool {
         self.fenced.contains(&partition)
+    }
+
+    /// Whether strong reads for the partition are currently rejected.
+    pub fn is_read_fenced(&self, partition: u32) -> bool {
+        self.reads_fenced.contains(&partition)
     }
 
     #[cfg(test)]

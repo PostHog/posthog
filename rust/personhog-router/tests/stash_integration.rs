@@ -850,67 +850,100 @@ async fn transport_failure_parks_requests_until_a_later_drain_delivers() {
         .expect("the post-recovery drain must deliver the parked write");
 }
 
-/// The live path's re-entrant retry: a write that races a fence — no
-/// stash open, the leader still settling — is held by the router and
-/// re-attempted, so the client sees a slow success instead of a
-/// `FAILED_PRECONDITION` it would not retry.
-#[tokio::test]
-async fn a_live_write_rides_out_a_fence_via_router_retry() {
-    let person = create_test_person();
-    let service = TestLeaderService::new()
-        .with_person(person.clone())
-        .fenced();
-    let fence = service.fence_flag();
-    let leader_addr = start_test_leader(service).await;
+#[derive(Clone, Copy, Debug)]
+enum LiveRequest {
+    Write,
+    StrongRead,
+}
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
-    let backend = make_backend(leader_addr, stash.clone()).await;
-
-    // The fence clears mid-retry, as it does in production once the
-    // pod's watch delivers the phase change.
-    tokio::spawn({
-        let fence = Arc::clone(&fence);
-        async move {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            fence.store(false, Ordering::SeqCst);
+/// Send one live request of the given kind and reduce the router's
+/// response to its outcome.
+async fn forward_live(
+    backend: &LeaderBackend,
+    kind: LiveRequest,
+    person: &Person,
+) -> Result<(), Code> {
+    match kind {
+        LiveRequest::Write => {
+            let req = mk_request(person.team_id, person.id, "live-fence@example.com");
+            decode_response::<UpdatePersonPropertiesResponse>(forward(backend, req).await)
+                .await
+                .map(drop)
         }
-    });
-
-    let req = mk_request(person.team_id, person.id, "live-fence@example.com");
-    let response = forward(&backend, req).await;
-    decode_response::<UpdatePersonPropertiesResponse>(response)
+        LiveRequest::StrongRead => decode_response::<GetPersonResponse>(
+            forward_read(backend, person.team_id, person.id).await,
+        )
         .await
-        .expect("the router's retry must absorb the fence and deliver the write");
+        .map(drop),
+    }
+}
+
+/// The live path's re-entrant retry: a request that races a fence, with
+/// no stash open and the leader still settling, is held by the router
+/// and re-attempted, so the client sees a slow success instead of a
+/// `FAILED_PRECONDITION` it would not retry. The leader fences strong
+/// reads as well as writes, so both take this path.
+#[tokio::test]
+async fn a_live_request_rides_out_a_fence_via_router_retry() {
+    for kind in [LiveRequest::Write, LiveRequest::StrongRead] {
+        let person = create_test_person();
+        let service = TestLeaderService::new()
+            .with_person(person.clone())
+            .fenced();
+        let fence = service.fence_flag();
+        let leader_addr = start_test_leader(service).await;
+
+        let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
+        let backend = make_backend(leader_addr, stash.clone()).await;
+
+        // The fence clears mid-retry, as it does in production once the
+        // pod's watch delivers the phase change.
+        tokio::spawn({
+            let fence = Arc::clone(&fence);
+            async move {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                fence.store(false, Ordering::SeqCst);
+            }
+        });
+
+        forward_live(&backend, kind, &person)
+            .await
+            .unwrap_or_else(|code| {
+                panic!("{kind:?}: the router's retry must absorb the fence, got {code:?}")
+            });
+    }
 }
 
 /// A router whose view never updates (the fence never clears from its
 /// perspective) must not hold requests forever: the bounce budget runs
-/// out and the client gets a retryable `UNAVAILABLE` — never the
+/// out and the client gets a retryable `UNAVAILABLE`, never the
 /// `FAILED_PRECONDITION` the leader actually answered with, which
-/// clients read as "do not retry".
+/// clients read as "do not retry". For a strong read this is the router
+/// with a stale table reading from an old owner past cutover: the answer
+/// must be an error, never the old owner's frozen state.
 #[tokio::test]
-async fn a_live_write_past_the_bounce_budget_fails_unavailable() {
-    let person = create_test_person();
-    let leader_addr = start_test_leader(
-        TestLeaderService::new()
-            .with_person(person.clone())
-            .fenced(),
-    )
-    .await;
+async fn a_live_request_past_the_bounce_budget_fails_unavailable() {
+    for kind in [LiveRequest::Write, LiveRequest::StrongRead] {
+        let person = create_test_person();
+        let leader_addr = start_test_leader(
+            TestLeaderService::new()
+                .with_person(person.clone())
+                .fenced(),
+        )
+        .await;
 
-    let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
-    let backend = make_backend(leader_addr, stash.clone()).await;
+        let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
+        let backend = make_backend(leader_addr, stash.clone()).await;
 
-    let req = mk_request(person.team_id, person.id, "live-wedged@example.com");
-    let response = forward(&backend, req).await;
-    let code = decode_response::<UpdatePersonPropertiesResponse>(response)
-        .await
-        .expect_err("a persistently fenced target must fail the write");
-    assert_eq!(
-        code,
-        Code::Unavailable,
-        "bounce-budget exhaustion must surface as retryable UNAVAILABLE, never FAILED_PRECONDITION"
-    );
+        let code = forward_live(&backend, kind, &person)
+            .await
+            .expect_err("a persistently fenced target must fail the request");
+        assert_eq!(
+            code,
+            Code::Unavailable,
+            "{kind:?}: bounce-budget exhaustion must surface as retryable UNAVAILABLE, never FAILED_PRECONDITION"
+        );
+    }
 }
 
 /// The unified loop's marquee behavior: a live write bouncing off an

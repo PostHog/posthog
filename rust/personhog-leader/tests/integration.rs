@@ -438,11 +438,13 @@ async fn mismatched_partition_metadata_returns_failed_precondition() {
 /// stale table (an expired lease it hasn't noticed, a missed freeze).
 /// Accepting it would produce to Kafka past the HWM that warming
 /// snapshots, silently losing the write from the new owner's cache. After
-/// draining, the old owner must reject writes for the partition while
-/// continuing to serve reads: the frozen state remains the latest until
-/// cutover. Releasing the partition clears the fence with it.
+/// draining, the old owner must reject writes for the partition. It must
+/// reject strong reads too: it keeps its cache past cutover until it
+/// observes `Complete`, so the same stale router would read state the new
+/// owner has already written past. Releasing the partition clears the
+/// fence with it.
 #[tokio::test]
-async fn writes_fenced_after_drain_reads_still_served() {
+async fn writes_and_strong_reads_fenced_after_drain() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let _mock_cluster = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
@@ -547,19 +549,37 @@ async fn writes_fenced_after_drain_reads_still_served() {
         .expect_err("write after drain must be rejected");
     assert_eq!(status.code(), tonic::Code::FailedPrecondition);
 
-    // …while reads keep serving the frozen, still-latest state.
+    let status = client
+        .get_person(leader_get_request(1, 42, 0))
+        .await
+        .expect_err("strong read after drain must be rejected");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+
+    handler.resume_partition(0).await.unwrap();
     let response = client
         .get_person(leader_get_request(1, 42, 0))
         .await
-        .expect("reads must keep serving after drain");
+        .expect("strong reads must flow again after a cancelled handoff");
     let props: serde_json::Value =
         serde_json::from_slice(&response.into_inner().person.unwrap().properties).unwrap();
     assert_eq!(props["email"], "before@example.com");
+
+    handler.drain_partition_inflight(0).await.unwrap();
+    let status = client
+        .get_person(leader_get_request(1, 42, 0))
+        .await
+        .expect_err("strong read after the second drain must be rejected");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
 
     // Releasing clears the fence along with the partition. The warm is
     // stood in for, epoch included, since warming needs a changelog this
     // test never writes.
     handler.release_partition(0).await.unwrap();
+    let status = client
+        .get_person(leader_get_request(1, 42, 0))
+        .await
+        .expect_err("a released partition must not answer a strong read");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
     handler
         .capture_changelog(
             0,
@@ -577,6 +597,10 @@ async fn writes_fenced_after_drain_reads_still_served() {
         .await
         .expect("writes must flow again after release + re-warm");
     assert!(response.into_inner().updated);
+    client
+        .get_person(leader_get_request(1, 42, 0))
+        .await
+        .expect("strong reads must flow again after release + re-warm");
 
     cancel.cancel();
 }

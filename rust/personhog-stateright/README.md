@@ -169,6 +169,8 @@ implementation so the model executes `converge` and
 | Single zombie pod | **holds** | **holds** | holds |
 | Double zombie (router + pod) | holds | holds | holds |
 | Strong reads + one failure | holds | holds | holds |
+| Stale router across a live-to-live handoff | holds | holds | holds |
+| Stale router across a live-to-live handoff, reads unfenced (rejected rule) | holds | holds | **violated** |
 | Changelog migration: grow 1→2, shrink 2→1, grow 2→4 | holds | holds | holds |
 | Migration with a stale router (adopts late) | holds | holds | holds |
 | Migration with the holder crash-restarted mid-hold | holds | holds | holds |
@@ -209,6 +211,12 @@ to the new owner. With reads parking in the same per-key FIFO as writes
 budget. The variant was removed once the change merged, so the model
 tracks only the shipped protocol; `strong_reads_complete` remains
 checked in every scenario as the standing guarantee.
+
+**The handoff fence has to cover reads.**
+Read stashing only protects routers that see the handoff.
+A router whose lease expired is dropped from the freeze quorum and keeps its old table, and the old owner keeps its cache until it converges on `Complete`, which is after the new owner starts acking writes.
+With reads unfenced the checker finds that trace (`without_the_read_fence_a_stale_router_reads_past_cutover`).
+It needs a handoff between two live pods, which in this model only a pod death, a rejoin and the rebalance that follows produce, so the one-failure scenarios never reached it.
 
 **Scenario reachability is measured, not assumed.** Two `sometimes`
 probes (enabled via the model's `probes` flag) answer "does more scale

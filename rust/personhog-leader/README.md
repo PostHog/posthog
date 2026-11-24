@@ -232,21 +232,22 @@ via `LeaderHandoffHandler` (see `src/coordination/mod.rs`):
   warming snapshots. Combined with the produce path's sync-await on
   Kafka delivery, this gives the protocol the guarantee that
   "no in-flight" implies "every acked write durable in Kafka."
-  Reads are never fenced — until cutover the frozen cache state is
-  still the latest.
+  The fence also refuses strong reads with `FAILED_PRECONDITION`.
+  The frozen cache is the latest state only until cutover, and the pod keeps it until it observes `Complete`, so a read from a router with a stale table could otherwise miss writes the new owner has acked.
+  Registered routers stash reads from the freeze onward and never reach the fence.
 - `warm_partition` (Warming): see the section above. Takes the
   partition's changelog epoch before the warm read, which fences every
   predecessor at the broker, and lifts any write fence left over from a
   previous ownership of the same partition.
-- `release_partition` (Complete): lifts the write fence, gives the
-  changelog epoch back, and drops the partition's cache slot via
-  `PartitionedCache::drop_partition` once the routing table has flipped
-  to the new owner.
+- `release_partition` (Complete): gives the changelog epoch back, drops the partition's cache slot via `PartitionedCache::drop_partition` once the routing table has flipped to the new owner, and then lifts the fence.
+  The cache goes first so that no request finds the partition unfenced and still cached.
 - `resume_partition` (handoff cancelled): a handoff deleted before
   `Complete` while this pod still owns the partition is a
-  cancellation — re-takes the changelog epoch, which the cancelled
-  handoff's target may have taken, then lifts the write fence so the
-  partition serves writes again.
+  cancellation — admits strong reads again at once, since the
+  assignment never moved and the cache is still the latest state, then
+  re-takes the changelog epoch, which the cancelled handoff's target may
+  have taken, and lifts the write fence so the partition serves writes
+  again.
 
 #### Request Path
 

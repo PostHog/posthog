@@ -909,6 +909,11 @@ impl PersonHogLeader for TestLeaderService {
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         require_partition_metadata(&request)?;
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(Status::failed_precondition(
+                "partition is fenced for handoff; strong reads are rejected",
+            ));
+        }
         let req = request.into_inner();
         let person = self
             .persons
