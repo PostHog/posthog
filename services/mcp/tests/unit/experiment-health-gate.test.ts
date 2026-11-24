@@ -286,6 +286,13 @@ describe('experiment health gate', () => {
             outcome: 'read',
         },
         {
+            name: 'keeps the launch result as it is when a health list has the wrong type',
+            flag: true,
+            healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: { findings: {}, checks: [] } }),
+            health: undefined,
+            outcome: null,
+        },
+        {
             name: 'adds no findings when the flag is off',
             flag: false,
             healthRead: (): Promise<unknown> => Promise.resolve({ success: true, data: configHealth }),
@@ -341,15 +348,21 @@ describe('experiment health gate', () => {
             expect(
                 preLaunch && { summary: preLaunch.summary, codes: preLaunch.findings.map((f: any) => f.code) }
             ).toEqual(health)
-            expect(trackEvent).toHaveBeenCalledWith(
-                'mcp experiment health returned',
-                expect.objectContaining({
-                    tool_name: 'experiment-launch',
-                    experiment_id: 7,
-                    health_finding_codes: health?.codes ?? [],
-                    configuration_checks_outcome: outcome,
-                    exposure_checks_outcome: 'not_started',
-                })
+            expect(trackEvent.mock.calls).toEqual(
+                outcome === null
+                    ? []
+                    : [
+                          [
+                              'mcp experiment health returned',
+                              expect.objectContaining({
+                                  tool_name: 'experiment-launch',
+                                  experiment_id: 7,
+                                  health_finding_codes: health?.codes ?? [],
+                                  configuration_checks_outcome: outcome,
+                                  exposure_checks_outcome: 'not_started',
+                              }),
+                          ],
+                      ]
             )
         } finally {
             timeout.mockRestore()

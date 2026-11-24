@@ -21,8 +21,8 @@ const RESOLVED_BY_LAUNCH: ReadonlySet<string> = new Set(['flag_live_before_launc
 
 // The check that reported a resolved finding goes too, or the summary counts a finding that the result doesn't list.
 function afterLaunch(health: Schemas.ExperimentHealth | null): Pick<Schemas.ExperimentHealth, 'findings' | 'checks'> {
-    // The API client returns any 2xx body unchecked, such as `{}` or the text of an HTML page. A missing list must not
-    // fail the result of a launch that already happened.
+    // The API client returns any 2xx body unchecked, such as `{}` or the text of an HTML page. A missing list then
+    // reports that no check ran.
     const findings = health?.findings ?? []
     const checks = health?.checks ?? []
     const resolved = findings.filter((finding) => RESOLVED_BY_LAUNCH.has(finding.code))
@@ -44,19 +44,24 @@ function afterResponse(context: Context, params: LaunchParams, result: unknown):
     if (!read) {
         return result
     }
-    const details = collectHealth([afterLaunch(read.health)], configHealthNotRun(read.outcome))
-    trackHealthReturned(context, {
-        toolName: 'experiment-launch',
-        experimentId: params.id,
-        details,
-        configOutcome: read.outcome,
-        exposureOutcome: 'not_started',
-    })
-    if (read.outcome === 'flag_off') {
+    try {
+        const details = collectHealth([afterLaunch(read.health)], configHealthNotRun(read.outcome))
+        trackHealthReturned(context, {
+            toolName: 'experiment-launch',
+            experimentId: params.id,
+            details,
+            configOutcome: read.outcome,
+            exposureOutcome: 'not_started',
+        })
+        if (read.outcome === 'flag_off') {
+            return result
+        }
+        // First, so that the findings survive a client that cuts the end of a long result.
+        return { pre_launch_health: preLaunchHealth(details), ...(result as Record<string, unknown>) }
+    } catch {
+        // The launch already happened, so a health body that this code can't read must not fail the call.
         return result
     }
-    // First, so that the findings survive a client that cuts the end of a long result.
-    return { pre_launch_health: preLaunchHealth(details), ...(result as Record<string, unknown>) }
 }
 
 export default { beforeRequest, afterResponse } satisfies ToolHooks<LaunchParams>
