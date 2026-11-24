@@ -21,7 +21,6 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, 
 from posthog.hogql_queries.utils.result_series import get_series_key
 
 from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameMeta
-from products.metrics.backend.facade.api import metrics_query_interval
 
 # Trends displays that draw one value per interval. The others show one number per series.
 _TIME_SERIES_DISPLAYS = {
@@ -151,6 +150,9 @@ def _readable_breakdown(label: str) -> str:
 
 
 def _metrics_frames(query: MetricsQuery, result: InsightResult) -> list[Frame]:
+    # Imported here: a module-level import puts the metrics product on core's request path.
+    from products.metrics.backend.facade.api import metrics_query_interval
+
     date_range = result.resolved_date_range
     meta = _meta(date_range, None, previous=False)
     if meta.date_from is not None and meta.date_to is not None:
