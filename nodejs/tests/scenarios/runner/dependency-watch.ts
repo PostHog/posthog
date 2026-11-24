@@ -13,7 +13,7 @@ export type DependencyLoss = {
     sockets?: Record<string, number>
 }
 
-type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
+type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number; unchecked: boolean }
 
 type StepWindow = { scale: number; startedAt: number; endedAt: number }
 
@@ -23,14 +23,14 @@ const CONFIRMATIONS_PER_POLL = 2
 async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     const at = Date.now()
     const before = performance.eventLoopUtilization()
-    // A check fails as a whole when its probe process dies or stops answering. The next check runs in a fresh process,
-    // so one more check hears the dependencies instead of leaving the attempt without an answer from them.
-    const failures = await check()
-        .catch(() => check())
-        .catch((error: unknown) => [
+    let unchecked = false
+    const failures = await check().catch((error: unknown) => {
+        unchecked = true
+        return [
             { name: 'health check', reason: error instanceof Error ? error.message : String(error), unanswered: false },
-        ])
-    return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
+        ]
+    })
+    return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization, unchecked }
 }
 
 // The probes run in their own process, but a host busy enough to saturate the runner's loop can still starve that
@@ -77,10 +77,13 @@ function evidenceOf(
 }
 
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
+    // A confirming check that failed as a whole heard nothing, so the first check decides each verdict alone. It can
+    // show neither that a dependency recovered nor that a busy check's timeout was a loss.
+    const confirming = second.unchecked ? first : second
     return first.failures.map((failure) => {
-        const again = second.failures.find(({ name }) => name === failure.name)
-        const kind = kindOf(failure, again, first, second)
-        const evidence = evidenceOf(kind, failure, again, second)
+        const again = second.unchecked ? failure : second.failures.find(({ name }) => name === failure.name)
+        const kind = kindOf(failure, again, first, confirming)
+        const evidence = evidenceOf(kind, failure, again, confirming)
         const { reason, hostLimit } = evidence
         const sockets = evidence.sockets ?? again?.sockets ?? failure.sockets
         return {

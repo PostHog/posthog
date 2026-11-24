@@ -178,17 +178,22 @@ describe('dependency watch', () => {
             expected: { reason: hostLimitReason, sockets: HELD },
         },
         {
-            title: 'the refusal a replacement probe process still hears after the last one failed',
-            attempts: [[refused], exited, [refused]],
+            title: 'the refusal, never a recovery, when the probe process failed on the confirming check',
+            attempts: [[refused], exited, []],
             expected: {
                 reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
                 sockets: undefined,
             },
         },
         {
-            title: 'no loss when a replacement probe process hears the dependency up after the last one failed',
+            title: 'the busy timeout, never a loss, when the probe process failed on a quiet confirming check',
             attempts: [[timedOut], exited, []],
-            expected: { reason: undefined, sockets: undefined },
+            expected: {
+                reason: expect.stringMatching(
+                    /^the runner's event loop was too busy to check provider-edge in the 320x step \(busy \d+% of the check\)/
+                ),
+                sockets: undefined,
+            },
         },
     ])('quotes $title', async ({ attempts, expected }) => {
         const scripted: (ProbeFailure[] | Error)[] = [...attempts]
@@ -207,6 +212,25 @@ describe('dependency watch', () => {
 
         expect({ reason, sockets: losses.find(({ name }) => name === 'provider-edge')?.sockets }).toEqual(expected)
     })
+
+    it('keeps a probe process whose answer waited while the runner was blocked past the deadline', async () => {
+        const probes = startProbeProcess(
+            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+            5_000
+        )
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+            const answering = probes.pid
+
+            const checking = probes.check()
+            busyFor(6_000)
+
+            await expect(checking).resolves.toEqual([])
+            expect(probes.pid).toEqual(answering)
+        } finally {
+            probes.close()
+        }
+    }, 30_000)
 
     it.each([
         ['stopped answering', false, 'the probe process did not answer within 8000 ms'],

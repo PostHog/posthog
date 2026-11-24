@@ -82,8 +82,15 @@ export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCES
             const checking = (child ??= started())
             return new Promise((resolve, reject) => {
                 const id = next++
+                // Timers run before the loop reads I/O, so a runner blocked past the deadline would end a child whose
+                // reply already waits on the channel. One more poll reads that reply first.
                 const deadline = setTimeout(
-                    () => end(checking, new Error(`the probe process did not answer within ${deadlineMs} ms`)),
+                    () =>
+                        setImmediate(() => {
+                            if (pending.has(id)) {
+                                end(checking, new Error(`the probe process did not answer within ${deadlineMs} ms`))
+                            }
+                        }),
                     deadlineMs
                 )
                 pending.set(id, { resolve, reject, deadline })

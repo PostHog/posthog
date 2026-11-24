@@ -307,7 +307,7 @@ During drive and convergence the Runner polls `Environment.dependencyHealth()` e
 A failed check runs again at once.
 A dependency that fails on a confirming check gets a confirming check of its own, even when the run is stopping and even after it recovered, up to two confirmations per poll and none after a loss.
 The probes run in a child process of the runner, so a drive that saturates the runner's event loop does not time them out.
-When the child exits, or answers no check within 30 seconds, the watcher checks once more in a fresh child, and only a second failure counts as a failed `health check`.
+When the child exits, or answers no check within 30 seconds, that check fails and the next check starts a fresh child.
 The provider edge runs in the runner, so its probe is a TCP connect, which the kernel completes without the edge's event loop while the edge's accept queue has room.
 A dependency went away when both checks failed and neither the run host nor the runner's event loop explains it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard, because a host that busy can starve the probe process too.
