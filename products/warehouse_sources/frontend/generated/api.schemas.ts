@@ -1587,6 +1587,19 @@ export interface CdcStatusApi {
     lag_bytes?: number | null
     /** Tables in the publication, when the source was reachable and a publication exists. */
     published_tables?: string[]
+    /** Whether every resource capture reads from is present on the source, when the source was reachable. False means changes can't be read until Repair CDC runs. */
+    capture_resources_present?: boolean
+    /** MySQL: server_uuid of the server whose binary log capture reads. */
+    server_uuid?: string
+    /**
+     * MySQL: the binary log position capture has read up to.
+     * @nullable
+     */
+    binlog_position?: string | null
+    /** MySQL: whether the source still reaches the server capture started on. False after a failover. */
+    same_server?: boolean
+    /** MySQL: whether the server still keeps the binary log file of the stored position. */
+    binlog_file_exists?: boolean
 }
 
 export interface CreateWebhookResponseApi {
