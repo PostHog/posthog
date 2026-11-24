@@ -57,7 +57,7 @@ export interface onboardingProductConfigurationLogicActions {
 export interface onboardingProductConfigurationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         canConfigureTeamProperty: (
-            currentTeam: TeamType | null | TeamPublicType
+            currentTeam: TeamPublicType | TeamType | null
         ) => (teamProperty: keyof TeamType) => boolean
     }
 }
