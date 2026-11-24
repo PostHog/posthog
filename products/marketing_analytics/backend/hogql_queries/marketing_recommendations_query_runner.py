@@ -19,6 +19,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField, FieldTraverser
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -130,15 +131,33 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         if not tables:
             return ast.SelectQuery(select=[ast.Constant(value=1)])
         return ast.SelectSetQuery.create_from_queries(
-            [
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=list[str | int](table.split(".")))),
-                    limit=ast.Constant(value=0),
-                )
-                for table in sorted(tables)
-            ],
-            "UNION ALL",
+            [self._access_probe(table) for table in sorted(tables)], "UNION ALL"
+        )
+
+    def _access_probe(self, table: str) -> ast.SelectQuery:
+        chain = list[str | int](table.split("."))
+        # A field can be an expression that reads another table, and only a selected field gets expanded, so the probe
+        # selects every field the table exposes: the fields a run reads are among them.
+        fields = (
+            []
+            if self.hogql_database.is_table_access_denied(table)
+            else [
+                name
+                for name, field in self.hogql_database.get_table(table.split(".")).fields.items()
+                if isinstance(field, DatabaseField | FieldTraverser)
+            ]
+        )
+        # Every query in a UNION returns the same columns, so each table's fields go into one array.
+        select: ast.Expr = (
+            ast.Call(
+                name="array",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=[*chain, name])]) for name in fields],
+            )
+            if fields
+            else ast.Constant(value=1)
+        )
+        return ast.SelectQuery(
+            select=[select], select_from=ast.JoinExpr(table=ast.Field(chain=chain)), limit=ast.Constant(value=0)
         )
 
     @cached_property
