@@ -76,3 +76,4 @@ cohorts.0024_backfill_cohort_condition_type
 # scan proceeds. Every write is conditional on the row still mirroring the token, so a
 # failed run resumes safely and re-running changes nothing already repaired.
 conversations.0091_reconcile_signing_secrets
+ai_observability.0089_remove_tagger_state

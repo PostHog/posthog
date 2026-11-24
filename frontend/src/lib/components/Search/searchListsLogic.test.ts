@@ -222,6 +222,7 @@ describe('searchListsLogic', () => {
             suggestions: null,
             local: {
                 products: [],
+                sidebar: [],
                 'data-management': [],
                 people: [],
                 health: [],

@@ -24,7 +24,6 @@ import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
-import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
@@ -88,7 +87,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         useValues(contentAutopilotPromptsLogic)
     const { loadAeoPrompts, openAddPrompts, setNeedsImprovement, setPromptsPage, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
-    const { filters } = useValues(contentAutopilotFiltersLogic)
     // The topic list counts every prompt that is not archived, so an empty one means the project has no prompts yet.
     const { promptTopics } = useValues(contentAutopilotFilterBarLogic)
     const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
@@ -177,7 +175,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
-                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the last ${filters.days} days without citing your site.`
+                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the selected date range without citing your site.`
                             : 'No prompts match these filters'
                     }
                     pagination={{

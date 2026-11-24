@@ -47,6 +47,7 @@ RELEASE_PATHS=(
     'bin/fix-rdkafka-paths'
     '.github/actions/pnpm-install'
     '.github/actions/setup-pnpm'
+    '.github/actions/setup-rust'
     '.github/workflows/release-hog.yml'
 )
 

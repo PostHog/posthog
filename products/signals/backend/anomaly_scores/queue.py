@@ -763,6 +763,16 @@ def reserve_queries(
     return False
 
 
+def charge_queries(team_id: int, queries: int, now: datetime.datetime, kind: ScoringRun) -> None:
+    """Charge ``queries`` that a pick sent past its plan to both hourly budgets of ``kind``.
+
+    The pick has already sent them, so the charge can pass a cap. Later plans then have that much less budget.
+    """
+    for key in (_fleet_budget_key(now, kind), _project_budget_key(team_id, now, kind)):
+        cache.add(key, 0, timeout=int(_BUDGET_TTL.total_seconds()))
+        cache.incr(key, queries)
+
+
 def within_budget(
     order: list[int],
     team_ids: dict[int, int],
@@ -819,7 +829,7 @@ def _run_plans(
     team: Team, insight_ids: list[int], config: AnomalyScoringConfig, now: datetime.datetime
 ) -> dict[int, RunPlan]:
     insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
-    states = load_states(team, insights) if config.train_score_split else {}
+    states = load_states(team, insights, config.ai_judge) if config.train_score_split else {}
     plans = {insight.id: plan_run(insight, team, states.get(insight.id), config, now) for insight in insights}
     # An insight that no longer exists sends no query, but one query is the safe charge.
     missing = RunPlan(queries=1, run=ScoringRun.TRAIN if config.train_score_split else None)
