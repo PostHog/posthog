@@ -30,6 +30,7 @@ import {
     GroupingModeEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationSourceKindEnumApi,
     PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 import {
@@ -248,9 +249,14 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                     annotations: ruleMetadataEntriesError(annotations),
                 }) as DeepPartialMap<RuleMetadataForm, ValidationErrorType>,
             submit: async ({ labels, annotations }: RuleMetadataForm) => {
+                const sourceKind = values.configuration!.source_kind
+                // The project API never serves billing alerts, so this form never edits one.
+                if (sourceKind === PlatformAlertConfigurationSourceKindEnumApi.Billing) {
+                    return
+                }
                 try {
                     const updated = await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
-                        source_kind: values.configuration!.source_kind,
+                        source_kind: sourceKind,
                         labels: ruleMetadataRecord(labels),
                         annotations: ruleMetadataRecord(annotations),
                     })
