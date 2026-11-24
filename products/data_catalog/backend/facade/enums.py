@@ -95,3 +95,7 @@ class ShapeOutcome(LabeledStrEnum):
     COVERED = "covered", "Covered"
     SLICE = "slice", "Slice"
     UNCOVERED = "uncovered", "Uncovered"
+
+
+# The topic of the sessions that fit no named topic. Its title is fixed, so it says nothing about their questions.
+OTHER_TOPIC = "Other"

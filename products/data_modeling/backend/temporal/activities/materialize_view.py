@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 import random
@@ -197,6 +198,8 @@ RETRY_PRESSURE_WINDOW = dt.timedelta(minutes=5)
 RETRY_PRESSURE_ERRORS_PER_STEP = 5
 RETRY_PRESSURE_MAX = 12
 MAX_ADAPTIVE_RETRY_DELAY = dt.timedelta(minutes=10)
+CLICKHOUSE_TYPE_QUOTED_PART = re.compile(r"'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`")
+CLICKHOUSE_TUPLE_FIELD_NAME = re.compile(r"(?<=[(,])\s*[A-Za-z_]\w*\s+(?=[A-Za-z_])")
 
 
 class _RecentCapacityErrors:
@@ -553,6 +556,8 @@ async def hogql_table(
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
+        "Variant": ("toNullableString", ()),
+        "Dynamic": ("toNullableString", ()),
     }
 
     def _conversion_target(ch_type: str) -> str:
@@ -560,7 +565,7 @@ async def hogql_table(
         # Matching the whole string would also hit names nested deeper, e.g. the `uuid` field of
         # `Array(Tuple(uuid String))`, and wrongly stringify structures Arrow already supports.
         if not ch_type.lower().startswith("array("):
-            return ch_type
+            return CLICKHOUSE_TUPLE_FIELD_NAME.sub("", CLICKHOUSE_TYPE_QUOTED_PART.sub("", ch_type))
         element = ch_type[len("array(") : -1].strip()
         while element.lower().startswith(("nullable(", "lowcardinality(")):
             element = element[element.index("(") + 1 : -1].strip()

@@ -12,12 +12,14 @@ from types import SimpleNamespace
 
 import pytest
 
+import click
 from click.testing import CliRunner
 from hogli_commands.doctor import (
     _GIT_HOUSEKEEPING_PGREP_PATTERN,
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
     CleanupEstimate,
+    DevProcess,
     GitHealth,
     _binary_arches,
     _check_git_health,
@@ -57,9 +59,11 @@ from hogli_commands.doctor import (
     _select_flox_logs_to_remove,
     _sweepable_cargo_targets,
     _tail,
+    doctor_disk,
     doctor_git,
     doctor_migrate_volumes,
     doctor_ports,
+    doctor_zombies,
 )
 from hogli_commands.processes import process_cwds
 
@@ -561,6 +565,37 @@ def test_confirm_stack_teardown_accepts_yes(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("hogli_commands.doctor.select.select", lambda *a, **_k: (a[0], [], []))
     monkeypatch.setattr("hogli_commands.doctor.sys.stdin.readline", lambda: "y\n")
     assert _confirm_stack_teardown("some-stack", timeout=0.01) is True
+
+
+@pytest.mark.parametrize(
+    ("command", "args", "expected_flag"),
+    [
+        pytest.param(doctor_disk, ["--area", "flox-logs"], "--dry-run", id="disk"),
+        pytest.param(doctor_zombies, [], "--yes", id="zombies"),
+    ],
+)
+def test_cleanup_without_terminal_or_flags_names_the_flag(
+    monkeypatch: pytest.MonkeyPatch, command: click.Command, args: list[str], expected_flag: str
+) -> None:
+    orphan = DevProcess(
+        pid=4321,
+        ppid=1,
+        name="python",
+        cmdline="python manage.py runserver",
+        cpu_percent=0.0,
+        memory_rss_kb=1024,
+        start_time="10:00",
+        is_orphan=True,
+        category="django",
+    )
+    monkeypatch.setattr("hogli_commands.doctor._scan_posthog_processes", lambda _root: [orphan])
+    monkeypatch.setattr("hogli_commands.doctor._kill_processes", lambda _p: pytest.fail("killed without consent"))
+
+    # CliRunner's stdin is never a terminal, like an agent's shell.
+    result = CliRunner().invoke(command, args)
+
+    assert result.exit_code == 2, result.output
+    assert expected_flag in result.output
 
 
 def test_doctor_ports_silent_when_nothing_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
