@@ -6,6 +6,7 @@ import {
     IconClock,
     IconFilter,
     IconFolder,
+    IconList,
     IconPlus,
     IconTrending,
     IconWarning,
@@ -21,6 +22,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { AttentionReasonsEnumApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { ATTENTION_LABELS } from './evaluationOverviewDisplay'
+import { EvaluationScopeList } from './EvaluationScopeList'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 type StatusFilter = 'any' | AttentionReasonsEnumApi
@@ -38,18 +40,27 @@ function count(value: number): JSX.Element {
 
 /** One menu for the page's directory and status filters. Active ones show beside it, so they stay easy to remove. */
 export function EvaluationQuickFilters(): JSX.Element {
-    const { directoryTiles, selectedDirectory, attentionFilter, attentionCounts } = useValues(evaluationsOverviewLogic)
-    const { openDirectory, setAttentionFilter } = useActions(evaluationsOverviewLogic)
+    const { directoryTiles, selectedDirectory, attentionFilter, attentionCounts, pickedIds } =
+        useValues(evaluationsOverviewLogic)
+    const { openDirectory, setAttentionFilter, setPickedIds } = useActions(evaluationsOverviewLogic)
     const { deletingDirectoryId } = useValues(llmEvaluationsLogic)
     const { selectDirectory, openCreateDirectory, openRenameDirectory, deleteDirectory } =
         useActions(llmEvaluationsLogic)
     const editorReason = getAccessControlDisabledReason(AccessControlResourceType.Evaluation, AccessControlLevel.Editor)
     const activeStatus = STATUS_FILTERS.find(({ value }) => value === attentionFilter)
-    const activeCount = Number(!!selectedDirectory) + Number(!!activeStatus)
+    const activeCount = Number(!!selectedDirectory) + Number(!!activeStatus) + Number(pickedIds.length > 0)
 
     const items: LemonMenuItems = [
         {
             items: [
+                {
+                    label: 'Evaluations',
+                    icon: <IconList />,
+                    sideIcon: pickedIds.length > 0 ? count(pickedIds.length) : undefined,
+                    closeOnClickInside: false,
+                    'data-attr': 'evaluation-overview-quick-filter-evaluations',
+                    items: [{ label: () => <EvaluationScopeList />, custom: true }],
+                },
                 {
                     label: 'Directory',
                     icon: <IconFolder />,
@@ -105,6 +116,7 @@ export function EvaluationQuickFilters(): JSX.Element {
                     onClick: () => {
                         selectDirectory(null)
                         setAttentionFilter(null)
+                        setPickedIds([])
                     },
                     'data-attr': 'evaluation-overview-clear-quick-filters',
                 },
@@ -173,6 +185,19 @@ export function EvaluationQuickFilters(): JSX.Element {
                         <span className="truncate max-w-48">{selectedDirectory.name}</span>
                     </LemonButton>
                 </LemonMenu>
+            )}
+            {pickedIds.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconList />}
+                    sideIcon={<IconX className="text-secondary" />}
+                    onClick={() => setPickedIds([])}
+                    tooltip="Show all evaluations"
+                    data-attr="evaluation-overview-scope-clear-chip"
+                >
+                    {pluralize(pickedIds.length, 'evaluation')}
+                </LemonButton>
             )}
             {activeStatus && (
                 <LemonButton

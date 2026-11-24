@@ -7,7 +7,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
 import { EvaluationOverviewResults } from './EvaluationOverviewResults'
 import { EvaluationQuickFilters } from './EvaluationQuickFilters'
-import { EvaluationScopePicker } from './EvaluationScopePicker'
 import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationsOverview(): JSX.Element {
@@ -25,7 +24,6 @@ export function EvaluationsOverview(): JSX.Element {
                     dateOptions={OVERVIEW_DATE_OPTIONS}
                     allowedRollingDateOptions={['hours', 'days', 'weeks', 'months']}
                 />
-                <EvaluationScopePicker />
                 <EvaluationQuickFilters />
             </div>
             {request.notice ? (
