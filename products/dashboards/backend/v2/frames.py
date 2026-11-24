@@ -45,9 +45,12 @@ _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
 _COMPOUND_TYPE = re.compile(r"^(Nullable\()?(Array|Map|Tuple|Nested)\(")
 _NO_LABEL = "(none)"
+# A template can repeat a long label, so the expanded name is cut while it is built.
+MAX_LEGEND_NAME = 1024
 # Above this many series, or this many label bytes repeated across the series' fields, a long table stays a table.
 # Pivoting copies every label onto every number field, so a few large labels can grow a small result many times over.
 MAX_PIVOT_SERIES = 1000
+MAX_PIVOT_FIELDS = 20_000
 MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
 
 
@@ -134,7 +137,15 @@ def _source(query: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
 
 def legend_name(template: str, labels: Mapping[str, str]) -> str:
     """Grafana's legend format: `{{label}}` is that label's value, dotted names included, and a missing label is empty."""
-    return _LEGEND_LABEL.sub(lambda match: labels.get(match.group(1), ""), template)
+    parts: list[str] = []
+    size = position = 0
+    for match in _LEGEND_LABEL.finditer(template):
+        for part in (template[position : match.start()], labels.get(match.group(1), "")):
+            parts.append(part[: MAX_LEGEND_NAME - size])
+            size += len(parts[-1])
+        position = match.end()
+    parts.append(template[position:][: MAX_LEGEND_NAME - size])
+    return "".join(parts)
 
 
 def _with_legend(frame: Frame, template: str, count: int) -> Frame:
@@ -438,7 +449,7 @@ def pivot_long(frame: Frame) -> list[Frame]:
     for row in range(len(time.values)):
         key = tuple(None if field.values[row] is None else str(field.values[row]) for field in strings)
         if key not in groups:
-            if len(groups) >= MAX_PIVOT_SERIES:
+            if len(groups) >= MAX_PIVOT_SERIES or (len(groups) + 1) * (len(numbers) + 1) > MAX_PIVOT_FIELDS:
                 return [frame]
             label_bytes += sum(len(name) + len(value or _NO_LABEL) for name, value in zip(label_names, key)) * (
                 len(numbers) + 1

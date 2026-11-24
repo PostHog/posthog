@@ -326,6 +326,26 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["legend"] for line in lines], ["a", "b"])
         self.assertEqual(reads.call_count, expected_reads)
 
+    def test_stale_panels_differing_only_in_legend_refresh_their_query_once(self) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        panels = [_insight("$pageview", swr=True) for _ in range(3)]
+        for panel, legend in zip(panels, ("a", "b", "c")):
+            panel["target"]["legend"] = legend
+        refreshed: list[int] = []
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch(
+                "products.dashboards.backend.v2.query_batch.process_query_dict",
+                side_effect=lambda *args, **kwargs: refreshed.append(1),
+            ),
+        ):
+            lines = self._lines(panels, format="frames")
+            wait_until(lambda: query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES)
+
+        self.assertEqual([line["result"]["cache"]["stale"] for line in lines], [True, True, True])
+        self.assertEqual(len(refreshed), 1)
+
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
     def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
@@ -463,7 +483,9 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             self.assertNotIn("error", table_line)
             self.assertEqual(table_line["result"]["format"], "result")
             self.assertIsInstance(table_line["result"]["result"]["results"], list)
-            self.assertEqual(json.loads(table_line["result"]["canonical"])["kind"], "DataTableNode")
+            canonical = json.loads(table_line["result"]["canonical"])
+            self.assertEqual(canonical["query"]["kind"], "DataTableNode")
+            self.assertEqual(canonical["filters"]["date_from"], "-7d")
         self.assertEqual(
             [[line["result"]["provenance"]["timeline"][0]["source"] for line in lines] for lines in (first, second)],
             [["engine", "engine"], ["cache", "cache"]],

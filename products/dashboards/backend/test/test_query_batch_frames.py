@@ -14,6 +14,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
 from products.dashboards.backend.v2.frames import (
+    MAX_LEGEND_NAME,
     MAX_PIVOT_LABEL_BYTES,
     MAX_PIVOT_SERIES,
     Frame,
@@ -203,6 +204,7 @@ class TestFrameConverters(SimpleTestCase):
         [
             ("too_many_series", [f"client-{n}" for n in range(MAX_PIVOT_SERIES + 1)], 1),
             ("labels_too_large", ["x" * (MAX_PIVOT_LABEL_BYTES // 2)], 2),
+            ("too_many_fields", [f"client-{n}" for n in range(500)], 40),
         ]
     )
     def test_pivot_keeps_a_table_that_would_grow_too_large(
@@ -225,6 +227,7 @@ class TestFrameConverters(SimpleTestCase):
         [
             ("dotted_labels", "{{k8s.pod.name}} p{{ p }}", {"k8s.pod.name": "web-1", "p": "99"}, "web-1 p99"),
             ("missing_label_is_empty", "{{job}}-{{nope}}", {"job": "api"}, "api-"),
+            ("long_names_are_cut", "{{x}}" * 200, {"x": "y" * 10_000}, "y" * MAX_LEGEND_NAME),
         ]
     )
     def test_legend_template(self, _name: str, template: str, labels: dict[str, str], expected: str) -> None:

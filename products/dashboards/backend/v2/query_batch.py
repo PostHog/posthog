@@ -414,14 +414,18 @@ class _LineShape:
 
 
 def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) -> str:
-    """The query text the runner ran: the HogQL, PromQL or LogQL, or the query node as sorted JSON. Relative dates
-    stay relative, so the text is the same on every reload."""
+    """The query text the runner ran: the HogQL, PromQL or LogQL, or a query target as sorted JSON, with the filters
+    and variables it ran with, so sending it back as a target runs the same query. Relative dates stay relative, so
+    the text is the same on every reload."""
     language = item.target.language
     if language in (QueryBatchLanguage.PROMQL, QueryBatchLanguage.LOGQL) or resolved is None:
         return item.target.query
     if language == QueryBatchLanguage.HOGQL:
         return str(resolved.query.get("query", item.target.query))
-    return json.dumps(resolved.query, sort_keys=True, separators=(",", ":"), default=str)
+    target: dict[str, Any] = {"query": resolved.query, "filters": resolved.filters}
+    if resolved.variables:
+        target["variables"] = resolved.variables
+    return json.dumps(target, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _line_shape(
@@ -773,9 +777,14 @@ class QueryBatch:
                 continue
             self._read_chunk(inputs, resolved, chunk, plan, to_run, to_refresh, served)
 
-        self._to_refresh = [
-            (query_id_for(self._client_query_id, inputs[index]), resolved[index]) for index in to_refresh
-        ]
+        # Panels that repeat a query with another legend or format refresh it once.
+        refreshes: dict[str, tuple[str, ResolvedQuery]] = {}
+        for index in to_refresh:
+            query = resolved[index]
+            identity = json.dumps([query.query, query.filters, query.variables], sort_keys=True, default=str)
+            if identity not in refreshes:
+                refreshes[identity] = (query_id_for(self._client_query_id, inputs[index]), query)
+        self._to_refresh = list(refreshes.values())
         for index in to_run:
             query_id = query_id_for(self._client_query_id, inputs[index])
             self._jobs.append((index, query_id, resolved[index]))
