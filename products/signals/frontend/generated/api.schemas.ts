@@ -951,6 +951,13 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
+    /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. The first write to this field or to autostart_enabled stores both values.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
     default_autostart_priority?: AutonomyPriorityEnumApi
     /**
      * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.

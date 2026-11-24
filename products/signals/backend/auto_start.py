@@ -54,6 +54,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
 from products.signals.backend.quota import (
@@ -223,7 +224,7 @@ def _report_meets_team_autostart_threshold(report_priority: Priority, team_defau
 
     Gates the reviewer-less fallback so a team that set ``default_autostart_priority`` (e.g. P2)
     doesn't get autonomous PRs for lower-priority reports. Lower rank = higher priority; the team
-    default is P4 ("all priorities") when the team has no config row, so the gate is a no-op then.
+    default comes from ``effective_autostart_priority``.
     Per-user autostart priorities are intentionally not consulted — the fallback has no named user.
     """
     return _priority_rank(report_priority) <= _priority_rank(team_default_priority)
@@ -1273,8 +1274,8 @@ def _resolve_autostart_assignee(
     ``False``.
 
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
-    their personal autonomy setting when present, otherwise the team default (itself "all
-    priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
+    their personal autonomy setting when present, otherwise the team default from
+    ``effective_autostart_priority``. A lower rank means higher priority. Returns
     the first matching ``User``, or ``None`` if no reviewer maps to an org member.
     """
     # Owner-stamped entries — by the stored stamp or the live owner set — never select the task
@@ -1325,8 +1326,7 @@ def _resolve_autostart_assignee(
         return None
 
     # Personal autonomy configs are optional: load any that exist to honor a reviewer's own
-    # threshold. A reviewer with no config falls back to the team default, which is itself
-    # "all priorities" (P4) when the team has no config row (set by the caller).
+    # threshold. A reviewer with no config falls back to the team default that the caller passes.
     configs = {
         c.user_id: c for c in SignalUserAutonomyConfig.objects.filter(user_id__in=[u.id for u in candidate_users])
     }
@@ -1550,7 +1550,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id, report_id=report_id, skip_reason=SKIP_AUTOSTART_DISABLED
         )
         return AutostartOutcome(status="blocked", reason="Autostart is disabled")
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
+    team_default_priority = Priority(effective_autostart_priority(team_config))
     if await database_sync_to_async(ResearchAccessPolicy.enabled)(team_id):
         repository_reachable = await database_sync_to_async(
             ResearchAccessPolicy.repository_available, thread_sensitive=False

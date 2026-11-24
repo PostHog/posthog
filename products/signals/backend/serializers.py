@@ -159,6 +159,7 @@ from .models import (
     SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from .personal_ranking.list_sort import PersonalListOrder, PersonalRowNote
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
@@ -1011,7 +1012,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         for field in STEERING_FIELDS.values():
             representation[field] = representation[field] or ""
+        representation["default_autostart_priority"] = effective_autostart_priority(instance).value
         return representation
+
+    def update(self, instance: SignalTeamConfig, validated_data: dict[str, Any]) -> SignalTeamConfig:
+        # A project that never set the switch runs on the threshold `effective_autostart_priority`
+        # gives it. The first write to the switch or the threshold stores both values, so that the
+        # stored row keeps that threshold: otherwise turning PRs off and on again would bring back
+        # the P4 column default, and a person who picks P4 would still read as never having chosen.
+        if instance.autostart_enabled is None and validated_data.keys() & {
+            "autostart_enabled",
+            "default_autostart_priority",
+        }:
+            validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
+            validated_data.setdefault("autostart_enabled", True)
+        return super().update(instance, validated_data)
 
     def validate_implementation_repositories(self, value: list[str]) -> list[str]:
         try:
@@ -1108,6 +1123,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
                     "false to opt out, so actionable reports still generate and notify but the team "
                     "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
+            "default_autostart_priority": {
+                "help_text": (
+                    "Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). "
+                    "Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. "
+                    "The first write to this field or to autostart_enabled stores both values."
                 )
             },
             "default_slack_notification_channel": {

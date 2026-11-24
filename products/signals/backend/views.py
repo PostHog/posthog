@@ -169,6 +169,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
+    effective_autostart_priority,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
 from products.signals.backend.personal_ranking.list_sort import (
@@ -3046,12 +3047,7 @@ class SignalReportViewSet(
             personal_threshold = (
                 SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
             )
-            project_threshold = (
-                SignalTeamConfig.objects.filter(team=self.team)
-                .values_list("default_autostart_priority", flat=True)
-                .first()
-                or AutonomyPriority.P4
-            )
+            project_threshold = effective_autostart_priority(SignalTeamConfig.objects.filter(team=self.team).first())
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
             return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))

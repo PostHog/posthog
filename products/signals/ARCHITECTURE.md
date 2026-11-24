@@ -633,6 +633,7 @@ Notes:
 
 - Created on first access through `get_or_create_team_extension`. Readers treat a missing row as the field defaults.
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
+- A project that never set `autostart_enabled` and still stores `P4`, or has no row, runs on `P2` (`effective_autostart_priority` in `backend/models.py`). The API reads that threshold back, and the first write to the switch or the threshold stores both values.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
 - `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
 - GitHub comments run in a separate Temporal activity on every settle, including settles after the first notification. GitHub failures cannot prevent the report notification.

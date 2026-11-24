@@ -331,6 +331,24 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         return self.autostart_base_branches.get(repository.lower()) or None
 
 
+UNCHOSEN_AUTOSTART_PRIORITY = AutonomyPriority.P2
+
+
+def effective_autostart_priority(config: SignalTeamConfig | None) -> AutonomyPriority:
+    """The project threshold that auto-start applies.
+
+    A project with no row, or with a null PR switch and the P4 column default, never chose a
+    threshold, so it gets `UNCHOSEN_AUTOSTART_PRIORITY`. P4 opens a PR for every report priority,
+    which nobody chose for these projects. A null switch with any other value keeps that value,
+    because a row only holds another value after a write.
+    """
+    if config is None:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    if config.autostart_enabled is None and config.default_autostart_priority == AutonomyPriority.P4:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    return AutonomyPriority(config.default_autostart_priority)
+
+
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
