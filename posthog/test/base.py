@@ -47,6 +47,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.team_first_prewhere import _events_last_year_cache
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -751,6 +752,10 @@ class PostHogTestCase(SimpleTestCase):
         # The sources cache is keyed on team/user ids, which repeat across tests while the
         # rows behind them roll back, so a stale entry would leak one test's schema into the next.
         clear_sources_cache()
+
+        # The team event volume cache is keyed on team ids too, so a stale entry would give a test
+        # the volume another test wrote or the miss another test cached.
+        _events_last_year_cache.clear()
 
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm

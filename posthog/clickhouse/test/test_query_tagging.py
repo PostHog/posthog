@@ -15,7 +15,6 @@ from pydantic import ValidationError
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.team_first_prewhere import _events_last_year_cache
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
@@ -451,7 +450,6 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
     @parameterized.expand([("small_team", True), ("team_without_a_volume_row", False)])
     def test_execute_hogql_query_tags_the_team_first_prewhere_setting(self, _name: str, expected: bool) -> None:
-        _events_last_year_cache.clear()
         if expected:
             TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=1, computed_at=timezone.now())
         marker = str(uuid.uuid4())
