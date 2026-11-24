@@ -237,3 +237,13 @@ class TestResolveQuery(SimpleTestCase):
     def test_rejects_an_unknown_time_expression(self) -> None:
         with self.assertRaises(InvalidTarget):
             to_posthog_date("yesterday")
+
+    def test_rejects_a_query_kind_that_query_rate_limits_per_team(self) -> None:
+        target = QueryBatchTarget(
+            ref_id="a",
+            language=QueryBatchLanguage.INSIGHT,
+            query=json.dumps({"query": {"kind": "ErrorTrackingFingerprintProjectionQuery"}}),
+        )
+
+        with self.assertRaises(InvalidTarget):
+            resolve_query(QueryBatchInput(target=target, date_from="now-7d", date_to="now"))

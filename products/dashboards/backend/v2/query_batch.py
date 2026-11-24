@@ -162,6 +162,8 @@ _TIMED_OUT = "The dashboard took too long to load. Try again."
 _TIMED_OUT_BODY = json.dumps({"error": _TIMED_OUT}).encode()
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
+# Rate-limited per team on `/query` for its CPU cost, which a batch's per-request admission cannot account for.
+_UNBATCHABLE_KINDS = frozenset({"ErrorTrackingFingerprintProjectionQuery"})
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
 _EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
 
@@ -218,6 +220,10 @@ def resolve_query(item: QueryBatchInput) -> ResolvedQuery:
     if not isinstance(parsed, dict) or not isinstance(parsed.get("query"), dict) or "kind" not in parsed["query"]:
         raise InvalidTarget('An insight target is JSON: {"query": {"kind": ...}, "filters"?, "variables"?}.')
     query: dict[str, Any] = parsed["query"]
+    source = query.get("source")
+    kinds = {query["kind"], source.get("kind") if isinstance(source, dict) else None}
+    if blocked := kinds & _UNBATCHABLE_KINDS:
+        raise InvalidTarget(f"{blocked.pop()} can't be batched. Use /query.")
     raw_filters = parsed.get("filters")
     filters: dict[str, Any] = raw_filters if isinstance(raw_filters, dict) else {}
     # A target that sets its own date_from pins its range, as a tile's date override does.
@@ -619,14 +625,16 @@ class QueryBatch:
     def _start(self) -> bool:
         if not self._jobs:
             return True
-        if self._closed:
-            return False
-        self._admitted = _admit_batch(self._team.organization_id)
-        if not self._admitted:
-            return False
-        self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
-        for _index, query_id, job in self._jobs:
-            self._futures.append(self._pool.submit(self._context.copy().run, self._work, job, query_id))
+        # Under the lock, so the watchdog's `_close` sees either no admission or one with all of its futures.
+        with self._lock:
+            if self._closed:
+                return False
+            self._admitted = _admit_batch(self._team.organization_id)
+            if not self._admitted:
+                return False
+            self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
+            for _index, query_id, job in self._jobs:
+                self._futures.append(self._pool.submit(self._context.copy().run, self._work, job, query_id))
         return True
 
     def _close(self, complete: bool) -> None:
@@ -636,6 +644,7 @@ class QueryBatch:
             self._closed = True
             self._cancelled = True
             active = tuple(self._active)
+            admitted, self._admitted = self._admitted, False
         if self._pool is not None:
             self._pool.shutdown(wait=False, cancel_futures=True)
         if not complete and active:
@@ -644,8 +653,7 @@ class QueryBatch:
             Thread(
                 target=self._cancel_until_idle, args=(active,), daemon=True, name="dashboard-query-batch-cancel"
             ).start()
-        if self._admitted:
-            self._admitted = False
+        if admitted:
             for future in self._futures:
                 future.cancel()
             # A running query keeps its thread after a disconnect, so the slot is freed when the last one ends.
