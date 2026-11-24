@@ -66,7 +66,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
     people: { Sidebar: TodayPeopleSidebar, previews: true },
-    release: { Sidebar: ReleaseSidebar },
+    release: { Sidebar: ReleaseSidebar, previews: true },
     automate: { Sidebar: TodayAutomateSidebar, previews: true },
     data: { Sidebar: TodayDataSidebar, previews: true },
     settings: { Sidebar: TodaySettingsSidebar },
