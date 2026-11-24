@@ -19234,7 +19234,7 @@
         "feature": "workflows",
         "summary": "Make push template sendable from code (execute)",
         "title": "Make push template sendable from code (execute)",
-        "required_scopes": ["transactional_push:write"],
+        "required_scopes": ["transactional_push:write", "hog_flow:read"],
         "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
         "annotations": {
             "destructiveHint": true,
@@ -19250,7 +19250,7 @@
         "feature": "workflows",
         "summary": "Make push template sendable from code (prepare)",
         "title": "Make push template sendable from code (prepare)",
-        "required_scopes": ["transactional_push:write"],
+        "required_scopes": ["transactional_push:write", "hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

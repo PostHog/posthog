@@ -79,6 +79,21 @@ export const CONFIRMATION_WORD_ARG = 'confirmation'
  */
 export type ConfirmedActionScope = Record<string, string>
 
+/** What the action works on, read from the server when the confirmation is made. */
+export interface ConfirmedActionPreview {
+    /** Replaces `{preview}` in the message. The loader escapes anything in it that a person wrote. */
+    text: string
+    /** Covers everything the user confirms, also the parts that `text` shows cut. */
+    fingerprint: string
+}
+
+/** Declared per tool with `confirmed_action.preview`. A loader that throws stops the prepare or the execute. */
+export type ConfirmedActionPreviewLoader<P> = (
+    context: Context,
+    params: P,
+    scope: ConfirmedActionScope
+) => Promise<ConfirmedActionPreview>
+
 export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>> {
     /** The validated tool args. Signed into the hash so they can't be tampered with between prepare and execute. */
     args: P
@@ -105,6 +120,8 @@ export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>
      * scope.
      */
     boundScope?: ConfirmedActionScope
+    /** Shown in the message, and compared at execute time. */
+    preview?: ConfirmedActionPreview
 }
 
 /**
@@ -115,6 +132,7 @@ export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>
 interface SignedConfirmedActionPayload {
     args: Record<string, unknown>
     scope: ConfirmedActionScope | null
+    previewFingerprint?: string
 }
 
 /**
@@ -173,6 +191,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     const payload: SignedConfirmedActionPayload = {
         args: options.args,
         scope: withConnectionScope(context, options.boundScope),
+        ...(options.preview ? { previewFingerprint: options.preview.fingerprint } : {}),
     }
     // Digest the exact string that gets stashed — execute re-hashes the
     // stored string, so serialization only has to be stable across this
@@ -212,7 +231,10 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
         confirmation_hash: token,
         confirmation_word: CONFIRMATION_WORD,
         action: options.actionLabel,
-        message: interpolate(options.messageTemplate, options.args),
+        message: interpolate(options.messageTemplate, {
+            ...options.args,
+            ...(options.preview ? { preview: options.preview.text } : {}),
+        }),
         next_steps:
             `Surface the message above to the user. Wait for them to reply with the literal word "${CONFIRMATION_WORD}". ` +
             `Then call the matching \`-execute\` tool with \`${CONFIRMATION_HASH_ARG}\` set to the confirmation_hash from this result, ` +
@@ -239,6 +261,8 @@ export interface ExecuteConfirmedActionOptions {
      * actions prepared without a `boundScope`.
      */
     expectedScope?: ConfirmedActionScope
+    /** Reads the preview again from the signed args. A fingerprint other than the prepared one refuses. */
+    loadPreview?: (args: Record<string, unknown>) => Promise<ConfirmedActionPreview>
 }
 
 export type ExecuteConfirmedActionOutcome<P> = { ok: true; verifiedArgs: P } | { ok: false; result: ToolErrorResult }
@@ -348,6 +372,17 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
             'purpose_mismatch',
             `${options.purpose} was not executed: ${DIFFERENT_ACTION_OR_VERSION}.`
         )
+    }
+
+    if (options.loadPreview) {
+        const current = await options.loadPreview(args as Record<string, unknown>)
+        if (wrapper.previewFingerprint !== current.fingerprint) {
+            return refuse(
+                options.purpose,
+                'preview_changed',
+                `${options.purpose} was not executed: it changed after the user was asked to confirm. Run the prepare step again, and show the user the new message.`
+            )
+        }
     }
 
     confirmedActionExecutesTotal.inc({ tool: options.purpose, status: 'ok' })
