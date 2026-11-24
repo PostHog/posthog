@@ -186,10 +186,7 @@ def create_appearance_alert(
 def _destination_data(destination: AppearanceAlertDestination) -> AlertDestinationData:
     if destination.webhook_url is not None:
         return AlertDestinationData(type=DestinationType.WEBHOOK, webhook_url=destination.webhook_url)
-    if destination.slack_workspace_id is None or destination.slack_channel_id is None:
-        raise InvalidPlatformAlertEdit(
-            "destination", "An appearance alert needs a webhook URL, or a Slack workspace and channel."
-        )
+    assert destination.slack_workspace_id is not None and destination.slack_channel_id is not None
     return AlertDestinationData(
         type=DestinationType.SLACK,
         slack_workspace_id=destination.slack_workspace_id,
