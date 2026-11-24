@@ -9088,8 +9088,8 @@ Today (5): `bounces`, `campaign_analytics`, `campaigns`, `lists`, `subscribers`
 
 Diffed against: <https://raw.githubusercontent.com/knadh/listmonk/master/docs/swagger/collections.yaml>
 
-- [ ] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
-- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low)
+- [x] `Templates (GET /api/templates)` — campaign and transactional templates, resolves template_id on synced campaigns (medium)
+- [ ] `Subscriber import logs (GET /api/import/subscribers/logs)` — log text of the current import, not a stable table (low). Skipped: returns one log string of the running import, not rows.
 
 Note: Parsed the official Swagger collection file. Subscribers, lists, campaigns, bounces and campaign analytics are already synced. Other routes are settings, config, health, admin and write actions. Templates takes a required no_body flag, so send no_body=true or false by choice. Import logs is only for the running import, so it is probably not worth a table.
 
