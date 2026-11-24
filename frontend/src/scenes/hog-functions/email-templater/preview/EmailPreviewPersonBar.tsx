@@ -22,7 +22,7 @@ export function EmailPreviewPersonBar({
 }): JSX.Element {
     const scope = useContext(EmailPreviewScopeContext)
     const { previewPerson, personsLoading, personsFailed } = useValues(emailPreviewPersonLogic({ scope }))
-    const { shufflePerson } = useActions(emailPreviewPersonLogic({ scope }))
+    const { shufflePerson, pickPerson } = useActions(emailPreviewPersonLogic({ scope }))
     const [open, setOpen] = useState(false)
 
     return (
@@ -40,7 +40,12 @@ export function EmailPreviewPersonBar({
                                     Couldn't load people. Fill in a custom person.
                                 </span>
                             ) : (
-                                <PersonSearch onDone={() => setOpen(false)} />
+                                <PersonSearch
+                                    onPick={(person) => {
+                                        pickPerson(person)
+                                        setOpen(false)
+                                    }}
+                                />
                             )}
                             <LemonDivider className="my-0" />
                             <span className="font-semibold">Custom person</span>

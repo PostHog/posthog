@@ -95,6 +95,7 @@ export interface emailPreviewPersonLogicValues {
     personsFailed: boolean
     personsLoading: boolean
     previewPerson: PreviewPerson | null
+    searchFailed: boolean
     searchResults: PreviewPerson[]
     searchResultsLoading: boolean
     selectedPersonId: string | null
@@ -271,6 +272,13 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                 loadPersons: () => false,
                 loadPersonsSuccess: () => false,
                 loadPersonsFailure: () => true,
+            },
+        ],
+        searchFailed: [
+            false,
+            {
+                setSearch: () => false,
+                setSearchFailure: () => true,
             },
         ],
     }),

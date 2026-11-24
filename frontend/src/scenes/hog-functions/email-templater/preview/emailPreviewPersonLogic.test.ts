@@ -68,4 +68,13 @@ describe('emailPreviewPersonLogic', () => {
 
         expect(logic.values.previewPerson).toEqual(GRACE)
     })
+
+    it('tells a failed search apart from one nobody matches, until the next search', async () => {
+        jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('offline'))
+        logic.actions.setSearch('ada')
+        await waitFor(() => expect(logic.values.searchFailed).toBe(true))
+
+        logic.actions.setSearch('nobody')
+        expect(logic.values.searchFailed).toBe(false)
+    })
 })

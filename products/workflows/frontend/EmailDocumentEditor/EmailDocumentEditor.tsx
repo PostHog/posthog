@@ -12,6 +12,7 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { PreviewPerson } from 'scenes/hog-functions/email-templater/preview/emailPreviewPersonLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cleanPastedHtml } from './cleanPastedHtml'
@@ -71,6 +72,8 @@ export function EmailDocumentEditor(): JSX.Element {
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
     const [mode, setMode] = useState<Mode>('edit')
+    // Held here so the pick survives switching between editing and previewing.
+    const [previewPerson, setPreviewPerson] = useState<PreviewPerson | null>(null)
     const [panelOpen, setPanelOpen] = useState(true)
     const [imagePicker, setImagePicker] = useState<((image: PickedEmailImage) => void) | null>(null)
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
@@ -429,6 +432,15 @@ export function EmailDocumentEditor(): JSX.Element {
                             'liquid'
                         }
                         unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
+                        person={previewPerson}
+                        onPersonChange={(person) => {
+                            setPreviewPerson(person)
+                            // pinned: analytics event name and properties, renaming breaks dashboards
+                            posthog.capture('email editor preview person changed', {
+                                email_type: logicProps.type,
+                                action: person ? 'picked' : 'cleared',
+                            })
+                        }}
                     />
                 ) : (
                     <div className="flex flex-1 min-h-0 relative">
