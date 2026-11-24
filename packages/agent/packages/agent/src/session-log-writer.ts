@@ -190,16 +190,17 @@ export class SessionLogWriter {
     }
     for (const sessionId of unflushed()) {
       const pending = this.pendingEntries.get(sessionId)?.entries ?? [];
+      const session = this.sessions.get(sessionId);
       const timeout = this.flushTimeouts.get(sessionId);
       if (timeout) {
         clearTimeout(timeout);
         this.flushTimeouts.delete(sessionId);
       }
       this.logger.error("Session log entries not persisted at shutdown", {
-        taskId: this.sessions.get(sessionId)?.context.taskId,
-        runId: this.sessions.get(sessionId)?.context.runId,
+        taskId: session?.context.taskId,
+        runId: session?.context.runId,
         count: pending.length,
-        gapDroppedCount: this.sessions.get(sessionId)?.gap?.droppedCount,
+        gapDroppedCount: session?.gap?.droppedCount,
         firstEventId:
           pending[0]?.entry.first_event_id ?? pending[0]?.entry.event_id,
         lastEventId: pending[pending.length - 1]?.entry.event_id,
@@ -504,13 +505,19 @@ export class SessionLogWriter {
       (this.flushedBytes.get(sessionId) ?? 0) + outcome.sentBytes,
     );
     const unsent = outcome.failure?.unsent ?? [];
-    const markerUnsent = marker !== null && unsent[0] === marker;
+    const markerUnsent = marker !== null && unsent.includes(marker);
     if (marker && !markerUnsent) {
-      this.reportGap(sessionId, session, marker.entry);
+      this.logger.error("Session log entries dropped", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        ...gap,
+      });
+      this.emitToSinks(sessionId, marker.entry);
     }
+    const rejected = outcome.rejected.filter((entry) => entry !== marker);
     session.gap = this.mergeGap(
       markerUnsent ? gap : undefined,
-      this.mergeGap(this.gapOf(outcome.rejected), session.gap),
+      this.mergeGap(this.gapOf(rejected), session.gap),
     );
 
     if (!outcome.failure) {
@@ -522,10 +529,11 @@ export class SessionLogWriter {
     }
 
     const queue = this.pendingEntries.get(sessionId);
-    this.setPendingQueue(sessionId, session, [
-      ...(markerUnsent ? unsent.slice(1) : unsent),
-      ...(queue?.entries ?? []),
-    ]);
+    const requeued = unsent.filter((entry) => entry !== marker);
+    this.setPendingQueue(sessionId, session, {
+      entries: [...requeued, ...(queue?.entries ?? [])],
+      bytes: this.sumBytes(requeued) + (queue?.bytes ?? 0),
+    });
     const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
     this.retryCounts.set(sessionId, retryCount);
     this.logFlushFailure(sessionId, session, retryCount, outcome.failure.error);
@@ -628,17 +636,12 @@ export class SessionLogWriter {
   }
 
   private gapOf(dropped: PendingEntry[]): SessionLogGap | undefined {
-    const entries = dropped
-      .map((pendingEntry) => pendingEntry.entry)
-      .filter(
-        (entry) =>
-          entry.notification.method !== POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP,
-      );
-    if (entries.length === 0) return undefined;
+    if (dropped.length === 0) return undefined;
+    const first = dropped[0].entry;
     return {
-      droppedCount: entries.length,
-      firstEventId: entries[0].first_event_id ?? entries[0].event_id,
-      lastEventId: entries[entries.length - 1].event_id,
+      droppedCount: dropped.length,
+      firstEventId: first.first_event_id ?? first.event_id,
+      lastEventId: dropped[dropped.length - 1].entry.event_id,
     };
   }
 
@@ -667,50 +670,25 @@ export class SessionLogWriter {
     };
   }
 
-  private reportGap(
-    sessionId: string,
-    session: SessionState,
-    marker: StoredNotification,
-  ): void {
-    this.logger.error("Session log entries dropped", {
-      taskId: session.context.taskId,
-      runId: session.context.runId,
-      ...marker.notification.params,
-    });
-    this.emitToSinks(sessionId, marker);
-  }
-
   private setPendingQueue(
     sessionId: string,
     session: SessionState,
-    entries: PendingEntry[],
+    queue: PendingQueue,
   ): void {
-    const evictCount = this.overflowCount(entries);
-    const kept = entries.slice(evictCount);
-    this.pendingEntries.set(sessionId, {
-      entries: kept,
-      bytes: this.sumBytes(kept),
-    });
-    if (evictCount > 0) {
-      session.gap = this.mergeGap(
-        session.gap,
-        this.gapOf(entries.slice(0, evictCount)),
-      );
-    }
-  }
-
-  private overflowCount(entries: PendingEntry[]): number {
     let evictCount = 0;
-    let bytes = this.sumBytes(entries);
+    let bytes = queue.bytes;
     while (
-      evictCount < entries.length &&
-      (entries.length - evictCount > SessionLogWriter.PENDING_ENTRIES_MAX ||
+      evictCount < queue.entries.length &&
+      (queue.entries.length - evictCount >
+        SessionLogWriter.PENDING_ENTRIES_MAX ||
         bytes > SessionLogWriter.PENDING_BYTES_MAX)
     ) {
-      bytes -= entries[evictCount].bytes;
+      bytes -= queue.entries[evictCount].bytes;
       evictCount++;
     }
-    return evictCount;
+    const evicted = queue.entries.splice(0, evictCount);
+    this.pendingEntries.set(sessionId, { entries: queue.entries, bytes });
+    session.gap = this.mergeGap(session.gap, this.gapOf(evicted));
   }
 
   private flushMaxIntervalMs(sessionId: string): number {
@@ -813,11 +791,11 @@ export class SessionLogWriter {
       if (buffered) {
         session.pendingRawInputSnapshots.delete(tcu.toolCallId);
         if (tcu.update.rawInput === undefined) {
-          this.pushPendingEntry(sessionId, buffered);
+          this.pushPendingEntry(sessionId, session, buffered);
         }
       }
     }
-    this.pushPendingEntry(sessionId, entry);
+    this.pushPendingEntry(sessionId, session, entry);
   }
 
   private isRawInputOnlyUpdate(update: Record<string, unknown>): boolean {
@@ -828,9 +806,11 @@ export class SessionLogWriter {
     );
   }
 
-  private pushPendingEntry(sessionId: string, entry: StoredNotification): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
+  private pushPendingEntry(
+    sessionId: string,
+    session: SessionState,
+    entry: StoredNotification,
+  ): void {
     const pendingEntry = this.toPendingEntry(entry);
     const queue = this.pendingEntries.get(sessionId) ?? {
       entries: [],
@@ -842,7 +822,7 @@ export class SessionLogWriter {
       queue.entries.length > SessionLogWriter.PENDING_ENTRIES_MAX ||
       queue.bytes > SessionLogWriter.PENDING_BYTES_MAX
     ) {
-      this.setPendingQueue(sessionId, session, queue.entries);
+      this.setPendingQueue(sessionId, session, queue);
     } else {
       this.pendingEntries.set(sessionId, queue);
     }
@@ -855,7 +835,7 @@ export class SessionLogWriter {
   ): void {
     if (session.pendingRawInputSnapshots.size === 0) return;
     for (const entry of session.pendingRawInputSnapshots.values()) {
-      this.pushPendingEntry(sessionId, entry);
+      this.pushPendingEntry(sessionId, session, entry);
     }
     session.pendingRawInputSnapshots.clear();
   }
@@ -914,7 +894,7 @@ export class SessionLogWriter {
     this.writeToLocalCache(sessionId, entry);
 
     if (this.posthogAPI) {
-      this.pushPendingEntry(sessionId, entry);
+      this.pushPendingEntry(sessionId, session, entry);
     }
   }
 
