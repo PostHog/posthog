@@ -47,6 +47,7 @@ class AgentEgressProbeConfig(BaseModel):
     client_ca_file: Path
     client_ca_key_file: Path
     renew_relay_certificate: bool = False
+    maintain_for_run: bool = False
     duration_seconds: int = Field(default=60, ge=1, le=600)
     concurrency: int = Field(default=4, ge=1, le=32)
     requests_per_round: int = Field(default=16, ge=1, le=256)
@@ -64,6 +65,8 @@ class AgentEgressProbeConfig(BaseModel):
 
     def validate_controller(self, *, cleanup: bool = False) -> None:
         self.require_environment(cleanup=cleanup)
+        if self.maintain_for_run:
+            raise ValueError("Run-lifetime maintenance requires enrollment configuration")
         if agent_egress_staging_environment() and (
             (not cleanup and str(self.run_id) != settings.AGENT_EGRESS_STAGING_PROBE_RUN_ID)
             or self.sandbox_id is not None
