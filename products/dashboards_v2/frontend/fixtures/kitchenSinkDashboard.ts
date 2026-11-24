@@ -51,6 +51,7 @@ const BIG_TILE_COUNT = 120
 export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
+    description: 'Every widget, section and chart option on one dashboard.',
     tabs: [
         {
             id: 'kitchen-sink',

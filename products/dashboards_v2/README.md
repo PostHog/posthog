@@ -17,6 +17,7 @@ A dashboard has tabs. A tab has one grid. A grid holds tiles, and nothing else.
 | Tab     | A named grid. Tabs belong to the dashboard only. A section cannot hold tabs. |
 
 The whole dashboard is one JSON tree (`Dashboard` in `frontend/dashboard/dashboardTypes.ts`).
+It has a `title` and an optional `description`, shown under the title.
 
 ## Tabs
 
