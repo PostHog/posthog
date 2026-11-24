@@ -553,3 +553,41 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
         self.assertEqual(cohort.count, 1)
+
+    def test_a_repair_after_a_finished_replace_counts_and_copies_only_kept_rows(self) -> None:
+        replaced, added, removed_a, removed_b = (
+            create_person(team=self.team, distinct_ids=[name])
+            for name in ("replaced", "added", "removed_a", "removed_b")
+        )
+        floor = (self.now - timedelta(days=6)).replace(microsecond=0)
+        marker = floor + timedelta(minutes=5)
+        cohort = self._static_cohort(last_replace_marker=marker, last_replace_floor=floor)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "person_id": str(person.uuid),
+                    "cohort_id": cohort.pk,
+                    "team_id": self.team.pk,
+                    "_timestamp": timestamp,
+                    "_offset": offset,
+                }
+                for person, timestamp, offset in (
+                    (replaced, marker, REPLACE_ROW_OFFSET),
+                    (added, floor + timedelta(minutes=1), 0),
+                    (removed_a, floor - timedelta(minutes=1), 0),
+                    (removed_b, floor - timedelta(minutes=2), 0),
+                )
+            ],
+        )
+
+        with patch("products.cohorts.backend.models.util.time.sleep"):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(
+            sorted(cohort_util.list_cohort_member_ids(self.team.pk, cohort.pk)),
+            sorted([replaced.id, added.id]),
+        )
+        self.assertEqual(cohort.count, 2)

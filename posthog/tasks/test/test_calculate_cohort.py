@@ -1892,13 +1892,24 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(history.count, 2)
         self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {p1.id, p2.id})
 
-    def test_query_population_keeps_history_when_finalize_ownership_check_hits_db_error(self) -> None:
+    @parameterized.expand(
+        [
+            ("retry_fails_keeps_claim", OperationalError("db still gone"), False),
+            ("retry_succeeds_releases_claim", True, True),
+        ]
+    )
+    def test_query_population_keeps_history_when_finalize_ownership_check_hits_db_error(
+        self, _name: str, retry_outcome: Any, expect_released: bool
+    ) -> None:
+        claimed_at = timezone.now().replace(microsecond=0)
         cohort = Cohort.objects.create(
             team=self.team,
             name="static cohort",
             is_static=True,
             query=PERSONS_HOGQL_QUERY,
             is_calculating=True,
+            pending_population_mode=CohortPopulationMode.APPEND,
+            population_claimed_at=claimed_at,
         )
 
         with (
@@ -1906,18 +1917,27 @@ class TestCohortCalculationTasks(APIBaseTest):
             patch(PG_SYNC_PATH),
             patch(
                 "products.cohorts.backend.models.util.owns_population_run",
-                side_effect=[OperationalError("db gone"), OperationalError("db still gone")],
-            ) as mock_clear,
+                side_effect=[OperationalError("db gone"), retry_outcome],
+            ) as mock_owns,
             patch("products.cohorts.backend.models.util.capture_exception") as mock_capture,
             patch("products.cohorts.backend.models.util.connections") as mock_connections,
         ):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
-        self.assertEqual(mock_clear.call_count, 2)
+        self.assertEqual(mock_owns.call_count, 2)
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
-        mock_capture.assert_called_once()
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertIsNotNone(history.finished_at)
+        cohort.refresh_from_db()
+        if expect_released:
+            mock_capture.assert_not_called()
+            self.assertFalse(cohort.is_calculating)
+            self.assertIsNone(cohort.pending_population_mode)
+            self.assertIsNone(cohort.population_claimed_at)
+        else:
+            mock_capture.assert_called_once()
+            self.assertTrue(cohort.is_calculating)
+            self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.APPEND)
 
     @parameterized.expand(
         [
@@ -2601,7 +2621,17 @@ class TestCohortCalculationTasks(APIBaseTest):
             [(str(member.uuid), 0)],
         )
 
-    def test_null_marker_finalize_leaves_a_newer_replace_claim_alone(self) -> None:
+    @parameterized.expand(
+        [
+            ("before_ownership_check", False),
+            ("after_ownership_check_before_release", True),
+        ]
+    )
+    def test_null_marker_finalize_leaves_a_newer_replace_claim_alone(
+        self, _name: str, claim_during_history_close: bool
+    ) -> None:
+        from posthog.tasks.calculate_cohort import _finalize_population_history as real_finalize_history
+
         now = timezone.now().replace(microsecond=0)
         old_claimed_at = now - relativedelta(hours=6)
         new_claimed_at = now + relativedelta(minutes=1)
@@ -2618,7 +2648,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         newer_uuid = uuid4()
 
-        def replace_claimed_elsewhere(*_args: Any, **_kwargs: Any) -> bool:
+        def land_newer_replace_claim() -> None:
             Cohort.objects.filter(pk=cohort.pk).update(
                 is_calculating=True,
                 pending_population_mode=CohortPopulationMode.REPLACE,
@@ -2630,10 +2660,27 @@ class TestCohortCalculationTasks(APIBaseTest):
                 f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
                 [(uuid4(), newer_uuid, cohort.pk, self.team.pk, now - relativedelta(hours=1), REPLACE_ROW_OFFSET)],
             )
+
+        def replace_claimed_before_check(*_args: Any, **_kwargs: Any) -> bool:
+            land_newer_replace_claim()
             return False
 
-        self.mock_replace_flag.side_effect = replace_claimed_elsewhere
-        with patch(QUERY_CH_INSERT_PATH) as mock_insert_ch:
+        def finalize_history_then_claim(*args: Any, **kwargs: Any) -> None:
+            real_finalize_history(*args, **kwargs)
+            land_newer_replace_claim()
+
+        history_ctx: Any
+        if claim_during_history_close:
+            self.mock_replace_flag.return_value = False
+            history_ctx = patch(
+                "posthog.tasks.calculate_cohort._finalize_population_history",
+                side_effect=finalize_history_then_claim,
+            )
+        else:
+            self.mock_replace_flag.side_effect = replace_claimed_before_check
+            history_ctx = nullcontext()
+
+        with history_ctx, patch(QUERY_CH_INSERT_PATH) as mock_insert_ch:
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         mock_insert_ch.assert_not_called()
@@ -3839,9 +3886,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         [
             # Nothing will run the replace again, so rows it never copied would stay counted. A newer run's rows,
             # stamped after this run's marker, are not this run's.
-            ("before_copy_deletes_its_rows", False, True, ["kept", "newer"]),
+            ("before_copy_deletes_its_rows", False, True, ["kept", "after_marker", "newer"]),
             # Postgres may hold some of its rows, so ClickHouse keeps them all.
-            ("after_copy_keeps_its_rows", True, True, ["kept", "attempt", "newer"]),
+            ("after_copy_keeps_its_rows", True, True, ["kept", "attempt", "after_marker", "newer"]),
             # Without a latest marker the delete falls back to now + clock skew margin and cleans up the attempt.
             ("without_a_marker_deletes_its_rows", False, False, ["kept", "newer"]),
         ]
@@ -3882,6 +3929,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         rows = {
             "kept": (now - relativedelta(hours=3), 0),
             "attempt": (now - relativedelta(hours=2), REPLACE_ROW_OFFSET),
+            "after_marker": (now - relativedelta(hours=1), REPLACE_ROW_OFFSET),
             "newer": (now + relativedelta(minutes=1), REPLACE_ROW_OFFSET),
         }
         person_ids = {name: uuid4() for name in rows}
