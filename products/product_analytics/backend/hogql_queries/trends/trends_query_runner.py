@@ -193,6 +193,47 @@ def _event_count_series(
     return series.model_copy(update=update)
 
 
+# These are functions, not methods: the product facade exports the runner classes, and a method would hand the
+# query builder out with them.
+def _series_query_builder(
+    runner: "TrendsQueryRunner", series: SeriesWithExtras, shared_breakdown_value_hashes: list[int] | None = None
+) -> TrendsQueryBuilder:
+    if not series.is_previous_period_series:
+        query_date_range = runner.query_date_range
+    else:
+        query_date_range = runner.query_previous_date_range
+
+    query_date_range._earliest_timestamp_fallback = runner._earliest_timestamp
+
+    return TrendsQueryBuilder(
+        trends_query=series.overriden_query or runner.query,
+        team=runner.team,
+        query_date_range=query_date_range,
+        series=series.series,
+        timings=runner.timings,
+        modifiers=runner.modifiers,
+        limit_context=runner.limit_context,
+        shared_breakdown_value_hashes=shared_breakdown_value_hashes,
+    )
+
+
+def _event_count_query_builder(runner: "TrendsQueryRunner", series: SeriesWithExtras) -> TrendsQueryBuilder:
+    # The table display totals each breakdown value over the whole date range, without a row per interval.
+    query = series.overriden_query or runner.query
+    trends_filter = (query.trendsFilter or TrendsFilter()).model_copy(
+        update={"display": ChartDisplayType.ACTIONS_TABLE}
+    )
+    return TrendsQueryBuilder(
+        trends_query=query.model_copy(update={"trendsFilter": trends_filter}),
+        team=runner.team,
+        query_date_range=runner._event_count_date_range(series),
+        series=_event_count_series(series.series),
+        timings=runner.timings,
+        modifiers=runner.modifiers,
+        limit_context=runner.limit_context,
+    )
+
+
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
@@ -313,7 +354,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         with self.timings.measure("trends_to_query"):
             for series in self.series:
                 ranking = shared_breakdown_values.for_series(series) if shared_breakdown_values is not None else None
-                query = self._series_query_builder(series, ranking.value_hashes if ranking else None).build_query()
+                query = _series_query_builder(self, series, ranking.value_hashes if ranking else None).build_query()
 
                 # Get around the default 100 limit, bump to the max 10000.
                 # This is useful for the world map view and other cases with a lot of breakdowns.
@@ -323,27 +364,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return queries
 
-    def _series_query_builder(
-        self, series: SeriesWithExtras, shared_breakdown_value_hashes: list[int] | None = None
-    ) -> TrendsQueryBuilder:
-        if not series.is_previous_period_series:
-            query_date_range = self.query_date_range
-        else:
-            query_date_range = self.query_previous_date_range
-
-        query_date_range._earliest_timestamp_fallback = self._earliest_timestamp
-
-        return TrendsQueryBuilder(
-            trends_query=series.overriden_query or self.query,
-            team=self.team,
-            query_date_range=query_date_range,
-            series=series.series,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            shared_breakdown_value_hashes=shared_breakdown_value_hashes,
-        )
-
     @cached_property
     def _shared_breakdown_values(self) -> _SharedBreakdownValues | None:
         # A formula joins the series on the breakdown value. If each series kept its own top values, a value could be
@@ -351,7 +371,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula_nodes = self.query.trendsFilter and self.query.trendsFilter.formulaNodes
         if not formula_nodes or len(self.query.series) < 2 or not self.breakdown_enabled:
             return None
-        if not self._series_query_builder(self.series[0]).can_share_breakdown_values:
+        if not _series_query_builder(self, self.series[0]).can_share_breakdown_values:
             return None
 
         with self.timings.measure("shared_breakdown_values"):
@@ -362,9 +382,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 ]
                 if period_series:
                     queries.append(
-                        self._series_query_builder(period_series[0]).top_breakdown_values_query(
+                        _series_query_builder(self, period_series[0]).top_breakdown_values_query(
                             [
-                                self._event_count_query_builder(series).breakdown_value_totals_query()
+                                _event_count_query_builder(self, series).breakdown_value_totals_query()
                                 for series in period_series
                             ]
                         )
@@ -403,26 +423,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         assert rankings[0] is not None
         return _SharedBreakdownValues(current_period=rankings[0], previous_period=rankings[1])
 
-    def _event_count_query_builder(self, series: SeriesWithExtras) -> TrendsQueryBuilder:
-        # The table display totals each breakdown value over the whole date range, without a row per interval.
-        query = series.overriden_query or self.query
-        trends_filter = (query.trendsFilter or TrendsFilter()).model_copy(
-            update={"display": ChartDisplayType.ACTIONS_TABLE}
-        )
-        return TrendsQueryBuilder(
-            trends_query=query.model_copy(update={"trendsFilter": trends_filter}),
-            team=self.team,
-            query_date_range=self._event_count_date_range(series),
-            series=_event_count_series(series.series),
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
-
     def _event_count_date_range(self, series: SeriesWithExtras) -> QueryDateRange:
         # Weekly and monthly active users also count the users of the days before each interval. The ranking counts
         # the events of the same window, so a value with events only in those days still gets its own row.
-        query_date_range = self._series_query_builder(series).query_date_range
+        query_date_range = _series_query_builder(self, series).query_date_range
         if series.series.math == BaseMathType.WEEKLY_ACTIVE:
             lookback_days = 7
         elif series.series.math == BaseMathType.MONTHLY_ACTIVE:
