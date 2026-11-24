@@ -1129,10 +1129,22 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(tools).not.toContain('notebook-edit')
     })
 
+    it.each([false, true])('notebook warehouse tools follow their rollout flag when set to %s', (enabled) => {
+        const tools = getToolsForFeatures({ featureFlags: { 'notebook-warehouse-models': enabled } })
+        for (const tool of [
+            'notebooks-declare-warehouse-model',
+            'notebooks-run-warehouse-model',
+            'notebooks-warehouse-model-status',
+        ]) {
+            expect(tools.includes(tool)).toBe(enabled)
+        }
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
             'notebook-app-builder',
+            'notebook-warehouse-models',
             'workflows-email-activity',
             'scout-trials',
             'scout-scratchpad-discard-mcp',

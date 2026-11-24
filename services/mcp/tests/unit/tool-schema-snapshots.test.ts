@@ -91,6 +91,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
         'notebook-app-builder': true,
+        'notebook-warehouse-models': true,
         'workflows-resend-import': true,
         'self-driving-usage-display': true,
         'today-rail-nav': true,
