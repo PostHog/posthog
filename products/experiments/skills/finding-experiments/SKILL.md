@@ -10,7 +10,7 @@ This skill resolves natural language references to concrete experiment IDs.
 
 ## How to find an experiment
 
-Use the **experiment-list** tool from the Posthog-local MCP server.
+Use the `posthog:experiment-list` tool.
 
 IMPORTANT: Do NOT use `feature-flag-get-all` or any feature flag tool to find
 experiments. Use the dedicated experiment list tool: `experiment-list`.
