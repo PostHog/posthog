@@ -207,8 +207,8 @@ BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ: int = get_from_env(
 
 # TODO: Remove once every batch export reads events_json.
 # Which teams' batch exports read events_json instead of the legacy events table. An excluded team stays on the
-# legacy table whatever the other two say. Otherwise a listed team moves, and the rest move when their team id hashes
-# below the percentage.
+# legacy table whatever the other two say. Otherwise a listed team moves, and the rest move when their team id
+# modulo 100 is below the percentage.
 BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS", ""))
 BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS", "")
