@@ -144,7 +144,7 @@ export function SurveyContainerAppearance({
                 />
                 <LemonField.Pure
                     label="Font family"
-                    info="Custom font selection requires at least version 1.223.4 of posthog-js"
+                    info="Custom font selection requires at least posthog-js 1.223.4, posthog-ios 4.0.6, or posthog-android-surveys-compose 1.1.0"
                     className="gap-1"
                 >
                     <LemonSelect

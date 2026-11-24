@@ -96,10 +96,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Custom font selection',
         sdkVersions: {
             'posthog-js': '1.223.4',
-            'posthog-ios': '3.22.0',
+            'posthog-ios': '4.0.6',
+            'posthog-android': '4.0.3', // via posthog-android-surveys-compose UI module 1.1.0
         },
         unsupportedSdks: [
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
             { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2959' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/258' },
         ],
