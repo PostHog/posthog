@@ -9,9 +9,10 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS
 from products.signals.backend.facade.filter_catalog import SignalFilterField, get_filter_catalog
 from products.signals.backend.filter_catalog_schema import validate_catalog_bundle
-from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
+from products.signals.backend.filter_catalog_seeds import CATALOG_SEEDS, LINEAR_ISSUE_SEED, CatalogSeed
 from products.signals.backend.models import SignalFilterCatalogVersion, SignalFilterSourceDefinition
 
 
@@ -105,6 +106,19 @@ class TestCatalogBundle(SimpleTestCase):
             value = {"nested": value}
         with self.assertRaises(ValidationError):
             validate_catalog_bundle(catalog_bundle(provenance={"origin": value}))
+
+
+class TestCatalogSeeds(SimpleTestCase):
+    @parameterized.expand([(f"{seed.source_product}_{seed.source_type}", seed) for seed in CATALOG_SEEDS])
+    def test_filtered_sources_resume_capped_windows_by_id(self, _name: str, seed: CatalogSeed) -> None:
+        configs = [
+            config
+            for config in _SIGNAL_TABLE_CONFIGS.values()
+            if (config.source_product, config.source_type) == (seed.source_product, seed.source_type)
+        ]
+        self.assertTrue(configs)
+        for config in configs:
+            self.assertIsNotNone(config.cursor_id_field)
 
 
 class TestFilterCatalogPersistence(TestCase):
@@ -231,6 +245,15 @@ class TestFilterCatalogPublication(TestCase):
         self.assertEqual(source.catalog_versions.count(), 1)
         self.assertEqual(source.rollout_state, "internal")
         self.assertFalse(source.filter_query_eligible)
+        github = SignalFilterSourceDefinition.objects.get(source_product="github", source_type="issue")
+        self.assertEqual(github.rollout_state, "internal")
+        self.assertTrue(github.filter_query_eligible)
+
+        github.filter_query_eligible = False
+        github.save()
+        call_command("publish_signal_filter_catalogs", stdout=StringIO())
+        github.refresh_from_db()
+        self.assertFalse(github.filter_query_eligible)
 
         source.rollout_state = SignalFilterSourceDefinition.RolloutState.ENABLED
         source.save()

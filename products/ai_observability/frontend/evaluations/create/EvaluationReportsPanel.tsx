@@ -2,7 +2,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { DeliveryTargetsConfig } from '../components/DeliveryTargetsConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
@@ -18,9 +20,15 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft, configErrors, shownDestinations, reportsLoading, activeReport } = useValues(
-        evaluationReportLogic({ evaluationId: props.evaluationId })
-    )
+    const {
+        configDraft,
+        configErrors,
+        shownDestinations,
+        reportsLoading,
+        activeReport,
+        dataProcessingAccepted,
+        draftReportsEnabled,
+    } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
     const {
         setDraftFrequency,
         setDraftScheduleCadence,
@@ -48,7 +56,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
         )
     }
     const unavailableReason = reportsUnavailableReason(evaluation, isReportableEvaluation)
-    const enabled = configDraft.enabled && !unavailableReason
+    const enabled = draftReportsEnabled && !unavailableReason
     const cadence: Cadence = configDraft.frequency === 'scheduled' ? configDraft.scheduleCadence : 'every_n'
     const setCadence = (next: Cadence): void => {
         if (next === 'every_n') {
@@ -63,6 +71,18 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-4">
             {unavailableReason && <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>}
+            {!unavailableReason && !dataProcessingAccepted && (
+                <p className="mb-0 text-sm text-secondary">
+                    Reports use third-party AI to analyze results.{' '}
+                    <Link
+                        to={urls.settings('organization-details', 'organization-ai-consent')}
+                        data-attr="llma-evaluation-reports-ai-consent-link"
+                    >
+                        Approve AI data processing
+                    </Link>{' '}
+                    to turn them on.
+                </p>
+            )}
             {enabled && (
                 <>
                     <div className="flex flex-col gap-1">

@@ -84,6 +84,24 @@ BUZZSPROUT_ENDPOINTS: dict[str, BuzzsproutEndpointConfig] = {
         primary_keys=["directory"],
         description="Podcast directory listings (Apple Podcasts, Spotify and others) and their status. Full refresh.",
     ),
+    "team": BuzzsproutEndpointConfig(
+        name="team",
+        path="team.json",
+        # Buzzsprout answers 403 to a token whose user is an editor, so the table is opt-in.
+        should_sync_default=False,
+        description="People with Buzzsprout login access to the configured podcast, and their roles. Needs a token "
+        "of an admin or owner of the podcast. Full refresh.",
+    ),
+    "brand_affiliations": BuzzsproutEndpointConfig(
+        name="brand_affiliations",
+        path="brand_affiliations.json",
+        description="Sponsor and affiliate links of the configured podcast. Full refresh.",
+    ),
+    "podrolls": BuzzsproutEndpointConfig(
+        name="podrolls",
+        path="podrolls.json",
+        description="Podcasts that the configured podcast recommends in its RSS feed. Full refresh.",
+    ),
 }
 
 ENDPOINTS = tuple(BUZZSPROUT_ENDPOINTS.keys())
