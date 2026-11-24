@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
+pub use types::{AttachOutcome, DistinctIdMapping, Person, PersonAttach, PersonStub, StubOutcome};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
@@ -60,4 +60,13 @@ pub trait IdentityStorage: Send + Sync {
         person_id: i64,
         distinct_ids: &[String],
     ) -> StorageResult<HashMap<String, AttachOutcome>>;
+
+    /// Several attaches in one statement, so that they share one commit.
+    /// Outcomes are in attach order, and each is the map that a lone
+    /// `attach_distinct_ids` call for that person returns. A (team_id,
+    /// distinct_id) key must not appear twice in one call.
+    async fn attach_distinct_ids_batch(
+        &self,
+        attaches: &[PersonAttach],
+    ) -> StorageResult<Vec<HashMap<String, AttachOutcome>>>;
 }

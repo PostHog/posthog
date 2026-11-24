@@ -8,7 +8,7 @@ use sqlx::Row;
 use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
-use crate::storage::types::AttachOutcome;
+use crate::storage::types::{AttachOutcome, PersonAttach};
 use personhog_common::query_tag;
 
 /// Fresh inserts get version 1, like a stub's extra distinct ids: with no
@@ -134,4 +134,186 @@ pub(super) async fn attach_distinct_ids(
         );
     }
     Ok(outcomes)
+}
+
+/// Caps how long a batch waits for one row lock. Every row's dead-person and
+/// mark checks read the snapshot that the statement takes when it starts.
+/// While the statement waits on a row of one call, a delete saga can mark
+/// and destroy the person of another call, which leaves a live mapping to a
+/// dead person. The cap keeps that window short. A batch that times out
+/// reruns each call alone, and a lone call waits as long as it needs.
+const SET_BATCH_LOCK_TIMEOUT: &str = "SET LOCAL lock_timeout = '100ms'";
+
+/// The attaches of several persons in one statement, with the same guards
+/// and per-row outcomes as [`attach_distinct_ids`]. A batch of one attach
+/// takes that function's statement, which plans faster than the `unnest`
+/// join over person ids.
+pub(super) async fn attach_batch(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    attaches: &[PersonAttach],
+    outbox_writes: OutboxWrites,
+) -> StorageResult<Vec<HashMap<String, AttachOutcome>>> {
+    if let [attach] = attaches {
+        let outcomes = attach_distinct_ids(
+            pools,
+            tables,
+            attach.team_id,
+            attach.person_id,
+            &attach.distinct_ids,
+            outbox_writes,
+        )
+        .await?;
+        return Ok(vec![outcomes]);
+    }
+    let mut team_ids: Vec<i32> = Vec::new();
+    let mut person_ids: Vec<i64> = Vec::new();
+    let mut distinct_ids: Vec<&str> = Vec::new();
+    for attach in attaches {
+        for distinct_id in &attach.distinct_ids {
+            team_ids.push(attach.team_id as i32);
+            person_ids.push(attach.person_id);
+            distinct_ids.push(distinct_id);
+        }
+    }
+    if distinct_ids.is_empty() {
+        return Ok(vec![HashMap::new(); attaches.len()]);
+    }
+
+    // `p.team_id = ANY($1)` lets the planner prune the person partitions to
+    // the teams of the batch, because the join keys are known only at run
+    // time. The ORDER BY sets the insert order, so that concurrent
+    // statements lock mapping rows in the same order whatever join the
+    // planner picks. "C" is byte order, the order in which
+    // `attach_distinct_ids` sorts its ids.
+    let insert = format!(
+        r#"
+        INSERT INTO {pdi} (distinct_id, person_id, team_id, version)
+        SELECT u.distinct_id, p.id, p.team_id, 1
+        FROM unnest($1::int[], $2::bigint[], $3::text[]) AS u(team_id, person_id, distinct_id)
+        JOIN {person} p
+          ON p.team_id = u.team_id AND p.id = u.person_id
+         AND p.team_id = ANY($1::int[]) AND p.is_deleted = false
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {lop} m
+            WHERE m.team_id = p.team_id AND m.person_id = p.id
+              AND m.mark_active
+        )
+        ORDER BY u.team_id, u.distinct_id COLLATE "C"
+        ON CONFLICT (team_id, distinct_id) DO UPDATE SET
+            person_id = EXCLUDED.person_id,
+            version = COALESCE({pdi}.version, 0) + 1,
+            is_deleted = false
+            WHERE {pdi}.is_deleted = true
+        RETURNING team_id, person_id, distinct_id, version
+        "#,
+        pdi = tables.person_distinct_id,
+        person = tables.person,
+        lop = tables.lifecycle_op_person,
+    );
+    let tagged = match outbox_writes {
+        OutboxWrites::Enabled => {
+            let with_outbox = format!(
+                r#"
+                WITH written AS ({insert}),
+                queued AS (
+                    INSERT INTO {outbox} (team_id, kind, person_uuid, distinct_id, version)
+                    SELECT w.team_id, 'attach', p.uuid, w.distinct_id, w.version
+                    FROM written w
+                    JOIN {person} p
+                      ON p.team_id = w.team_id AND p.id = w.person_id
+                     AND p.team_id = ANY($1::int[])
+                )
+                SELECT team_id, person_id, distinct_id, version FROM written
+                "#,
+                outbox = tables.person_publish_outbox,
+                person = tables.person,
+            );
+            query_tag!("attach_batch_mappings_with_outbox", with_outbox)
+        }
+        OutboxWrites::Disabled => query_tag!("attach_batch_mappings", insert),
+    };
+    let mut conn = pools.acquire(Lane::Heavy).await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+    sqlx::query(&query_tag!(
+        "attach_batch_lock_timeout",
+        SET_BATCH_LOCK_TIMEOUT
+    ))
+    .execute(&mut *tx)
+    .await?;
+    let rows = sqlx::query(&tagged)
+        .bind(&team_ids)
+        .bind(&person_ids)
+        .bind(&distinct_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let mut written: HashMap<(i64, String), (i64, i64)> = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let team_id: i32 = row.try_get("team_id")?;
+        let distinct_id: String = row.try_get("distinct_id")?;
+        let person_id: i64 = row.try_get("person_id")?;
+        let version: i64 = row.try_get("version")?;
+        written.insert((i64::from(team_id), distinct_id), (person_id, version));
+    }
+
+    let (loser_team_ids, loser_distinct_ids): (Vec<i32>, Vec<&str>) = team_ids
+        .iter()
+        .zip(&distinct_ids)
+        .filter(|(team_id, distinct_id)| {
+            !written.contains_key(&(i64::from(**team_id), distinct_id.to_string()))
+        })
+        .map(|(team_id, distinct_id)| (*team_id, *distinct_id))
+        .unzip();
+    let mut already_mapped: HashMap<(i64, String), i64> = HashMap::new();
+    if !loser_distinct_ids.is_empty() {
+        // Fresh statement snapshot: the insert's snapshot may predate a
+        // concurrent winner's commit.
+        let losers_sql = format!(
+            r#"
+            SELECT k.team_id, k.distinct_id, pdi.person_id
+            FROM unnest($1::int[], $2::text[]) AS k(team_id, distinct_id)
+            JOIN {pdi} pdi
+              ON pdi.team_id = k.team_id AND pdi.distinct_id = k.distinct_id
+             AND pdi.is_deleted = false
+            "#,
+            pdi = tables.person_distinct_id,
+        );
+        let rows = sqlx::query(&query_tag!("attach_batch_losers", losers_sql))
+            .bind(&loser_team_ids)
+            .bind(&loser_distinct_ids)
+            .fetch_all(&mut *conn)
+            .await?;
+        for row in rows {
+            let team_id: i32 = row.try_get("team_id")?;
+            let distinct_id: String = row.try_get("distinct_id")?;
+            let person_id: i64 = row.try_get("person_id")?;
+            already_mapped.insert((i64::from(team_id), distinct_id), person_id);
+        }
+    }
+
+    // A written row counts as attached only for the person it names, so an
+    // outcome can never reach another attach of the same key.
+    Ok(attaches
+        .iter()
+        .map(|attach| {
+            attach
+                .distinct_ids
+                .iter()
+                .filter_map(|distinct_id| {
+                    let key = (attach.team_id, distinct_id.clone());
+                    let outcome = match (written.get(&key), already_mapped.get(&key)) {
+                        (Some(&(person_id, version)), _) if person_id == attach.person_id => {
+                            AttachOutcome::Attached { version }
+                        }
+                        (Some(&(person_id, _)), _) | (None, Some(&person_id)) => {
+                            AttachOutcome::AlreadyMapped { person_id }
+                        }
+                        (None, None) => return None,
+                    };
+                    Some((distinct_id.clone(), outcome))
+                })
+                .collect()
+        })
+        .collect())
 }
