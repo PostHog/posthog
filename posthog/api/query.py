@@ -59,6 +59,7 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_q
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_http_request_id, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.data_access_policy import compile_query_without_running, is_metadata_only_request
 from posthog.errors import (
     ExposedCHQueryError,
     clickhouse_error_message,
@@ -382,6 +383,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
+
+            if is_metadata_only_request(request):
+                compile_status, compiled = compile_query_without_running(self.team, query)
+                return Response(compiled, status=compile_status)
 
             is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
             if is_mcp_client:
