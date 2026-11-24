@@ -3,9 +3,7 @@ import posthog from 'posthog-js'
 
 import { Button, DataTable, type DataTableProps, Skeleton, Text } from '@posthog/quill'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type { PipelineActivityRowApi } from '../../generated/api.schemas'
@@ -107,8 +105,6 @@ const COLUMNS: DataTableProps<PipelineActivityRowApi, unknown>['columns'] = [
 export function WarehouseRecentRuns(): JSX.Element {
     const { recentRuns, recentRunsFailed } = useValues(warehouseHomeLogic)
     const { loadWarehouseHomeRecentRuns } = useActions(warehouseHomeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const viewAllUrl = featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION] ? urls.etlOverview() : urls.sources()
 
     let content: JSX.Element
     if (recentRuns === null && !recentRunsFailed) {
@@ -141,7 +137,7 @@ export function WarehouseRecentRuns(): JSX.Element {
             data-attr="warehouse-home-recent-runs"
             controls={
                 <WarehouseSectionLink
-                    to={viewAllUrl}
+                    to={urls.sources()}
                     data-attr="warehouse-home-runs-view-all"
                     onClick={() => {
                         posthog.capture('warehouse overview link clicked', { target: 'runs' })
