@@ -75,13 +75,45 @@ class WebhookIssueSchemaState(WebhookSchemaState, Protocol):
 
 
 def _function_inputs(function: HogFunction) -> dict[str, Any]:
-    """The function's inputs as its API shows them: a set secret reads `{"secret": True}`."""
+    """The function's inputs as its API shows them: a set secret reads `{"secret": True}`, an unset input is absent.
+
+    `HogFunction.move_secret_inputs` stores an unset input as None, and the source helpers expect a dict or nothing.
+    """
+    inputs = {key: value for key, value in (function.inputs or {}).items() if isinstance(value, dict)}
     secrets = {
         key: {"secret": True}
         for key, value in (function.encrypted_inputs or {}).items()
         if isinstance(value, dict) and value.get("value") not in (None, "")
     }
-    return {**(function.inputs or {}), **secrets}
+    return {**inputs, **secrets}
+
+
+def route_table_on_enabled_webhook(
+    team_id: int, source_id: uuid.UUID, route_key: str, schema_id: uuid.UUID
+) -> str | None:
+    """Add one table's route to its source's enabled webhook and return the webhook's id, or None without one.
+
+    Only `schema_mapping` changes, so the webhook's other inputs (an auth user, a pinned repository) stay as set.
+    """
+    from django.db import transaction  # noqa: PLC0415
+
+    with transaction.atomic():
+        function = (
+            _enabled_webhook_functions(team_id)
+            .select_for_update()
+            .filter(inputs__source_id__value=str(source_id))
+            .first()
+        )
+        if function is None:
+            return None
+        inputs = dict(function.inputs or {})
+        routes = dict((inputs.get("schema_mapping") or {}).get("value") or {})
+        if routes.get(route_key) != str(schema_id):
+            routes[route_key] = str(schema_id)
+            inputs["schema_mapping"] = {"value": routes}
+            function.inputs = inputs
+            function.save(update_fields=["inputs", "encrypted_inputs"])
+        return str(function.id)
 
 
 def _webhook_source(source_type: str | None) -> "WebhookSource | None":

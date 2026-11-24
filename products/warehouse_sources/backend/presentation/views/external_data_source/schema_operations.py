@@ -26,6 +26,7 @@ from posthog.permissions import is_service_auth
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.added_tables import added_table_access_refusal
+from products.warehouse_sources.backend.facade.api import webhook_issues
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.facade.incremental_field_model import (
@@ -63,6 +64,8 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
+    WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY,
+    WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaSerializer,
     RowFiltersField,
 )
@@ -873,7 +876,12 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
         # Built once: the context builds the team's HogQL database.
         serializer_context = self.get_serializer_context()
+        # Shared by every schema's serializer, so a source's provider events are reconciled once per request.
+        serializer_context[WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY] = {}
         updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        serializer_context[WEBHOOK_ISSUES_CONTEXT_KEY] = {
+            schema.id: None for schema in updated_schemas
+        } | webhook_issues(self.team_id, updated_schemas)
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
             status=status.HTTP_200_OK,

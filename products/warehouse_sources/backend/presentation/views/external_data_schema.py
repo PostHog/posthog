@@ -34,6 +34,7 @@ from products.data_warehouse.backend.facade.api import (
     get_direct_query_engine,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_webhook_url,
     is_any_external_data_schema_paused,
     pause_external_data_schedule,
     reconcile_webhook_events,
@@ -44,7 +45,7 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.api import (
-    enabled_webhook_exists,
+    route_table_on_enabled_webhook,
     schema_needs_webhook,
     sources_missing_webhook,
     webhook_issues,
@@ -200,6 +201,7 @@ def source_syncs_on_demand(source_type: str) -> bool:
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
 WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
+WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -2491,16 +2493,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
             )
 
-        # Enabling a table that already syncs by webhook sends only `should_sync`. Its route still has
-        # to be added to the source's webhook, or the webhook drops the table's events. Without a
-        # webhook the table already reports `not_registered`, and enabling it must not register one.
-        routes_enabled_webhook_table = (
-            should_sync is True
-            and updated_instance.sync_type == ExternalDataSchema.SyncType.WEBHOOK
-            and enabled_webhook_exists(updated_instance.team_id, updated_instance.source_id)
-        )
-        if sync_type == ExternalDataSchema.SyncType.WEBHOOK or routes_enabled_webhook_table:
+        if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
+        elif should_sync is True and updated_instance.sync_type == ExternalDataSchema.SyncType.WEBHOOK:
+            self._route_enabled_webhook_table(updated_instance)
 
         # Sync CDC extraction schedule after any CDC schema change
         if is_cdc or leaving_cdc:
@@ -2764,6 +2760,52 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if "_webhook_support_error_result" not in self.__dict__:
             self.__dict__["_webhook_support_error_result"] = self._webhook_support_error(schema)
         return self.__dict__["_webhook_support_error_result"]
+
+    def _route_enabled_webhook_table(self, schema: ExternalDataSchema) -> None:
+        """Add the route of a table that already syncs by webhook to its source's webhook.
+
+        Enabling such a table sends only `should_sync`, and without its route the webhook drops the table's
+        events. Without a webhook the table reports `not_registered`, and enabling it must not register one.
+        """
+        source = schema.source
+        try:
+            source_impl = SourceRegistry.get_source(known_source_key(source.source_type))
+        except ValueError:
+            return
+        if not isinstance(source_impl, WebhookSource):
+            return
+        hog_function_id = route_table_on_enabled_webhook(
+            schema.team_id, schema.source_id, source_impl.webhook_mapping_key(schema.name), schema.id
+        )
+        if hog_function_id is None:
+            return
+
+        # A bulk request shares one map, so the first reconciliation of a source covers every table the
+        # request enabled there and the rest find nothing left to do.
+        pending: dict[uuid.UUID, list[str]] | None = self.context.get(WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY)
+        if pending is not None:
+            pending.setdefault(schema.source_id, []).append(schema.name)
+
+        def reconcile() -> None:
+            names = [schema.name] if pending is None else pending.pop(schema.source_id, None)
+            if not names:
+                return
+            # Non-fatal: the route is already saved, and data flows once the provider sends the events.
+            try:
+                config = source_impl.parse_config(SourceInputsStore.load(source))
+                result = source_impl.sync_webhook_events(
+                    config,
+                    get_webhook_url(hog_function_id),
+                    schema.team_id,
+                    names,
+                    api_version=source_impl.resolve_api_version(source.api_version),
+                )
+                if not result.success:
+                    logger.warning("Failed to reconcile webhook events on schema enable", error=result.error)
+            except Exception as e:
+                logger.warning("Error reconciling webhook events on schema enable", error=str(e))
+
+        self._run_temporal_side_effect(reconcile)
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source

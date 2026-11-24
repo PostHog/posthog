@@ -78,8 +78,8 @@ from products.warehouse_sources.backend.source_status import effective_source_st
 from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import (
+    route_table_on_enabled_webhook,
     schema_needs_webhook,
-    source_has_enabled_webhook,
     sources_missing_webhook,
     webhook_issues,
 )
@@ -130,9 +130,9 @@ __all__ = [
     "schema_needs_webhook",
     "sources_missing_webhook",
     "webhook_issues",
+    "route_table_on_enabled_webhook",
     # framework-free helper transforms
     "effective_source_status",
-    "enabled_webhook_exists",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
     "trino_columns_to_dwh_columns",
@@ -308,10 +308,6 @@ def list_sources(
     if not include_deleted:
         qs = qs.exclude(deleted=True)
     return [_to_source(s) for s in qs]
-
-
-def enabled_webhook_exists(team_id: int, source_id: UUID) -> bool:
-    return source_has_enabled_webhook(team_id, source_id)
 
 
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
