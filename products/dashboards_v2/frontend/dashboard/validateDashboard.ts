@@ -91,7 +91,7 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
             }
             // A widget's size can depend on its config, so it is only worked out from a valid one.
             if (config.success) {
-                const size = sizeOf(tile.widget as ContentWidget)
+                const size = sizeOf({ ...tile.widget, config: config.data } as ContentWidget)
                 if (tile.place.w < size.minW || tile.place.h < size.minH) {
                     problems.push({
                         path: `${tilePath}.place`,

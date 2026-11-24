@@ -3,6 +3,7 @@ import { barSpec } from '../widgets/chart/viz/bar/barSpec'
 import { lineSpec } from '../widgets/chart/viz/line/lineSpec'
 import { statSpec } from '../widgets/chart/viz/stat/statSpec'
 import { markdownSpec } from '../widgets/markdown/markdownSpec'
+import { dashboardSchema } from './dashboardSchema'
 import type { DashboardProblem } from './validateDashboard'
 import { validateDashboard } from './validateDashboard'
 
@@ -141,5 +142,13 @@ describe('validateDashboard', () => {
         },
     ])('reports $name', ({ document, expected }) => {
         expect(validateDashboard(document, SPECS)).toEqual(expected)
+    })
+
+    it('keeps the section type out of content widgets when the schema parses a document on its own', () => {
+        const document = withTiles([
+            { id: 'a', place: { x: 0, y: 0, w: 6, h: 4 }, widget: { type: 'section', config: {} } },
+        ])
+
+        expect(dashboardSchema.safeParse(document).success).toBe(false)
     })
 })

@@ -182,9 +182,16 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
         case 'removeTile':
             return changeTileEverywhere(dashboard, edit.id, () => null)
         case 'setWidgetConfig':
-            return changeTileEverywhere(dashboard, edit.id, (tile) =>
-                isSection(tile) ? tile : { ...tile, widget: { ...tile.widget, config: edit.config } }
-            )
+            return changeTileEverywhere(dashboard, edit.id, (tile) => {
+                if (isSection(tile)) {
+                    return tile
+                }
+                // A new config can need a bigger tile, such as a stat switched to a line chart.
+                const widget = { ...tile.widget, config: edit.config }
+                const { minW, minH } = widgetSize(widget, sizeOf)
+                const place = { ...tile.place, w: Math.max(tile.place.w, minW), h: Math.max(tile.place.h, minH) }
+                return { ...tile, widget, place }
+            })
         case 'updateSection':
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile

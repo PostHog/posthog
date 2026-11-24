@@ -59,8 +59,8 @@ export const contentWidgetPartsSchema = z.strictObject({
  * `config`, which is checked against the type's own `configSchema`.
  */
 export const contentWidgetSchema = z.strictObject({
-    /** Names the widget type that renders it. The host supplies the types, so this is open. */
-    type: z.string(),
+    /** Names the widget type that renders it. The host supplies the types, so this is open, except for `section`. */
+    type: z.string().refine((type) => type !== 'section', 'A section needs a title and tiles'),
     title: z.string().optional(),
     description: z.string().optional(),
     /** When the widget's data was last computed, as an ISO timestamp. */

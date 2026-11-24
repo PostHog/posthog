@@ -17,7 +17,11 @@ export interface ChartConfig {
 export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
     const vizSchemas = vizTypes.map((viz) =>
-        z.strictObject({ type: z.literal(viz.type), options: viz.optionsSchema.optional() })
+        // Missing options are read as `{}`, so they are checked as `{}` too.
+        z.strictObject({
+            type: z.literal(viz.type),
+            options: z.preprocess((options) => options ?? {}, viz.optionsSchema),
+        })
     )
     return {
         type: 'chart',
