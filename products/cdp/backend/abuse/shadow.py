@@ -75,12 +75,14 @@ class ScoredHogFunction:
     outbound_call: bool
     account: Account
     account_tier: AccountTier
+    # The model reads only the public content, so a rule hit from a secret input is not covered by its rating.
+    rule_hits_in_public_content: bool
 
     @property
     def would_alert(self) -> bool:
         if self.verdict is None:
             return bool(self.rule_hits)
-        weak_rules_only = set(self.rule_hits) <= rules.WEAK_RULES
+        weak_rules_only = set(self.rule_hits) <= rules.WEAK_RULES and self.rule_hits_in_public_content
         rules_alert = bool(self.rule_hits) and not (weak_rules_only and self.verdict.clearly_normal)
         return rules_alert or self.verdict.would_alert
 
@@ -413,6 +415,7 @@ def _score(
         outbound_call=outbound_call,
         account=scoring.account,
         account_tier=scoring.account_tier,
+        rule_hits_in_public_content=not rule_hits or set(rule_hits) <= set(rules.matched_rules(content)),
     )
 
 

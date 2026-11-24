@@ -571,6 +571,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "model_alert_gates": model_alert_gates,
         }
 
+    def test_a_weak_rule_hit_from_a_secret_input_alerts_on_a_clearly_normal_function(self) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(CLEARLY_NORMAL_SCORES))
+
+        self.create_destination(
+            type="transformation",
+            hog="return event",
+            inputs={"api_key": {"value": "{event.properties.$current_url == 'http://127.0.0.1/' ? 'a' : 'b'}"}},
+        )
+
+        [event] = self.captured_events()
+        assert "127.0.0.1" not in self.gateway.bodies()[0]
+        assert event["properties"]["rule_hits"] == ["internal_host_reference"]
+        assert event["properties"]["would_alert"] is True
+
     @parameterized.expand(
         [
             (
