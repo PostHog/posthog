@@ -111,8 +111,6 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
 
     def test_rule_changes_are_written_to_the_activity_log(self):
         self._org_membership(OrganizationMembership.Level.OWNER)
-        self.user.first_name, self.user.last_name = "Jane", "Doe"
-        self.user.save()
         subject = {"organization_member": str(self.organization_membership.id)}
         for level in ("member", "admin", None):
             self._put_project_access_control({**subject, "access_level": level})
@@ -125,7 +123,7 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
             ("deleted", None),
         ]
         assert {log.user for log in logs} == {self.user}
-        assert details[0]["name"] == f'access rule for Jane Doe on project "{self.team.name}"'
+        assert details[0]["name"] == f'access rule for a member on project "{self.team.name}"'
         assert details[0]["context"] == {
             "resource": "project",
             "resource_id": str(self.team.id),

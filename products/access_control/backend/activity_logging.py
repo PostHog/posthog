@@ -13,7 +13,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     Change,
@@ -52,7 +52,6 @@ class AccessRuleObject:
 class AccessRuleNames:
     objects: dict[AccessRuleObject, str]
     roles: dict[UUID, str]
-    members: dict[UUID, str]
 
 
 def _resolve_object_names(*, team: Team, object_ids: dict[str, set[str]]) -> dict[AccessRuleObject, str]:
@@ -74,20 +73,19 @@ def _resolve_object_names(*, team: Team, object_ids: dict[str, set[str]]) -> dic
 
 
 def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> AccessRuleNames:
-    """Look up display names with one query per resource type, one for roles, and one for members.
+    """Look up display names with one query per resource type and one for roles.
 
-    A name that is not found is left out, and the entry shows the id instead.
+    A name that is not found is left out, and the entry shows the id instead. Members are never named:
+    every reader of the activity log sees these rows, and an organization can hide its members from
+    each other.
     """
     object_ids: dict[str, set[str]] = defaultdict(set)
     role_ids: set[UUID] = set()
-    member_ids: set[UUID] = set()
     for rule in rules:
         if rule.resource_id:
             object_ids[rule.resource].add(rule.resource_id)
         if rule.role_id:
             role_ids.add(rule.role_id)
-        if rule.organization_member_id:
-            member_ids.add(rule.organization_member_id)
 
     objects = _resolve_object_names(team=team, object_ids=object_ids)
     roles: dict[UUID, str] = {}
@@ -95,15 +93,7 @@ def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> 
         roles = dict(
             Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", "name")
         )
-    members: dict[UUID, str] = {}
-    if member_ids:
-        members = {
-            membership_id: f"{first_name} {last_name}".strip() or email
-            for membership_id, first_name, last_name, email in OrganizationMembership.objects.filter(
-                organization_id=team.organization_id, id__in=member_ids
-            ).values_list("id", "user__first_name", "user__last_name", "user__email")
-        }
-    return AccessRuleNames(objects=objects, roles=roles, members=members)
+    return AccessRuleNames(objects=objects, roles=roles)
 
 
 _batch_names: ContextVar[AccessRuleNames | None] = ContextVar("access_rule_batch_names", default=None)
@@ -137,8 +127,7 @@ def access_rule_display_name(rule: AccessControl, names: AccessRuleNames) -> str
         role = f'role "{role_name}"' if role_name else f"role {rule.role_id}"
         return f"access rule for {role} on {target}"
     if rule.organization_member_id:
-        member = names.members.get(rule.organization_member_id) or f"member {rule.organization_member_id}"
-        return f"access rule for {member} on {target}"
+        return f"access rule for a member on {target}"
     return f"default access rule on {target}"
 
 

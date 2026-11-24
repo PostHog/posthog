@@ -31,12 +31,12 @@ class TestAccessRuleDisplayName(SimpleTestCase):
                 "default access rule on all actions",
             ),
             (
-                "unresolved_object_and_member",
+                "unresolved_object",
                 AccessControl(
                     resource="dashboard", resource_id="42", access_level="viewer", organization_member_id=SUBJECT_ID
                 ),
                 {},
-                f"access rule for member {SUBJECT_ID} on dashboard 42",
+                "access rule for a member on dashboard 42",
             ),
             (
                 "unresolved_role",
@@ -49,7 +49,7 @@ class TestAccessRuleDisplayName(SimpleTestCase):
     def test_falls_back_to_ids(
         self, _name: str, rule: AccessControl, objects: dict[AccessRuleObject, str], expected: str
     ) -> None:
-        names = AccessRuleNames(objects=objects, roles={}, members={})
+        names = AccessRuleNames(objects=objects, roles={})
         assert access_rule_display_name(rule, names) == expected
 
 

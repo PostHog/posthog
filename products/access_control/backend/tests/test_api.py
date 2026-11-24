@@ -164,7 +164,7 @@ class TestSetObjectAccessControl(_DashboardRulesTest):
         detail = logs[0 if duplicates else 1].detail
         assert detail is not None
         assert (detail["name"], detail["context"]["resource_name"], detail["context"]["role_name"]) == (
-            ('access rule for other@posthog.com on dashboard "Revenue"', "Revenue", None)
+            ('access rule for a member on dashboard "Revenue"', "Revenue", None)
             if subject == "member"
             else ('access rule for role "Support" on dashboard "Revenue"', "Revenue", "Support")
         )
