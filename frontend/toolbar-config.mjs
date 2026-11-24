@@ -38,6 +38,8 @@ const shimmedModules = {
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
     // every product manifest into the bundle.
     'scenes/urls': 'src/toolbar/shared/urls.ts',
+    // Not a kea shim: the same Tailwind theme, scanning only the files the toolbar bundles.
+    '@posthog/tailwind/tailwind.css': 'src/toolbar/shared/tailwind.css',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -74,6 +76,21 @@ const deniedPatterns = [/scenes\/billing/, /lib\/logic\/billing\//]
  * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
  * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// A match-all filter sends every import in the bundle through the JS callback, which is slow.
+// The callback still decides, so this only has to match a superset of what it replaces.
+function moduleReplacementFilter(allDeniedPatterns) {
+    const shimNames = Object.keys(shimmedModules).map((alias) => escapeRegExp(path.basename(alias)))
+    const alternatives = [
+        `^(~/)?(${Object.keys(shimmedModules).map(escapeRegExp).join('|')})$`,
+        `^\\..*\\b(${shimNames.join('|')})(\\.(tsx|ts|jsx|js))?$`,
+        `^(${deniedPaths.map(escapeRegExp).join('|')})$`,
+        ...allDeniedPatterns.map((pattern) => pattern.source),
+    ]
+    return new RegExp(alternatives.map((alternative) => `(${alternative})`).join('|'))
+}
+
 function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
     // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
@@ -84,10 +101,11 @@ function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
             path.resolve(dirname, shimFile),
         ])
     )
+    const allDeniedPatterns = [...deniedPatterns, ...extraDeniedPatterns]
     return {
         name: 'toolbar-module-replacements',
         setup(build) {
-            build.onResolve({ filter: /.*/ }, (args) => {
+            build.onResolve({ filter: moduleReplacementFilter(allDeniedPatterns) }, (args) => {
                 const shimFile = shimmedModules[args.path] ?? shimmedModules[args.path.replace(/^~\//, '')]
                 if (shimFile) {
                     return { path: path.resolve(dirname, shimFile) }
@@ -104,8 +122,7 @@ function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
                 }
 
                 const shouldDeny =
-                    deniedPaths.includes(args.path) ||
-                    [...deniedPatterns, ...extraDeniedPatterns].some((pattern) => pattern.test(args.path))
+                    deniedPaths.includes(args.path) || allDeniedPatterns.some((pattern) => pattern.test(args.path))
                 if (shouldDeny) {
                     return { path: args.path, namespace: 'empty-module', sideEffects: false }
                 }
