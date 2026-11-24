@@ -99,17 +99,21 @@ def _get_free_tier_credits_override(team_id: int) -> int | None:
     return None
 
 
-def _get_free_plan_credits_from_organization(team: "Team") -> int | None:
+def _get_free_tier_credits_from_organization(team: "Team") -> int | None:
     organization = team.organization
-    if organization.has_active_subscription is not False:
-        return None
-
     usage = organization.usage
     if not isinstance(usage, dict):
         return None
 
     ai_credits = usage.get("ai_credits")
     if not isinstance(ai_credits, dict):
+        return None
+
+    free_tier_units = ai_credits.get("free_tier_units")
+    if isinstance(free_tier_units, int) and not isinstance(free_tier_units, bool) and free_tier_units >= 0:
+        return free_tier_units
+
+    if organization.has_active_subscription is not False:
         return None
 
     limit = ai_credits.get("limit")
@@ -122,13 +126,17 @@ def _get_free_plan_credits_from_organization(team: "Team") -> int | None:
 def get_ai_free_tier_credits(team: "Team") -> int:
     """
     Get the AI free tier credits limit for a team.
-    Falls back to the organization's free plan allowance, then to DEFAULT_FREE_TIER_CREDITS.
+    Falls back to the free allowance that billing synced to the organization, then to DEFAULT_FREE_TIER_CREDITS.
     """
     override = _get_free_tier_credits_override(team.id)
     if override is not None:
         return override
 
-    return _get_free_plan_credits_from_organization(team) or DEFAULT_FREE_TIER_CREDITS
+    organization_free_tier_credits = _get_free_tier_credits_from_organization(team)
+    if organization_free_tier_credits is not None:
+        return organization_free_tier_credits
+
+    return DEFAULT_FREE_TIER_CREDITS
 
 
 def get_ga_launch_date() -> datetime:

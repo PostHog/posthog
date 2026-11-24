@@ -101,6 +101,20 @@ class TestUsage(BaseTest):
                 DEFAULT_FREE_TIER_CREDITS,
             ),
             (
+                "subscription_billing_free_tier",
+                True,
+                {"ai_credits": {"usage": 400, "limit": 15500, "free_tier_units": 500}},
+                None,
+                500,
+            ),
+            (
+                "billing_free_tier_zero",
+                True,
+                {"ai_credits": {"usage": 400, "limit": 15500, "free_tier_units": 0}},
+                None,
+                0,
+            ),
+            (
                 "subscription_unknown",
                 None,
                 {"ai_credits": {"usage": 400, "limit": 500}},
