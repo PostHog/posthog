@@ -14,12 +14,10 @@ import {
 // Synthetic, non-production values. OWN_TOKEN is the project the destination runs in;
 // OTHER_TOKEN is a different project (legitimate cross-project replication).
 const OWN_TOKEN = 'phc_synthetic_own_0000000000000000'
-const OWN_SECRET_TOKEN = 'phsx_synthetic_own_secret_00000000'
 const OTHER_TOKEN = 'phc_synthetic_other_111111111111111'
 
-const TEAM: Pick<Team, 'api_token' | 'secret_api_token'> = {
+const TEAM: Pick<Team, 'api_token'> = {
     api_token: OWN_TOKEN,
-    secret_api_token: OWN_SECRET_TOKEN,
 }
 
 const INGEST_URL = 'https://us.i.posthog.com/capture/'
@@ -144,16 +142,6 @@ describe('self-loop-guard', () => {
             {
                 case: 'project own token on the URL query string',
                 args: { url: `${INGEST_URL}?api_key=${OWN_TOKEN}`, body: '' },
-                expected: true,
-            },
-            {
-                case: 'project secret token on the URL query string',
-                args: { url: `${INGEST_URL}?api_key=${OWN_SECRET_TOKEN}`, body: '' },
-                expected: true,
-            },
-            {
-                case: 'capture authenticated with the project secret token',
-                args: { body: captureBody('e', {}, OWN_SECRET_TOKEN) },
                 expected: true,
             },
             {

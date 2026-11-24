@@ -836,13 +836,15 @@ jobs:
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
+            # The runner store holds only what the install below links, about a third of the
+            # full Storybook closure, so its own key keeps it apart from the full store.
             - name: Restore pnpm cache
               id: pnpm-restore
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: pnpm-${{ runner.os }}-
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-storybook-runner-${{ runner.os }}-
 
             - name: Get pnpm cache path
               id: pnpm-cache
@@ -865,8 +867,11 @@ jobs:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
+            # No `...`: the shards serve a prebuilt dist, so the test runner needs only the
+            # storybook package's own dependencies, not the @posthog/frontend tree that the
+            # build job compiles.
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+              run: pnpm --filter=@posthog/storybook install --frozen-lockfile
 
             # Inside the playwright container pnpm keeps its store on the workspace mount.
             # actions/cache keys an entry on key plus path, so this is a separate entry
@@ -876,7 +881,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # The container's cache path and recorded checkout path differ from the host.
             # Each runner provider needs a master shard to seed its separate cache.
@@ -1195,12 +1200,13 @@ jobs:
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
+            # Same runner store and install as the visual-regression shards.
             - name: Restore pnpm cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: pnpm-${{ runner.os }}-
+                  key: pnpm-storybook-runner-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-storybook-runner-${{ runner.os }}-
 
             - name: Get pnpm cache path
               id: pnpm-cache
@@ -1224,7 +1230,7 @@ jobs:
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
             - name: Install dependencies
-              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+              run: pnpm --filter=@posthog/storybook install --frozen-lockfile
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

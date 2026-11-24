@@ -125,6 +125,17 @@ pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_m
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
+// Per-team database slots (see `team_db_slots`)
+pub const TEAM_DB_SLOTS_CALLS: &str = "cymbal_team_db_slots_calls_total";
+pub const TEAM_DB_SLOTS_IN_FLIGHT: &str = "cymbal_team_db_slots_in_flight";
+pub const TEAM_DB_SLOTS_HOT_EVENTS: &str = "cymbal_team_db_slots_hot_events_total";
+pub const TEAM_DB_SLOTS_TEAMS: &str = "cymbal_team_db_slots_teams";
+// The default `common_metrics` buckets go 1, 5, 10, 50, which is too coarse to compare an
+// in-flight count with a limit of a few slots.
+pub const TEAM_DB_SLOTS_IN_FLIGHT_BUCKETS: &[f64] = &[
+    1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 128.0,
+];
+
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";

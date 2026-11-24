@@ -730,6 +730,13 @@ tools:
             flag configuration is invalid.
 
 
+            The result can start with `pre_launch_health`: the findings of the draft's configuration checks, read just
+            before the launch. A finding does not stop the launch. When it lists findings, tell the user each finding
+            and its fix. A fix that says what to do before the launch is now a step to take on the running experiment.
+            If that step changes the feature flag, tell the user to also move the experiment's start date to after the
+            change, because users exposed before it can switch variants.
+
+
             No request body needed.
         param_overrides:
             id:
@@ -738,6 +745,7 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        hooks: experiments/launchExperimentHooks
         response:
             include:
                 - id

@@ -37,6 +37,7 @@ from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.artifacts import model_id_of
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
+    JUDGE_HISTORY_QUERY_NAME,
     NO_AI_JUDGE,
     AIJudgeConfig,
     IntervalScoring,
@@ -140,6 +141,16 @@ class InsightScores:
     ai_member: LazyAndEnsemble | None = None
     # The fetched values of each series, which the AI member reads. Empty when the profile has no AI member.
     fetched: tuple["FetchedSeries", ...] = ()
+    # None when ``fetched`` already holds the history of a train step.
+    judge_history: "JudgeHistory | None" = None
+
+
+@frozen
+class JudgeHistory:
+    """The fetch of a score step that gives the AI member as much history as a train step."""
+
+    query: TrendsQuery
+    buckets: int
 
 
 @frozen
@@ -354,9 +365,14 @@ def supports_score_step(query: TrendsQuery) -> bool:
 
 
 def state_identity(query: TrendsQuery, scoring: IntervalScoring, team: Team, limits: ScoringLimits) -> StateIdentity:
+    """Stored artifacts are fits of the local part, so its version alone decides whether a stored model is current.
+
+    Profiles that differ only in their AI member get the same identity, and read each other's models.
+    """
+    local = dataclasses.replace(scoring, detector=split_ai_member(scoring.detector).local)
     return StateIdentity(
         interval=scoring_interval(query),
-        detector_version=detector_version(scoring, artifacts=True),
+        detector_version=detector_version(local, artifacts=True),
         query_hash=query_hash(query, team.timezone_info, limits),
     )
 
@@ -641,13 +657,14 @@ def _score_step(
     since = min((through for through in (after, state.scored_through) if through is not None), default=None)
     to_score = buckets_to_score(interval, now=now, after=since, timezone=team.timezone_info, limits=limits)
     # One bucket more than the context that preprocessing reads, as in the full fetch.
-    history = detector.context_buckets() + 1
-    if scores.ai_member is not None:
-        # The judge reads the history before a flagged bucket, so it sees as much of it as in a train step.
-        history = max(history, history_buckets(scoring))
-    buckets = fetch_buckets(query, scoring, to_score, history=history)
+    buckets = fetch_buckets(query, scoring, to_score, history=detector.context_buckets() + 1)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.SCORE)
     scores = _keep_fetched(scores, fetched)
+    if scores.ai_member is not None:
+        # Most score steps flag nothing, so the judge's history is fetched only when the judge will be asked.
+        scores = dataclasses.replace(
+            scores, judge_history=JudgeHistory(query=query, buckets=fetch_buckets(query, scoring, to_score))
+        )
     series: list[ScoredSeries] = []
     unmatched = 0
     returned_keys: set[str] = set()
@@ -681,6 +698,27 @@ def _score_step(
     )
 
 
+def fetch_judge_history(
+    insight: Insight, team: Team, scores: InsightScores, limits: ScoringLimits = DEFAULT_LIMITS
+) -> InsightScores:
+    """Replace the fetched values of a score step with the history that a train step fetches, for the AI member.
+
+    The longer range can rank a different top N of breakdown values, so a flagged series can be missing from it.
+    """
+    if scores.judge_history is None:
+        return scores
+    fetched = _fetch(
+        insight,
+        team,
+        scores.judge_history.query,
+        scores.judge_history.buckets,
+        limits,
+        ScoringRun.SCORE,
+        name=JUDGE_HISTORY_QUERY_NAME,
+    )
+    return dataclasses.replace(scores, fetched=tuple(fetched), judge_history=None)
+
+
 def _fetch(
     insight: Insight,
     team: Team,
@@ -688,6 +726,8 @@ def _fetch(
     buckets: int,
     limits: ScoringLimits,
     run: ScoringRun | None,
+    *,
+    name: str | None = None,
 ) -> list[FetchedSeries]:
     timezone = team.timezone_info
     scoring_query = build_scoring_query(query, buckets, limits)
@@ -698,7 +738,7 @@ def _fetch(
     client_query_id = f"anomaly_scoring_{uuid.uuid4().hex}"
     # Splits the scoring queries in `query_log`, so train and score cost can be compared, and lets `spend.py`
     # find them. A visit with the split off fetches the full history, as a train step does.
-    tag_queries(name=f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
+    tag_queries(name=name or f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
     runner = TrendsQueryRunner(
         query=scoring_query,
         team=team,
