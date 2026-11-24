@@ -8,11 +8,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType } from './onboardingLogic'
-import {
-    ProductConfigOption,
-    isAdminOnlyTeamField,
-    onboardingProductConfigurationLogic,
-} from './onboardingProductConfigurationLogic'
+import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 import {
     OnboardingProductConfigurationOption,
     OnboardingProductConfigurationOptionProps,
@@ -26,7 +22,7 @@ interface OnboardingProductConfigurationProps {
 export const OnboardingProductConfiguration: OnboardingStepComponentType<OnboardingProductConfigurationProps> = ({
     options,
 }) => {
-    const { configOptions, isProjectAdmin } = useValues(onboardingProductConfigurationLogic)
+    const { configOptions, canConfigureTeamProperty } = useValues(onboardingProductConfigurationLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
 
     const configOptionsRef = useRef(configOptions)
@@ -48,16 +44,20 @@ export const OnboardingProductConfiguration: OnboardingStepComponentType<Onboard
             type: option.type,
             selectOptions: option.type === 'select' ? option.selectOptions : undefined,
             value: option.value,
-            disabledReason:
-                !isProjectAdmin && isAdminOnlyTeamField(option.teamProperty)
-                    ? 'Only project admins can change this setting'
-                    : undefined,
+            disabledReason: canConfigureTeamProperty(option.teamProperty)
+                ? undefined
+                : 'Ask a project admin to change this setting.',
             onChange: (newValue: boolean | string | number) => {
                 // Use the current value from the ref to ensure that onChange always accesses
                 // the latest state of configOptions, preventing the closure from using stale data.
                 const updatedConfigOptions = configOptionsRef.current.map((o) => {
                     if (o.teamProperty === option.teamProperty) {
-                        return { ...o, value: newValue }
+                        if (o.type === 'toggle' && typeof newValue === 'boolean') {
+                            return { ...o, value: newValue }
+                        }
+                        if (o.type === 'select' && typeof newValue !== 'boolean') {
+                            return { ...o, value: newValue }
+                        }
                     }
 
                     return o

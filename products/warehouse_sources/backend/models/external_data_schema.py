@@ -289,6 +289,8 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 FAILURE_STREAK_KEY = "failure_streak"
 FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+# Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
+FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
 
 
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
@@ -572,6 +574,11 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         except ValueError:
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    @property
+    def manual_run_requested(self) -> bool:
+        """Whether someone asked for a sync since the streak's last failed run."""
+        return self._failure_streak.get(FAILURE_STREAK_MANUAL_RUN_KEY) is True
 
     def note_failed_run(self, failed_at: datetime) -> None:
         """Add one failed run to the streak, in memory.
@@ -2035,6 +2042,26 @@ def update_sync_type_config_keys(
             update_fields.append("next_full_refresh_at")
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
+
+
+def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
+    """Let the next run of each failing schema go ahead instead of standing down.
+
+    A run of a schema that keeps failing stands down until its gap has passed. Someone asking for a sync has
+    usually just changed what made it fail, and a run that stands down creates no job, so their sync would
+    show as Running with nothing behind it.
+    """
+    failing_ids = ExternalDataSchema.objects.filter(
+        id__in=list(schema_ids), team_id=team_id, sync_type_config__has_key=FAILURE_STREAK_KEY
+    ).values_list("id", flat=True)
+
+    def _mark(config: dict[str, Any]) -> None:
+        streak = config.get(FAILURE_STREAK_KEY)
+        if isinstance(streak, dict):
+            streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
+
+    for schema_id in failing_ids:
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
 
 
 def persist_schema_metadata(

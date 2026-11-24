@@ -13,9 +13,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { OptionalTimeLabel } from './OptionalTimeLabel'
-import { SOURCE_KINDS, configurationStatus, describeCondition, describeSchedule } from './platformAlertFormat'
+import { SOURCE_KINDS, describeCondition, describeSchedule } from './platformAlertFormat'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
-import { PlatformAlertStatusTag } from './PlatformAlertStatusTag'
+import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
 import { PlatformAlertRouting } from './routing/PlatformAlertRouting'
 
 export const scene: SceneExport = {
@@ -39,8 +39,8 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
         render: (_, configuration) => SOURCE_KINDS[configuration.source_kind].label,
     },
     {
-        title: 'Status',
-        render: (_, configuration) => <PlatformAlertStatusTag status={configurationStatus(configuration)} />,
+        title: 'State',
+        render: (_, configuration) => <PlatformAlertStateSummary configuration={configuration} />,
     },
     {
         title: 'Condition',

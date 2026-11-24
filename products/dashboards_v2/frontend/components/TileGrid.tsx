@@ -9,10 +9,10 @@ import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import { type DropTarget, dashboardV2Logic } from '../dashboardV2Logic'
+import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../grid/placeTiles'
 import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
 import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
 import { type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
-import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
 import { widgetSize } from '../layout/widgetSizes'
 import { TileFrame } from './TileFrame'
 
