@@ -1120,7 +1120,15 @@ describe('emailTemplaterLogic', () => {
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
-        it('blocks the save of an email left while its edit could not be read', async () => {
+        it.each([
+            {
+                how: 'another email opens',
+                leave: (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+                },
+            },
+            { how: 'the editor closes', leave: (): void => logic.unmount() },
+        ])('blocks the save of an email whose edit could not be read when $how', async ({ leave }) => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.setEmailEditorRef({
                 editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
@@ -1130,7 +1138,7 @@ describe('emailTemplaterLogic', () => {
             editorDesign = DESIGN_EDITED
             editorListeners['design:updated']()
             const saved = saveWithLatestEmailEdit(save)
-            emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+            leave()
             await jest.advanceTimersByTimeAsync(5000)
             await saved
 
