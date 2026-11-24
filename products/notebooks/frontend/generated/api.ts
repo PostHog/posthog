@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookAppLayoutApi,
+    NotebookAppReleaseApi,
+    NotebookAppReleaseReviewApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookComputeOptionsResponseApi,
@@ -461,6 +464,45 @@ export const notebooksActivityRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksAppPreviewCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_preview/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppPreviewCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppLayoutApi: NotebookAppLayoutApi,
+    options?: RequestInit
+): Promise<NotebookAppReleaseReviewApi> => {
+    return apiMutator<NotebookAppReleaseReviewApi>(getNotebooksAppPreviewCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppLayoutApi),
+    })
+}
+
+export const getNotebooksAppReleaseRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_release/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppReleaseRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookAppReleaseApi> => {
+    return apiMutator<NotebookAppReleaseApi>(getNotebooksAppReleaseRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })

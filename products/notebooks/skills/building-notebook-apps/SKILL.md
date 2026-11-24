@@ -56,4 +56,4 @@ Save the complete draft with `posthog:notebooks-app-update`, passing the latest 
 
 Read the saved app back and check that referenced cells and variables exist. If browser access is available, open the builder and inspect the rendered result. Fix missing sources, failed runs, and unusable controls before reporting completion.
 
-Return the tool's app builder link and briefly describe what was built. Mention any unfinished generation, approval, or execution step explicitly. Publish only when requested: copy the verified layout into `app_published` with the current revision. Publishing freezes the layout while notebook data and variables remain live; access follows the notebook's existing permissions, and it does not create a public share link.
+Return the tool's app builder link and briefly describe what was built. Mention any unfinished generation, approval, or execution step explicitly. Publish only when requested. Copy the verified layout into `app_published` with the current revision. The release pins the saved notebook source, layout, and input defaults. Opening the app requires access to the notebook.
