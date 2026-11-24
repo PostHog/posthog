@@ -2896,7 +2896,6 @@ presentation-uses-facade	products.cdp.backend.routes	products.cdp.backend.api.pl
 presentation-uses-facade	products.cohorts.backend.routes	products.cohorts.backend.api.staff_tools	1
 presentation-uses-facade	products.conversations.backend.routes	products.conversations.backend.api	1
 presentation-uses-facade	products.customer_analytics.backend.presentation.views.views	products.cdp.backend.presentation.icons	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.ai_observability.backend.dashboard_templates	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.alerts.backend.models.alert	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.access	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.constants	1
@@ -2914,7 +2913,6 @@ presentation-uses-facade	products.dashboards.backend.presentation.views.dashboar
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_query_throttle	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_registry	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.dashboards.backend.widget_specs.configs	1
-presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.mcp_analytics.backend.dashboard_templates	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard	products.product_analytics.backend.presentation.insight	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard_templates	products.dashboards.backend.customization	1
 presentation-uses-facade	products.dashboards.backend.presentation.views.dashboard_templates	products.dashboards.backend.models.dashboard_templates	1

@@ -4875,11 +4875,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertNotIn("insight", streamed_tile)
         self.assertNotIn("Confidential usage", json.dumps(streamed_tile))
 
-    def test_create_unlisted_dashboard_creates_tags(self):
-        """Test that unlisted dashboards get tags"""
+    @parameterized.expand(
+        [
+            (
+                "llm-analytics",
+                "AI observability default",
+                "Overview of your AI usage, costs, and performance",
+                9,
+                ["ai-observability"],
+            ),
+            ("mcp-analytics", "MCP Analytics Default", "Overview of your MCP usage.", 3, []),
+        ]
+    )
+    def test_create_unlisted_dashboard_creates_tags(
+        self,
+        tag: str,
+        expected_name: str,
+        expected_description: str,
+        expected_insight_count: int,
+        expected_insight_tags: list[str],
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
-            {"tag": "llm-analytics"},
+            {"tag": tag},
             format="json",
         )
 
@@ -4888,18 +4906,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "AI observability default")
+        self.assertEqual(
+            (dashboard.name, dashboard.description, dashboard.filters),
+            (expected_name, expected_description, {"date_from": "-7d"}),
+        )
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["llm-analytics"])
+        self.assertEqual(tags, [tag])
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
-        self.assertGreater(insights.count(), 0)
+        self.assertEqual(insights.count(), expected_insight_count)
         for insight in insights:
             self.assertEqual(
                 list(insight.tagged_items.values_list("tag__name", flat=True)),
-                ["ai-observability"],
+                expected_insight_tags,
             )
 
     def test_create_unlisted_dashboard_enforces_uniqueness(self):
@@ -4920,6 +4941,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    def test_create_unlisted_dashboard_reads_dashboards_from_the_writer(self) -> None:
+        # Tests configure no "replica" alias, so a Dashboard read routed to it raises instead of
+        # silently missing the uncommitted row the way a real replica does.
+        def route_dashboard_reads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reads_to_replica):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+                {"tag": "llm-analytics"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""
