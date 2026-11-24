@@ -174,14 +174,26 @@ def _flag_payload(team: Team) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+_THRESHOLD_KEYS = {
+    "alert": "alert_threshold",
+    "block": "block_threshold",
+    "control": "control_threshold",
+    "weak_rule_control": "weak_rule_control_threshold",
+}
+
+
 def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
-    optional = {"control": "control_threshold", "weak_rule_control": "weak_rule_control_threshold"}
-    if not payload.keys() & {"alert_threshold", "block_threshold", *optional.values()}:
-        return Thresholds()
+    values: dict[str, float] = {}
+    for field, key in _THRESHOLD_KEYS.items():
+        if key not in payload:
+            continue
+        try:
+            values[field] = float(payload[key])
+        except (TypeError, ValueError, OverflowError):
+            logger.warning("cdp_abuse_classifier_threshold_unreadable", team_id=team_id, key=key)
     try:
-        controls = {field: float(payload[key]) for field, key in optional.items() if key in payload}
-        return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]), **controls)
-    except (KeyError, TypeError, ValueError, OverflowError):
+        return Thresholds(**values)
+    except ValueError:
         logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team_id, exc_info=True)
         return Thresholds()
 

@@ -40,9 +40,8 @@ class Rule(StrEnum):
     REPLACE_AMPLIFICATION = "replace_amplification"
 
 
-# Every rule alerts, except weak rules alone on a function the model rates clearly normal. Customers test destinations
-# against request catchers and filter out local traffic, so only a request to our own network is certain enough to
-# block.
+# Customers test destinations against request catchers and filter out local traffic, so only a request to our own
+# network is certain enough to block.
 BLOCKING_RULES = frozenset({Rule.INTERNAL_HOST})
 # A request catcher is not weak: the model can rate a webhook that exfiltrates data to one as an ordinary integration.
 WEAK_RULES = frozenset({Rule.INTERNAL_HOST_REFERENCE})

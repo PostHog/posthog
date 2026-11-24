@@ -127,8 +127,11 @@ class Thresholds:
     def __post_init__(self) -> None:
         if not 0 <= self.alert <= self.block <= 1:
             raise ValueError("thresholds are probabilities from 0 to 1, with alert at or below block")
-        if not 0 <= self.control <= 1 or not 0 <= self.weak_rule_control <= 1:
-            raise ValueError("control thresholds are probabilities from 0 to 1")
+        if not 0 <= self.control <= 1:
+            raise ValueError("the control threshold is a probability from 0 to 1")
+        # Above 1, no control score reaches it, which turns the weak rule quieting off.
+        if not 0 <= self.weak_rule_control:
+            raise ValueError("the weak rule control threshold is not negative")
 
 
 @frozen
@@ -327,7 +330,10 @@ def classify(
         would_alert=acted_on_risk >= thresholds.alert and not gates,
         would_block=acted_on_risk >= thresholds.block,
         model_alert_gates=gates,
-        clearly_normal=scores[CONTROL_QUESTION] >= thresholds.weak_rule_control and acted_on_risk < thresholds.alert,
+        # A truncated state hides part of the code from the model, while the rules read all of it.
+        clearly_normal=not truncated
+        and scores[CONTROL_QUESTION] >= thresholds.weak_rule_control
+        and acted_on_risk < thresholds.alert,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,

@@ -182,13 +182,31 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
             ),
             (
-                "weak_rule_control_threshold_from_payload",
+                "weak_rule_control_threshold_from_payload_alone",
                 CLEARLY_NORMAL_SCORES,
-                {**DEFAULT_THRESHOLDS, "weak_rule_control_threshold": 0.95},
+                {"weak_rule_control_threshold": 0.95},
                 LOCAL_URL_FILTER + RULE_FREE_HOG,
                 ["internal_host_reference"],
                 True,
                 False,
+            ),
+            (
+                "weak_rule_control_threshold_above_one_turns_the_quieting_off",
+                {**CLEARLY_NORMAL_SCORES, "normal_integration": 1.0},
+                {"weak_rule_control_threshold": 2},
+                LOCAL_URL_FILTER + RULE_FREE_HOG,
+                ["internal_host_reference"],
+                True,
+                False,
+            ),
+            (
+                "invalid_weak_rule_control_threshold_keeps_the_other_thresholds",
+                SCORES,
+                {"alert_threshold": 0.3, "block_threshold": 0.75, "weak_rule_control_threshold": "high"},
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
             ),
             (
                 "internal_host_reference_alerts_when_a_gated_risk_reaches_the_alert_threshold",
@@ -654,6 +672,14 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {"hog": "print('padding')\n" * 10_000 + "fetch('http://169.254.169.254/latest')"},
                 True,
                 None,
+                True,
+            ),
+            (
+                "an_internal_host_reference_cut_from_the_state_still_alerts",
+                {"hog": "print('padding')\n" * 10_000 + LOCAL_URL_FILTER + RULE_FREE_HOG},
+                True,
+                None,
+                True,
             ),
             (
                 "padded_input_collapses_to_its_length",
@@ -664,12 +690,14 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 },
                 False,
                 'x["B" repeated 900000 times]y',
+                False,
             ),
         ]
     )
     def test_an_oversized_function_fits_the_state_limit(
-        self, _name: str, overrides: dict[str, Any], truncated: bool, padding_seen: str | None
+        self, _name: str, overrides: dict[str, Any], truncated: bool, padding_seen: str | None, would_alert: bool
     ) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(CLEARLY_NORMAL_SCORES))
         self.create_destination(**overrides)
 
         [body] = self.gateway.bodies()
@@ -677,6 +705,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         state = json.loads(body)["state"]
         assert len(json.dumps(state, ensure_ascii=False, separators=(",", ":"))) <= 65_536
         assert event["properties"]["state_truncated"] is truncated
+        assert event["properties"]["would_alert"] is would_alert
         if padding_seen is not None:
             assert state["inputs"]["padding"]["value"] == padding_seen
 
