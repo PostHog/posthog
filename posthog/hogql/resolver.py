@@ -1,6 +1,7 @@
 import string
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -102,6 +103,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.uuidt import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -527,18 +529,22 @@ class _FieldRootCollector(TraversingVisitor):
                 self.roots.add(root)
 
 
-class _TableColumnFinder(TraversingVisitor):
-    """Finds a field bound to a table column, skipping nested SELECTs that read their own FROM."""
+class _OwnScopeVisitor(TraversingVisitor):
+    """Skips nested SELECTs that read their own FROM, because their fields belong to that FROM."""
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        if node.select_from is None:
+            super().visit_select_query(node)
+
+
+class _TableColumnFinder(_OwnScopeVisitor):
+    """Finds a field bound to a table column."""
 
     def __init__(self, bound_names: Callable[[str], bool | None]) -> None:
         super().__init__()
         self.found = False
         self.bound_names = bound_names
         self.aliases: list[str] = []
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        if node.select_from is None:
-            super().visit_select_query(node)
 
     def visit_alias(self, node: ast.Alias):
         self.aliases.append(node.alias)
@@ -558,16 +564,14 @@ class _TableColumnFinder(TraversingVisitor):
             self.found = True
 
 
-class _JoinDependencyFinder(TraversingVisitor):
-    def __init__(self, later: list[ast.Type]) -> None:
+class _JoinDependencyFinder(_OwnScopeVisitor):
+    """Finds a field bound to one of the given later JOIN tables, and the aliases read on the way."""
+
+    def __init__(self, later: set[int]) -> None:
         super().__init__()
         self.later = later
         self.found = False
         self.aliases: set[str] = set()
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        if node.select_from is None:
-            super().visit_select_query(node)
 
     def visit_field(self, node: ast.Field):
         field_type = node.type
@@ -576,7 +580,7 @@ class _JoinDependencyFinder(TraversingVisitor):
             field_type = field_type.type
         if isinstance(field_type, ast.PropertyType):
             field_type = field_type.field_type
-        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is table for table in self.later):
+        if isinstance(field_type, ast.FieldType) and id(field_type.table_type) in self.later:
             self.found = True
 
 
@@ -584,6 +588,17 @@ def _field_roots(node: ast.AST, deep: bool = False) -> set[str]:
     collector = _FieldRootCollector(deep=deep)
     collector.visit(node)
     return collector.roots
+
+
+@frozen
+class _PendingAliases:
+    """A SELECT's scalar aliases that wait for its FROM."""
+
+    pending: dict[str, ast.CTE]
+    # The SELECT's resolved CTEs, in the order it attaches them to the resolved node.
+    resolved: dict[str, ast.CTE]
+    # The SELECT's CTE namespace, which nested SELECTs copy.
+    namespace: dict[str, ast.CTE]
 
 
 class Resolver(CloningVisitor):
@@ -634,14 +649,15 @@ class Resolver(CloningVisitor):
         # Unresolved scalar aliases that read the FROM clause, by id() of their SELECT's type.
         # UNION branches resolve their own copy against their own tables.
         self._from_scalar_aliases: dict[int, dict[str, ast.CTE]] = {}
-        # While FROM resolves: still-unresolved aliases, the SELECT's resolved CTEs, and its CTE namespace.
-        self._pending_from_aliases: dict[int, tuple[dict[str, ast.CTE], dict[str, ast.CTE], dict[str, ast.CTE]]] = {}
+        # Aliases still waiting for FROM, by id() of their SELECT's type.
+        self._pending_from_aliases: dict[int, _PendingAliases] = {}
         # Resolved aliases that read their SELECT's tables, by id() of the CTE node, with that SELECT's type.
+        # The tuple holds the CTE so its id() is not reused while the entry exists.
         self._table_bound_aliases: dict[int, tuple[ast.CTE, ast.SelectQueryType]] = {}
         self._table_bound_expr_aliases: set[str] = set()
-        # Each JOIN constraint being resolved, with its SELECT's scope and the tables joined after it.
+        # Each JOIN constraint being resolved, with its SELECT's scope and the first JOIN after it.
         # The resolver visits later joins before a constraint, but a scalar alias read there must not use them.
-        self._join_constraints: list[tuple[ast.SelectQueryType, list[ast.Type]]] = []
+        self._join_constraints: list[tuple[ast.SelectQueryType, ast.JoinExpr | None]] = []
         # A declared FROM is a boundary even before its tables have been visited.
         self._unresolved_from_scopes: set[int] = set()
 
@@ -675,14 +691,12 @@ class Resolver(CloningVisitor):
 
         # A root alias bound to the first branch's tables is re-resolved against each branch's own tables.
         from_scalar_aliases = (
-            self._from_scalar_aliases.get(id(initial.type), {}) if isinstance(initial, ast.SelectQuery) else {}
+            self._from_scalar_aliases.pop(id(initial.type), {}) if isinstance(initial, ast.SelectQuery) else {}
         )
 
         subsequent: list[ast.SelectSetNode] = []
         for expr in node.subsequent_select_queries:
-            select_query = expr.select_query
-            if from_scalar_aliases:
-                select_query = self._with_inherited_scalar_aliases(select_query, from_scalar_aliases)
+            select_query = self._with_inherited_scalar_aliases(expr.select_query, from_scalar_aliases)
             subsequent.append(ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(select_query)))
 
         result = ast.SelectSetQuery(
@@ -1153,6 +1167,8 @@ class Resolver(CloningVisitor):
         self, node: ast.SelectQuery | ast.SelectSetQuery, inherited: dict[str, ast.CTE]
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """Copy into a UNION branch the inherited aliases it reads, directly or through another alias."""
+        if not inherited:
+            return node
         if isinstance(node, ast.SelectSetQuery):
             node = clone_expr(node)
             node.initial_select_query = self._with_inherited_scalar_aliases(node.initial_select_query, inherited)
@@ -1176,7 +1192,7 @@ class Resolver(CloningVisitor):
 
     def _resolve_pending_alias(self, owner: ast.SelectQueryType, name: str) -> ast.CTE:
         """Resolve a scalar alias against its own SELECT's scope, as if written where it is first read."""
-        pending, _, _ = self._pending_from_aliases[id(owner)]
+        pending = self._pending_from_aliases[id(owner)].pending
         # Straight alias chains do not need a Python call frame per link. Leave other
         # expressions to normal resolution, where table and lambda precedence is known.
         chain: list[str] = []
@@ -1192,102 +1208,120 @@ class Resolver(CloningVisitor):
             if dependency not in pending:
                 break
             # A FROM column takes precedence, so do not pre-resolve a same-named alias.
-            saved_tables, saved_anonymous = dict(owner.tables), list(owner.anonymous_tables)
-            self._hide_later_join_tables(owner)
-            try:
+            with self._later_joins_hidden(owner):
                 is_column = lookup_field_by_name(owner, dependency, self.context)
-            finally:
-                owner.tables.clear()
-                owner.tables.update(saved_tables)
-                owner.anonymous_tables[:] = saved_anonymous
             if is_column:
                 break
             current = dependency
         for dependency in reversed(chain):
             if dependency in pending:
                 self._resolve_one_pending_alias(owner, dependency)
-        return self._pending_from_aliases[id(owner)][2][name]
+        return self._pending_from_aliases[id(owner)].namespace[name]
 
     def _resolve_one_pending_alias(self, owner: ast.SelectQueryType, name: str) -> ast.CTE:
-        pending, current_level_ctes, owner_ctes = self._pending_from_aliases[id(owner)]
-        cte = pending.pop(name)
+        state = self._pending_from_aliases[id(owner)]
+        cte = state.pending.pop(name)
         owner_index = next(i for i, scope in enumerate(self.scopes) if scope is owner)
         saved_scopes, saved_ctes = self.scopes, self.ctes
-        self.scopes, self.ctes = self.scopes[: owner_index + 1], owner_ctes
-        saved_tables, saved_anonymous = dict(owner.tables), list(owner.anonymous_tables)
-        hid_later_joins = self._hide_later_join_tables(owner)
+        self.scopes, self.ctes = self.scopes[: owner_index + 1], state.namespace
         try:
-            resolved = self.visit(cte)
-        except QueryError as error:
-            if not hid_later_joins:
-                raise
-            owner.tables.update(saved_tables)
-            owner.anonymous_tables[:] = saved_anonymous
-            try:
-                self.visit(cte)
-            except QueryError:
-                raise error
-            raise QueryError(
-                f"{UNRESOLVED_FIELD_MESSAGE}: {name}. A JOIN constraint can't read an alias that needs a later JOIN."
-            ) from error
+            hidden_error: QueryError | None = None
+            with self._later_joins_hidden(owner) as hid_later_joins:
+                try:
+                    resolved = self.visit(cte)
+                except QueryError as error:
+                    if not hid_later_joins:
+                        raise
+                    hidden_error = error
+            if hidden_error is not None:
+                # Resolve again with every table visible, to report a later JOIN only when it is the cause.
+                try:
+                    self.visit(cte)
+                except QueryError:
+                    raise hidden_error
+                raise self._later_join_alias_error(name) from hidden_error
         finally:
             self.scopes, self.ctes = saved_scopes, saved_ctes
+        state.resolved[name] = resolved
+        self._mark_if_table_bound(resolved, owner, state.namespace)
+        return resolved
+
+    def _later_join_tables(self, owner: ast.SelectQueryType) -> set[int]:
+        """The id() of each table joined after the owner's JOIN constraint being resolved, if one is."""
+        if not self._join_constraints or self._join_constraints[-1][0] is not owner:
+            return set()
+        later: set[int] = set()
+        join = self._join_constraints[-1][1]
+        while join is not None:
+            if join.type is not None:
+                later.add(id(join.type))
+            join = join.next_join
+        return later
+
+    @contextmanager
+    def _later_joins_hidden(self, owner: ast.SelectQueryType) -> Iterator[bool]:
+        """Remove the later JOIN tables from the owner's scope, and restore them in their order on exit."""
+        later = self._later_join_tables(owner)
+        if not later:
+            yield False
+            return
+        saved_tables, saved_anonymous = dict(owner.tables), list(owner.anonymous_tables)
+        for alias in [alias for alias, table in owner.tables.items() if id(table) in later]:
+            del owner.tables[alias]
+        owner.anonymous_tables[:] = [table for table in owner.anonymous_tables if id(table) not in later]
+        try:
+            yield True
+        finally:
             owner.tables.clear()
             owner.tables.update(saved_tables)
             owner.anonymous_tables[:] = saved_anonymous
-        current_level_ctes[name] = resolved
-        self._mark_if_table_bound(resolved, owner, owner_ctes)
-        return resolved
 
-    def _hide_later_join_tables(self, owner: ast.SelectQueryType) -> bool:
-        """Remove from the owner's scope the tables joined after the JOIN constraint being resolved."""
-        if not self._join_constraints or self._join_constraints[-1][0] is not owner:
-            return False
-        later = self._join_constraints[-1][1]
+    def _check_later_join_dependency(self, name: str, cte: ast.CTE, owner: ast.SelectQueryType) -> None:
+        """Reject a resolved alias read in a JOIN constraint when it, or an alias it reads, needs a later JOIN.
+
+        A later constraint can resolve the alias first, because the resolver visits later joins first."""
+        later = self._later_join_tables(owner)
         if not later:
-            return False
-        for alias in [alias for alias, t in owner.tables.items() if any(t is later_table for later_table in later)]:
-            del owner.tables[alias]
-        owner.anonymous_tables[:] = [
-            t for t in owner.anonymous_tables if not any(t is later_table for later_table in later)
-        ]
-        return True
+            return
+        state = self._pending_from_aliases.get(id(owner))
+        aliases = state.namespace if state is not None else self.ctes
+        queue = [cte]
+        seen: set[int] = set()
+        while queue:
+            current = queue.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            finder = _JoinDependencyFinder(later)
+            finder.visit(current.expr)
+            if finder.found:
+                raise self._later_join_alias_error(name)
+            queue.extend(aliases[dep] for dep in finder.aliases if dep in aliases)
+
+    def _check_scalar_alias_scope(self, name: str) -> None:
+        """Reject a read of a table-bound alias from another SELECT's FROM scope."""
+        self._find_scalar_alias(name)
 
     def _find_scalar_alias(self, name: str) -> ast.CTE | None:
         """Find a scalar alias by name, rejecting a table-bound one read from inside another SELECT's FROM scope."""
         cte = self.ctes.get(name)
         bound = self._table_bound_aliases.get(id(cte)) if cte is not None else None
+        if bound is None and (cte is not None or not self._pending_from_aliases):
+            # Only a pending or a table-bound alias needs the scope walk below.
+            return cte
         crossed_from = False
         for scope in reversed(self.scopes):
             if scope.is_lambda_type:
                 continue
-            pending = self._pending_from_aliases.get(id(scope))
-            is_owner_pending = cte is None and pending is not None and name in pending[0]
+            state = self._pending_from_aliases.get(id(scope))
+            is_owner_pending = cte is None and state is not None and name in state.pending
             if is_owner_pending or (bound is not None and bound[1] is scope):
                 if crossed_from:
                     raise self._cross_scope_alias_error(name)
                 if is_owner_pending:
                     return self._resolve_pending_alias(scope, name)
                 assert cte is not None
-                if self._join_constraints and self._join_constraints[-1][0] is scope:
-                    later = self._join_constraints[-1][1]
-                    if later:
-                        aliases = pending[2] if pending is not None else self.ctes
-                        queue = [cte]
-                        seen: set[int] = set()
-                        while queue:
-                            current = queue.pop()
-                            if id(current) in seen:
-                                continue
-                            seen.add(id(current))
-                            finder = _JoinDependencyFinder(later)
-                            finder.visit(current.expr)
-                            if finder.found:
-                                raise QueryError(
-                                    f"{UNRESOLVED_FIELD_MESSAGE}: {name}. "
-                                    "A JOIN constraint can't read an alias that needs a later JOIN."
-                                )
-                            queue.extend(aliases[dep] for dep in finder.aliases if dep in aliases)
+                self._check_later_join_dependency(name, cte, scope)
                 return cte
             if scope.tables or scope.anonymous_tables or id(scope) in self._unresolved_from_scopes:
                 crossed_from = True
@@ -1297,6 +1331,12 @@ class Resolver(CloningVisitor):
         return cte
 
     @staticmethod
+    def _later_join_alias_error(name: str) -> QueryError:
+        return QueryError(
+            f"{UNRESOLVED_FIELD_MESSAGE}: {name}. A JOIN constraint can't read an alias that needs a later JOIN."
+        )
+
+    @staticmethod
     def _cross_scope_alias_error(name: str) -> QueryError:
         # ClickHouse evaluates the alias's text against the reading SELECT's tables, not the tables it was resolved against.
         return QueryError(
@@ -1304,16 +1344,14 @@ class Resolver(CloningVisitor):
             "Define it inside this SELECT, or rename any column that has the same name."
         )
 
-    def _mark_if_table_bound(
-        self, cte: ast.CTE, owner: ast.SelectQueryType, ctes: dict[str, ast.CTE] | None = None
-    ) -> None:
+    def _mark_if_table_bound(self, cte: ast.CTE, owner: ast.SelectQueryType, ctes: dict[str, ast.CTE]) -> None:
         if cte.cte_type != "column":
             return
 
         def bound_names(name: str) -> bool | None:
             if name in self._table_bound_expr_aliases:
                 return True
-            alias = (self.ctes if ctes is None else ctes).get(name)
+            alias = ctes.get(name)
             return None if alias is None else id(alias) in self._table_bound_aliases
 
         finder = _TableColumnFinder(bound_names)
@@ -1324,14 +1362,18 @@ class Resolver(CloningVisitor):
             self._table_bound_expr_aliases.update(finder.aliases)
 
     def _scalar_alias_reads_from(
-        self, cte: ast.CTE, from_scalar_aliases: dict[str, ast.CTE], local_names: set[str]
+        self,
+        cte: ast.CTE,
+        from_scalar_aliases: dict[str, ast.CTE],
+        local_names: set[str],
+        deep_roots: Callable[[ast.CTE], set[str]],
     ) -> bool:
         """True when a scalar alias reads a name that this query's FROM can supply.
 
         An outer alias counts, because a column of the same name in FROM takes precedence over it."""
         if cte.cte_type != "column":
             return False
-        if from_scalar_aliases and not _field_roots(cte.expr, deep=True).isdisjoint(from_scalar_aliases):
+        if from_scalar_aliases and not deep_roots(cte).isdisjoint(from_scalar_aliases):
             return True
         for root in _field_roots(cte.expr):
             if root in local_names:
@@ -1377,15 +1419,23 @@ class Resolver(CloningVisitor):
             current_level_ctes = {}
             if node.select_from is not None:
                 local_names = set(node.ctes)
+                # Walk each expression's nested SELECTs at most once, and only when a check needs it.
+                deep_roots_cache: dict[str, set[str]] = {}
+
+                def deep_roots(cte: ast.CTE) -> set[str]:
+                    if cte.name not in deep_roots_cache:
+                        deep_roots_cache[cte.name] = _field_roots(cte.expr, deep=True)
+                    return deep_roots_cache[cte.name]
+
                 for cte in node.ctes.values():
-                    if self._scalar_alias_reads_from(cte, from_scalar_aliases, local_names):
+                    if self._scalar_alias_reads_from(cte, from_scalar_aliases, local_names, deep_roots):
                         from_scalar_aliases[cte.name] = cte
                 # Forward references to a deferred alias must also wait for FROM. Otherwise an
                 # inherited alias of the same name could be captured with the wrong table type.
                 dependents: dict[str, set[str]] = {}
                 for cte in node.ctes.values():
                     if cte.cte_type == "column" and cte.name not in from_scalar_aliases:
-                        for dependency in _field_roots(cte.expr, deep=True) & local_names:
+                        for dependency in deep_roots(cte) & local_names:
                             dependents.setdefault(dependency, set()).add(cte.name)
                 queue = list(from_scalar_aliases)
                 while queue:
@@ -1397,16 +1447,16 @@ class Resolver(CloningVisitor):
                     for name in from_scalar_aliases:
                         self.ctes.pop(name, None)
                     # Something read before FROM finishes resolves its alias on first use, see _resolve_pending_alias.
-                    self._pending_from_aliases[id(node_type)] = (
-                        dict(from_scalar_aliases),
-                        current_level_ctes,
-                        self.ctes,
+                    self._pending_from_aliases[id(node_type)] = _PendingAliases(
+                        pending=dict(from_scalar_aliases),
+                        resolved=current_level_ctes,
+                        namespace=self.ctes,
                     )
             for cte in node.ctes.values():
                 if cte.name in from_scalar_aliases:
                     continue
                 resolved_cte = self.visit(cte)
-                self._mark_if_table_bound(resolved_cte, node_type)
+                self._mark_if_table_bound(resolved_cte, node_type, self.ctes)
                 current_level_ctes[cte.name] = resolved_cte
             node_type.ctes = current_level_ctes
         else:
@@ -1429,7 +1479,7 @@ class Resolver(CloningVisitor):
 
         if from_scalar_aliases:
             assert node.ctes is not None and current_level_ctes is not None
-            pending, _, _ = self._pending_from_aliases[id(node_type)]
+            pending = self._pending_from_aliases[id(node_type)].pending
             while pending:
                 self._resolve_pending_alias(node_type, next(iter(pending)))
             del self._pending_from_aliases[id(node_type)]
@@ -2418,13 +2468,8 @@ class Resolver(CloningVisitor):
     ) -> Optional[ast.JoinConstraint]:
         if node.constraint is None:
             return None
-        later_tables: list[ast.Type] = []
-        later = node.next_join
-        while later is not None:
-            if later.type is not None:
-                later_tables.append(later.type)
-            later = later.next_join
-        self._join_constraints.append((self.scopes[-1], later_tables))
+        # The later joins are already resolved here. _later_join_tables reads them only when an alias needs it.
+        self._join_constraints.append((self.scopes[-1], node.next_join))
         try:
             if node.constraint.constraint_type == "USING":
                 return self._desugar_using_constraint(node, using_column_names)
@@ -3084,7 +3129,7 @@ class Resolver(CloningVisitor):
 
         if isinstance(type, (ast.FieldType, ast.PropertyType)) and len(node.chain) == 1 and name in self.ctes:
             # ClickHouse prefers a WITH alias over a column with the same name. A lambda argument or a SELECT alias wins.
-            self._find_scalar_alias(name)
+            self._check_scalar_alias_scope(name)
 
         if not type:
             cte = self._find_scalar_alias(name)
