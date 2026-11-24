@@ -1,6 +1,7 @@
 import io
 import re
 import json
+import time
 import base64
 from datetime import UTC, datetime
 from typing import Any
@@ -1384,6 +1385,37 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.status_code == 200
         assert [result["status"] for result in response.json()["results"]] == ["created"] * 3
         assert HogFlow.objects.filter(team=self.team).count() == 3
+
+    @parameterized.expand([("in_time", 20, True), ("past_its_limit", 31, False)])
+    def test_an_image_has_to_finish_within_its_limit(self, _name: str, last_read_seconds: int, copied: bool) -> None:
+        png = io.BytesIO()
+        Image.new("RGB", (3, 2)).save(png, "PNG")
+        waited = 0
+
+        def read(_size: int) -> bytes:
+            nonlocal waited
+            if content := png.read1(1_000_000):
+                return content
+            waited = last_read_seconds
+            return b""
+
+        png.seek(0)
+        response = MagicMock(status_code=200, raw=MagicMock(spec=["read"], read=read))
+        response.__enter__.return_value = response
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/slow.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        with (
+            patch("products.workflows.backend.services.email_images.requests.get", return_value=response),
+            patch("products.workflows.backend.services.email_images.time.monotonic", lambda: time.time() + waited),
+        ):
+            self._import(
+                campaigns=[
+                    {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
+                ]
+            )
+
+        assert UploadedMedia.objects.filter(team=self.team).exists() is copied
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
     @patch("products.workflows.backend.services.email_images.requests.get")
