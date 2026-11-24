@@ -233,8 +233,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert _shadow_events(capture) == []
 
-    @parameterized.expand([("no_results", None), ("empty_results", [])])
-    def test_an_empty_live_result_builds_nothing(self, _name: str, live: list | None) -> None:
+    @parameterized.expand([("no_results", None, False), ("empty_results", [], True)])
+    def test_an_empty_live_result_builds_nothing(self, _name: str, live: list | None, is_cached: bool) -> None:
         alert = self._alert(detector=None)
 
         with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
@@ -242,12 +242,13 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
                 alert,
                 TrendsQuery.model_validate(_trends_query("day")),
                 None,
-                InsightResult(result=live, last_refresh=None, cache_key=None, is_cached=False, timezone=None),
+                InsightResult(result=live, last_refresh=None, cache_key=None, is_cached=is_cached, timezone=None),
                 alert_kind="threshold",
             )
 
         [properties] = _shadow_events(capture)
         assert (properties["outcome"], properties["reason"]) == ("unavailable", "no_live_result")
+        assert properties["live_cached"] is is_cached
         assert self._jobs() == 0
 
     @parameterized.expand(

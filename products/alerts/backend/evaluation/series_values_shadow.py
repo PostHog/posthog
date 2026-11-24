@@ -151,7 +151,14 @@ def compare_series_values_shadow(
     except Exception as err:
         logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
         comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
-    _record(alert, alert_kind, "trends", comparison, duration_seconds=time.monotonic() - started)
+    _record(
+        alert,
+        alert_kind,
+        "trends",
+        comparison,
+        duration_seconds=time.monotonic() - started,
+        live_cached=calculation_result.is_cached,
+    )
 
 
 def record_unsupported_insight_kind(alert: AlertConfiguration, insight_kind: str) -> None:
@@ -178,6 +185,7 @@ def _record(
     comparison: ShadowComparison,
     *,
     duration_seconds: float | None,
+    live_cached: bool | None = None,
 ) -> None:
     try:
         _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome, insight_kind=insight_kind).inc()
@@ -199,6 +207,7 @@ def _record(
                 "insight_kind": insight_kind,
                 "duration_ms": None if duration_seconds is None else round(duration_seconds * 1000),
                 "freshly_built": comparison.freshly_built,
+                "live_cached": live_cached,
             },
             groups=groups(team.organization, team),
         )
