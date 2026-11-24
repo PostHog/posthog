@@ -127,6 +127,14 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
+def _reads_only(key: object, restricted_keys: frozenset[str]) -> bool:
+    """Whether a filter on this key reads only that key, and the key overlaps no restricted key."""
+    # An empty key reads the whole properties blob. A $virt_ key is computed from other properties.
+    if not isinstance(key, str) or not key or key.startswith("$virt_"):
+        return False
+    return not key_read_overlaps_restriction(key, restricted_keys)
+
+
 def reject_audience_reading_restricted_properties(team: Team, filters: dict, user: Optional[User]) -> None:
     """
     Refuse an audience whose preview would count different people than the send reaches.
@@ -153,11 +161,10 @@ def reject_audience_reading_restricted_properties(team: Team, filters: dict, use
             # type, so the stored cohort decides. A precalculated cohort can be recalculated inline from its
             # filters, so it is not exempt.
             continue
-        if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), diff.person):
+        if prop.type == "person" and _reads_only(prop.key, diff.person):
             continue
         if prop.type == "group" and (
-            prop.key == "$group_key"
-            or not key_read_overlaps_restriction(str(prop.key), diff.group_property_names(prop.group_type_index))
+            prop.key == "$group_key" or _reads_only(prop.key, diff.group_property_names(prop.group_type_index))
         ):
             continue
         raise exceptions.ValidationError(RESTRICTED_AUDIENCE_PROPERTY)

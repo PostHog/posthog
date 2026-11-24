@@ -423,6 +423,12 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
             ("filter_on_the_restricted_property", [EMAIL_FILTER], True),
             ("hogql_filter", [{"type": "hogql", "key": "1 = 1"}], True),
             ("filter_on_an_allowed_property", [{"key": "plan", "type": "person", "value": "pro"}], False),
+            ("filter_on_the_whole_properties_blob", [{"key": "", "type": "person", "value": "a"}], True),
+            (
+                "filter_on_a_virtual_property",
+                [{"key": "$virt_initial_channel_type", "type": "person", "value": "a"}],
+                True,
+            ),
             ("no_filters", [], False),
         ]
     )
