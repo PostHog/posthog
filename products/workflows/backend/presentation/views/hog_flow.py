@@ -5636,6 +5636,7 @@ class HogFlowViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_flow"
+    request_dependent_scope_actions = frozenset({"user_blast_radius"})
     scope_object_read_actions = [
         "list",
         "retrieve",
