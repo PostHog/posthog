@@ -187,11 +187,9 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
 
 export interface PlatformAlertListRow {
     configuration: PlatformAlertConfigurationApi
-    // Null on the alert's own row. Set on a row for one of its groups.
     group: PlatformAlertApi | null
 }
 
-// The list's rows: each alert, then its groups when a person opened it.
 export function configurationListRows(
     configurations: readonly PlatformAlertConfigurationApi[],
     expandedIds: readonly string[]
