@@ -4,6 +4,8 @@ import { JSONContent, RichContentNode, RichContentNodeType } from 'lib/component
 
 import { UserBasicType, WithAccessControl } from '~/types'
 
+import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
+
 import type { NotebookNodeLogicProps } from './Nodes/notebookNodeLogic'
 
 export type NotebookListItemType = {
@@ -29,7 +31,8 @@ export type NotebookParentResource = {
     id: string
 }
 
-export type NotebookType = NotebookListItemType &
+export type NotebookType = Pick<NotebookApi, 'app_draft' | 'app_published'> &
+    NotebookListItemType &
     WithAccessControl & {
         content: JSONContent | null
         version: number

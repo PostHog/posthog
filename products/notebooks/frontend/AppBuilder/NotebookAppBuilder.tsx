@@ -317,6 +317,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                 <div className={editing ? 'NotebookAppBuilder__workspace' : ''}>
                     {editing && (
                         <NotebookAppPalette
+                            shortId={shortId}
                             cells={cells}
                             variables={variables}
                             onAdd={addBlock}

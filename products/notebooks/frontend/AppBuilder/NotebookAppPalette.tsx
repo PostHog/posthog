@@ -8,14 +8,17 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { appCellTitle } from './notebookAppLayout'
+import { NotebookLaunchReviewStarter } from './NotebookLaunchReviewStarter'
 
 export function NotebookAppPalette({
+    shortId,
     cells,
     variables,
     onAdd,
     onAddCell,
     onUseNotebook,
 }: {
+    shortId: string
     cells: NotebookBlockNode[]
     variables: NotebookVariable[]
     onAdd: (kind: NotebookAppBlockApi['kind'], patch?: Partial<NotebookAppBlockApi>) => void
@@ -29,6 +32,7 @@ export function NotebookAppPalette({
             className="NotebookAppBuilder__palette border rounded bg-surface-primary p-3 flex flex-col gap-3"
             aria-label="App components"
         >
+            <NotebookLaunchReviewStarter shortId={shortId} />
             <h3 className="m-0">Components</h3>
             <div className="flex flex-wrap gap-2">
                 <LemonButton

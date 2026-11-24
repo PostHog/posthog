@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -10,9 +12,44 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNotebookRegistry'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
+import { notebookFunnel } from './launchReview'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
+
+function FunnelRecordingsButton({ cell }: { cell: NotebookBlockNode }): JSX.Element | null {
+    const funnel = notebookFunnel(cell)
+    if (!funnel) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            className="mb-3"
+            data-attr="notebook-app-dropoff-recordings"
+            onClick={async () => {
+                posthog.capture('notebook app drop-off recordings opened', { step_count: funnel.series.length })
+                const { openPersonsModal } = await import('scenes/trends/persons-modal/PersonsModal')
+                openPersonsModal({
+                    title: 'People who dropped off at the final step',
+                    query: {
+                        kind: NodeKind.FunnelsActorsQuery,
+                        source: funnel,
+                        funnelStep: -funnel.series.length,
+                        includeRecordings: true,
+                    },
+                    additionalSelect: { matched_recordings: 'matched_recordings' },
+                })
+            }}
+        >
+            View drop-off recordings
+        </LemonButton>
+    )
+}
 
 export function NotebookAppBlock({
     block,
@@ -104,27 +141,33 @@ export function NotebookAppBlock({
                     <code>{source}</code>
                 </pre>
             ) : null}
-            {block.display !== 'source' &&
-                (renderOutput?.(cell) ?? (
-                    <ComponentPanelContext.Provider
-                        value={{
-                            componentPanels: { filters: false, results: true },
-                            showEditPanel: false,
-                            showViewPanel: true,
-                            outputOnly: true,
-                        }}
-                    >
-                        <MarkdownNotebook
-                            value={appCellMarkdown(cell)}
-                            onChange={
-                                canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined
-                            }
-                            registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                            mode="view"
-                            className="NotebookAppBuilder__cell"
-                        />
-                    </ComponentPanelContext.Provider>
-                ))}
+            {block.display !== 'source' && (
+                <>
+                    <FunnelRecordingsButton cell={cell} />
+                    {renderOutput?.(cell) ?? (
+                        <ComponentPanelContext.Provider
+                            value={{
+                                componentPanels: { filters: false, results: true },
+                                showEditPanel: false,
+                                showViewPanel: true,
+                                outputOnly: true,
+                            }}
+                        >
+                            <MarkdownNotebook
+                                value={appCellMarkdown(cell)}
+                                onChange={
+                                    canInteract && onCellOutput
+                                        ? (markdown) => onCellOutput(cell.id, markdown)
+                                        : undefined
+                                }
+                                registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                                mode="view"
+                                className="NotebookAppBuilder__cell"
+                            />
+                        </ComponentPanelContext.Provider>
+                    )}
+                </>
+            )}
         </div>
     )
 }

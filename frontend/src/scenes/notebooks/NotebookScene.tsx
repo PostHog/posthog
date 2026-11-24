@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconApps, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -15,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -52,6 +53,30 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
     paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }) => ({
         shortId: shortId || 'missing',
     }),
+}
+
+function NotebookAppEntry({ shortId }: { shortId: string }): JSX.Element | null {
+    const logic = notebookLogic({ shortId, target: NotebookTarget.Scene })
+    const { notebook, canEditNotebook, isLocalOnly } = useValues(logic)
+    const { saveNotebookNow } = useActions(logic)
+    if (!notebook || !canEditNotebook || notebook.is_template || isLocalOnly) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            icon={<IconApps />}
+            data-attr="notebook-header-app-builder"
+            onClick={() => {
+                saveNotebookNow()
+                router.actions.push(urls.notebook(shortId), { view: 'builder' })
+            }}
+        >
+            {notebook.app_draft || notebook.app_published ? 'App builder' : 'Create app'}
+        </LemonButton>
+    )
 }
 
 export function NotebookScene(): JSX.Element {
@@ -157,6 +182,9 @@ export function NotebookScene(): JSX.Element {
                     {!todayRailEnabled && <SceneBreadcrumbBackButton />}
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] && searchParams.view !== 'builder' && (
+                        <NotebookAppEntry shortId={notebookId} />
+                    )}
                     <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
                         <NotebookVariablesButton type="tertiary" size="small" />
                         <NotebookRunAllButton type="tertiary" size="small" />
