@@ -42,6 +42,8 @@ from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
 from .webhook_setup import ExternalDataSourceWebhookSetupMixin
 
+ACTIONS_WITHOUT_SCHEMA_COLUMNS = frozenset({"list", "jobs"})
+
 
 class ExternalDataSourceExistsSerializer(serializers.Serializer):
     exists = serializers.BooleanField(help_text="Whether the project has any accessible external data sources.")
@@ -64,7 +66,7 @@ class ExternalDataSourceReadQuerySerializer(serializers.Serializer):
         help_text=(
             "Return source health only: id, created_at, source_type, prefix, description, access_method, status, "
             "latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, "
-            "latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
+            "last_checked_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out."
         ),
     )
     include_schemas = serializers.BooleanField(
@@ -164,6 +166,15 @@ class ExternalDataSourceViewSet(
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        scopes = super().dangerously_get_required_scopes(request, view)
+        if scopes is not None:
+            return scopes
+        # `destinations` reads on GET and writes on PATCH; the action lists can only pick one.
+        if self.action == "destinations" and request.method == "GET":
+            return ["external_data_source:read"]
+        return None
+
     @extend_schema(responses=ExternalDataSourceExistsSerializer)
     @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
     def exists(self, request: Request, **kwargs: object) -> Response:
@@ -198,6 +209,7 @@ class ExternalDataSourceViewSet(
                 "sync_type",
                 "latest_error",
                 "last_synced_at",
+                "last_checked_at",
                 "table_id",
                 "table__row_count",
                 "table__deleted",
@@ -296,7 +308,11 @@ class ExternalDataSourceViewSet(
         # Building the full HogQL Database and serializing per-schema table columns is expensive
         # and only needed when a caller reads `schemas[].table.columns` — which the source list view
         # never does (it only reads name/row_count). Gate both to single-source reads.
-        include_columns = self.action != "list" and not read_query["compact"] and read_query["include_schemas"]
+        include_columns = (
+            self.action not in ACTIONS_WITHOUT_SCHEMA_COLUMNS
+            and not read_query["compact"]
+            and read_query["include_schemas"]
+        )
         context["include_columns"] = include_columns
         # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
         context["schemas_list_only"] = self.action == "list"

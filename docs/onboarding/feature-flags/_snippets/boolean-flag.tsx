@@ -37,19 +37,19 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         'node.js': dedent`
-            const isFeatureFlagEnabled = await client.isFeatureEnabled('flag-key', 'distinct_id_of_your_user')
-            if (isFeatureFlagEnabled) {
+            const flags = await client.evaluateFlags('distinct_id_of_your_user', { flagKeys: ['flag-key'] })
+            if (flags.isEnabled('flag-key')) {
                 // Your code if the flag is enabled
                 // Optional: fetch the payload
-                const matchedFlagPayload = await client.getFeatureFlagPayload('flag-key', 'distinct_id_of_your_user', isFeatureFlagEnabled)
+                const matchedFlagPayload = flags.getFlagPayload('flag-key')
             }
         `,
         python: dedent`
-            is_my_flag_enabled = posthog.feature_enabled('flag-key', 'distinct_id_of_your_user')
-            if is_my_flag_enabled:
+            flags = posthog.evaluate_flags('distinct_id_of_your_user', flag_keys=['flag-key'])
+            if flags.is_enabled('flag-key'):
                 # Do something differently for this user
                 # Optional: fetch the payload
-                matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+                matched_flag_payload = flags.get_flag_payload('flag-key')
         `,
         php: dedent`
             $isMyFlagEnabledForUser = PostHog::isFeatureEnabled('flag-key', 'distinct_id_of_your_user')
@@ -66,15 +66,18 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             end
         `,
         go: dedent`
-            isMyFlagEnabled, err := client.IsFeatureEnabled(posthog.FeatureFlagPayload{
-                Key:        "flag-key",
+            flags, err := client.EvaluateFlags(posthog.EvaluateFlagsPayload{
                 DistinctId: "distinct_id_of_your_user",
+                FlagKeys:   []string{"flag-key"},
             })
             if err != nil {
                 // Handle error (e.g. capture error and fallback to default behaviour)
             }
-            if isMyFlagEnabled == true {
+            if flags != nil && flags.IsEnabled("flag-key") {
                 // Do something differently for this user
+                // Optional: fetch the payload
+                matchedFlagPayload := flags.GetFlagPayload("flag-key")
+                _ = matchedFlagPayload
             }
         `,
         dotnet: dedent`

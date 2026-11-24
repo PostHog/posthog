@@ -33,7 +33,8 @@ GUARANTEE_QUEUE = (
 GUARANTEE_LEDGER_MATCHES_MASTER = "After the landings, the ledger holds the picture the default branch renders"
 GUARANTEE_ONLY_RENDERED_PICTURES = "No approval is promoted for a picture that no landed queue run rendered"
 CHECK_RESTACK = (
-    "A restacked layer keeps its approval only when the approval was made over the picture the ledger now holds"
+    "A restacked layer keeps its approval only when the approval was made over the picture the ledger now holds, "
+    "or over an open layer below whose approval still counts"
 )
 GUARANTEE_UNRELATED_NOT_BOTH = (
     "Two unrelated pull requests with different pictures never both land unless the second approved again "
@@ -52,9 +53,14 @@ REASON_RESTACK_NOT_APPROVED_YET = "the layer has no approval yet, so its restack
 REASON_RESTACK_APPROVED_OVER_LEDGER = (
     "the approval was made over the picture the ledger now holds, so it still applies after the restack"
 )
-REASON_RESTACK_APPROVED_OVER_UNLANDED_LAYER = (
-    "the approval was made over the picture of a layer below that has not landed, which the ledger does not "
-    "hold yet, so the restacked run asks for a new approval"
+REASON_RESTACK_APPROVED_OVER_OPEN_LAYER = (
+    "the approval was made over the picture of an open layer below whose approval still counts, so it chains on "
+    "that approval and still applies after the restack"
+)
+# Accepted: `_stack_tip` needs the approved commits in the commit graph, and a restack leaves them out.
+REASON_RESTACK_NO_HASH_LINK = (
+    "the approval was made over the ledger picture while an approved layer below it was not in its tree, so after "
+    "the restack both approvals apply with no hash link between them, and the restacked run asks for a new approval"
 )
 REASON_RESTACK_APPROVED_OVER_OLD_BASELINE = (
     "the approval was made over the baseline from before the layer below landed, so the restacked run asks for "
@@ -111,6 +117,7 @@ class OrderPlayer:
         self.picture_below_at_run: dict[str, str] = {}
         self.approved_pictures: dict[str, set[str]] = {layer.name: set() for layer in scenario.layers}
         self.approved_after_a_landing: dict[str, set[str]] = {layer.name: set() for layer in scenario.layers}
+        self.approved_commits: dict[str, set[str]] = {layer.name: set() for layer in scenario.layers}
         self.approved_over: dict[str, str] = {}
         self.restacks: list[RestackCheck] = []
         self.attempts: list[QueueAttempt] = []
@@ -148,13 +155,19 @@ class OrderPlayer:
             below = self.scenario.layer(below).stacked_on
         return frozenset(names)
 
-    # The baseline a reviewer sees under a layer: the picture up to the highest layer below it that has an
-    # approval or has landed, otherwise what the default branch held at the branch's merge base.
+    def _approval_in_tree(self, name: str, sha: str) -> bool:
+        ancestors = self.git.ancestors(sha)
+        return bool(self.approved_pictures[name]) and (
+            self.heads[name] in ancestors or bool(self.approved_commits[name] & ancestors)
+        )
+
+    # The baseline a reviewer sees under a layer: the picture up to the highest layer below it that landed or
+    # whose approval is in the tree, otherwise what the default branch held at the branch's merge base.
     def _picture_below(self, layer: Layer, sha: str) -> str:
         landed_in_tree = self.changes[sha] & self.master_changes
         below = layer.stacked_on
         while below is not None:
-            if self.approved_pictures[below] or below in self.landed:
+            if below in self.landed or self._approval_in_tree(below, sha):
                 return self._picture(self._chain(below) | landed_in_tree)
             below = self.scenario.layer(below).stacked_on
         return self._picture(landed_in_tree)
@@ -188,11 +201,17 @@ class OrderPlayer:
         if layer.name not in self.approved_over:
             return False, REASON_RESTACK_NOT_APPROVED_YET
         approved_over = self.approved_over[layer.name]
+        open_below = [
+            name
+            for name in self._chain(layer.name) - {layer.name}
+            if name not in self.landed and self.approved_pictures[name]
+        ]
         if approved_over == self._picture(self.master_changes):
+            if open_below:
+                return False, REASON_RESTACK_NO_HASH_LINK
             return True, REASON_RESTACK_APPROVED_OVER_LEDGER
-        unlanded_below = [name for name in self._chain(layer.name) - {layer.name} if name not in self.landed]
-        if any(approved_over == self._picture(self._chain(name)) for name in unlanded_below):
-            return False, REASON_RESTACK_APPROVED_OVER_UNLANDED_LAYER
+        if any(approved_over == self._picture(self._chain(name)) for name in open_below):
+            return True, REASON_RESTACK_APPROVED_OVER_OPEN_LAYER
         return False, REASON_RESTACK_APPROVED_OVER_OLD_BASELINE
 
     def restack(self, name: str) -> str:
@@ -226,6 +245,7 @@ class OrderPlayer:
             approvals.finalize_run(run_id=run.id, user_id=self.user.id, approve_all=True)
         picture = self._renders(run.commit_sha)["Button"]
         self.approved_pictures[name].add(picture)
+        self.approved_commits[name].add(run.commit_sha)
         self.approved_over[name] = self.picture_below_at_run[name]
         if self.landed:
             self.approved_after_a_landing[name].add(picture)

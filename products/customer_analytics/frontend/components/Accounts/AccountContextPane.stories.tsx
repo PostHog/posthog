@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -63,6 +65,24 @@ const RESPONSE = accountContextResponse([
         onset: '2026-11-10',
     },
     {
+        section: 'signal',
+        id: 'signal-renewal',
+        signal_type: 'renewal_window',
+        direction: 'down',
+        signal_state: 'open',
+        onset: '2026-11-01',
+    },
+    {
+        section: 'signal',
+        id: 'signal-spend',
+        signal_type: 'mrr_change',
+        direction: 'up',
+        signal_state: 'closed',
+        onset: '2026-08-20',
+        closed_on: '2026-09-12',
+        change: 0.4,
+    },
+    {
         section: 'slack',
         id: 'https://example.slack.com/archives/C000/p1',
         summary: 'The customer asked how to raise the flag request limit.',
@@ -81,6 +101,13 @@ const RESPONSE = accountContextResponse([
         to_id: 'fact-polling',
         relation: 'explains',
         link_source: 'explain',
+    },
+    {
+        section: 'link',
+        id: 'signal-spend',
+        to_id: 'fact-renewal',
+        relation: 'acts_on',
+        link_source: 'distiller',
     },
 ])
 
@@ -117,7 +144,17 @@ type Story = StoryObj<typeof AccountContextPane>
 
 export const Loaded: Story = {
     decorators: [mswDecorator({ post: { [RUN_ENDPOINT]: RESPONSE } })],
-    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="account-context-summary"]' } },
+    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="account-context-facts"]' } },
+}
+
+export const RecentlyClosedSignals: Story = {
+    decorators: [mswDecorator({ post: { [RUN_ENDPOINT]: RESPONSE } })],
+    parameters: { testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="account-context-facts"]' } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recently closed (1)'))
+        await canvas.findByText('Open 23 days')
+    },
 }
 
 export const NotSetUp: Story = {
@@ -136,6 +173,6 @@ export const Narrow: Story = {
     decorators: [mswDecorator({ post: { [RUN_ENDPOINT]: RESPONSE } })],
     parameters: {
         narrow: true,
-        testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="account-context-summary"]' },
+        testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="account-context-facts"]' },
     },
 }

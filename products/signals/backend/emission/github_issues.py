@@ -244,6 +244,7 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + PASSTHROUGH_FIELDS + AUTHOR_FIELDS,
     max_records=1000,
+    cursor_id_field="id",
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,
     actionability_context_fields=("author_login", "author_association"),

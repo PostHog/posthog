@@ -6793,6 +6793,16 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: PropertyGroupsMode | None = None
     pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionFilterGlobalJoin: bool | None = Field(
+        default=None,
+        description=(
+            "Filter the sessions join of an events query by its session property"
+            " filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once"
+            " instead of once per events shard. Applies only when every session filter"
+            " is an equality or `IN` against non-empty strings, which are false for an"
+            " event with no matching session."
+        ),
+    )
     sessionIdPushdown: bool | None = Field(
         default=None,
         description=(
@@ -36617,6 +36627,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(
