@@ -628,6 +628,7 @@ function DataTableVisualizationContent({
                 <SqlChart
                     className="p-3"
                     {...sqlChartData}
+                    chartInputFilters={props.context?.chartInputFilters}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}

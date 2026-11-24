@@ -30,8 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    UNSUPPORTED_AUTH_OPTION_ERROR,
     UNSUPPORTED_FILE_OPTION_ERROR,
     MongoResumeConfig,
+    UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
     _parse_connection_string,
     filter_mongo_incremental_fields,
@@ -80,6 +82,12 @@ _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "Your connection string sets tlsCertificateKeyFile or tlsCRLFile. These name files on your own "
     "machine, which PostHog can't read, so client certificate sign-in isn't supported. Remove them, "
     "sign in with a username and password, and try again."
+)
+
+_MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE = (
+    "Your connection string sets an authentication mechanism PostHog doesn't support. PostHog signs "
+    "in with the username and password in the connection string. Remove authMechanism and "
+    "authMechanismProperties, or set authMechanism=SCRAM-SHA-256, and try again."
 )
 
 _MONGO_GSSAPI_UNSUPPORTED_MESSAGE = (
@@ -333,6 +341,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+            UNSUPPORTED_AUTH_OPTION_ERROR: _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
             _GSSAPI_AUTH_UNSUPPORTED_MARKER: _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
@@ -600,6 +609,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except UnsupportedAuthOptionError:
+            return False, _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE
         except UnsupportedConnectionOptionError:
             return False, _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE
         except HostNotAllowedError:

@@ -63,7 +63,7 @@ export class ReleaseRegistry {
     let token: string | undefined
     do {
       const page = JSON.parse(await this.aws(destination, [
-        'list-images', '--no-paginate', '--max-results', '1000', '--output', 'json',
+        'list-images', '--filter', 'tagStatus=TAGGED', '--no-paginate', '--max-results', '1000', '--output', 'json',
         ...(token ? ['--next-token', token] : [])
       ])) as {imageIds?: {imageTag?: string; imageDigest?: string}[]; nextToken?: string}
       if (!Array.isArray(page.imageIds)) throw new Error(`${destination.repository}: invalid frontier page`)

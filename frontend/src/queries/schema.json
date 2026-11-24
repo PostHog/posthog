@@ -21739,6 +21739,12 @@
                         }
                     ]
                 },
+                "role_default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsRoleDefaultPinnedProperties"
+                    },
+                    "type": "array"
+                },
                 "signup_event": {
                     "anyOf": [
                         {
@@ -21791,6 +21797,22 @@
                 }
             },
             "required": ["kind", "id"],
+            "type": "object"
+        },
+        "CustomerAnalyticsRoleDefaultPinnedProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
+                "role_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["role_id", "pinned_properties"],
             "type": "object"
         },
         "DangerousOperationResponse": {
