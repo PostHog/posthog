@@ -444,7 +444,6 @@ export-shape	products.data_tools.backend.models.expression.DataWarehouseExpressi
 export-shape	products.data_tools.backend.models.join.DataWarehouseJoin	products.data_tools.backend.facade.models	export-denied(model)	1
 export-shape	products.data_tools.backend.models.query_tab_state.QueryTabState	products.data_tools.backend.facade.models	export-denied(model)	1
 export-shape	products.data_warehouse.backend.direct_query_engines.DirectQueryEngine	products.data_warehouse.backend.facade.api	export-shape(class)	1
-export-shape	products.data_warehouse.backend.logic.data_load.create_table.CreateTableResult	products.data_warehouse.backend.facade.api	export-shape(class)	1
 export-shape	products.data_warehouse.backend.logic.external_data_source.webhooks.WebhookDeletionSetupResult	products.data_warehouse.backend.facade.api	export-shape(class)	1
 export-shape	products.data_warehouse.backend.logic.external_data_source.webhooks.WebhookSetupResult	products.data_warehouse.backend.facade.api	export-shape(class)	1
 export-shape	products.data_warehouse.backend.logic.managed_warehouse_data_status.ManagedWarehouseDataStatus	products.data_warehouse.backend.facade.api	export-shape(class)	1
@@ -751,6 +750,7 @@ export-shape	products.workflows.backend.service_jwt.WORKFLOW_MESSAGE_OPT_OUT_PUR
 export-shape	products.workflows.backend.service_jwt.WORKFLOW_SCOUT_RUN_PURPOSE	products.workflows.backend.facade.service_jwt	export-unknown	1
 export-shape	products.workflows.backend.service_jwt.WORKFLOW_VISION_REQUEST_PURPOSE	products.workflows.backend.facade.service_jwt	export-unknown	1
 export-shape	typing.Any	products.ai_observability.backend.facade.evaluation_runtime	export-unknown	1
+export-shape	typing.Any	products.alerts.backend.facade.lazy_judge	export-unknown	1
 export-shape	typing.Any	products.customer_analytics.backend.facade.api	export-unknown	1
 export-shape	typing.Any	products.customer_analytics.backend.facade.max_tools	export-unknown	1
 export-shape	typing.Any	products.data_warehouse.backend.facade.api	export-unknown	1
@@ -1811,7 +1811,6 @@ facade-signature	products.warehouse_sources.backend.facade.live_queries	is_live_
 facade-signature	products.warehouse_sources.backend.facade.live_queries	live_only_access_ref	param:schema_row	products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema	1
 facade-signature	products.warehouse_sources.backend.facade.models	acreate_datawarehousetable	param:kwargs	typing.Any	1
 facade-signature	products.warehouse_sources.backend.facade.models	acreate_datawarehousetable	return	products.warehouse_sources.backend.models.table.DataWarehouseTable	1
-facade-signature	products.warehouse_sources.backend.facade.models	asave_datawarehousetable	param:table	products.warehouse_sources.backend.models.table.DataWarehouseTable	1
 facade-signature	products.warehouse_sources.backend.facade.models	auto_enable_new_schemas	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.warehouse_sources.backend.facade.models	clickhouse_column_to_dwh_column	return	typing.Any	1
 facade-signature	products.warehouse_sources.backend.facade.models	clickhouse_columns_to_dwh_columns	return	typing.Any	1
@@ -2223,6 +2222,7 @@ no-new-package-cycles	engineering_analytics	data_modeling	1
 no-new-package-cycles	engineering_analytics	signals	1
 no-new-package-cycles	engineering_analytics	warehouse_sources	1
 no-new-package-cycles	error_tracking	access_control	1
+no-new-package-cycles	error_tracking	alerts_platform	1
 no-new-package-cycles	error_tracking	cdp	1
 no-new-package-cycles	error_tracking	cohorts	1
 no-new-package-cycles	error_tracking	notifications	1
@@ -2957,7 +2957,6 @@ product-code-at-home	ai_observability	posthog.temporal.ai_observability.retries	
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_aggregate_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_session_evaluation	1
-product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_tagger	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.run_trace_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.sentiment	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.sentiment.constants	1
@@ -2983,7 +2982,6 @@ product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_ret
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_aggregate_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_session_evaluation	1
-product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_tagger	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_run_trace_evaluation	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_team_capture	1
 product-code-at-home	ai_observability	posthog.temporal.ai_observability.test_team_discovery	1
