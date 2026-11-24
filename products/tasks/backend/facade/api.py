@@ -62,6 +62,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, Team, User
@@ -252,6 +253,14 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.run_token_fencing import fence_ended_runs
+from products.tasks.backend.stale_runs import (
+    StaleRule,
+    WorkflowLiveness,
+    collect_stale_live_runs,
+    quiet_since_q,
+    runs_to_sweep,
+)
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -273,6 +282,8 @@ from products.tasks.backend.task_profiles import (
 )
 from products.tasks.backend.task_run_sync import (
     collect_status_mismatches,
+    done_mode,
+    keeps_done,
     repair_status_mismatches,
     sync_task_pr_urls,
     sync_task_status,
@@ -378,6 +389,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_stale_live_task_runs",
     "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
@@ -492,7 +504,10 @@ __all__ = [
     "claim_mobile_push_cooldown",
     "release_mobile_push_cooldown",
     "record_run_failure_cause",
+    "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
+    "sweep_stale_live_task_runs",
+    "fence_ended_task_runs",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -1895,6 +1910,8 @@ def get_stale_queued_task_run_ids(
     """
     now = django_timezone.now()
     stale = Q(updated_at__lt=now - older_than)
+    if environment == TaskRun.Environment.LOCAL:
+        stale &= Q(last_heartbeat_at__isnull=True) | Q(last_heartbeat_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
@@ -2127,6 +2144,54 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
             stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
         )
         for row in repair_status_mismatches()
+    ]
+
+
+def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
+    swept: Counter[str] = Counter()
+    workflows = WorkflowLiveness()
+    for run in runs_to_sweep():
+        try:
+            if run.rule == StaleRule.HEARTBEAT:
+                if workflows.is_running(run.workflow_id):
+                    continue
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run stopped responding, so it was ended.",
+                    error_type="stale_heartbeat",
+                    quiet_since=run.quiet_since,
+                )
+            else:
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run made no progress for a day, so it was ended.",
+                    error_type="stale_live_run",
+                    not_updated_since=run.not_written_since,
+                )
+        except Exception as error:
+            logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
+            capture_exception(error)
+            continue
+        if claimed:
+            swept[run.profile] += 1
+    return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
+    from products.tasks.backend.temporal.process_task.ai_gateway_token import revoke_scoped_token_hashes
+
+    return [
+        contracts.FencedRunTokensRow(profile=row.profile, outcome=row.outcome.value, count=row.count)
+        for row in fence_ended_runs(revoke_scoped_token_hashes)
+    ]
+
+
+def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
+    return [
+        contracts.StaleLiveRunRow(
+            profile=row.profile or "none", run_environment=row.environment, rule=row.rule.value, count=row.count
+        )
+        for row in collect_stale_live_runs()
     ]
 
 
@@ -2610,11 +2675,49 @@ def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bo
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
     try:
-        run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "task_id", "state").first()
+        run = (
+            TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
+            .only("id", "task_id", "team_id", "state")
+            .first()
+        )
         if run is not None:
             run.signal_client_activity()
     except Exception:
         logger.warning("Failed to signal client activity for task run %s", run_id)
+
+
+def _task_keeps_done(task: Task) -> bool:
+    return task.status == Task.Status.DONE and keeps_done(done_mode(task.profile, task.team_id))
+
+
+def record_local_task_run_heartbeat(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> Literal["recorded", "not_found", "not_live_local"]:
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "environment").first()
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("id", "team_id", "profile", "status").first()
+    if run is None or task is None:
+        return "not_found"
+    if run.environment != TaskRun.Environment.LOCAL:
+        return "not_live_local"
+    warm_done_mode(task)
+    with transaction.atomic():
+        locked_task = (
+            Task.objects.select_for_update().only("id", "team_id", "profile", "status", "state").get(pk=task.pk)
+        )
+        locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if not locked_run.matches_task_ownership(locked_task):
+            return "not_found"
+        if locked_run.status == TaskRun.Status.COMPLETED:
+            if wake_refusal(locked_task, source="local_run_heartbeat") is not None:
+                return "not_live_local"
+            locked_run.status = TaskRun.Status.QUEUED
+            locked_run.completed_at = None
+            locked_run.queued_at = django_timezone.now()
+            locked_run.save(update_fields=["status", "completed_at", "queued_at", "updated_at"])
+        elif locked_run.is_terminal or _task_keeps_done(locked_task):
+            return "not_live_local"
+        locked_run.record_client_heartbeat()
+    return "recorded"
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
@@ -2694,7 +2797,12 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
 
 
 def claim_and_fail_stale_run(
-    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+    run_id: str | UUID,
+    error: str,
+    error_type: str | None = None,
+    *,
+    not_updated_since: datetime | None = None,
+    quiet_since: datetime | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2711,6 +2819,8 @@ def claim_and_fail_stale_run(
     )  # nosemgrep: celery-task-team-scope-audit
     if not_updated_since is not None:
         claimable = claimable.filter(updated_at__lt=not_updated_since)
+    if quiet_since is not None:
+        claimable = claimable.filter(quiet_since_q(quiet_since))
     claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False
@@ -3313,6 +3423,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_startup_attempt",
         "agent_startup_success",
         "unprocessed_request_ids",
+        "gateway_token_hashes",
+        "gateway_token_revoke_pending",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -4632,12 +4744,19 @@ def validate_task_run_sandbox_token(
         claims = validate_sandbox_event_ingest_token(token)
     except (InvalidTokenError, ValueError):
         return False
-    return (
-        claims.run_id == str(run_id)
-        and claims.task_id == str(task_id)
-        and claims.team_id == team_id
-        and claims.sandbox_id == sandbox_id
-    )
+    if (
+        claims.run_id != str(run_id)
+        or claims.task_id != str(task_id)
+        or claims.team_id != team_id
+        or claims.sandbox_id != sandbox_id
+    ):
+        return False
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "status").first()
+    if run is not None and run.is_terminal:
+        from products.tasks.backend.metrics import observe_ended_run_credential_used
+
+        observe_ended_run_credential_used(surface="task_run_sandbox_token")
+    return True
 
 
 def issue_codex_subscription_access_grant(
