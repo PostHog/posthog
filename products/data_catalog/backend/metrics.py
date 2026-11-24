@@ -32,6 +32,7 @@ class DatabaseBuildTrigger(StrEnum):
     METRIC_ACCESS = "data_catalog_metric_access"
     USAGE_ACCESS = "data_catalog_usage_access"
     USAGE_TABLE_SOURCES = "data_catalog_usage_table_sources"
+    USAGE_TOPIC_READS = "data_catalog_usage_topic_reads"
     METRIC_LINEAGE = "data_catalog_metric_lineage"
     RELATIONSHIP_TABLES = "data_catalog_relationship_tables"
     RELATIONSHIP_PROBE = "data_catalog_relationship_probe"
