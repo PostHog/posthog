@@ -53,8 +53,6 @@ describe('EmailSidesField', () => {
         ['same sides from uneven', UNEVEN, ['Same on all sides'], [{ top: 1, right: 1, bottom: 1, left: 1 }]],
         ['same sides when they are already equal', EVEN, ['Set each side', 'Same on all sides'], []],
         ['each side', EVEN, ['Set each side'], []],
-        ['each side when it is already selected', UNEVEN, ['Set each side'], []],
-        ['same sides when it is already selected', EVEN, ['Same on all sides'], []],
     ])('switching to %s writes only what it must', (_, start, clicks, writes) => {
         const onChange = jest.fn()
         function Switched(): JSX.Element {

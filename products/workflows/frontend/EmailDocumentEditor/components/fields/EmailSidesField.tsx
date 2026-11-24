@@ -72,7 +72,6 @@ export function EmailSidesField({
                     )}
                     <LemonSegmentedButton
                         size="xsmall"
-                        className="shrink-0"
                         value={mode}
                         onChange={(next) => {
                             if (next === mode) {
