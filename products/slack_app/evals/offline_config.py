@@ -5,6 +5,15 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, dict[str, OfflineScorer]] = {
+    "daily_summary": {
+        "daily_summary_rank": OfflineScorer(kind="boolean", version=UUID("01a20812-34f2-7b87-8f71-e1526d57a727")),
+        "summary_covers": OfflineScorer(kind="numeric", version=UUID("01a20813-2f71-7465-a149-77450d2f39d4")),
+        "summary_omits_chatter": OfflineScorer(kind="boolean", version=UUID("01a20813-364e-7d6d-aded-84da2591cca0")),
+        "summary_voice": OfflineScorer(kind="boolean", version=UUID("01a20813-3c72-7d26-b6cd-2b63347abeb0")),
+        "summary_faithful": OfflineScorer(kind="boolean", version=UUID("01a20813-4297-7757-825e-9e94f065393a")),
+        "summary_intro_fits": OfflineScorer(kind="boolean", version=UUID("01a20ccb-1417-74de-a2de-c4f0e2e99a2d")),
+        "summary_not_clipped": OfflineScorer(kind="boolean", version=UUID("01a20ccb-1a2e-7ebe-98ce-f2f1f20c896c")),
+    },
     "feature_tip_picker": {
         "feature_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3104-7138-a33c-ab37d915ac6e")),
         "no_forced_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3589-7893-a06a-e0f1893d8a19")),
@@ -58,6 +67,10 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
     "untagged_question": {
         "untagged_question": OfflineScorer(kind="boolean", version=UUID("01a15a43-79f8-76bd-98ad-aaacc69b7059")),
         "no_unasked_answer": OfflineScorer(kind="boolean", version=UUID("01a15a43-8605-78ef-acf6-cc940d3876ab")),
+    },
+    "work_focus_handoff": {
+        "work_focus_keep": OfflineScorer(kind="boolean", version=UUID("01a20813-492d-7df6-9c54-2f4c7dbdf902")),
+        "no_handed_off_offer": OfflineScorer(kind="boolean", version=UUID("01a20813-4f01-7376-81b1-4933692bfb90")),
     },
 }
 

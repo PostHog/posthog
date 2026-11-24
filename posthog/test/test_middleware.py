@@ -2455,9 +2455,25 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
 
+    @parameterized.expand(
+        [
+            ("app_root", "get", "/", ""),
+            (
+                "page_with_query",
+                "get",
+                "/project/2/dashboard/5?date_from=-7d&tab=a",
+                "&next=/project/2/dashboard/5%3Fdate_from%3D-7d%26tab%3Da",
+            ),
+            ("share_link", "get", "/shared/share-token", "&next=/shared/share-token"),
+            ("login_token_link", "get", "/agentic/login?token=one-time-token&team_id=2", ""),
+            ("oauth_callback", "get", "/toolbar_oauth/callback?code=one-time-code&state=signed-state", ""),
+            ("api_key_in_query", "get", "/api/projects/?Personal_API_Key=not-a-real-key", ""),
+            ("form_post", "post", "/project/2/dashboard/5", ""),
+        ]
+    )
     @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_session_expires_after_total_time(self, mock_time):
+    def test_session_expires_after_total_time(self, _name, method, path, expected_next, mock_time):
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -2468,12 +2484,12 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
         # Move forward past total session age (101 seconds)
         mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
-        response = self.client.get("/")
+        response = getattr(self.client, method)(path)
         # Should redirect to login
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             response.headers["Location"],
-            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
+            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again." + expected_next,
         )
 
     @time_machine.travel("2024-01-01 12:00:00", tick=False)
