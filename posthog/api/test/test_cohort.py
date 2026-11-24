@@ -77,7 +77,13 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
-from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.models.util import (
+    CLICKHOUSE_QUORUM_LOCKED_CODE,
+    CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
+    CohortErrorCode,
+    count_cohort_members,
+    list_cohort_member_ids,
+)
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -6613,7 +6619,7 @@ email@example.org,
         static_cohort.refresh_from_db()
         self.assertEqual(static_cohort.errors_calculating, expected_errors)
 
-    @parameterized.expand([(286,), (319,)])
+    @parameterized.expand([(CLICKHOUSE_QUORUM_LOCKED_CODE,), (CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,)])
     def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self, ch_error_code: int) -> None:
         from posthog.errors import InternalCHQueryError
 

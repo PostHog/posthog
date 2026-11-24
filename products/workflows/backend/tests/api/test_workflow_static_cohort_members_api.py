@@ -16,7 +16,11 @@ from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
-from products.cohorts.backend.models.util import count_cohort_members
+from products.cohorts.backend.models.util import (
+    CLICKHOUSE_QUORUM_LOCKED_CODE,
+    CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
+    count_cohort_members,
+)
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_static_cohort_members import (
     WorkflowStaticCohortMemberJWTAuthentication,
@@ -100,7 +104,7 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
             count_cohort_members(team_id=self.team.id, cohort_id=cohort_id or self.cohort.id, consistency="strong") == 0
         )
 
-    @parameterized.expand([(286,), (319,)])
+    @parameterized.expand([(CLICKHOUSE_QUORUM_LOCKED_CODE,), (CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,)])
     def test_returns_503_with_retry_after_when_replace_holds_quorum_lock(self, ch_error_code: int) -> None:
         Cohort.objects.filter(id=self.cohort.id).update(
             is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
