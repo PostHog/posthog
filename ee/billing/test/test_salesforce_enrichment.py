@@ -1,8 +1,10 @@
+import re
 import copy
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -38,6 +40,7 @@ from ee.billing.salesforce_enrichment.enrichment import (
     prepare_salesforce_update_data,
     query_salesforce_accounts_chunk_async,
     transform_harmonic_data,
+    write_account_updates,
 )
 from ee.billing.salesforce_enrichment.redis_cache import get_accounts_from_redis, store_accounts_in_redis
 
@@ -154,6 +157,7 @@ class TestExtractDomain(SimpleTestCase):
             ("   ", None, "whitespace only"),
             ("WWW.EXAMPLE.COM", "example.com", "uppercase with www"),
             ("https://www.example.com:443/path#fragment", "example.com", "full URL with all parts"),
+            ("HTTPS://EXAMPLE.COM/", "example.com", "uppercase scheme"),
         ]
     )
     def test_extract_domain(self, input_url, expected, description):
@@ -1111,7 +1115,7 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
 
         _, sent = await self._enrich_example_com_with_a_description(
-            accounts, [{"Id": account["Id"], **empty} for account in accounts]
+            accounts, [{"Id": account["Id"], **empty, "Website": account["Website"]} for account in accounts]
         )
 
         assert sent["001PARENT"]["Description"] == "Builds analytics tools."
@@ -1126,11 +1130,11 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
             {"Id": "001EMPTY", "Name": "Empty", "Domain__c": "example.com", "Website": "https://example.com"},
             {"Id": "001SELLER", "Name": "Seller", "Domain__c": "example.com", "Website": "https://example.com"},
         ]
-        empty = dict.fromkeys(ACCOUNT_FILL_FIELDS)
+        current = {**dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": "https://example.com"}
 
         result, _ = await self._enrich_example_com_with_a_description(
             accounts,
-            [{"Id": "001EMPTY", **empty}, {"Id": "001SELLER", **empty, "Description": "Text that a seller wrote."}],
+            [{"Id": "001EMPTY", **current}, {"Id": "001SELLER", **current, "Description": "Text that a seller wrote."}],
         )
 
         returned = {account["Id"]: account for account in result["updated_salesforce_accounts"]}
@@ -1165,12 +1169,33 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         assert result["records_icp_fit_evaluated"] == 2
 
 
-def _query_returning_selected_fields(records: list[dict[str, Any]]) -> MagicMock:
-    def query_all(soql: str) -> dict[str, Any]:
-        selected = soql.removeprefix("SELECT ").split(" FROM ")[0].split(", ")
-        return {"records": [{field: record.get(field) for field in selected} for record in records]}
+class _FakeSalesforce:
+    def __init__(self, accounts: list[dict[str, Any]]):
+        self.accounts = {account["Id"]: dict(account) for account in accounts}
+        self.read_account_ids: list[list[str]] = []
+        self.on_write: Callable[[str], None] = lambda _account_id: None
 
-    return MagicMock(side_effect=query_all)
+    def query_all(self, soql: str) -> dict[str, Any]:
+        selected = soql.removeprefix("SELECT ").split(" FROM ")[0].split(", ")
+        account_ids = re.findall(r"'([^']+)'", soql.split(" WHERE ", 1)[1])
+        self.read_account_ids.append(account_ids)
+        return {
+            "records": [
+                {field: self.accounts[account_id].get(field) for field in selected}
+                for account_id in account_ids
+                if account_id in self.accounts
+            ]
+        }
+
+    def restful(self, _path: str, *, method: str, json: dict[str, Any]) -> list[dict[str, bool]]:
+        for record in json["records"]:
+            self.accounts[record["Id"]].update(record)
+            self.on_write(record["Id"])
+        return [{"success": True} for _ in json["records"]]
+
+
+def _query_returning_selected_fields(records: list[dict[str, Any]]) -> MagicMock:
+    return MagicMock(side_effect=_FakeSalesforce(records).query_all)
 
 
 class TestChunkEnrichment(SimpleTestCase):
@@ -1195,14 +1220,13 @@ class TestChunkEnrichment(SimpleTestCase):
         normal_company: dict[str, Any] | None = None,
         score_icp_fit: bool = False,
         load_lists: MagicMock | None = None,
-        cached_accounts: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         with (
             mock_harmonic_client() as mock_client,
             patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
             patch(
                 "ee.billing.salesforce_enrichment.enrichment.get_accounts_from_redis",
-                new=AsyncMock(return_value=cached_accounts or self.CACHED_ACCOUNTS),
+                new=AsyncMock(return_value=self.CACHED_ACCOUNTS),
             ),
             patch("ee.billing.salesforce_enrichment.enrichment.posthoganalytics.capture"),
             patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
@@ -1263,6 +1287,7 @@ class TestChunkEnrichment(SimpleTestCase):
             **dict.fromkeys(ACCOUNT_FILL_FIELDS),
             "Description": "Builds older tools.",
             DESCRIPTION_MIRROR_FIELD: "Builds older tools.",
+            "Website": "https://example.com",
         }
 
         _, records = await self._run_chunk(
@@ -1271,24 +1296,19 @@ class TestChunkEnrichment(SimpleTestCase):
         )
 
         assert records["001NORMAL"]["Description"] == "Builds analytics tools."
+        assert records["001NORMAL"][DESCRIPTION_MIRROR_FIELD] == "Builds analytics tools."
 
     @parameterized.expand(
-        [("root", "https://example.com", True), ("page_below_root", "https://example.com/acme", False)]
+        [("unchanged_root", "https://example.com", True), ("now_a_profile_page", "https://example.com/acme", False)]
     )
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00Z", tick=False)
-    async def test_chunk_fills_description_only_for_a_root_account_website(
-        self, _name: str, website: str, filled: bool
+    async def test_chunk_checks_description_against_the_current_website_not_the_cached_one(
+        self, _name: str, current_website: str, filled: bool
     ) -> None:
-        cached_accounts = [
-            {**account, "Website": website} if account["Id"] == "001NORMAL" else account
-            for account in self.CACHED_ACCOUNTS
-        ]
-        current_values = [{"Id": "001NORMAL", **dict.fromkeys(ACCOUNT_FILL_FIELDS)}]
+        current_values = {"Id": "001NORMAL", **dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": current_website}
 
-        _, records = await self._run_chunk(
-            MagicMock(return_value={"records": current_values}), cached_accounts=cached_accounts
-        )
+        _, records = await self._run_chunk(_query_returning_selected_fields([current_values]))
 
         assert ("Description" in records["001NORMAL"]) is filled
 
@@ -1300,8 +1320,9 @@ class TestChunkEnrichment(SimpleTestCase):
         normal_record = records["001NORMAL"]
         assert normal_record["harmonic_company_name__c"] == "Example Corp"
         assert normal_record["Total_Funding__c"] == 900000000
-        for fill_field in ACCOUNT_FILL_FIELDS:
+        for fill_field in (*ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD):
             assert fill_field not in normal_record
+        assert records["001SUB"] == prepare_mirror_clearing_data("001SUB")
 
     @parameterized.expand([("salesforce_connection_fails", True), ("account_query_fails", False)])
     @pytest.mark.asyncio
@@ -1476,10 +1497,63 @@ class TestAddUnoccupiedFillFields(SimpleTestCase):
         sf.query_all.side_effect = query_all
 
         with patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"):
-            add_unoccupied_fill_fields(sf, update_records, dict.fromkeys(account_ids, {"NumberOfEmployees": 120}))
+            add_unoccupied_fill_fields(
+                sf,
+                update_records,
+                dict.fromkeys(account_ids, {"NumberOfEmployees": 120}),
+                dict.fromkeys(account_ids, "example.com"),
+            )
 
         assert sf.query_all.call_count == 2
         assert sum(record.get("NumberOfEmployees") == 120 for record in update_records) == expected_filled
+
+    @parameterized.expand(
+        [
+            ("root", "https://example.com", True),
+            ("locale_landing_page", "https://example.com/en", True),
+            ("uppercase_scheme", "HTTPS://EXAMPLE.COM/", True),
+            ("page_below_root", "https://example.com/acme", False),
+            ("another_domain", "https://example.org", False),
+            ("no_website", None, False),
+        ]
+    )
+    def test_description_needs_a_current_root_website_on_the_queried_domain(
+        self, _name: str, website: str | None, filled: bool
+    ) -> None:
+        sf = _FakeSalesforce([{"Id": "001X", **dict.fromkeys(ACCOUNT_FILL_FIELDS), "Website": website}])
+        update_records: list[dict[str, Any]] = [{"Id": "001X"}]
+
+        add_unoccupied_fill_fields(
+            cast(Any, sf), update_records, {"001X": {"Description": "Builds analytics tools."}}, {"001X": "example.com"}
+        )
+
+        assert ("Description" in update_records[0]) is filled
+
+
+class TestWriteAccountUpdates(SimpleTestCase):
+    def test_an_edit_made_while_an_earlier_batch_is_written_is_kept(self) -> None:
+        job_copy = {"Description": "Builds older tools.", DESCRIPTION_MIRROR_FIELD: "Builds older tools."}
+        accounts: list[dict[str, Any]] = [
+            {"Id": account_id, **dict.fromkeys(ACCOUNT_FILL_FIELDS), **job_copy, "Website": "https://example.com"}
+            for account_id in ("001FIRST", "001SECOND")
+        ]
+        sf = _FakeSalesforce(accounts)
+
+        def seller_edits_the_second_account(written_account_id: str) -> None:
+            if written_account_id == "001FIRST":
+                sf.accounts["001SECOND"]["Description"] = "Text that a seller wrote."
+
+        sf.on_write = seller_edits_the_second_account
+        new_text = "Builds analytics tools."
+        update_records = [{"Id": account["Id"], DESCRIPTION_MIRROR_FIELD: new_text} for account in accounts]
+        fill_fields = {account["Id"]: {"Description": new_text} for account in accounts}
+
+        with patch("ee.billing.salesforce_enrichment.enrichment.SALESFORCE_UPDATE_BATCH_SIZE", 1):
+            write_account_updates(cast(Any, sf), update_records, fill_fields, dict.fromkeys(fill_fields, "example.com"))
+
+        assert sf.accounts["001FIRST"]["Description"] == new_text
+        assert sf.accounts["001SECOND"]["Description"] == "Text that a seller wrote."
+        assert sf.read_account_ids == [["001FIRST"], ["001SECOND"]]
 
 
 class TestValuesMatch(SimpleTestCase):

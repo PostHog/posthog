@@ -1,13 +1,6 @@
 from typing import Any
 
-from .harmonic_company import (
-    describes_company,
-    dict_field,
-    harmonic_headcount,
-    traction_latest,
-    website_domain,
-    website_path_is_root,
-)
+from .harmonic_company import describes_company, dict_field, harmonic_headcount, traction_latest, website_domain
 
 # Account.Industry picklist values, read from the Salesforce org on 2026-10-09. The picklist is not restricted, so
 # Salesforce accepts any string. Writes are held to these values to keep stray spellings out of the field.
@@ -216,10 +209,9 @@ def account_description(description: object) -> str | None:
     return description.strip()[:HARMONIC_DESCRIPTION_MAX_LENGTH] or None
 
 
-def _description_for_account(company: dict[str, Any], queried_domain: str, account_website: str | None) -> str | None:
-    # A filled Description is never cleared, so it takes text only from a record on the queried domain,
-    # and only for an Account whose own website is a site root rather than one page of a shared host.
-    if not account_website or website_domain(company) != queried_domain or not website_path_is_root(account_website):
+def _description_on_queried_domain(company: dict[str, Any], queried_domain: str) -> str | None:
+    # A filled Description is never cleared, so it takes text only from a record on the queried domain.
+    if website_domain(company) != queried_domain:
         return None
     return account_description(company.get("description"))
 
@@ -234,19 +226,18 @@ def overwritten_account_fields(company: dict[str, Any]) -> dict[str, Any]:
     return {field: value for field, value in fields.items() if value is not None}
 
 
-def fill_only_account_fields(
-    company: dict[str, Any], *, queried_domain: str, account_website: str | None
-) -> dict[str, Any]:
+def fill_only_account_fields(company: dict[str, Any], *, queried_domain: str) -> dict[str, Any]:
     """The canonical Account fields that take Harmonic's value only while the Account holds none.
 
     Other writers also set these fields, and a different value from Harmonic is not evidence that theirs is wrong.
-    Pass the result through unoccupied_fields() with the Account's current values before it is written.
+    Pass the result through add_unoccupied_fill_fields() in enrichment.py before it is written. That function reads
+    the Account's current values and checks its current Website for Description.
     """
     fields = {
         "NumberOfEmployees": harmonic_headcount(company),
         "Industry": account_industry(company),
         "Company_LinkedIn__c": _linkedin_url(company, queried_domain),
-        "Description": _description_for_account(company, queried_domain, account_website),
+        "Description": _description_on_queried_domain(company, queried_domain),
         **_linkedin_headcounts(company),
     }
     return {field: value for field, value in fields.items() if value is not None}

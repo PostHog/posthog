@@ -39,12 +39,8 @@ def _company(**overrides: Any) -> dict[str, Any]:
     return company
 
 
-def _fill_fields(company: dict[str, Any], account_website: str | None = f"https://{DOMAIN}") -> dict[str, Any]:
-    return fill_only_account_fields(company, queried_domain=DOMAIN, account_website=account_website)
-
-
 def _fields(company: dict[str, Any], account: dict[str, Any] | None = None) -> dict[str, Any]:
-    fill_fields = _fill_fields(company)
+    fill_fields = fill_only_account_fields(company, queried_domain=DOMAIN)
     return {**overwritten_account_fields(company), **unoccupied_fields(fill_fields, {"Id": "001X", **(account or {})})}
 
 
@@ -201,7 +197,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
         assert _fields(_company(**overrides), {"NumberOfEmployees": None})["NumberOfEmployees"] == expected
 
     def test_every_fill_only_field_is_read_before_the_write(self) -> None:
-        assert set(_fill_fields(_company())) == set(ACCOUNT_FILL_FIELDS)
+        assert set(fill_only_account_fields(_company(), queried_domain=DOMAIN)) == set(ACCOUNT_FILL_FIELDS)
 
     def test_zero_headcount_is_not_written(self) -> None:
         company = _company(headcount=0, tractionMetrics={"headcount": {"latestMetricValue": 0}})
@@ -221,19 +217,6 @@ class TestCanonicalAccountFields(SimpleTestCase):
         fields = _fields(_company(website=website), {"Company_LinkedIn__c": None, "Description": None})
         assert ("Company_LinkedIn__c" in fields) is written
         assert ("Description" in fields) is written
-
-    @parameterized.expand(
-        [
-            ("root", "https://example.com/", True),
-            ("locale_landing_page", "https://example.com/en", True),
-            ("profile_on_a_shared_host", "https://example.com/acme", False),
-            ("no_website", None, False),
-        ]
-    )
-    def test_description_needs_a_root_account_website(
-        self, _name: str, account_website: str | None, written: bool
-    ) -> None:
-        assert ("Description" in _fill_fields(_company(), account_website)) is written
 
     @parameterized.expand([("blank", "   "), ("missing", None)])
     def test_description_without_text_is_not_filled(self, _name: str, description: str | None) -> None:
