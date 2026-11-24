@@ -241,8 +241,10 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
         and not rules & _INTERNAL_HOST_RULES
     ):
         set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
+    # A transformation returns its payload to ingestion whatever it posts to chat.
     if (
-        requests.calls_out
+        content.type == "destination"
+        and requests.calls_out
         and requests.only_literal_fetches
         and not requests.raw_body
         and all(map(_is_chat_message_api, requests.literal_urls))

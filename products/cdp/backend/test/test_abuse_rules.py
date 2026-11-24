@@ -835,6 +835,15 @@ class TestAbuseRules(SimpleTestCase):
             ("plain_http", post_to("http://hooks.slack.com/services/x"), None),
             ("userinfo_before_the_host", post_to("https://hooks.slack.com@collector.example.net/x"), None),
             ("no_request", content(hog="return event", function_type="transformation", inputs={}), None),
+            (
+                "transformation_with_an_unreachable_chat_post",
+                content(
+                    hog="if (false) {\n  fetch('https://slack.com/api/chat.postMessage', {'body': {}})\n}\n"
+                    "event.properties.payload := inputs.payload\nreturn event",
+                    function_type="transformation",
+                ),
+                None,
+            ),
         ]
     )
     def test_malformed_payload_score_set_aside_for_chat_message_posts(
