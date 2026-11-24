@@ -5,7 +5,7 @@ import { LemonBanner, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { ACCURACY_CUTOFFS, confusionDateRange, percent } from '../onlinePerformance'
+import { ACCURACY_CUTOFFS, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
 import { SectionCard } from './SectionCard'
 
@@ -40,9 +40,14 @@ function Rate({
     )
 }
 
-/** People the champion flagged at the picked cutoff against what they really did, over the checked dates. */
+/** People the live model flagged at the picked cutoff against what they really did, over the frame's dates. */
 export function ConfusionMatrixCard(): JSX.Element {
-    const { pipeline, accuracyCutoff, championConfusion: confusion } = useValues(autoresearchPipelineLogic)
+    const {
+        pipeline,
+        accuracyCutoff,
+        accuracyFrameRows,
+        championConfusion: confusion,
+    } = useValues(autoresearchPipelineLogic)
     const { setAccuracyCutoff } = useActions(autoresearchPipelineLogic)
     const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
 
@@ -50,9 +55,11 @@ export function ConfusionMatrixCard(): JSX.Element {
         <SectionCard
             title="Who the model flagged"
             description={
-                confusion
-                    ? `People scored ${confusion.firstDate === confusion.lastDate ? 'on' : 'from'} ${confusionDateRange(confusion)}`
-                    : undefined
+                !confusion
+                    ? undefined
+                    : accuracyFrameRows.length > 1
+                      ? 'Counts are predictions, not unique people.'
+                      : `People scored on ${dayjs(confusion.lastDate).format('MMM D, YYYY')}`
             }
             actions={
                 <LemonSegmentedButton
