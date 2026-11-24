@@ -10,6 +10,7 @@ import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transfo
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
+import shippedGeoipSources from '../../../tests/fixtures/geoip-template-sources.json'
 import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { createTestTeamFixture } from '../../../tests/helpers/sql'
@@ -194,32 +195,40 @@ describe('HogTransformer', () => {
             `)
         })
 
-        it('enriches an event whose other properties are larger than the hog memory limit', async () => {
-            const geoIpFunction = createHogFunction({
-                type: 'transformation',
-                name: geoipTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                template_id: geoipTemplate.id,
-                hog: geoipTemplate.code,
-                bytecode: await compileHog(geoipTemplate.code),
-                execution_order: 1,
-            })
-            await insertHogFunction(hub.postgres, teamId, geoIpFunction)
-            const aiInput = 'x'.repeat(40 * 1024 * 1024)
+        it.each(
+            [
+                ...shippedGeoipSources.filter(({ eligible }) => eligible),
+                { shipped: 'as the current template', source: geoipTemplate.code },
+            ].filter(({ source }, index, all) => all.findIndex((other) => other.source === source) === index)
+        )(
+            'enriches an event whose other properties are larger than the hog memory limit (template shipped $shipped)',
+            async ({ source }) => {
+                const geoIpFunction = createHogFunction({
+                    type: 'transformation',
+                    name: geoipTemplate.name,
+                    team_id: teamId,
+                    enabled: true,
+                    template_id: geoipTemplate.id,
+                    hog: source.trim(),
+                    bytecode: await compileHog(source),
+                    execution_order: 1,
+                })
+                await insertHogFunction(hub.postgres, teamId, geoIpFunction)
+                const aiInput = 'x'.repeat(40 * 1024 * 1024)
 
-            const result = await hogTransformer.transformEventAndProduceMessages(
-                createPluginEvent({ properties: { $ip: '216.160.83.56', $ai_input: aiInput } }, teamId)
-            )
+                const result = await hogTransformer.transformEventAndProduceMessages(
+                    createPluginEvent({ properties: { $ip: '216.160.83.56', $ai_input: aiInput } }, teamId)
+                )
 
-            expect(result.invocationResults[0].error).toBeUndefined()
-            expect(result.event?.properties).toMatchObject({
-                $ai_input: aiInput,
-                $geoip_city_name: 'Milton',
-                $set: { $geoip_city_name: 'Milton' },
-                $set_once: { $initial_geoip_city_name: 'Milton' },
-            })
-        })
+                expect(result.invocationResults[0].error).toBeUndefined()
+                expect(result.event?.properties).toMatchObject({
+                    $ai_input: aiInput,
+                    $geoip_city_name: 'Milton',
+                    $set: { $geoip_city_name: 'Milton' },
+                    $set_once: { $initial_geoip_city_name: 'Milton' },
+                })
+            }
+        )
 
         it('should expose elements_chain from $elements_chain property', async () => {
             const fn = createHogFunction({

@@ -133,13 +133,13 @@ describe('geoipNoopResult', () => {
     ]
 
     it.each(
-        eligibleSources.flatMap(({ shipped, source }) =>
-            conditionCases.map((condition) => ({ ...condition, shipped, source }))
-        )
+        [...eligibleSources, { shipped: 'as the current template', eligible: true, source: currentSource }]
+            .filter(({ source }, index, all) => all.findIndex((other) => other.source === source) === index)
+            .flatMap(({ shipped, source }) => conditionCases.map((condition) => ({ ...condition, shipped, source })))
     )(
         'skipped is $skipped when $name, as both vms decide (template shipped $shipped)',
         async ({ source, properties, skipped }) => {
-            const fn = { hog: source, bytecode: bytecodeBySource.get(source) }
+            const fn = { hog: source, bytecode: await compileHog(source) }
             const onNode = await nodeVm.execute(createGeoipInvocation(fn, properties), {
                 functions: transformationFunctions,
             })
@@ -200,15 +200,17 @@ describe('geoipNoopResult', () => {
     ]
 
     it.each(
-        eligibleSources.flatMap(({ shipped, source }) =>
-            enrichmentCases.flatMap((enrichment) =>
-                (['node', 'rust'] as const).map((vm) => ({ ...enrichment, shipped, source, vm }))
+        [...eligibleSources, { shipped: 'as the current template', eligible: true, source: currentSource }]
+            .filter(({ source }, index, all) => all.findIndex((other) => other.source === source) === index)
+            .flatMap(({ shipped, source }) =>
+                enrichmentCases.flatMap((enrichment) =>
+                    (['node', 'rust'] as const).map((vm) => ({ ...enrichment, shipped, source, vm }))
+                )
             )
-        )
     )(
         'enriches an event with $name as a run on the full event does, on the $vm vm (template shipped $shipped)',
         async ({ source, properties, vm }) => {
-            const fn = { hog: source, bytecode: bytecodeBySource.get(source) }
+            const fn = { hog: source, bytecode: await compileHog(source) }
             const run = (invocation: CyclotronJobInvocationHogFunction) =>
                 vm === 'node'
                     ? nodeVm.execute(invocation, { functions: transformationFunctions })
