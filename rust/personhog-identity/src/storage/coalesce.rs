@@ -19,9 +19,6 @@ use crate::storage::IdentityStorage;
 
 static BATCH_CLIENT: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("batched"));
 
-/// A write that many calls can share. One inner storage call writes the
-/// items of every call in a batch and answers one outcome per item, in item
-/// order.
 #[async_trait]
 trait CoalescedWrite: Send + Sync + 'static {
     type Item: Clone + Send + Sync + 'static;
@@ -439,8 +436,6 @@ async fn run_batch<W: CoalescedWrite>(inner: Arc<dyn IdentityStorage>, batch: Ba
                 "Coalesced {} transaction failed; rerunning each call alone",
                 W::NAME
             );
-            // Concurrent, so that a rerun that waits on a lock delays only
-            // its own caller.
             let reruns = callers
                 .into_iter()
                 .filter(|pending| !pending.reply.is_closed())
@@ -593,7 +588,6 @@ mod tests {
             (storage, started_rx, release_tx)
         }
 
-        /// A lone call for `distinct_id` waits until the returned sender fires.
         fn hold_lone(&self, distinct_id: &'static str) -> oneshot::Sender<()> {
             let (release_tx, release_rx) = oneshot::channel();
             *self.held.lock().unwrap() = Some((distinct_id, release_rx));
@@ -691,8 +685,6 @@ mod tests {
             unimplemented!()
         }
 
-        /// Answers each id as mapped to the person its attach named, so a
-        /// caller can tell its own outcomes from another caller's.
         async fn attach_distinct_ids_batch(
             &self,
             attaches: &[PersonAttach],
@@ -885,8 +877,6 @@ mod tests {
         assert_eq!(uuids(&results[3]), vec![person_uuid(1, "c")]);
     }
 
-    // The paused clock fires the timeout as soon as every task is idle, so a
-    // rerun stuck behind the held one fails the test at once.
     #[tokio::test(start_paused = true)]
     async fn a_rerun_that_blocks_does_not_hold_back_the_other_reruns() {
         let (inner, started_rx, release_tx) =

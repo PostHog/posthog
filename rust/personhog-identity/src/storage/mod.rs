@@ -61,10 +61,8 @@ pub trait IdentityStorage: Send + Sync {
         distinct_ids: &[String],
     ) -> StorageResult<HashMap<String, AttachOutcome>>;
 
-    /// Several attaches in one statement, so that they share one commit.
-    /// Outcomes are in attach order, and each is the map that a lone
-    /// `attach_distinct_ids` call for that person returns. A (team_id,
-    /// distinct_id) key must not appear twice in one call.
+    /// Several attaches in one statement, with outcomes in attach order. A
+    /// (team_id, distinct_id) key must not appear twice in one call.
     async fn attach_distinct_ids_batch(
         &self,
         attaches: &[PersonAttach],

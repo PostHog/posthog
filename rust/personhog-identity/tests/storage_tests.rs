@@ -1269,9 +1269,8 @@ async fn a_batch_blocked_on_one_row_stops_waiting_at_the_lock_timeout() {
     ctx.cleanup().await.ok();
 }
 
-// Each wait ends before the lock timeout, so only the statement-wide cap
-// stops the batch. A slow runner can stretch one wait past the lock timeout,
-// which also ends the batch, so either timeout passes.
+// Each wait ends before the lock timeout, so only the statement-wide cap stops
+// the batch. A slow runner may hit the lock timeout instead, so either passes.
 #[tokio::test]
 async fn a_batch_that_waits_on_row_after_row_stops_at_the_statement_timeout() {
     let ctx = TestContext::new().await;
@@ -1511,10 +1510,8 @@ async fn the_outbox_holds_exactly_the_live_mappings_a_create_or_attach_added() {
         2
     );
 
-    // Batched attach across two teams that share a distinct id: each
-    // mapping's row names the person of its own team's attach. The id still
-    // live under its owner publishes nothing, and the revived one publishes
-    // at its bumped version.
+    // Batched attach across two teams that share a distinct id: each row
+    // names its own team's person, and only written mappings publish.
     let other_team = TestContext::new().await;
     let companion = other_team
         .insert_person_with_distinct_id("ob-batch-companion")

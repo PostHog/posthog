@@ -12,7 +12,6 @@ pub struct PersonStub {
     pub is_identified: bool,
 }
 
-/// Personless distinct ids to attach to one live person.
 #[derive(Debug, Clone)]
 pub struct PersonAttach {
     pub team_id: i64,

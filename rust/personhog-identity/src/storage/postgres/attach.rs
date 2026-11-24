@@ -136,20 +136,15 @@ pub(super) async fn attach_distinct_ids(
     Ok(outcomes)
 }
 
-/// Caps how long a batch waits for one row lock, and for all of them
-/// together. Every row's dead-person and mark checks read the snapshot that
-/// the statement takes when it starts. While the statement waits on a row of
-/// one call, a delete saga can mark and destroy the person of another call,
-/// which leaves a live mapping to a dead person. The caps keep that window
-/// short. A batch that times out reruns each call alone, and a lone call
-/// waits as long as it needs.
+/// Bounds one lock wait and the whole statement. Every row's guards read the
+/// statement's start snapshot, so a long wait lets a delete saga destroy
+/// another call's person before its mapping is written. A batch that times
+/// out reruns each call alone.
 const SET_BATCH_TIMEOUTS: &str = "SELECT set_config('lock_timeout', '100ms', true), \
      set_config('statement_timeout', '250ms', true)";
 
-/// The attaches of several persons in one statement, with the same guards
-/// and per-row outcomes as [`attach_distinct_ids`]. A batch of one attach
-/// takes that function's statement, which plans faster than the `unnest`
-/// join over person ids.
+/// [`attach_distinct_ids`] for several persons in one statement. A batch of
+/// one takes the single-person statement, which plans faster.
 pub(super) async fn attach_batch(
     pools: &IdentityPools,
     tables: &IdentityTables,
@@ -182,15 +177,11 @@ pub(super) async fn attach_batch(
         return Ok(vec![HashMap::new(); attaches.len()]);
     }
 
-    // `p.team_id = ANY($1)` lets the planner prune the person partitions to
-    // the teams of the batch, because the join keys are known only at run
-    // time. The planner overestimates the rows of the `unnest` join and
-    // turns the mark check into a hash anti join, so the `ANY` bounds on
-    // the mark check keep its hash to the persons of the batch instead of
-    // every active mark. The ORDER BY sets the insert order, so that
-    // concurrent statements lock mapping rows in the same order whatever
-    // join the planner picks. "C" is byte order, the order in which
-    // `attach_distinct_ids` sorts its ids.
+    // `p.team_id = ANY($1)` prunes person partitions to the batch's teams.
+    // The `ANY` bounds on the mark check keep the planner's hash anti join to
+    // the batch's persons instead of every active mark. The ORDER BY makes
+    // concurrent statements lock mapping rows in one order; "C" is byte
+    // order, as `attach_distinct_ids` sorts.
     let insert = format!(
         r#"
         INSERT INTO {pdi} (distinct_id, person_id, team_id, version)
@@ -270,8 +261,6 @@ pub(super) async fn attach_batch(
         .unzip();
     let mut already_mapped: HashMap<(i64, String), i64> = HashMap::new();
     if !loser_distinct_ids.is_empty() {
-        // Fresh statement snapshot: the insert's snapshot may predate a
-        // concurrent winner's commit.
         let losers_sql = format!(
             r#"
             SELECT k.team_id, k.distinct_id, pdi.person_id
