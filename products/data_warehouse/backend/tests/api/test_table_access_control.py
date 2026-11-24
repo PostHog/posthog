@@ -46,6 +46,14 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         replace = self.client.post(f"{self._detail_url()}replace_file/", upload)
         assert create.status_code == status.HTTP_403_FORBIDDEN
         assert replace.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            self.client.post(f"{self._list_url()}create_from_file/", {}, format="multipart").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            self.client.post(f"{self._detail_url()}replace_with_file/", {}, format="multipart").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
 
     @parameterized.expand(
         [

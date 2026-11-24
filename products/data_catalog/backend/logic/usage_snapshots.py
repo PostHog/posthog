@@ -9,7 +9,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 import posthoganalytics
@@ -35,14 +34,13 @@ from ..facade.contracts import (
     SectionFailure,
     TableSource,
     TopicCluster,
-    TopicDefinition,
     TopicSessionCounts,
     UncoveredGroup,
     UsageSnapshotDetail,
     UsageSnapshotPayload,
     UsageSnapshotSummary,
 )
-from ..facade.enums import USAGE_FLAG_KEY, UsageSection, UsageSnapshotStatus
+from ..facade.enums import OTHER_TOPIC, USAGE_FLAG_KEY, UsageSection, UsageSnapshotStatus
 from ..metrics import DatabaseBuildTrigger
 from ..models import UsageSnapshot
 from .metrics import metrics_visible_to_user
@@ -215,6 +213,22 @@ def _proposal_visible(
     return hidden_measures.isdisjoint(digests) and not sql_reads_denied_table(proposal.definition, reader.denied_tables)
 
 
+def _topic_visible(topic: TopicCluster, denied_tables: set[str]) -> bool:
+    """A topic title sums up the questions of its sessions, so a topic that read a denied table stays hidden.
+    A topic whose tables the scan could not trace counts as one that read a denied table. The other topic
+    has a fixed title and no description, so it says nothing about its sessions' questions."""
+    if not denied_tables or (topic.title == OTHER_TOPIC and not topic.description):
+        return True
+    return topic.tables is not None and not references_denied_table(topic.tables, denied_tables)
+
+
+def _visible_topics(payload: UsageSnapshotPayload, reader: UsageReader) -> list[TopicCluster] | None:
+    if payload.topics is None:
+        return None
+    denied_tables = set(reader.denied_tables)
+    return [topic for topic in payload.topics if _topic_visible(topic, denied_tables)]
+
+
 def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> UsageSnapshotPayload:
     """The payload without rows that would show a hidden metric or SQL over a denied table.
 
@@ -226,17 +240,13 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
     )
     shown_measures = {group.fingerprint_digest for group in uncovered or []}
     hidden_measures = {group.fingerprint_digest for group in payload.uncovered or []} - shown_measures
+    topics = _visible_topics(payload, reader)
     return dataclasses.replace(
         payload,
         metric_runs=None
         if payload.metric_runs is None
         else [counts for counts in payload.metric_runs if counts.metric_id in reader.visible_metric_ids],
-        # Topic titles come from every member's questions and carry no source tables to check, so a reader
-        # with any denied table gets none.
-        topics=None if payload.topics is None else ([] if reader.denied_tables else payload.topics),
-        topic_definitions=None
-        if payload.topic_definitions is None
-        else ([] if reader.denied_tables else payload.topic_definitions),
+        topics=topics,
         table_sources=None
         if payload.table_sources is None
         else [
@@ -268,7 +278,9 @@ def latest_usage_snapshot(team_id: int, reader: UsageReader) -> UsageSnapshotDet
         return None
     detail = _detail(row)
     payload = _viewable_charts(visible_payload(detail.payload, reader), reader)
-    return dataclasses.replace(detail, payload=payload)
+    # `visible_payload` drops hidden topics without a trace, so the read reports how many it dropped.
+    hidden_topics = len(detail.payload.topics or []) - len(payload.topics or [])
+    return dataclasses.replace(detail, payload=payload, hidden_topics=hidden_topics)
 
 
 def _charts_the_reader_may_open(
@@ -378,7 +390,6 @@ class PayloadSections(TypedDict, total=False):
     conversations: list[list[str]]
     adjusted_runs: list[AdjustedRun]
     topics: list[TopicCluster]
-    topic_definitions: list[TopicDefinition]
     topic_sessions: TopicSessionCounts
     table_sources: list[TableSource]
     uncovered: list[UncoveredGroup]
@@ -401,29 +412,6 @@ def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Unpack[P
         payload = dataclasses.replace(payload_from_json(row.payload), **sections)
         row.payload = payload_to_json(payload)
         row.save(update_fields=["payload"])
-
-
-def previous_topic_list(team_id: int, snapshot_id: UUID) -> list[TopicDefinition]:
-    """The topic list of the newest finished scan that has one, other than this one.
-
-    A scan before the stored list existed only has its topics with sessions, so those stand in for it.
-    """
-    row = (
-        UsageSnapshot.objects.for_team(team_id)
-        .filter(status=UsageSnapshotStatus.DONE.value)
-        .filter(Q(payload__topic_definitions__0__isnull=False) | Q(payload__topics__0__isnull=False))
-        .exclude(id=snapshot_id)
-        .order_by("-computed_at")
-        .values_list("payload__topic_definitions", "payload__topics")
-        .first()
-    )
-    if row is None:
-        return []
-    definitions, topics = row
-    return [
-        TopicDefinition(title=topic["title"], description=topic.get("description", ""))
-        for topic in definitions or topics or []
-    ]
 
 
 def _latest_done(team_id: int) -> UsageSnapshot | None:
