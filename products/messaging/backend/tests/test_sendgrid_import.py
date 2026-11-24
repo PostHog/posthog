@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
@@ -30,17 +31,19 @@ from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import (
     ImportCredentialsInvalid,
     ImportProviderUnavailable,
+    ImportStepError,
     ImportTooLarge,
 )
 from products.messaging.backend.provider_imports.sendgrid import (
     NO_MARKETING_CAMPAIGNS_NOTE,
+    OPT_OUT_STEPS,
     SENDERS_NEED_FULL_ACCESS,
     SendGridImportProvider,
     missing_scopes_by_step,
     missing_scopes_message,
 )
 from products.messaging.backend.services.imported_data import carry_opt_outs
-from products.messaging.backend.services.sendgrid_client import SendGridClient, _seconds_until_reset
+from products.messaging.backend.services.sendgrid_client import SendGridAPIError, SendGridClient, _seconds_until_reset
 from products.messaging.backend.services.suppression import remove_suppressions
 from products.messaging.backend.tests.fake_sendgrid import (
     EMAIL_API_ONLY_KEY,
@@ -54,8 +57,11 @@ from products.messaging.backend.tests.fake_sendgrid import (
     FakeSendGridState,
     _Handler,
 )
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 
-ALL_STEPS = [spec.key for spec in SendGridImportProvider.steps]
+CONTACT_STEPS = ["contacts", "new_people"]
+# The steps that need neither object storage nor person lookups.
+ALL_STEPS = [spec.key for spec in SendGridImportProvider.steps if spec.key not in CONTACT_STEPS]
 _CLIENT = "products.messaging.backend.services.sendgrid_client"
 
 
@@ -311,8 +317,12 @@ class TestSendGridImport(BaseTest):
     def test_senders_domains_and_lists_are_listed_with_what_to_do(self) -> None:
         run = self._run(["lists", "senders", "domains"])
 
-        assert run.progress["lists"]["counts"] == {"lists": 2, "contacts": 1234}
-        assert [item["label"] for item in run.progress["lists"]["items"]] == ["Newsletter", "Bêta testeurs"]
+        assert run.progress["lists"]["counts"] == {"lists": 3, "contacts": 7}
+        assert [item["label"] for item in run.progress["lists"]["items"]] == [
+            "Newsletter",
+            "Bêta testeurs",
+            "Empty list",
+        ]
         senders = {item["label"]: item for item in run.progress["senders"]["items"]}
         assert any("hasn't verified" in note for note in senders["new@example.org"]["notes"])
         domains = {item["label"]: item for item in run.progress["domains"]["items"]}
@@ -390,17 +400,17 @@ class TestSendGridImport(BaseTest):
             runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=1)
 
     def test_a_body_cut_off_while_it_streams_is_read_again(self) -> None:
-        real_get = requests.get
+        real_request = requests.request
         cut_off: list[str] = []
 
-        def get(url: str, **kwargs: Any) -> requests.Response:
-            response = real_get(url, **kwargs)
+        def request(method: str, url: str, **kwargs: Any) -> requests.Response:
+            response = real_request(method, url, **kwargs)
             if not cut_off and url.endswith("/v3/asm/groups"):
                 cut_off.append(url)
                 response.iter_content = MagicMock(side_effect=requests.ConnectionError("reset"))  # type: ignore[method-assign]
             return response
 
-        with patch(f"{_CLIENT}.requests.get", side_effect=get):
+        with patch(f"{_CLIENT}.requests.request", side_effect=request):
             run = self._run(["suppression_groups"])
 
         assert cut_off and run.progress["suppression_groups"]["status"] == "completed"
@@ -608,15 +618,210 @@ class TestSendGridImport(BaseTest):
     def test_next_page_links_never_receive_the_key(self) -> None:
         self.state.next_url_host = "https://evil.example.com"
         self.state.account["lists"] = [{"id": str(i), "name": f"L{i}", "contact_count": 0} for i in range(1500)]
-        with patch(f"{_CLIENT}.requests.get", wraps=requests.get) as get:
+        with patch(f"{_CLIENT}.requests.request", wraps=requests.request) as request:
             self._run(["lists"])
 
-        hosts = {urlparse(call.args[0]).hostname for call in get.call_args_list}
+        hosts = {urlparse(call.args[1]).hostname for call in request.call_args_list}
         assert hosts == {"127.0.0.1"}
         assert [r["query"].get("page_token") for r in self.state.requests if r["path"] == "/v3/marketing/lists"] == [
             None,
             "1000",
         ]
+
+
+class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.state = FakeSendGridState()
+        self.server = FakeSendGridServer(self.state, "global")
+        self.server.start()
+        self.addCleanup(self.server.shutdown)
+        settings_override = override_settings(MESSAGING_SENDGRID_API_URL=self.server.url)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+        for target, kwargs in (
+            (f"{_CLIENT}.time.sleep", {}),
+            (f"{_CLIENT}.REQUESTS_PER_SECOND", {"new": 100000}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    def _start(self) -> ProviderImportRun:
+        run = runs.start_run(
+            self.team.id, "sendgrid", [*OPT_OUT_STEPS, "contacts", "new_people"], FULL_KEY, self.user.id
+        )
+        for step in OPT_OUT_STEPS:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        return run
+
+    def _cohorts(self, run: ProviderImportRun) -> dict[str, dict[str, list[str]]]:
+        """Each cohort's people, split into its members and those it only sends."""
+        run.refresh_from_db()
+        progress = run.progress["contacts"]
+        plans = {f"/cohorts/{plan['cohort_id']}": plan for plan in progress["people_imports"]}
+        cohorts = {}
+        for item in progress["items"]:
+            if item["url"] not in plans:
+                continue
+            people = self.people.people(plans[item["url"]])
+            cohorts[item["label"]] = {
+                "members": sorted(p["properties"]["email"] for p in people if p.get("member", True)),
+                "others": sorted(p["properties"]["email"] for p in people if not p.get("member", True)),
+            }
+        return cohorts
+
+    def _export_requests(self) -> list[dict[str, Any]]:
+        return [r for r in self.state.requests if r["path"] == "/v3/marketing/contacts/exports"]
+
+    def test_each_list_fills_a_cohort_without_those_who_unsubscribed(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "Ada@example.com"})
+        flush_persons_and_events()
+
+        run = self._start()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self._cohorts(run) == {
+            "SendGrid contacts": {
+                "members": [
+                    "ada@example.com",
+                    "gone@example.com",
+                    "left-updates@example.com",
+                    "nolist@example.com",
+                    "zoe@example.com",
+                ],
+                "others": ["unsubscribed@example.com"],
+            },
+            "Newsletter (from SendGrid)": {
+                "members": ["ada@example.com", "gone@example.com", "left-updates@example.com", "zoe@example.com"],
+                "others": ["unsubscribed@example.com"],
+            },
+            "Bêta testeurs (from SendGrid)": {"members": ["ada@example.com"], "others": ["unsubscribed@example.com"]},
+        }
+        plan = run.progress["contacts"]["people_imports"][0]
+        people = {person["properties"]["email"]: person for person in self.people.people(plan)}
+        assert people["ada@example.com"]["distinct_id"] == "user-ada"
+        assert people["ada@example.com"]["properties"] == {
+            "email": "ada@example.com",
+            "first_name": "Ada",
+            "last_name": "Byron",
+            "city": "Springfield",
+            "Plan": "pro",
+        }
+        assert people["zoe@example.com"]["properties"]["last_name"] == 'O\'Neil, "Zo"\nJr'
+        assert run.progress["contacts"]["counts"]["invalid_skipped"] == 1
+        assert [request["body"] for request in self._export_requests()] == [
+            {"file_type": "csv"},
+            {"file_type": "csv", "list_ids": ["11111111-0000-4000-8000-000000000001"]},
+            {"file_type": "csv", "list_ids": ["11111111-0000-4000-8000-000000000002"]},
+        ]
+        downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
+        assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret"})] * 3
+
+    def test_someone_who_unsubscribes_after_the_opt_out_step_is_opted_out_and_in_no_cohort(self) -> None:
+        run = self._start()
+        self.state.account["unsubscribes"].append({"created": 1700005000, "email": "Ada@example.com"})
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert all("ada@example.com" not in cohort["members"] for cohort in self._cohorts(run).values())
+        opted_out = MessageRecipientPreference.objects.filter(
+            team_id=self.team.id, preferences__contains={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"}
+        ).values_list("identifier", flat=True)
+        assert {"ada@example.com", "Ada@example.com"} <= set(opted_out)
+
+    def test_a_retry_downloads_the_exports_that_started_and_starts_only_the_rest(self) -> None:
+        run = self._start()
+        self.state.fail_after["/v3/marketing/contacts/exports"] = (2, 503)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        assert not self.people.stored
+        started = len(self.state.exports)
+
+        self.state.fail_after.clear()
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        assert (started, len(self.state.exports)) == (2, 3)
+        assert len(self._cohorts(run)) == 3
+
+    @parameterized.expand(
+        [
+            ("cut_off_file", {"export_damage": "bytes"}, "arrived incomplete"),
+            ("missing_rows", {"export_damage": "rows"}, "holds 6 of 7 contacts"),
+            ("failed_export", {"export_status": "failure"}, "couldn't export your contacts"),
+        ]
+    )
+    def test_a_partial_export_leaves_every_cohort_alone_and_a_retry_can_finish(
+        self, _name: str, damage: dict[str, str], message: str
+    ) -> None:
+        run = self._start()
+        for name, value in damage.items():
+            setattr(self.state, name, value)
+        with self.assertRaisesRegex(ImportStepError, message):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        assert not self.people.stored
+        assert not Cohort.objects.filter(team_id=self.team.id).exists()
+
+        self.state.export_damage, self.state.export_status = None, "ready"
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        assert len(self._cohorts(run)) == 3
+
+    @parameterized.expand([("redirect", 302, "HTTP 302", 0), ("expired_link", 403, "expired", 1)])
+    def test_a_refused_download_is_never_followed_and_an_expired_one_starts_a_new_export(
+        self, _name: str, status: int, message: str, new_exports: int
+    ) -> None:
+        run = self._start()
+        self.state.failures["/__exports"] = [status]
+        with self.assertRaisesRegex(ImportProviderUnavailable, message) as raised:
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        assert "signature" not in str(raised.exception)
+
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        assert len(self.state.exports) == 3 + new_exports
+        assert len(self._cohorts(run)) == 3
+
+    def test_an_export_past_the_size_limit_stops_the_step_without_a_retry(self) -> None:
+        run = self._start()
+        with patch(f"{_CLIENT}.MAX_DOWNLOAD_BYTES", 300), self.assertRaises(ImportTooLarge):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+    @parameterized.expand([("http", "http://example.com/x.csv"), ("private_address", "https://127.0.0.1/x.csv")])
+    def test_a_link_to_an_unsafe_address_is_refused(self, _name: str, url: str) -> None:
+        with self.assertRaisesRegex(SendGridAPIError, "won't follow"):
+            with SendGridClient(FULL_KEY, self.server.url).download(url):
+                pass
+
+    def test_a_new_run_with_contacts_reads_opt_outs_from_the_start(self) -> None:
+        failed = runs.start_run(
+            self.team.id, "sendgrid", [*OPT_OUT_STEPS, "contacts", "new_people"], FULL_KEY, self.user.id
+        )
+        self.state.fail_after["/v3/asm/groups/102/suppressions"] = (0, 503)
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, failed.id, "group_unsubscribes", attempt=1)
+        runs.finish_run(self.team.id, failed.id)
+        self.state.fail_after.clear()
+        # Sorts before the address the failed run stopped at.
+        self.state.account["group_suppressions"]["101"].append("ada@example.com")
+
+        self._start()
+
+        preferences = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="ada@example.com")
+        category = MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101")
+        assert preferences.preferences == {str(category.id): "OPTED_OUT"}
+
+    def test_a_key_without_marketing_campaigns_imports_no_contacts(self) -> None:
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people"]
+        run = runs.start_run(self.team.id, "sendgrid", steps, EMAIL_API_ONLY_KEY, self.user.id)
+        for step in steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        run.refresh_from_db()
+        assert run.progress["contacts"]["warnings"] == [NO_MARKETING_CAMPAIGNS_NOTE]
+        assert not self.people.stored
+        assert not self._export_requests()
 
 
 class TestSendGridKeys(SimpleTestCase):
