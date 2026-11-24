@@ -672,7 +672,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         logged = ActivityLog.objects.filter(
             scope="PlatformAlertConfiguration", activity="resolved_group", item_id=str(configuration.id)
         )
-        assert [(log.user, log.detail["changes"][0]["after"]) for log in logged] == (
+        assert [(log.user, (log.detail or {})["changes"][0]["after"]) for log in logged] == (
             [(self.user, "not_firing")] if expected == status.HTTP_200_OK else []
         )
 
