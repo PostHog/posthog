@@ -42,7 +42,8 @@ export function ReportTagChips({ report }: { report: SignalReport }): JSX.Elemen
                     to={inboxReportsUrlForTag(filterState, tag)}
                     title={`Show reports tagged ${tag}`}
                     onClick={() => {
-                        // Set before the link navigates, so the list behind the URL is already filtered.
+                        // Set the filter before the link navigates. The Reports URL then matches the stored
+                        // filters, so hydrating from it does not mark the scope and sort as chosen by the user.
                         setTagFilter([tag])
                         captureInboxReportTagClicked({ report, surface: 'detail', added: true, tagFilterCount: 1 })
                     }}
