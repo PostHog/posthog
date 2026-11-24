@@ -32,11 +32,11 @@ function pullRequestStateMeta(pr: PRBrowserItemApi): { label: string; color: str
     if (pr.state === 'merged') {
         return { label: 'Merged', color: 'text-[#8250df] dark:text-[#a371f7]' }
     }
-    if (pr.draft) {
-        return { label: 'Draft', color: 'text-muted' }
-    }
     if (pr.state === 'closed') {
         return { label: 'Closed', color: 'text-muted' }
+    }
+    if (pr.draft) {
+        return { label: 'Draft', color: 'text-muted' }
     }
     return { label: 'Open', color: 'text-success' }
 }

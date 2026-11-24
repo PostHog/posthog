@@ -42,7 +42,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.daily_limit import team_day_start
 from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
-from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
 from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission, self_driving_quota_gate
 from products.signals.backend.report_access import may_read_reports
@@ -431,26 +431,51 @@ def is_pr_monitoring_attempt(
     return run_count == 0
 
 
+def report_has_active_pr_monitoring_pass(report: SignalReport) -> bool:
+    return report.status == SignalReport.Status.IN_PROGRESS and is_pr_monitoring_attempt(
+        report.scout_idempotency_key,
+        report.self_driving_funding,
+        report.last_run_at,
+        run_count=report.run_count,
+    )
+
+
+def require_pr_monitoring_initiator(team: Team, user_id: int) -> User:
+    initiator = User.objects.get(
+        id=user_id,
+        is_active=True,
+        organization_membership__organization_id=team.organization_id,
+    )
+    access = UserAccessControl(user=initiator, team=team, organization_id=str(team.organization_id))
+    if (
+        not access.has_project_access
+        or not team.organization.is_ai_data_processing_approved
+        or not access.check_access_level_for_resource("inbox", "editor")
+        or not access.check_access_level_for_resource("task", "editor")
+    ):
+        raise ValueError("The initiating user can no longer start PR research in this project")
+    return initiator
+
+
 def monitor_pr_workflow_id(team_id: int, report_id: str, attempt: int) -> str:
     return f"signals-monitor-pr-{team_id}-{report_id}-{attempt}"
 
 
-def _stored_initiator_note(report: SignalReport, user_id: int) -> str:
-    for raw in (
+def _stored_initiator_note(report: SignalReport) -> str:
+    raw = (
         SignalReportArtefact.objects.filter(
             team_id=report.team_id,
             report_id=report.id,
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            actor_kind=SignalActorKind.USER,
-            created_by_id=user_id,
+            type=SignalReportArtefact.ArtefactType.CHECK_AUTHORING,
         )
-        .order_by("created_at")
+        .order_by("created_at", "id")
         .values_list("content", flat=True)
-    ):
-        with suppress(ValueError):
-            parsed = NoteArtefact.model_validate_json(raw)
-            if parsed.restricted_to_user_id == user_id:
-                return parsed.note
+        .first()
+    )
+    if not isinstance(raw, str):
+        return ""
+    with suppress(ValueError):
+        return CheckAuthoringStatus.model_validate_json(raw).initiator_note or ""
     return ""
 
 
@@ -476,12 +501,16 @@ def _bind_pr_monitoring_pass(
         raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.") from None
 
 
-def _append_pending_check_authoring(team_id: int, report_id: UUID, actor: ArtefactAttribution) -> None:
+def _append_pending_check_authoring(
+    team_id: int, report_id: UUID, actor: ArtefactAttribution, *, initiator_note: str = ""
+) -> None:
     SignalReportArtefact.append_status(
         team_id=team_id,
         report_id=str(report_id),
         content=CheckAuthoringStatus(
-            status="failed", reason="PR monitoring research has not produced a measurement yet."
+            status="failed",
+            reason="PR monitoring research has not produced a measurement yet.",
+            initiator_note=initiator_note or None,
         ),
         attribution=actor,
     )
@@ -496,6 +525,7 @@ def _restart_failed_report(
     run_started_at: datetime,
     admission: SelfDrivingAdmission,
 ) -> SignalReport:
+    frozen_note = _stored_initiator_note(report)
     _bind_pr_monitoring_pass(team=team, report_id=report.id, run_started_at=run_started_at, admission=admission)
     report.status = SignalReport.Status.IN_PROGRESS
     report.error = None
@@ -510,7 +540,7 @@ def _restart_failed_report(
         claim_id=str(active_claim.claim_id) if active_claim else None,
         notify_reviewers=False,
     )
-    _append_pending_check_authoring(team.id, report.id, actor)
+    _append_pending_check_authoring(team.id, report.id, actor, initiator_note=frozen_note)
     return report
 
 
@@ -593,7 +623,7 @@ def prepare_monitoring(
         link_pull_request(
             report=report, details=pr.details(), actor=actor, claim_id=str(claim.claim_id), notify_reviewers=False
         )
-        _append_pending_check_authoring(team.id, report.id, actor)
+        _append_pending_check_authoring(team.id, report.id, actor, initiator_note=note)
         distinct_id = user.distinct_id or str(user.uuid)
         transaction.on_commit(
             lambda: posthoganalytics.capture(
@@ -679,13 +709,13 @@ def request_pr_monitoring(
             raise PRMonitoringUnavailable("GitHub is temporarily unavailable. Try again shortly.") from error
         report, started = prepare_monitoring(team=team, user=user, pr=pr, note=note, admission=admission)
 
-    if report.status == SignalReport.Status.IN_PROGRESS:
+    if report_has_active_pr_monitoring_pass(report):
         inputs = MonitorPRInput(
             team_id=team.id,
             report_id=str(report.id),
             user_id=user.id,
             pr_url=pr_url,
-            note=_stored_initiator_note(report, user.id),
+            note=_stored_initiator_note(report),
             attempt_key=attempt_key(report),
             token_scopes=tuple(token_scopes) if token_scopes is not None else None,
         )
@@ -831,13 +861,8 @@ def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest)
 
 
 def _assert_initiator_may_read_metric(
-    report: SignalReport, inputs: MonitorPRInput, metric_payload: dict[str, Any]
+    report: SignalReport, initiator: User, inputs: MonitorPRInput, metric_payload: dict[str, Any]
 ) -> None:
-    initiator = User.objects.filter(
-        id=inputs.user_id,
-        is_active=True,
-        organization_membership__organization_id=report.team.organization_id,
-    ).first()
     policy = ReportMetricAccessPolicy(
         request=None,
         team=report.team,
@@ -857,8 +882,9 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             .select_related("team__organization")
             .get(team_id=inputs.team_id, id=inputs.report_id)
         )
-        if report.status != SignalReport.Status.IN_PROGRESS or attempt_key(report) != inputs.attempt_key:
+        if not report_has_active_pr_monitoring_pass(report) or attempt_key(report) != inputs.attempt_key:
             return
+        initiator = require_pr_monitoring_initiator(report.team, inputs.user_id)
         actor = ArtefactAttribution.system()
         if output.unavailable_reason:
             _record_research_note(report, inputs, output, actor)
@@ -872,7 +898,7 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
         if not team_report_monitoring_enabled(inputs.team_id) or not team_report_metrics_enabled(inputs.team_id):
             raise ValueError("Monitoring is no longer enabled for this project")
         metric_payload, check_spec = _sanitized_measurement(output, pr)
-        _assert_initiator_may_read_metric(report, inputs, metric_payload)
+        _assert_initiator_may_read_metric(report, initiator, inputs, metric_payload)
         _record_research_note(report, inputs, output, actor)
         report.metrics = [metric_payload]
         report.save(
@@ -891,7 +917,11 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
         SignalReportArtefact.append_status(
             team_id=report.team_id,
             report_id=str(report.id),
-            content=CheckAuthoringStatus(status="succeeded", reason="PR monitoring measurement created."),
+            content=CheckAuthoringStatus(
+                status="succeeded",
+                reason="PR monitoring measurement created.",
+                initiator_note=_stored_initiator_note(report) or None,
+            ),
             attribution=actor,
         )
         _reconcile_researched_pr(report, pr, actor)
@@ -906,7 +936,7 @@ def fail_monitoring_research(inputs: MonitorPRInput) -> None:
         )
         if (
             report is not None
-            and report.status == SignalReport.Status.IN_PROGRESS
+            and report_has_active_pr_monitoring_pass(report)
             and attempt_key(report) == inputs.attempt_key
         ):
             report.save(

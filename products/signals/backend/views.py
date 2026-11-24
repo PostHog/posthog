@@ -8025,6 +8025,7 @@ class SignalReportArtefactViewSet(
         # typed model is what flows into the append helpers.
         try:
             parsed_content = parse_artefact_content(artefact_type, content)
+            self._validate_api_note_restrictions(parsed_content)
         except ArtefactContentValidationError as e:
             return Response(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
@@ -8185,7 +8186,9 @@ class SignalReportArtefactViewSet(
             else None
         )
         try:
+            self._reject_restricted_note_mutation(artefact)
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
+            self._validate_api_note_restrictions(parsed_content)
             if isinstance(parsed_content, ChannelAssignment):
                 self._validate_channel_assignment(parsed_content, request)
             artefact.update_content(request.validated_data["content"])
@@ -8227,6 +8230,32 @@ class SignalReportArtefactViewSet(
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
+    @staticmethod
+    def _is_stored_restricted_note(artefact: SignalReportArtefact) -> bool:
+        if artefact.type != SignalReportArtefact.ArtefactType.NOTE:
+            return False
+        try:
+            parsed = json.loads(artefact.content)
+        except (TypeError, ValueError):
+            return False
+        return isinstance(parsed, dict) and bool(
+            {"analytics_query_context", "required_read_scopes", "restricted_to_user_id"} & parsed.keys()
+        )
+
+    @classmethod
+    def _reject_restricted_note_mutation(cls, artefact: SignalReportArtefact) -> None:
+        if cls._is_stored_restricted_note(artefact):
+            raise ArtefactContentValidationError("Restricted notes cannot be modified through the API")
+
+    @staticmethod
+    def _validate_api_note_restrictions(parsed_content: object) -> None:
+        if isinstance(parsed_content, NoteArtefact) and (
+            parsed_content.analytics_query_context is not None
+            or parsed_content.required_read_scopes is not None
+            or parsed_content.restricted_to_user_id is not None
+        ):
+            raise ArtefactContentValidationError("Note access restrictions cannot be set through the API")
+
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type in {
@@ -8243,7 +8272,7 @@ class SignalReportArtefactViewSet(
                 {"error": f"{artefact.type} artefacts are an append-only work log and cannot be deleted."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
+        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES or self._is_stored_restricted_note(artefact):
             # System-generated types can't be created or edited through the API, so they can't be
             # deleted through it either. Deleting the latest row of one reverts the report's canonical
             # status — e.g. resurfacing a superseded implementation_decision, which then reopens a PR.

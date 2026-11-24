@@ -846,6 +846,11 @@ class NoteArtefact(BaseModel):
 class CheckAuthoringStatus(BaseModel):
     status: Literal["succeeded", "failed"]
     reason: str = Field(min_length=1)
+    initiator_note: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Immutable focus note captured when PR monitoring was first requested.",
+    )
 
 
 class ScoutNoteLeft(BaseModel):

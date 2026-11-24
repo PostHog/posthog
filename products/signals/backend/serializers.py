@@ -4578,8 +4578,9 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             request = self.context.get("request")
             viewer_id = getattr(getattr(request, "user", None), "id", None)
             policy = report_metric_access_policy(self.context)
+            check_query = policy.may_read_query if required_scopes is not None else policy.may_read_snapshot
             queries_allowed = isinstance(queries, list) and all(
-                isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+                isinstance(query, Mapping) and check_query({"query": query}) for query in queries
             )
             scopes_allowed = required_scopes is None or (
                 isinstance(required_scopes, list) and policy.may_read_research_note(required_scopes)

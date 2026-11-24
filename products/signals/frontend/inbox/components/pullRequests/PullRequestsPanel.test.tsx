@@ -41,7 +41,7 @@ describe('PullRequestsPanel', () => {
             get: {
                 '/api/projects/:team_id/signals/pull_requests/': {
                     results: [
-                        makePR(1, { state: 'closed', title: 'Abandoned experiment' }),
+                        makePR(1, { state: 'closed', draft: true, title: 'Abandoned experiment' }),
                         makePR(2, {
                             state: 'closed',
                             title: 'Closed failed check',
@@ -70,6 +70,8 @@ describe('PullRequestsPanel', () => {
         expect(monitorButtons[0]).toHaveAttribute('aria-disabled', 'true')
         expect(monitorButtons[1]).not.toHaveAttribute('aria-disabled', 'true')
 
+        expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+        expect(screen.getAllByText('Closed')).toHaveLength(3)
         expect(screen.getByText('Retry').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByText('Closed existing report').closest('a')).toHaveAttribute(
             'href',

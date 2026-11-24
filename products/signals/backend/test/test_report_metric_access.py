@@ -174,6 +174,36 @@ class TestReportMetricAccessPolicy(APIBaseTest):
         assert not policy.may_read_query(self._metric(conversionGoal={"actionId": 42, "futureField": True}))
         assert not policy.may_read_query(self._metric(conversionGoal={"futureResourceId": 42}))
 
+    def test_authorizes_safe_hogql_math_and_rejects_resource_bearing_expressions(self) -> None:
+        policy = self._policy(["query:read", "event_definition:read"])
+        safe = self._metric(
+            series=[
+                {
+                    "kind": "EventsNode",
+                    "event": "$pageview",
+                    "math": "hogql",
+                    "math_hogql": "countIf(properties.status = 'ok')",
+                }
+            ]
+        )
+        assert policy.may_read_query(safe)
+        assert query_filter_shape_allows_read(cast(dict[str, object], safe["query"]))
+
+        for bad_math in (
+            "countIf(person_id IN COHORT 12)",
+            "countIf(distinct_id IN COHORT 12)",
+            "countIf(matchesAction(12))",
+            "countIf(person.cohorts = 12)",
+            "sum((SELECT person_id FROM cohortpeople WHERE cohort_id = 12))",
+            "",
+        ):
+            with self.subTest(bad_math=bad_math):
+                unsafe = self._metric(
+                    series=[{"kind": "EventsNode", "event": "$pageview", "math": "hogql", "math_hogql": bad_math}]
+                )
+                assert not policy.may_read_query(unsafe)
+                assert not query_filter_shape_allows_read(cast(dict[str, object], unsafe["query"]))
+
     def test_rejects_property_groups_over_the_depth_limit(self) -> None:
         property_filter: dict[str, object] = {"type": "event", "key": "$browser", "value": "Chrome"}
         for _ in range(22):

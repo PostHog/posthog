@@ -6,10 +6,8 @@ from uuid import UUID
 from pydantic import JsonValue
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models import User
 from posthog.sync import database_sync_to_async_pool
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.models import SignalReport
@@ -19,6 +17,8 @@ from products.signals.backend.monitor_pr import (
     attempt_key,
     finish_monitoring_research,
     load_pull_request,
+    report_has_active_pr_monitoring_pass,
+    require_pr_monitoring_initiator,
 )
 from products.signals.backend.quota import prepare_self_driving_admission
 from products.signals.backend.task_profiles import PR_MONITORING, pr_monitoring_data_scopes, pr_monitoring_mcp_scopes
@@ -68,21 +68,9 @@ Return only JSON matching the supplied schema.
 
 def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
     report = SignalReport.objects.select_related("team__organization").get(team_id=inputs.team_id, id=inputs.report_id)
-    if report.status != SignalReport.Status.IN_PROGRESS or attempt_key(report) != inputs.attempt_key:
+    if not report_has_active_pr_monitoring_pass(report) or attempt_key(report) != inputs.attempt_key:
         return None
-    user = User.objects.get(
-        id=inputs.user_id,
-        is_active=True,
-        organization_membership__organization_id=report.team.organization_id,
-    )
-    access = UserAccessControl(user=user, team=report.team, organization_id=str(report.team.organization_id))
-    if (
-        not access.has_project_access
-        or not report.team.organization.is_ai_data_processing_approved
-        or not access.check_access_level_for_resource("inbox", "editor")
-        or not access.check_access_level_for_resource("task", "editor")
-    ):
-        raise ValueError("The initiating user can no longer start PR research in this project")
+    require_pr_monitoring_initiator(report.team, inputs.user_id)
     data_scopes = pr_monitoring_data_scopes(inputs.token_scopes)
     if not {"query:read", "event_definition:read"}.issubset(data_scopes):
         raise ValueError("The initiating credential lacks required analytics read scopes")

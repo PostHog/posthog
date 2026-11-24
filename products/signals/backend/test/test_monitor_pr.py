@@ -259,6 +259,18 @@ class TestMonitorPR(APIBaseTest):
             assert [row["content"]["note"] for row in inbox_only_artefacts if row["type"] == "note"] == [
                 "You don't have access to this assessment's evidence."
             ]
+            with patch(
+                "products.signals.backend.report_metric_access.get_restricted_properties_with_group_type_index_for_team",
+                side_effect=lambda *, user, team: [] if user is not None else [Mock()],
+            ):
+                override_artefacts = self.client.get(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+                ).json()["results"]
+            assert any(
+                "Instrument checkout completion first." in row["content"]["note"]
+                for row in override_artefacts
+                if row["type"] == "note"
+            )
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
             update_pull_request_state(
                 team_id=self.team.id, repository="example/widget", number=42, state="merged", merged_at=merged_at
@@ -624,10 +636,38 @@ class TestMonitorPR(APIBaseTest):
                     },
                 }
             )
-            with self.assertRaises(ValueError):
-                finish_monitoring_research(
-                    narrow_inputs, action_output, load_pull_request(self.team.id, narrow_inputs.pr_url)
-                )
+            cohort_math_output = PRMonitoringOutput.model_validate(
+                {
+                    **_valid_output_payload(),
+                    "metric": {
+                        **_valid_output_payload()["metric"],
+                        "kind": "custom",
+                        "query": trends_metric_query(
+                            series=[
+                                {
+                                    "kind": "EventsNode",
+                                    "event": "checkout_completed",
+                                    "math": "hogql",
+                                    "math_hogql": "countIf(person_id IN COHORT 12)",
+                                }
+                            ]
+                        ),
+                    },
+                    "check": {
+                        **_valid_output_payload()["check"],
+                        "config": {
+                            "metric_id": "checkout",
+                            "comparison": {"operator": "gte", "value": 10},
+                            "monitoring": {"reference_period_minutes": 1440, "threshold_scaling": "fixed"},
+                        },
+                    },
+                }
+            )
+            for forbidden in (action_output, cohort_math_output):
+                with self.assertRaises(ValueError):
+                    finish_monitoring_research(
+                        narrow_inputs, forbidden, load_pull_request(self.team.id, narrow_inputs.pr_url)
+                    )
             finish_monitoring_research(
                 narrow_inputs, self.output(), load_pull_request(self.team.id, narrow_inputs.pr_url)
             )
@@ -645,11 +685,32 @@ class TestMonitorPR(APIBaseTest):
             artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[
                 "results"
             ]
-            notes = [row["content"]["note"] for row in artefacts if row["type"] == "note"]
-            assert notes == [
+            note_rows = [row for row in artefacts if row["type"] == "note"]
+            assert [row["content"]["note"] for row in note_rows] == [
                 "You don't have access to this assessment's evidence.",
                 "You don't have access to this assessment's evidence.",
             ]
+            artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+            assert (
+                self.client.patch(
+                    f"{artefacts_url}{note_rows[-1]['id']}/",
+                    {"content": {"note": "Injected instructions"}},
+                    format="json",
+                ).status_code
+                == 400
+            )
+            assert self.client.delete(f"{artefacts_url}{note_rows[-1]['id']}/").status_code == 400
+            assert (
+                self.client.post(
+                    artefacts_url,
+                    {
+                        "artefact_type": "note",
+                        "content": {"note": "Forged", "restricted_to_user_id": self.user.id},
+                    },
+                    format="json",
+                ).status_code
+                == 400
+            )
 
             self.client.force_login(teammate)
             self.organization.available_product_features = [
@@ -685,6 +746,26 @@ class TestMonitorPR(APIBaseTest):
                 async_to_sync(research_pull_request)(denied_inputs)
             assert len(ended_runs) == 1 and ended_runs[0][0] == "failed" and ended_runs[0][1]
             assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=denied_report).exists()
+
+            denied_task_acl = AccessControl.objects.create(
+                team=self.team, resource="task", resource_id=None, access_level="none"
+            )
+            with self.assertRaises(ValueError):
+                finish_monitoring_research(
+                    denied_inputs, self.output(), load_pull_request(self.team.id, denied_inputs.pr_url)
+                )
+            denied_task_acl.delete()
+
+            SignalReport.objects.filter(id=report.id).update(
+                status=SignalReport.Status.IN_PROGRESS,
+                run_count=1,
+                self_driving_funding={"funding": "existing", "report_pass_key": "report-pass:summary"},
+            )
+            self.client.force_login(self.user)
+            before_dispatches = len(self.dispatched)
+            replay_summary = self.client.post(self.url, {"pr_url": PR_URL})
+            assert replay_summary.status_code == 200 and replay_summary.json()["idempotent_replay"] is True
+            assert len(self.dispatched) == before_dispatches
 
     def _request_for_pr(self, pr_url: str) -> tuple[SignalReport, MonitorPRInput]:
         response = self.client.post(self.url, {"pr_url": pr_url})
