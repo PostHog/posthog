@@ -250,9 +250,9 @@ describe('intake message', () => {
     })
 
     it.each([
-        ['a send without files at the size limit', null, 0, { status: 'encoded', inserted: null }],
+        ['a send with a null file size at the size limit', null, 0, { status: 'encoded', inserted: null }],
         ['a send with files at the size limit', 10_000_000, 0, { status: 'encoded', inserted: 10_000_000 }],
-        ['a send without files one byte over the size limit', null, 1, { status: 'too_large' }],
+        ['a send with a null file size one byte over the size limit', null, 1, { status: 'too_large' }],
         ['a send with files one byte over the size limit', 10_000_000, 1, { status: 'too_large' }],
     ])('holds %s to the size limit of the same send without a file size', (_case, fileBytes, overBytes, outcome) => {
         const padded = (padding: number): CyclotronV2JobInit & { id: string } =>
