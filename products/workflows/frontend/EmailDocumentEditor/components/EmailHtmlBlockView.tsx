@@ -14,6 +14,8 @@ import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
 
 // Past the usual 600px and 640px phone breakpoints, so the desktop layout shows even in a narrow editor.
 const MIN_DESKTOP_WIDTH = 660
+// An email can ask for any width, and a frame that wide would only slow the tab down.
+const MAX_WIDTH = 4000
 const MIN_HEIGHT = 60
 
 // The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
@@ -63,6 +65,8 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
             return
         }
         const holder = iframe.parentElement
+        const scroller = iframe.closest('.EmailDocumentEditor__scroll')
+        const scrollLeft = scroller?.scrollLeft ?? 0
         // Keeps the canvas's scroll position and scrollbar while the frame is small.
         holder?.style.setProperty('min-height', `${iframe.offsetHeight}px`)
         // A document never reports less than the frame's own size, so it's measured in a small frame first. Otherwise the
@@ -73,8 +77,15 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
             // Both, because the app caps the width at the canvas and only the min width gets past that.
             iframe.style.width = `${MIN_DESKTOP_WIDTH}px`
             iframe.style.minWidth = `${MIN_DESKTOP_WIDTH}px`
-            iframe.style.minWidth = `${Math.max(MIN_DESKTOP_WIDTH, root.scrollWidth)}px`
+            const fitEmail = (): void => {
+                iframe.style.minWidth = `${Math.min(MAX_WIDTH, Math.max(MIN_DESKTOP_WIDTH, root.scrollWidth))}px`
+            }
+            fitEmail()
             iframe.style.width = ''
+            // The room the canvas gives can switch the email to a wider layout.
+            if (root.scrollWidth > iframe.clientWidth) {
+                fitEmail()
+            }
         }
         let measured = Math.max(20, Math.ceil(root.getBoundingClientRect().height))
         // Html and body with a height of 100% are only as tall as the frame, with the email overflowing them.
@@ -83,6 +94,9 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         }
         iframe.style.height = `${measured}px`
         holder?.style.removeProperty('min-height')
+        if (scroller) {
+            scroller.scrollLeft = scrollLeft
+        }
         setHeight(measured)
     }
     const measureRef = useRef(measure)
