@@ -9,7 +9,7 @@ import { STATUS_LABELS } from './platformAlertFormat'
 const STATE_TAG_TYPES: Record<PlatformAlertStateApi, LemonTagType> = {
     [PlatformAlertStateApi.NotFiring]: 'success',
     [PlatformAlertStateApi.Firing]: 'danger',
-    [PlatformAlertStateApi.NoData]: 'caution',
+    [PlatformAlertStateApi.NoData]: 'warning',
     [PlatformAlertStateApi.Errored]: 'danger',
     [PlatformAlertStateApi.Snoozed]: 'muted',
     [PlatformAlertStateApi.Broken]: 'danger',
