@@ -1371,6 +1371,38 @@ export const NotebooksAppPreviewCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksAppQueriesCreateBodyRevisionMin = 0
+
+export const notebooksAppQueriesCreateBodyVariablesItemNameMax = 200
+
+export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod.number().min(notebooksAppQueriesCreateBodyRevisionMin),
+    variables: zod.array(
+        zod
+            .object({
+                name: zod
+                    .string()
+                    .max(notebooksAppQueriesCreateBodyVariablesItemNameMax)
+                    .describe('Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'),
+                type: zod
+                    .string()
+                    .describe(
+                        "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                    ),
+                value: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                    ),
+            })
+            .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+    ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabMarkdownSaveCreateBodyTextContentDefault = ``
 export const notebooksCollabMarkdownSaveCreateBodyCursorOneHeadMin = 0
 

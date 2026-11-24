@@ -70,7 +70,12 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
-from products.notebooks.backend.facade.app_releases import read_release, record_release, review_release
+from products.notebooks.backend.facade.app_releases import (
+    plan_viewer_queries,
+    read_release,
+    record_release,
+    review_release,
+)
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -301,6 +306,19 @@ class NotebookAppReleaseReviewSerializer(serializers.Serializer):
     has_previous = serializers.BooleanField()
     problems = serializers.ListField(child=serializers.CharField())
     results_as_of = serializers.DateTimeField(allow_null=True)
+
+
+class NotebookAppViewerRequestSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(min_value=0)
+    variables: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
+        child=NotebookVariableSerializer(), max_length=MAX_VARIABLES_PER_NOTEBOOK
+    )
+
+
+class NotebookAppViewerQuerySerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    query = serializers.CharField()
+    matches_defaults = serializers.BooleanField()
 
 
 class NotebookAppReleaseSerializer(serializers.Serializer):
@@ -886,6 +904,26 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if release is None:
             raise Http404()
         return Response(NotebookAppReleaseSerializer(release).data)
+
+    @extend_schema(request=NotebookAppViewerRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True))
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_queries",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def app_queries(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        params = NotebookAppViewerRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        inputs = {v["name"]: v.get("value") for v in params.validated_data["variables"]}
+        plans = plan_viewer_queries(notebook.team_id, notebook.pk, params.validated_data["revision"], inputs)
+        return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":

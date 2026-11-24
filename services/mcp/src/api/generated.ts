@@ -77175,6 +77175,18 @@ export namespace Schemas {
       results_as_of: string | null;
     }
 
+    export interface NotebookAppViewerQuery {
+      node_id: string;
+      query: string;
+      matches_defaults: boolean;
+    }
+
+    export interface NotebookAppViewerRequest {
+      /** @minimum 0 */
+      revision: number;
+      variables: NotebookVariable[];
+    }
+
     export interface NotebookCellLastRun {
       /** Identifier of the cell's most recent run. */
       run_id: string;

@@ -47,6 +47,13 @@ class AppRelease:
     has_previous: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class AppViewerQuery:
+    node_id: str
+    query: str
+    matches_defaults: bool
+
+
 class NotebookRunBusy(Exception):
     """Raised when the notebook already has a cell running.
 

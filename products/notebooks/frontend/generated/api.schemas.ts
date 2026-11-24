@@ -973,6 +973,18 @@ export interface NotebookAppReleaseReviewApi {
     results_as_of: string | null
 }
 
+export interface NotebookAppViewerRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+}
+
+export interface NotebookAppViewerQueryApi {
+    node_id: string
+    query: string
+    matches_defaults: boolean
+}
+
 export interface NotebookAppReleaseApi {
     revision: number
     /** @nullable */
