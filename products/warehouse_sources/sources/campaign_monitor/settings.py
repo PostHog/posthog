@@ -41,6 +41,9 @@ class CampaignMonitorEndpointConfig:
     # else on a 200 is a shape change, so the sync fails loud instead of syncing a stray object
     # as a row.
     returns_array: bool = False
+    # Transactional message timeline: a bare array walked newest-first with a `sentBeforeID` cursor
+    # (the last `MessageID` of the previous page) instead of page numbers.
+    message_timeline: bool = False
     # Stable datetime field used for datetime partitioning. Must not change over time
     # (so never `*Updated`/`*Modified` style fields).
     partition_key: Optional[str] = None
@@ -102,6 +105,12 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         path="clients/{client_id}/segments.json",
         primary_keys=["SegmentID"],
     ),
+    "tags": CampaignMonitorEndpointConfig(
+        name="tags",
+        # Lookup of the tags applied to the client's campaigns, one row per tag name.
+        path="clients/{client_id}/tags.json",
+        primary_keys=["Name"],
+    ),
     "templates": CampaignMonitorEndpointConfig(
         name="templates",
         path="clients/{client_id}/templates.json",
@@ -138,6 +147,27 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
     "bounced_subscribers": CampaignMonitorEndpointConfig(
         name="bounced_subscribers",
         path="lists/{list_id}/bounced.json",
+        primary_keys=["ListID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_lists=True,
+        uses_date_filter=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "unconfirmed_subscribers": CampaignMonitorEndpointConfig(
+        name="unconfirmed_subscribers",
+        path="lists/{list_id}/unconfirmed.json",
+        primary_keys=["ListID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_lists=True,
+        uses_date_filter=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "deleted_subscribers": CampaignMonitorEndpointConfig(
+        name="deleted_subscribers",
+        # `Date` is when the subscriber was deleted, which does not change afterwards.
+        path="lists/{list_id}/deleted.json",
         primary_keys=["ListID", "EmailAddress"],
         paginated=True,
         fan_out_over_lists=True,
@@ -315,6 +345,15 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         paginated=True,
         journey_report=True,
         partition_key="Date",
+    ),
+    # Transactional (classic and smart) emails, one row per sent message. The endpoint takes no date
+    # filter, only a message-id cursor, so it ships full refresh.
+    "transactional_messages": CampaignMonitorEndpointConfig(
+        name="transactional_messages",
+        path="transactional/messages",
+        primary_keys=["MessageID"],
+        message_timeline=True,
+        partition_key="SentAt",
     ),
 }
 

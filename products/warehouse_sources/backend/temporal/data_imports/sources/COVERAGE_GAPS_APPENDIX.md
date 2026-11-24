@@ -2772,7 +2772,7 @@ Note (2026-11-19): Parsed the v3 reference page (one large HTML file) and listed
 
 ## CampaignMonitor — gaps
 
-Today (30): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_email_client_usage`, `campaign_lists`, `campaign_opens`, `campaign_recipients`, `campaign_segments`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `draft_campaigns`, `journey_email_bounces`, `journey_email_clicks`, `journey_email_opens`, `journey_email_recipients`, `journey_email_summary`, `journey_email_unsubscribes`, `journeys`, `list_custom_fields`, `list_stats`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `templates`, `unsubscribed_subscribers`
+Today (34): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_email_client_usage`, `campaign_lists`, `campaign_opens`, `campaign_recipients`, `campaign_segments`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `deleted_subscribers`, `draft_campaigns`, `journey_email_bounces`, `journey_email_clicks`, `journey_email_opens`, `journey_email_recipients`, `journey_email_summary`, `journey_email_unsubscribes`, `journeys`, `list_custom_fields`, `list_stats`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `tags`, `templates`, `transactional_messages`, `unconfirmed_subscribers`, `unsubscribed_subscribers`
 
 Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 
@@ -2784,12 +2784,12 @@ Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 - [x] `Campaign lists and segments (/campaigns/{id}/listsandsegments)` — lookup joining campaigns we sync to the lists and segments they targeted (high). The one body carries two independent collections, so it feeds two join tables — `campaign_lists` and `campaign_segments` — rather than one row of nested arrays.
 - [x] `Campaign email client usage (/campaigns/{id}/emailclientusage)` — breakdown dimension on opens (client/device), a standard email reporting cut (medium)
 - [x] `List stats (/lists/{id}/stats)` — per-list growth, unsubscribe, and bounce totals (medium). Audited as totals "over time"; the endpoint serves no history, only a snapshot of the counters at request time (totals plus today/yesterday/week/month/year buckets), so each sync replaces the previous snapshot.
-- [ ] `Transactional statistics and Message timeline (/transactional/statistics, /transactional/messages)` — message-level transactional sends and their engagement — a whole product currently invisible (medium)
-- [ ] `Unconfirmed and deleted subscribers (/lists/{id}/unconfirmed, /lists/{id}/deleted)` — completes the subscriber state coverage alongside active/bounced/unsubscribed that we already sync (medium)
-- [ ] `Getting a subscriber's history (/subscribers/history)` — per-subscriber event history across campaigns, for lifecycle analysis (medium)
-- [ ] `Getting tags (/clients/{id}/tags)` — lookup resolving the tags applied to campaigns and clients (low)
+- [x] `Transactional statistics and Message timeline (/transactional/statistics, /transactional/messages)` — message-level transactional sends and their engagement — a whole product currently invisible (medium). The message timeline is synced as `transactional_messages` (full refresh: it takes only a message-id cursor, no date filter). `/transactional/statistics` is not synced: it returns one aggregate over a caller-chosen date window, and its counts derive from `transactional_messages`.
+- [x] `Unconfirmed and deleted subscribers (/lists/{id}/unconfirmed, /lists/{id}/deleted)` — completes the subscriber state coverage alongside active/bounced/unsubscribed that we already sync (medium)
+- [ ] `Getting a subscriber's history (/subscribers/history)` — per-subscriber event history across campaigns, for lifecycle analysis (medium). Skipped: one request per subscriber email, capped at 60 opens/clicks per campaign; the same events are already synced by the campaign_opens and campaign_clicks tables.
+- [x] `Getting tags (/clients/{id}/tags)` — lookup resolving the tags applied to campaigns and clients (low)
 
-Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, and the Journeys (automation) product and campaign_recipients are now synced. None of the four lookup endpoints above accepts a `date` filter, so all five tables ship full refresh like the rest of the source. The transactional product remains absent.
+Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, and the Journeys (automation) product and campaign_recipients are now synced. None of the four lookup endpoints above accepts a `date` filter, so all five tables ship full refresh like the rest of the source. The transactional message timeline is now synced as `transactional_messages`.
 
 ## Campayn — adequate
 
