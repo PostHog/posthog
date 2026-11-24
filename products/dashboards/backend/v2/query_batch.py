@@ -72,8 +72,11 @@ CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
 MAX_BATCHES_PER_ORG = 3
+# Below the organization's share, so one member cannot take every running slot their organization has.
+MAX_BATCHES_PER_USER = 1
 MAX_OPEN_BATCHES = 16
 MAX_OPEN_BATCHES_PER_ORG = 4
+MAX_OPEN_BATCHES_PER_USER = 2
 OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
 # A stream that is still reading notices the deadline within a heartbeat and ends with timed-out lines, so only a
@@ -87,8 +90,8 @@ _org_lock = Lock()
 _deferred_releases: deque["_OpenSlot"] = deque()
 
 
-def _shares_full(counts: dict[Any, int], keys: tuple[Any, ...], cap: int) -> bool:
-    return any(counts.get(key, 0) >= cap for key in keys)
+def _shares_full(counts: dict[Any, int], keys: tuple[Any, ...], org_cap: int, user_cap: int) -> bool:
+    return any(counts.get(key, 0) >= (user_cap if key[0] == "user" else org_cap) for key in keys)
 
 
 def _add_shares(counts: dict[Any, int], keys: tuple[Any, ...], delta: int) -> None:
@@ -108,7 +111,7 @@ def _share_keys(org_id: UUID, user_id: int) -> tuple[Any, ...]:
 def _admit_batch(keys: tuple[Any, ...]) -> bool:
     # A share below the process cap, so one organization's or user's slow readers cannot hold every slot.
     with _org_lock:
-        if _shares_full(_org_batches, keys, MAX_BATCHES_PER_ORG):
+        if _shares_full(_org_batches, keys, MAX_BATCHES_PER_ORG, MAX_BATCHES_PER_USER):
             return False
         if not _batch_slots.acquire(blocking=False):
             return False
@@ -129,7 +132,7 @@ class _OpenSlot:
         _drain_deferred_releases()
         deadline = monotonic() + OPEN_WAIT_SECONDS
         with _org_lock:
-            if _shares_full(_org_open, self._keys, MAX_OPEN_BATCHES_PER_ORG):
+            if _shares_full(_org_open, self._keys, MAX_OPEN_BATCHES_PER_ORG, MAX_OPEN_BATCHES_PER_USER):
                 return False
             _add_shares(_org_open, self._keys, 1)
         if not _open_slots.acquire(timeout=max(0.0, deadline - monotonic())):

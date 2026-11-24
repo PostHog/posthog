@@ -163,10 +163,9 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     dashboard_id=dashboard_id,
                     user_access_control=UserAccessControl(user=user, team=self.team),
                 )
-            except DashboardNotFound:
+            except (DashboardNotFound, DashboardNotViewable):
+                # The same answer for both, so the endpoint does not reveal which dashboards exist.
                 raise exceptions.NotFound("Dashboard not found.")
-            except DashboardNotViewable:
-                raise exceptions.PermissionDenied("You don't have access to this dashboard.")
         inputs = [
             QueryBatchInput(
                 target=QueryBatchTarget(
