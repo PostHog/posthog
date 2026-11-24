@@ -29,6 +29,7 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.tasks.email import send_email_verification_code
 from posthog.utils import absolute_uri
 
 from products.experiments.backend.facade.contracts import ExperimentChanged
@@ -553,12 +554,26 @@ class TestVercelIntegration(TestCase):
                 True,
                 f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
             ),
-            ("unverified_claim_and_email_unavailable", False, False, False, False, None),
-            ("unverified_claim_and_verification_disabled_for_org", False, True, True, False, None),
+            (
+                "unverified_claim_and_email_unavailable",
+                False,
+                False,
+                False,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            (
+                "unverified_claim_and_verification_disabled_for_org",
+                False,
+                True,
+                True,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}",
+            ),
         ]
     )
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag")
-    @patch("posthog.api.email_verification.is_email_available")
+    @patch("posthog.email.is_email_available")
     @patch("posthog.api.email_verification.send_email_verification_code")
     def test_sso_logs_in_a_new_user_only_from_a_verified_claim(
         self,
@@ -580,6 +595,8 @@ class TestVercelIntegration(TestCase):
         )
         if send_fails:
             mock_send_email.side_effect = Exception("email provider unavailable")
+        elif not email_available:
+            mock_send_email.side_effect = send_email_verification_code
         claims = self._create_user_claims("vercel_new_user")
         claims.user_email = "new-sso-user@example.com"
         claims.user_email_verified = claim_email_verified

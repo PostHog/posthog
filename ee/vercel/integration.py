@@ -16,7 +16,7 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
-from posthog.api.email_verification import email_verification_code_verifier, email_verification_pending
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
@@ -1013,8 +1013,12 @@ class VercelIntegration:
         if resource_id:
             VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
 
-        if email_verification_pending(user):
+        if user.is_email_verified is not True:
             # Only a new account gets here, because the other branches require the claim to prove the email.
+            # This gate ignores the email-verification-disabled flag and an instance without email, which
+            # password login honors. The Vercel claim is the only proof of the address. A session for an
+            # unproven address lets an attacker pre-create the account, and a later social login by the
+            # real owner links to that account while the attacker's session stays live.
             raise RequiresEmailVerification(
                 user, installation_id=claims.installation_id, email_verified=claims.user_email_verified
             )

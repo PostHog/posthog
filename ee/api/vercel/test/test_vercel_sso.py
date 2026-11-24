@@ -451,7 +451,6 @@ class TestSSOOrganizationHandling:
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
             mock_jwt_validation(claims),
-            patch("posthog.api.email_verification.is_email_available", return_value=True),
             patch("posthog.api.email_verification.send_email_verification_code") as mock_send_email,
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
