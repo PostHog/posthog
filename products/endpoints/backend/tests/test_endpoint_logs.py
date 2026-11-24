@@ -1,5 +1,3 @@
-import json
-import threading
 from datetime import UTC, datetime
 
 import time_machine
@@ -8,7 +6,6 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from aioresponses import CallbackResult, aioresponses
 from parameterized import parameterized
 from rest_framework import status
 
@@ -30,6 +27,14 @@ class _RecordingProducer:
 
     def produce(self, topic: str, data: dict) -> None:
         self.rows.append(data)
+
+
+class _RecordingLogsProduct:
+    def __init__(self) -> None:
+        self.logs: list[dict] = []
+
+    def __call__(self, source: str, **fields) -> None:
+        self.logs.append({"source": source, **fields})
 
 
 class TestBuildExecutionMessage(SimpleTestCase):
@@ -122,31 +127,13 @@ class TestBuildExecutionMessage(SimpleTestCase):
 
         self.assertEqual([row["message"] for row in kafka.rows], ["Endpoint executed"])
 
-    def test_row_reaches_capture_logs_for_an_allowed_team(self):
-        url = "http://capture-logs.test/i/v1/logs"
-        bodies: list[dict] = []
-        arrived = threading.Event()
-
-        def record(_url, **kwargs):
-            bodies.append(json.loads(kwargs["data"]))
-            arrived.set()
-            return CallbackResult(status=200)
-
+    def test_logs_product_gets_the_kafka_row(self):
         kafka = _RecordingProducer()
-        sender = "products.logs.backend.internal_logs_thread"
+        logs_product = _RecordingLogsProduct()
         with (
-            self.settings(
-                LOGS_INTERNAL_PRODUCER_URL=url,
-                LOGS_INTERNAL_INGESTION_SIGNING_KEYS="k1",
-                LOGS_INTERNAL_PRODUCER_TEAMS="1",
-            ),
-            mock.patch(f"{sender}._producer", None),
-            mock.patch(f"{sender}._loop", None),
-            mock.patch(f"{sender}._read_api_token", return_value="phc_test_token"),
             mock.patch("products.endpoints.backend.logs.get_producer", return_value=kafka),
-            aioresponses() as capture_logs,
+            mock.patch("products.endpoints.backend.logs.send_internal_log", logs_product),
         ):
-            capture_logs.post(url, callback=record)
             log_endpoint_execution(
                 team_id=1,
                 endpoint_id="abc",
@@ -154,16 +141,24 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 level="ERROR",
                 message="Endpoint execution failed",
             )
-            self.assertTrue(arrived.wait(10))
 
-        scope_logs = bodies[0]["resourceLogs"][0]["scopeLogs"][0]
-        (sent,) = scope_logs["logRecords"]
-        self.assertEqual(scope_logs["scope"]["name"], ENDPOINTS_LOG_SOURCE)
-        self.assertEqual((sent["body"]["stringValue"], sent["severityNumber"]), ("Endpoint execution failed", 17))
         (row,) = kafka.rows
         self.assertEqual((row["log_source"], row["level"]), (ENDPOINTS_LOG_SOURCE, "ERROR"))
         row_time = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=UTC)
-        self.assertEqual(int(sent["timeUnixNano"]), int(row_time.timestamp() * 1_000_000) * 1_000)
+        self.assertEqual(
+            logs_product.logs,
+            [
+                {
+                    "source": ENDPOINTS_LOG_SOURCE,
+                    "team_id": 1,
+                    "log_source_id": "abc",
+                    "instance_id": "exec-1",
+                    "timestamp": row_time,
+                    "level": "ERROR",
+                    "message": "Endpoint execution failed",
+                }
+            ],
+        )
 
 
 class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
