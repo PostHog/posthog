@@ -269,6 +269,17 @@ def owned_copies(
     )
 
 
+def rows_with_owned_copies(
+    *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """Which of these source rows have a copy the platform owns. A source that counts its own rows and
+    `count_configurations(held_only=True)` drops these rows, because each one's copy is counted already,
+    also when the row still says the source owns it."""
+    return platform_reads.rows_with_owned_copies(
+        team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
+    )
+
+
 def native_configuration_matches(
     *,
     team_id: int,

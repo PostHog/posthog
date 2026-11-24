@@ -478,7 +478,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         """The team's insight alerts, each counted once: from its platform copy when the platform holds
         its settings, so a moved alert still counts once its insight row is deleted, else from its row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
-        from products.alerts_platform.backend.facade.api import count_configurations, owned_copy_keys  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
+            count_configurations,
+            rows_with_owned_copies,
+        )
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
@@ -498,10 +501,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         # A row that says insight owns it while its copy says the platform does is already counted from
         # the copy.
         row_ids = set(rows.values_list("id", flat=True))
-        if row_ids:
-            row_ids -= {
-                key.legacy_configuration_id for key in owned_copy_keys(team_id=team_id, source_kind=SourceKind.INSIGHT)
-            }
+        row_ids -= rows_with_owned_copies(
+            team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=row_ids
+        )
         return len(row_ids) + on_platform
 
     @classmethod

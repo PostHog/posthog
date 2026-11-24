@@ -241,6 +241,20 @@ def owned_copies(
     return {cast(UUID, row.legacy_configuration_id): _configuration_view(row) for row in rows}
 
 
+def rows_with_owned_copies(
+    *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """Which of these source rows have a copy the platform owns. Reads only the copies' row ids."""
+    if not legacy_configuration_ids:
+        return frozenset()
+    copies = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind,
+        owner=PlatformAlertOwner.PLATFORM,
+        legacy_configuration_id__in=list(legacy_configuration_ids),
+    )
+    return frozenset(cast(UUID, legacy_id) for legacy_id in copies.values_list("legacy_configuration_id", flat=True))
+
+
 def native_configuration_matches(
     *,
     team_id: int,

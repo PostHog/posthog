@@ -79,6 +79,7 @@ from products.alerts_platform.backend.facade.api import (
     native_configuration_team_id,
     native_source_config_values,
     owned_copies_by_legacy_id,
+    rows_with_owned_copies,
     runtime_by_public_id,
     update_configuration,
 )
@@ -236,6 +237,15 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     from products.alerts.backend.platform_cutover import insight_state_of_platform  # noqa: PLC0415
 
     rows = _insight_owned_rows().filter(team_id=team_id)
+    # A row that says insight owns it while its copy says the platform does is listed and counted from
+    # the copy, with the held alerts.
+    rows = rows.exclude(
+        id__in=rows_with_owned_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=list(rows.values_list("id", flat=True)),
+        )
+    )
     held = list_configurations(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
