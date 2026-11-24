@@ -20,7 +20,6 @@ export function PlatformAlertGroupRowMenu({
 
     const now = new Date()
     const snoozed = listRowMute({ kind: 'group', configuration, group }, now)?.until != null
-    // The API reports a group's snooze as the later of its own and the alert's, so a group cannot leave an alert's snooze.
     const alertSnoozed = listRowMute({ kind: 'alert', configuration }, now)?.until != null
     let disabledReason: string | undefined
     if (!canSnoozeGroups(configuration)) {
