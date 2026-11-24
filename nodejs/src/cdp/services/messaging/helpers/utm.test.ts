@@ -257,6 +257,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
         },
         {
+            case: 'leaves the earlier run id on a signed link for a team with the tag on',
+            html: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+            expected: '<a href="https://example.com/verify?ph_workflow_run=old&amp;signature=abc">x</a>',
+        },
+        {
             case: 'leaves an earlier run id on a link marked data-ph-no-utm for a team that turned the tag off',
             runId: null,
             html: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',

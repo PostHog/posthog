@@ -723,7 +723,7 @@ export class EmailService {
         isTest: boolean,
         senderEmail: string
     ): Promise<WorkflowRunTag | null> {
-        // A send that opts out of click tracking expects its links to go out as written, so it gets no run tag.
+        // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
         // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
         if (
             !trackingEnabled ||
