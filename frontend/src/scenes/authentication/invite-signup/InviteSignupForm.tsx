@@ -173,13 +173,15 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                 {signupManualErrors?.generic && (
                     <AuthBanner variant="danger" className="mb-4">
                         <span>{signupManualErrors.generic.detail || 'Could not complete your signup.'}</span>{' '}
-                        <Link
-                            data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support' })}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Need help?
-                        </Link>
+                        {signupManualErrors.generic.code !== 'network_error' && (
+                            <Link
+                                data-attr="invite-signup-error-contact-support"
+                                onClick={() => openSupportForm({ kind: 'support' })}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Need help?
+                            </Link>
+                        )}
                     </AuthBanner>
                 )}
                 {passkeyError && (

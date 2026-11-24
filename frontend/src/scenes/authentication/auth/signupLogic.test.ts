@@ -161,7 +161,7 @@ describe('signupLogic — pending invite banner', () => {
 
 describe('signupLogic — retrying a panel after a failed submit', () => {
     let logic: ReturnType<typeof signupLogic.build>
-    let signupRequestCount: number
+    const originalLocation = window.location
 
     const advanceToOnboardingPanel = async (): Promise<void> => {
         logic.actions.precheckSignupEmail('free@example.com')
@@ -173,7 +173,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
     }
 
     beforeEach(() => {
-        signupRequestCount = 0
+        Object.defineProperty(window, 'location', { value: { ...originalLocation }, configurable: true })
         useMocks({
             post: {
                 '/api/signup/precheck': async (info) => {
@@ -190,7 +190,6 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
                         : [200, { email_exists: false, pending_invite: null }]
                 },
                 '/api/signup/': () => {
-                    signupRequestCount++
                     return [400, { type: 'validation_error', code: 'error', detail: 'Mocked failure', attr: null }]
                 },
             },
@@ -203,6 +202,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
 
     afterEach(() => {
         logic.unmount()
+        Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
     })
 
     it('advances when a different email is submitted after an account-exists error', async () => {
@@ -218,7 +218,18 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
         expect(logic.values.signupEmailError).toBeNull()
     })
 
-    it('reissues the signup request when onboarding is submitted again after a generic error', async () => {
+    it.each([false, true])('allows retrying onboarding (network failure: %s)', async (networkFailure) => {
+        let shouldFail = true
+        useMocks({
+            post: {
+                '/api/signup/': () =>
+                    shouldFail
+                        ? networkFailure
+                            ? HttpResponse.error()
+                            : [400, { code: 'error', detail: 'Mocked failure' }]
+                        : [200, { redirect_url: '/verify_email/test-user/' }],
+            },
+        })
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({
             name: 'John Smith',
@@ -229,13 +240,25 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
         })
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
-        expect(signupRequestCount).toBe(1)
-        expect(logic.values.signupPanelOnboardingManualErrors.generic).not.toBeUndefined()
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).toEqual(
+            networkFailure
+                ? {
+                      code: 'network_error',
+                      detail: "We couldn't reach PostHog. Check your connection and try again. What you've typed will stay in this form.",
+                  }
+                : { code: 'error', detail: 'Mocked failure' }
+        )
+        expect(logic.values.signupPanelOnboarding.name).toBe('John Smith')
+        expect(logic.values.signupPanelAuth.password).toBe('Str0ng-Test-Pass!')
+        expect(logic.values.panel).toBe(2)
+        expect(logic.values.isSignupPanelOnboardingSubmitting).toBe(false)
 
+        shouldFail = false
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(signupRequestCount).toBe(2)
+        expect(logic.values.signupPanelOnboardingManualErrors).toEqual({})
+        expect(window.location.href).toBe('/verify_email/test-user/')
     })
 })
 
