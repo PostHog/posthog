@@ -332,9 +332,9 @@ describe('HogFunctionManager - deactivated organizations', () => {
     }
 
     it.each([
-        ['on', true, ['transformation']],
+        ['on', true, []],
         ['off', false, ['destination', 'transformation']],
-    ])('loads only the functions that still run with the switch %s', async (_name, skip, types) => {
+    ])('loads the functions of a deactivated organization only with the switch %s', async (_name, skip, types) => {
         const manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, skip)
         await setOrganizationActive(manager, false)
 
