@@ -310,6 +310,17 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             self.assertFalse(http.calls)
         self.assertEqual(temporal.started, {})
 
+    def test_pending_organization_deletion_prevents_proxy_and_redirect_restoration(self) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=True, is_pending_deletion=True)
+        ProxyRecord.objects.filter(pk=self.record.pk).update(
+            cloudflare_activation_state=CloudflareActivationState.SUSPENDED
+        )
+        with responses.RequestsMock() as http:
+            reconcile_proxy.run(*self.proxy_args)
+            reconcile_proxy_root_redirect.run(str(self.record.pk))
+            self._sweep()
+            self.assertFalse(http.calls)
+
     @parameterized.expand([(False,), (True,)])
     def test_suspension_preserves_recovery_across_partial_cleanup(self, previously_provisioned: bool) -> None:
         Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
@@ -447,18 +458,21 @@ class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCas
         expected_state = CloudflareActivationState.SUSPENDED if deactivate else CloudflareActivationState.IDLE
         self.assertEqual(self.record.cloudflare_activation_state, expected_state)
 
-    @parameterized.expand([(True, ["GET", "POST"]), (False, [])])
-    async def test_creation_respects_organization_activation(self, active: bool, methods: list[str]) -> None:
+    @parameterized.expand([(True, False), (False, False), (True, True)])
+    async def test_creation_respects_organization_activation(self, active: bool, pending_deletion: bool) -> None:
         await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(root_redirect_url=None)
-        await Organization.objects.filter(pk=self.organization.pk).aupdate(is_active=active)
+        await Organization.objects.filter(pk=self.organization.pk).aupdate(
+            is_active=active, is_pending_deletion=pending_deletion
+        )
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             self._cloudflare(http, exists=False)
-            if active:
+            if active and not pending_deletion:
                 await create_cloudflare_custom_hostname(self.inputs)
+                self.assertEqual([call.request.method for call in http.calls], ["GET", "POST"])
             else:
                 with self.assertRaises(RecordDeletedException):
                     await create_cloudflare_custom_hostname(self.inputs)
-            self.assertEqual([call.request.method for call in http.calls], methods)
+                self.assertFalse(http.calls)
 
 
 @pytest.mark.django_db(transaction=True)
