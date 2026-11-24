@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
+import { TimeRangeContext } from '../timeRangeContext'
 import type { ChartConfig } from './chartSpec'
 import { useQueryFrames } from './useQueryFrames'
 import type { ChartStates, DataFrame, RunQuery, VizDefinition } from './vizTypes'
@@ -42,7 +43,8 @@ function ChartData({
     runQuery: RunQuery
     states?: ChartStates
 }): JSX.Element {
-    const result = useQueryFrames(widget.config.query, runQuery)
+    const surroundingTime = useContext(TimeRangeContext)
+    const result = useQueryFrames({ query: widget.config.query, time: widget.config.time ?? surroundingTime }, runQuery)
     const parsed = useMemo(
         () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
         [viz.optionsSchema, widget.config.viz.options]

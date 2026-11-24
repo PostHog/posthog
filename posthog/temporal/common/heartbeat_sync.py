@@ -48,6 +48,11 @@ def heartbeat_through_loop(loop: asyncio.AbstractEventLoop) -> Iterator[None]:
         _loop_heartbeat.reset(token)
 
 
+def heartbeat_from_thread(*details: Any) -> None:
+    """Send an activity heartbeat, through the loop when `heartbeat_through_loop` is active."""
+    (_loop_heartbeat.get() or activity.heartbeat)(*details)
+
+
 class HeartbeaterSync:
     def __init__(self, details: tuple[Any, ...] = (), factor: int = 12, logger: FilteringBoundLogger | None = None):
         self.details: tuple[Any, ...] = details
@@ -61,11 +66,10 @@ class HeartbeaterSync:
 
     def heartbeat_regularly(self, stop_event: threading.Event, interval: int, details: tuple[Any, ...]):
         tracker = get_liveness_tracker()
-        send_heartbeat = _loop_heartbeat.get() or activity.heartbeat
         while not stop_event.is_set():
             try:
                 extra_payload = {"host": socket.gethostname(), "ts": time.time()}
-                send_heartbeat(*details, extra_payload)
+                heartbeat_from_thread(*details, extra_payload)
                 tracker.record_heartbeat()
                 self.log_debug("Heartbeat")
             except Exception as e:
