@@ -873,6 +873,7 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _denied_warehouse_table_ids: set[str] = set()  # Ids of the warehouse tables in _denied_tables
     # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
     _models_aliases: dict[str, list[str]] = {}
     # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
@@ -947,6 +948,7 @@ class Database(BaseModel):
         self._view_table_names = []
         self._table_slot_origins = {}
         self._denied_tables = set()
+        self._denied_warehouse_table_ids = set()
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
@@ -1493,6 +1495,7 @@ class Database(BaseModel):
 
         # Add table names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(table.name)
+        self._denied_warehouse_table_ids.add(str(table.id))
         if table.external_data_source:
             for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
                 self._denied_tables.add(table_key)
@@ -2246,6 +2249,10 @@ class Database(BaseModel):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
+            from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
+                source_has_column_restricted_schemas,
+            )
+
             direct_connection_metadata: dict[str, Any] | None = None
             is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
@@ -2274,16 +2281,19 @@ class Database(BaseModel):
                             )
                         is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
+                    is_pure_direct = direct_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
-                    if direct_source.access_method != ExternalDataSourceAccessMethod.DIRECT:
+                    if not is_pure_direct:
                         virtual_source = direct_source
+                    # A DIRECT source has full database access by design, unless its column picker hides
+                    # columns: an introspected function such as query_to_xml would read them anyway.
+                    if not is_pure_direct or source_has_column_restricted_schemas(direct_source.id, team.pk):
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
                         # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
                         # user execute arbitrary SQL against the upstream DB, bypassing the table selection /
                         # row-filter / column / warehouse-object checks enforced when virtual tables are
-                        # built. Drop both so only built-in safe functions pass through; DIRECT sources
-                        # (full DB access by design) keep introspected passthrough.
+                        # built. Drop both so only built-in safe functions pass through.
                         introspected_function_keys = {"available_functions", "available_table_functions"}
                         if isinstance(direct_connection_metadata, dict) and (
                             introspected_function_keys & direct_connection_metadata.keys()

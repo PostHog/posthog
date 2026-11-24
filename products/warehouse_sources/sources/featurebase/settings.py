@@ -51,13 +51,15 @@ class FeaturebaseEndpointConfig:
     #     descending sort on the incremental field, so the sweep short-circuits once a whole
     #     page predates the watermark (same pattern as the GitHub source).
     #   - "server_filter": the endpoint accepts a genuine server-side lower-bound param
-    #     (changelogs' `startDate`) and an ascending sort, so only new rows are fetched.
+    #     (`startDate`), so only new rows are fetched. Rows come back in the endpoint's
+    #     `server_filter_order`: ascending for changelogs, newest-first for audit logs.
     #   - None: full refresh only.
     incremental_mode: Optional[Literal["desc_cutoff", "server_filter"]] = None
     # Maps incremental field name -> the query params that sort by it in the direction the
-    # incremental mode needs (descending for "desc_cutoff", ascending for "server_filter").
+    # incremental mode needs (descending for "desc_cutoff", `server_filter_order` for
+    # "server_filter"). Empty params mean the endpoint has a fixed order and takes no sort.
     incremental_params_for_field: dict[str, dict[str, str]] = field(default_factory=dict)
-    # Server-side lower-bound query param for "server_filter" endpoints (changelogs' startDate).
+    # Server-side lower-bound query param for "server_filter" endpoints (`startDate`).
     server_filter_param: Optional[str] = None
     # Order a "server_filter" incremental run returns rows in. Audit logs only come newest-first.
     server_filter_order: Literal["asc", "desc"] = "asc"

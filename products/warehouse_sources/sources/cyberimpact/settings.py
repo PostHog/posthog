@@ -168,6 +168,42 @@ CYBERIMPACT_ENDPOINTS: dict[str, CyberimpactEndpointConfig] = {
             fanout=_mailing_fanout(_RECIPIENT_PARAMS),
         ),
         CyberimpactEndpointConfig(
+            name="mailing_deliveries",
+            path="/mailings/{mailing_id}/recipients/delivered",
+            data_selector="recipients",
+            primary_keys=["mailing_id", "email"],
+            fanout=_mailing_fanout(_RECIPIENT_PARAMS),
+        ),
+        CyberimpactEndpointConfig(
+            name="mailing_unsubscribes",
+            path="/mailings/{mailing_id}/recipients/unsubscribed",
+            data_selector="recipients",
+            primary_keys=["mailing_id", "email"],
+            fanout=_mailing_fanout(_RECIPIENT_PARAMS),
+        ),
+        CyberimpactEndpointConfig(
+            name="mailing_hard_bounces",
+            path="/mailings/{mailing_id}/recipients/hard-bounced",
+            data_selector="recipients",
+            primary_keys=["mailing_id", "email"],
+            fanout=_mailing_fanout(_RECIPIENT_PARAMS),
+        ),
+        CyberimpactEndpointConfig(
+            name="mailing_soft_bounces",
+            path="/mailings/{mailing_id}/recipients/soft-bounced",
+            data_selector="recipients",
+            primary_keys=["mailing_id", "email"],
+            fanout=_mailing_fanout(_RECIPIENT_PARAMS),
+        ),
+        # Empty for a mailing that was not stopped.
+        CyberimpactEndpointConfig(
+            name="mailing_stopped_recipients",
+            path="/mailings/{mailing_id}/recipients/stopped",
+            data_selector="recipients",
+            primary_keys=["mailing_id", "email"],
+            fanout=_mailing_fanout(_RECIPIENT_PARAMS),
+        ),
+        CyberimpactEndpointConfig(
             name="templates",
             path="/templates",
             data_selector="templates",

@@ -50,7 +50,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
-import { sourceSceneLogic } from '../SourceScene'
+import { SOURCE_PLACEHOLDER_NAME, sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
@@ -348,16 +348,22 @@ export function schemasNeedingLookbackResync(source: ExternalDataSource | null):
 // the backend to discover and fill in default sync settings as part of the same update.
 // Blocked tables are enabled along with the rest on purpose. An operator who fixed the key or the
 // duplicates at the source for many tables at once has to be able to turn them back on in one go.
+// Migrated self-managed tables arrive with a full refresh and the model's default frequency, which
+// nobody chose, so they get the frequency the user picked in the confirm dialog.
 export function buildBulkEnablePayloads(
-    schemas: ExternalDataSourceSchema[]
+    schemas: ExternalDataSourceSchema[],
+    pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
 ): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
     return schemas
         .filter((schema) => !schema.should_sync)
-        .map((schema) =>
-            schema.sync_type
-                ? { id: schema.id, should_sync: true }
-                : { id: schema.id, should_sync: true, apply_sync_defaults: true }
-        )
+        .map((schema) => ({
+            id: schema.id,
+            should_sync: true,
+            ...(schema.sync_type ? {} : { apply_sync_defaults: true }),
+            ...(schema.pending_self_managed_table && pendingSelfManagedSyncFrequency
+                ? { sync_frequency: clampSyncFrequency(pendingSelfManagedSyncFrequency) }
+                : {}),
+        }))
 }
 
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
@@ -444,7 +450,11 @@ export interface sourceSettingsLogicActions {
     bulkDisable: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
-    bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
+    bulkEnable: (
+        schemas: ExternalDataSourceSchema[],
+        pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
+    ) => {
+        pendingSelfManagedSyncFrequency: DataWarehouseSyncInterval | undefined
         schemas: ExternalDataSourceSchema[]
     }
     bulkResync: (schemas: ExternalDataSourceSchema[]) => {
@@ -721,7 +731,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
-        bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkEnable: (
+            schemas: ExternalDataSourceSchema[],
+            pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
+        ) => ({ schemas, pendingSelfManagedSyncFrequency }),
         setBulkEnableLoading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
@@ -1226,7 +1239,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         const setSceneBreadcrumbName = (): void => {
             const { source } = values
-            const label = source ? sourceTypeLabel(source.source_type, values.availableSources) : 'Source'
+            const label = source
+                ? sourceTypeLabel(source.source_type, values.availableSources)
+                : SOURCE_PLACEHOLDER_NAME
             const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
 
             const sceneLogicInstance =
@@ -1234,6 +1249,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sourceSceneLogic.findMounted({ id: props.id })
 
             sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+            if (source) {
+                sceneLogicInstance?.actions.setRecentName(source.prefix ? `${label} (${source.prefix})` : label)
+            }
         }
 
         const scheduleSchemaUpdateFlush = (): void => {
@@ -1360,7 +1378,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const current = values.source?.schemas.find((s) => s.id === schema.id)
                 const turnsSyncingOn = schema.should_sync && !current?.should_sync
                 if (turnsSyncingOn && schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(1, () => queueSchemaUpdates([schema]))
+                    confirmPendingSelfManagedSync(() => queueSchemaUpdates([schema]))
                     return
                 }
                 queueSchemaUpdates([schema])
@@ -1541,7 +1559,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
                 if (schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(1, () => void runReload())
+                    confirmPendingSelfManagedSync(() => void runReload())
                     return
                 }
                 await runReload()
@@ -1609,7 +1627,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
             },
-            bulkEnable: async ({ schemas }) => {
+            bulkEnable: async ({ schemas, pendingSelfManagedSyncFrequency }) => {
                 // Guard against concurrent submissions — a rapid double-click (e.g. on the
                 // imperative dialog's Enable button, which can't reactively disable) would
                 // otherwise fire the PATCH twice and prepare duplicate schedule side effects.
@@ -1617,7 +1635,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return
                 }
                 cache.bulkEnableInFlight = true
-                const payloads = buildBulkEnablePayloads(schemas)
+                const payloads = buildBulkEnablePayloads(schemas, pendingSelfManagedSyncFrequency)
                 if (payloads.length === 0) {
                     lemonToast.info('All selected schemas are already enabled')
                     actions.setBulkEnableLoading(false)
@@ -1636,6 +1654,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         sourceType: values.source?.source_type,
                         count: payloads.length,
                         defaultsApplied: defaultsCount,
+                        pendingSelfManagedCount: schemas.filter(
+                            (schema) => !schema.should_sync && schema.pending_self_managed_table
+                        ).length,
+                        pendingSelfManagedSyncFrequency,
                     })
                     lemonToast.success(
                         defaultsCount > 0

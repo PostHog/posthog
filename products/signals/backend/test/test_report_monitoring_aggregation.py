@@ -501,6 +501,53 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt.research_requested_at is None
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand([("checks_passed",), ("assessment",)])
+    def test_resolution_after_the_soak_names_who_completed_the_implementation(self, route: str) -> None:
+        implementer = User.objects.create_and_join(self.organization, "implementer@example.com", None)
+        self.report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Checkout recovery"
+        )
+        self.checks = [self._check(), self._check(soak_minutes=120)]
+        self.attempt = complete_implementation(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            monitoring_started_at=self.now - timedelta(hours=2),
+            attribution=ArtefactAttribution.from_user(implementer.id),
+        )
+        assert self.attempt is not None
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as capture:
+            if route == "checks_passed":
+                with self.captureOnCommitCallbacks(execute=True):
+                    save_monitoring_result(self._evaluation(0))
+                    save_monitoring_result(self._evaluation(1))
+            else:
+                self._request_assessment()
+                task = Task.objects.create(team=self.team, created_by=self.user, title="Assess", internal=True)
+                run = TaskRun.objects.create(team=self.team, task=task, status="completed")
+                with self.captureOnCommitCallbacks(execute=True):
+                    finish_monitoring_assessment(
+                        team_id=self.team.id,
+                        report_id=self.report.id,
+                        attempt_id=self.attempt.id,
+                        assessment=MonitoringAssessment(
+                            resolved=True,
+                            reasoning="The fixed-window observation supports this decision.",
+                            evidence_refs=["observation:synthetic"],
+                        ),
+                        task_id=task.id,
+                        run_id=run.id,
+                    )
+        [resolved] = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+            and call.kwargs["properties"]["status"] == SignalReport.Status.RESOLVED
+        ]
+        assert resolved["distinct_id"] == implementer.distinct_id
+        assert resolved["properties"]["actor_kind"] == "system"
+        assert resolved["properties"]["actor_distinct_id"] == implementer.distinct_id
+        assert resolved["properties"]["actor_user_source"] == "request"
+
     def _request_assessment(self) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])

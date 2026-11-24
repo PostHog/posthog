@@ -18,8 +18,8 @@ _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
-    # Only ReviewHog's arm-set trial calls it.
-    "gpt-6.1-terra": frozenset({"review_hog"}),
+    # Only ReviewHog's arm-set trial and the first-report model experiment call it.
+    "gpt-6.1-terra": frozenset({"review_hog", "signals_scout"}),
 }
 
 

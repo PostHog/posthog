@@ -323,6 +323,14 @@ const DASHBOARDS = [
     { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
 ].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
 
+// MOCK_DEFAULT_TEAM points primary_dashboard at id 1
+const PRIMARY_DASHBOARD = {
+    ...DASHBOARDS[0],
+    id: 1,
+    description: '**Signups**, activation and revenue for the `self-serve` funnel. Reviewed every Monday.',
+    tiles: [],
+}
+
 const REPORTS = [
     makeReport({
         id: 'report-1',
@@ -991,6 +999,7 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
+                '/api/projects/:team_id/dashboards/1/': PRIMARY_DASHBOARD,
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
@@ -1884,4 +1893,46 @@ export const HomeWhileSelfDrivingReviews: Story = {
             },
         }),
     ],
+}
+
+const PHONE_PARAMETERS = {
+    featureFlags: [
+        FEATURE_FLAGS.TODAY_RAIL_NAV,
+        FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+        FEATURE_FLAGS.RELEASES_AREA,
+        FEATURE_FLAGS.MONITOR_AREA,
+        FEATURE_FLAGS.DATA_AREA,
+    ],
+    testOptions: { viewport: { width: 390, height: 844 } },
+}
+
+async function openPhoneMoreSheet(canvasElement: HTMLElement): Promise<HTMLElement> {
+    const more = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="help-menu-button"]')
+        if (!button) {
+            throw new Error('More tab not rendered yet')
+        }
+        return button
+    })
+    await userEvent.click(more)
+    return await within(document.body).findByText('Edit tabs')
+}
+
+export const PhoneTabBar: Story = { decorators: [keepNumbers([])], parameters: PHONE_PARAMETERS }
+
+export const PhoneMoreSheet: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await openPhoneMoreSheet(canvasElement)
+    },
+}
+
+export const PhoneEditTabs: Story = {
+    decorators: [keepNumbers([])],
+    parameters: PHONE_PARAMETERS,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await openPhoneMoreSheet(canvasElement))
+        await within(document.body).findByText(/Choose up to/)
+    },
 }

@@ -24,7 +24,14 @@ function hasLargeAiProperties(properties: Record<string, unknown>): boolean {
     return false
 }
 
-function splitAiEvent(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
+export interface SplitAiEventsStepConfig {
+    retentionDaysByTeam: ReadonlyMap<number, number>
+}
+
+function splitAiEvent(
+    entry: EventToEmit<EventOutput>,
+    aiHeaders: Record<string, string> | undefined
+): EventToEmit<EventOutput | AiEventOutput>[] {
     const properties = entry.event.properties ?? {}
 
     if (!isAiEventName(entry.event.event)) {
@@ -33,7 +40,7 @@ function splitAiEvent(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput 
 
     if (!hasLargeAiProperties(properties)) {
         // Nothing heavy to strip — duplicate unchanged to both outputs.
-        return [entry, { event: entry.event, output: AI_EVENTS_OUTPUT }]
+        return [entry, { event: entry.event, output: AI_EVENTS_OUTPUT, headers: aiHeaders }]
     }
 
     // The heavy AI properties live only on the dedicated ai_events table, so strip them
@@ -49,19 +56,21 @@ function splitAiEvent(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput 
 
     return [
         { event: strippedEvent, output: entry.output },
-        { event: entry.event, output: AI_EVENTS_OUTPUT },
+        { event: entry.event, output: AI_EVENTS_OUTPUT, headers: aiHeaders },
     ]
 }
 
-export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(): ProcessingStep<
-    T,
-    T & SplitAiEventsStepOutput
-> {
+export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
+    config: SplitAiEventsStepConfig
+): ProcessingStep<T, T & SplitAiEventsStepOutput> {
     return function splitAiEventsStep(input) {
+        const retentionDays = config.retentionDaysByTeam.get(input.teamId)
+        // The ai_events materialized view reads this header into the row's retention_days.
+        const aiHeaders = retentionDays === undefined ? undefined : { 'retention-days': String(retentionDays) }
         return Promise.resolve(
             ok({
                 ...input,
-                eventsToEmit: input.eventsToEmit.flatMap((entry) => splitAiEvent(entry)),
+                eventsToEmit: input.eventsToEmit.flatMap((entry) => splitAiEvent(entry, aiHeaders)),
             })
         )
     }

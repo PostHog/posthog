@@ -2,6 +2,26 @@
 escaped."""
 
 import re
+from dataclasses import field
+
+from posthog.dataclasses import frozen
+
+
+@frozen
+class Place:
+    state: str
+    attribute: str = ""
+    tag_name: str = ""
+    closing: bool = False
+    raw_element: str = ""
+    partial: str = ""
+    # Text fed but not read yet, such as the tail kept back while a closing tag is looked for. Restoring it means
+    # the next branch is read from where this place was, not after what another branch fed.
+    unread: str = field(default="", compare=False, repr=False)
+    # The end of `unread` that could still be the start of the closing `-->` or `</name`. Two branches that differ
+    # here can read the same next text differently, so they count as different places.
+    unread_end: str = ""
+
 
 # Elements whose content isn't page text, so a value inside one is escaped some other way.
 _RAW_ELEMENTS = frozenset(
@@ -29,6 +49,30 @@ class HtmlContext:
         self.untrusted = False
         # A `<` at the end of what was fed, with what follows it so far. The next text decides whether it opens a tag.
         self.partial = ""
+
+    def snapshot(self) -> "Place":
+        """Where the text is now, so two branches of a condition can be compared. Outside a tag the last tag's name
+        and attribute no longer matter, so they don't count."""
+        unread = self.text[self.position :]
+        if self.state in ("text", "comment", "bogus"):
+            unread_end = _closer_start(unread, "-->") if self.state == "comment" else ""
+            return Place(state=self.state, partial=self.partial, unread=unread, unread_end=unread_end)
+        if self.state == "raw":
+            unread_end = _closer_start(unread, f"</{self.raw_element}")
+            return Place(state=self.state, raw_element=self.raw_element, unread=unread, unread_end=unread_end)
+        return Place(
+            state=self.state,
+            attribute=self.attribute,
+            tag_name=self.tag_name,
+            closing=self.closing,
+            raw_element=self.raw_element,
+            unread=unread,
+        )
+
+    def restore(self, place: "Place") -> None:
+        self.state, self.attribute, self.tag_name = place.state, place.attribute, place.tag_name
+        self.closing, self.raw_element, self.partial = place.closing, place.raw_element, place.partial
+        self.text, self.position = place.unread, 0
 
     def feed(self, chunk: str) -> None:
         if self.position > _SEARCH_OVERLAP:
@@ -143,6 +187,15 @@ class HtmlContext:
                 self.state = "unquoted"
         elif state == "unquoted" and character in _HTML_SPACE:
             self.state = "before_attribute"
+
+
+def _closer_start(unread: str, closer: str) -> str:
+    """The longest end of `unread` that the next text could complete into `closer`."""
+    lowered = unread[-len(closer) :].lower()
+    for length in range(min(len(closer), len(lowered)), 0, -1):
+        if lowered[-length:] == closer[:length]:
+            return lowered[-length:]
+    return ""
 
 
 def _find_end_tag(text: str, name: str, start: int) -> int:

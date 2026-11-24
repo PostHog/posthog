@@ -175,6 +175,15 @@ class TestTopLevelRows:
         assert result.raised is None
         assert [r["name"] for r in result.rows] == ["r1", "r3"]
 
+    def test_owner_yields_the_single_object_as_one_row(self) -> None:
+        owner = {"service": "github", "username": "acme", "name": "Acme Inc"}
+        pages = {f"{_BASE}/": owner}
+        result = _run("owner", pages)
+
+        assert result.raised is None
+        assert result.rows == [owner]
+        assert result.urls == list(pages)
+
 
 class TestFanOutRows:
     def test_fans_out_over_active_repos_and_injects_repo(self) -> None:
