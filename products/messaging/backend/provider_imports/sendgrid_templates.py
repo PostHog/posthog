@@ -97,7 +97,6 @@ class _Found:
         return None
 
 
-_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|$)", re.DOTALL)
 # A tag for an unsubscribe link that is still in the converted text, so it prints as it stands.
 _LEFT_UNSUBSCRIBE_TAG = re.compile(
     r"(?:<|&lt;|%3C)(?:%25|%)\s{0,5}\w{0,50}(?:unsubscribe|asm_preferences)"
@@ -432,9 +431,9 @@ def convert_version(
             f"PostHog can't convert {shown}{more}, so the email shows {them} as written. Rewrite {them} in Liquid."
         )
     bodies = (html,) if generates_text and html else (html, text)
-    if any(_LEFT_UNSUBSCRIBE_TAG.search(_HTML_COMMENT.sub("", body)) for body in bodies):
+    if any(_LEFT_UNSUBSCRIBE_TAG.search(body) for body in bodies):
         notes.append(
-            "This template's unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
+            "An unsubscribe link didn't convert, so it doesn't work. Add {{ unsubscribe_url }} before you "
             "send it as marketing email."
         )
     if generation == "legacy":

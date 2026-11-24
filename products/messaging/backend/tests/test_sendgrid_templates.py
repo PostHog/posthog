@@ -363,6 +363,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 "legacy",
                 "<i><%asm_preferences_raw_url%></i><a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>",
             ),
+            (
+                "after_something_like_a_comment",
+                "legacy",
+                '<a title="a <!-- b">x</a><a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>',
+            ),
             ("url_encoded_braces", "dynamic", '<a href="%7B%7B%7Bunsubscribe%7D%7D%7D">Leave</a>'),
             ("url_encoded", "legacy", '<a href="%3C%25asm_group_unsubscribe_raw_url%25%3E">Leave</a>'),
             ("handlebars_in_a_legacy_template", "legacy", '<a href="{{{unsubscribe}}}">Leave</a>'),
@@ -385,11 +390,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (
-                "in_a_comment_too",
-                "legacy",
-                '<!-- <%asm_group_unsubscribe_raw_url%> --><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>',
-            ),
             ("a_value_the_app_passes", "legacy", '<a href="-unsubscribe_link-">Leave</a>'),
             ("a_dynamic_value", "dynamic", '<a href="{{unsubscribe_link}}">Leave</a>'),
             ("a_nested_dynamic_value", "dynamic", '<a href="{{links.unsubscribe}}">Leave</a>'),
