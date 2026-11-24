@@ -9,6 +9,7 @@ from products.workflows.backend.services.customerio_import.service import (
     record_import,
 )
 from products.workflows.backend.services.customerio_import.translator import (
+    SEGMENT_TRIGGER_TYPES,
     STATIC_SEGMENT_TYPES,
     segment_label,
     segments_checked_through_cohorts,
@@ -17,6 +18,7 @@ from products.workflows.backend.services.customerio_import.translator import (
 from products.workflows.backend.services.resend_import.drafts import import_resend_automation, reuse_import_access
 
 __all__ = [
+    "SEGMENT_TRIGGER_TYPES",
     "STATIC_SEGMENT_TYPES",
     "import_resend_automation",
     "reuse_import_access",

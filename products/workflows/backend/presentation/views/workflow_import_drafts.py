@@ -50,6 +50,7 @@ from products.workflows.backend.facade.enums import (
     WorkflowImportSource,
 )
 from products.workflows.backend.facade.workflow_imports import (
+    SEGMENT_TRIGGER_TYPES,
     STATIC_SEGMENT_TYPES,
     import_content,
     previous_import,
@@ -161,7 +162,10 @@ def _convert_segments(
 
     Only segments whose rules all translate become cohorts. A cohort an earlier import made is used again.
     """
+    creation = _CohortCreation(team=team, user=user, context=context, dry_run=dry_run)
     options = content.options
+    if any(source.campaign.get("type") in SEGMENT_TRIGGER_TYPES for source in content.sources) and creation.unavailable:
+        options = dataclasses.replace(options, cohort_triggers_available=False)
     referenced: dict[str, list[str]] = {}
     for source in content.sources:
         source_id = _source_id(source)
@@ -188,7 +192,6 @@ def _convert_segments(
     pending: set[str] = set()
     notes: dict[str, list[ImportNote]] = {}
     outcomes: list[dict[str, Any]] = []
-    creation = _CohortCreation(team=team, user=user, context=context, dry_run=dry_run)
     for segment_id, source_ids in referenced.items():
         segment = options.segments[segment_id]
         result = creation.convert(segment_id, segment)

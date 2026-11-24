@@ -1384,6 +1384,8 @@ class ImportOptions:
     segments: dict[str, ImportSegment] = field(default_factory=dict)
     # In a preview, the Customer.io segments a real import would turn into cohorts.
     pending_segment_cohorts: frozenset[str] = frozenset()
+    # Whether a workflow here can start when a person joins a cohort.
+    cohort_triggers_available: bool = True
 
 
 @frozen
