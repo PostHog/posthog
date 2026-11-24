@@ -23,6 +23,11 @@ class TestTextFromHtml(SimpleTestCase):
             ("source_whitespace_collapses", "<p>Hi\n      Jane</p>\n\n\n<p>Bye</p>", "Hi Jane\n\nBye"),
             ("list_items_are_lines", "<ul><li>One</li><li>Two</li></ul>", "One\nTwo"),
             ("text_after_a_line_block_starts_a_new_line", "<div>Order 123</div>shipped", "Order 123\nshipped"),
+            (
+                "link_with_double_space_in_url_and_label_is_not_duplicated",
+                '<a href="https://example.com/?q=a  b">https://example.com/?q=a  b</a>',
+                "https://example.com/?q=a b",
+            ),
         ]
     )
     def test_derives_readable_text(self, _name, html, expected):
@@ -89,6 +94,12 @@ class TestTextFromHtml(SimpleTestCase):
                 '<a href="{{unsubscribe_url}}">{{unsubscribe_url}}</a>',
                 True,
                 "{{unsubscribe_url}}",
+            ),
+            (
+                "marketing_send_with_placeholder_broken_by_line_break_keeps_link",
+                '<a href="{{unsubscribe_url}}">{{ unsubscribe_<br>url }}</a>',
+                True,
+                "{{ unsubscribe_\nurl }} ({{ unsubscribe_url }})",
             ),
             ("transactional_send", '<a href="{{unsubscribe_url}}">Unsubscribe</a>', False, "Unsubscribe"),
         ]

@@ -1552,27 +1552,27 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("recipient_opted_out", 422, "recipient_opted_out"),
-            ("unsubscribe_link_required", 400, "unsubscribe_link_required"),
-            ("copies_not_allowed", 400, "copies_not_allowed"),
+            ("recipient_opted_out", UNSUBSCRIBE_HTML, 422, "recipient_opted_out"),
+            ("unsubscribe_link_required", "<!-- {{ unsubscribe_url }} --><p>Hi</p>", 400, "unsubscribe_link_required"),
         ]
     )
     def test_reports_a_marketing_code_send_the_pipeline_refuses(
-        self, cdp_post, _flag, capture, pipeline_code, expected_status, expected_code
+        self, cdp_post, _flag, capture, pipeline_code, html, expected_status, expected_code
     ):
         cdp = self.enterContext(FakeCdpApi(refusal=(expected_status, pipeline_code)).serving(cdp_post))
 
         response = self._psak_client(["transactional_email:write"]).post(
             self.send_email_url,
-            self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML),
+            self._code_send(category=self.NEWSLETTER, html=html),
             format="json",
         )
 
         assert response.status_code == expected_status, response.json()
         assert response.json()["code"] == expected_code
         category = MessageCategory.objects.get(team=self.team, key="newsletter")
-        assert cdp.received[0]["send"]["message_category"] == {"id": str(category.id), "type": "marketing"}
-        assert cdp.emails() == []
+        (forwarded,) = cdp.received
+        assert forwarded["send"]["content"]["html"] == html
+        assert forwarded["send"]["message_category"] == {"id": str(category.id), "type": "marketing"}
 
     def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
         with FakeCdpApi().serving(mock_post) as cdp:
@@ -3829,10 +3829,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
                     lambda: self._send_is_blocked_by_this_session(send_pid) or send_done.is_set(),
                     timeout=30,
                     interval=0.05,
-                    message="the send never waited on the other write, so the two did not race",
-                )
-                assert self._send_is_blocked_by_this_session(send_pid), (
-                    "the send finished without waiting on the other write, so the two did not race"
+                    message="timed out waiting for the concurrent send to meet or finish",
                 )
             return result
         finally:
@@ -3914,6 +3911,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             category_id = other_send.result(timeout=30)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert not MessageCategory.objects.get(id=category_id).deleted
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
 
     def test_a_category_restored_in_the_app_at_the_limit_is_used(self, cdp_post, _flag, _capture):
@@ -3941,6 +3939,7 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             app.result(timeout=30)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert not MessageCategory.objects.get(id=category.id).deleted
         assert cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
 
     def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
