@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
-import { ContentAutopilotKeywordList } from './ContentAutopilotKeywordList'
 import { ContentAutopilotKeywordModifiers } from './ContentAutopilotKeywordModifiers'
 import { ContentAutopilotKeywordReportTable } from './ContentAutopilotKeywordReportTable'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import { ContentAutopilotKeywordsModal } from './ContentAutopilotKeywordsModal'
 import { ContentAutopilotKeywordsSkeleton } from './ContentAutopilotKeywordsSkeleton'
 import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
 import { ContentAutopilotKeywordSuggestModal } from './ContentAutopilotKeywordSuggestModal'
@@ -51,9 +51,9 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
 
     return (
         <section className="@container/keywords flex flex-col gap-4" data-attr="content-autopilot-keywords">
-            <ContentAutopilotKeywordList keywords={keywords} />
             <ContentAutopilotKeywordReportTable />
             <ContentAutopilotKeywordModifiers />
+            <ContentAutopilotKeywordsModal />
             <ContentAutopilotKeywordSuggestModal />
         </section>
     )

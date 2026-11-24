@@ -44,6 +44,7 @@ export interface contentAutopilotKeywordsLogicValues {
     keywordsError: ContentAutopilotPromptsError | null
     keywordsLeft: number
     keywordsLoading: boolean
+    keywordsModalOpen: boolean
     modifierKeyword: string | null
     modifiers: AEOKeywordModifierReportApi | null
     modifiersError: ContentAutopilotPromptsError | null
@@ -97,6 +98,9 @@ export interface contentAutopilotKeywordsLogicActions {
     }
     addKeywordsSuccess: (result: AEOKeywordCreateResultApi) => {
         result: AEOKeywordCreateResultApi
+    }
+    closeKeywordsModal: () => {
+        value: true
     }
     loadKeywords: () => {
         value: true
@@ -161,6 +165,9 @@ export interface contentAutopilotKeywordsLogicActions {
             value: true
         }
     }
+    openKeywordsModal: () => {
+        value: true
+    }
     removeKeyword: (keyword: AEOKeywordApi) => {
         keyword: AEOKeywordApi
     }
@@ -215,6 +222,8 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         removeKeywordSuccess: (keyword: AEOKeywordApi) => ({ keyword }),
         removeKeywordFailure: (keyword: AEOKeywordApi) => ({ keyword }),
         setModifierKeyword: (modifierKeyword: string | null) => ({ modifierKeyword }),
+        openKeywordsModal: true,
+        closeKeywordsModal: true,
     }),
     loaders(({ values }) => ({
         keywords: [
@@ -304,6 +313,13 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
             null as string | null,
             {
                 setModifierKeyword: (_, { modifierKeyword }) => modifierKeyword,
+            },
+        ],
+        keywordsModalOpen: [
+            false,
+            {
+                openKeywordsModal: () => true,
+                closeKeywordsModal: () => false,
             },
         ],
         keywordsError: [
