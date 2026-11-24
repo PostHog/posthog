@@ -1,5 +1,6 @@
 from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import fields
 from datetime import datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
@@ -13,7 +14,7 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import saved_query_definitions
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
-from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
+from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft, UnmaterializationAsset
 from ..facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
@@ -103,6 +104,7 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 ALL_WAITING = Q()
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
 FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
+UNMATERIALIZATION_ASSET_FIELDS = frozenset(field.name for field in fields(UnmaterializationAsset))
 REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
@@ -138,14 +140,13 @@ def _accepted_then_flipped_back(
 ) -> list[WarehouseSuggestion]:
     """Accepted materialize and unmaterialize suggestions drafted again, so their view flipped back, past the cooldown."""
     cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
-    return list(
-        WarehouseSuggestion.objects.for_team(context.team_id).filter(
-            fingerprint__in=drafts_by_fingerprint,
-            status=WarehouseSuggestionStatus.ACCEPTED,
-            kind__in=FLIP_KINDS,
-            reviewed_at__lte=cooled_down_before,
-        )
+    accepted = WarehouseSuggestion.objects.for_team(context.team_id).filter(
+        fingerprint__in=drafts_by_fingerprint,
+        status=WarehouseSuggestionStatus.ACCEPTED,
+        kind__in=[*FLIP_KINDS, WarehouseSuggestionKind.DEPRECATE],
+        reviewed_at__lte=cooled_down_before,
     )
+    return [row for row in accepted if _asset_kind(row) in FLIP_KINDS]
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:
@@ -285,6 +286,7 @@ def _reconcile_assets(context: CandidateContext) -> list[WarehouseSuggestion]:
         "subject_kind",
         "subject_id",
         "reviewed_at",
+        "created_asset",
         "score_inputs",
         "asset_outcome",
         "realized_seconds_saved_per_month",
@@ -298,7 +300,7 @@ def _reconcile_assets(context: CandidateContext) -> list[WarehouseSuggestion]:
 
 
 def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
-    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    candidate = CANDIDATES[_asset_kind(row)]
     subject = _subject(row)
     savings = (
         candidate.realized_savings(context, subject, row.score_inputs)
@@ -310,6 +312,16 @@ def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[
         "realized_seconds_saved_per_month": savings.seconds if savings else None,
         "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
     }
+
+
+def _asset_kind(row: WarehouseSuggestion) -> WarehouseSuggestionKind:
+    if row.kind == WarehouseSuggestionKind.DEPRECATE and _only_stopped_materializing(row.created_asset):
+        return WarehouseSuggestionKind.UNMATERIALIZE
+    return WarehouseSuggestionKind(row.kind)
+
+
+def _only_stopped_materializing(created_asset: Mapping[str, object] | None) -> bool:
+    return created_asset is not None and set(created_asset) == UNMATERIALIZATION_ASSET_FIELDS
 
 
 def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:

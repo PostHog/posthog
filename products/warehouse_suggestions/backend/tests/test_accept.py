@@ -469,13 +469,51 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("stops_refreshes", True, {}, None, status.HTTP_200_OK),
+            ("refuses_keeping_refreshes", True, {"keep_materialized": True}, None, status.HTTP_400_BAD_REQUEST),
+            ("refuses_deleting_too", True, {"delete_view": True}, None, status.HTTP_400_BAD_REQUEST),
+            ("refuses_a_plain_view", False, {}, None, status.HTTP_400_BAD_REQUEST),
+            ("refuses_when_a_view_was_built_on_it", True, {}, add_dependent_view, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_a_deprecate_suggestion_can_stop_refreshes_without_marking_the_view_deprecated(
+        self,
+        _name: str,
+        materialized: bool,
+        extra_options: dict,
+        add_reader: Callable[[DataWarehouseSavedQuery], None] | None,
+        expected_http_status: int,
+    ) -> None:
+        if materialized:
+            materialize_in_place(self.view)
+        suggestion = self._suggest_deprecate()
+        if add_reader is not None:
+            add_reader(self.view)
+
+        accepted = self._accept(suggestion.id, {"mark_deprecated": False, **extra_options})
+
+        stopped = expected_http_status == status.HTTP_200_OK
+        suggestion.refresh_from_db()
+        self.view.refresh_from_db()
+        assert accepted["http_status"] == expected_http_status, accepted
+        assert (
+            Node.objects.get(team=self.team, saved_query=self.view).type == NodeType.VIEW,
+            bool(self.view.deleted),
+            self._certification_status(),
+            suggestion.created_asset,
+        ) == (stopped or not materialized, False, None, {"saved_query_id": str(self.view.id)} if stopped else None)
+
+    @parameterized.expand(
+        [
             ("mark_deprecated", {}, status.HTTP_403_FORBIDDEN),
             ("delete", {"delete_view": True}, status.HTTP_200_OK),
+            ("only_stop_refreshes", {"mark_deprecated": False}, status.HTTP_200_OK),
         ]
     )
     def test_a_catalog_viewer_can_delete_an_unused_view_but_not_mark_it_deprecated(
         self, _name: str, body: dict, expected_http_status: int
     ) -> None:
+        materialize_in_place(self.view)
         suggestion = self._suggest_deprecate()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

@@ -98,6 +98,12 @@ class Acceptor(ABC):
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
 DELETE_VIEW_FIELD = "delete_view"
+MARK_DEPRECATED_FIELD = "mark_deprecated"
+NOTHING_TO_STOP = (
+    "mark_deprecated=false only stops a materialized view's refreshes. "
+    "To leave the view as it is, dismiss the suggestion with not_now instead."
+)
+STOP_ONLY_CONFLICTS = "mark_deprecated=false cannot be combined with keep_materialized or delete_view."
 DELETE_NEEDS_EVERY_DAY_OF_READS = (
     "Some days in the read window have no read data, so a view read only on those days would look unread. "
     "Mark it deprecated instead."
@@ -160,11 +166,13 @@ class CertificationAcceptor(Acceptor):
 class DeprecateAcceptor(CertificationAcceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return super().option_fields | {DELETE_VIEW_FIELD}
+        return super().option_fields | {DELETE_VIEW_FIELD, MARK_DEPRECATED_FIELD}
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
     ) -> CreatedAsset:
+        if request.options.mark_deprecated is False:
+            return _only_stop_materializing(suggestion, request)
         if not request.options.delete_view:
             return super().accept(suggestion, payload, request)
         if suggestion.evidence.get("days_with_data", 0) < RULES.window_days:
@@ -196,6 +204,21 @@ def _delete_blocker(team_id: int, saved_query_id: UUID) -> str | None:
     if reads_direct_source(team_id, saved_query_id, direct_access_table_ids(team_id)):
         return READS_DIRECT_SOURCE
     return None
+
+
+def _only_stop_materializing(suggestion: WarehouseSuggestion, request: AcceptRequest) -> UnmaterializationAsset:
+    if request.options.keep_materialized or request.options.delete_view:
+        raise AcceptOptionRefusedError(MARK_DEPRECATED_FIELD, STOP_ONLY_CONFLICTS)
+    definition = _definition(suggestion)
+    if definition is None:
+        raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+    if not saved_query_still_materializes(suggestion.team_id, definition.id):
+        raise AcceptOptionRefusedError(MARK_DEPRECATED_FIELD, NOTHING_TO_STOP)
+    blocker = stop_blocker(suggestion.team_id, definition)
+    if blocker is not None:
+        raise SuggestionOutdatedError(blocker)
+    stop_materializing(suggestion, request)
+    return UnmaterializationAsset(saved_query_id=str(suggestion.subject_id))
 
 
 def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
@@ -310,7 +333,11 @@ UNIQUE_KEY_FIELD = "unique_key"
 class MaterializeAcceptor(Acceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD, DELETE_VIEW_FIELD}
+        return frozenset(field.name for field in fields(AcceptOptions)) - {
+            KEEP_MATERIALIZED_FIELD,
+            DELETE_VIEW_FIELD,
+            MARK_DEPRECATED_FIELD,
+        }
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
