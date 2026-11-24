@@ -668,16 +668,6 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
-                      signupEnrichment:
-                        - 'products/growth/backend/**'
-                        - 'ee/billing/salesforce_enrichment/**'
-                        - 'posthog/temporal/common/**'
-                        - 'posthog/management/commands/start_temporal_worker.py'
-                        - 'products/*/backend/facade/temporal.py'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
-                        - 'posthog/clickhouse/migrations/**'
-
                       billing:
                         - 'ee/billing/**'
                         - 'posthog/entitlements/**'
@@ -1313,27 +1303,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-general-purpose",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": "PostHog/posthog",
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
-                      }
-
-            - name: Trigger Signup Enrichment Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.signupEnrichment == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-signup-enrichment",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},

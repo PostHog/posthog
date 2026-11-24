@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from enum import StrEnum
 from typing import Literal, get_args
 
+from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 
 from posthog.errors import QueryErrorCategory, classify_query_error
@@ -121,6 +122,7 @@ class MetricRunRecorder:
             return
         self._recorded = True
         METRIC_RUNS_COUNTER.labels(definition_kind=self._kind, outcome=outcome).inc()
+        trace.get_current_span().set_attribute("outcome", outcome)
 
     def observe_duration(self, seconds: float) -> None:
         METRIC_RUN_DURATION_SECONDS.labels(kind=self._kind).observe(seconds)

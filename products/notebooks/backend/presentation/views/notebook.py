@@ -197,6 +197,7 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookRunStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
+    NotebookSQLV2PageResponseSerializer,
     NotebookSQLV2RunRequestSerializer,
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
@@ -2317,7 +2318,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 type=OpenApiTypes.UUID,
                 location=OpenApiParameter.PATH,
                 description="ID of the run, as returned by the run dispatch endpoint.",
-            )
+            ),
+            OpenApiParameter("node_id", str, description="Only return the run if it belongs to this cell."),
         ],
         responses={200: NotebookSQLV2RunStatusResponseSerializer},
         description=(
@@ -2349,7 +2351,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
             raise Http404()
-        if run is None:
+        if run is None or request.query_params.get("node_id", run.node_id) != run.node_id:
             raise Http404()
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
@@ -2380,7 +2382,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             payload["rows"] = rows
         return Response(payload)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            NotebookSQLV2PageRequestSerializer,
+            OpenApiParameter(
+                "run_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="ID of the completed run."
+            ),
+        ],
+        responses={200: NotebookSQLV2PageResponseSerializer},
+        summary="Read a page of a notebook run's stored result frame",
+    )
     @action(
         methods=["GET"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",

@@ -17,6 +17,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
@@ -70,6 +71,16 @@ def _sync_email_template() -> None:
             "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
         }
     )
+
+
+def _import_contacts() -> dict[str, float]:
+    return {
+        outcome: REGISTRY.get_sample_value(
+            "messaging_provider_import_contacts_total", {"provider": "resend", "step": "contacts", "outcome": outcome}
+        )
+        or 0
+        for outcome in ("imported", "failed")
+    }
 
 
 class FakeResend:
@@ -769,12 +780,20 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             created_at=timezone.now() - runs.STALE_RUN_AGE * 2
         )
 
+        contacts_before = _import_contacts()
         # Storage fails during the first sweep, and the next hourly sweep deletes the contacts.
-        with patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")):
+        with (
+            patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")),
+            patch("products.messaging.backend.provider_imports.runs.report_user_action") as report,
+        ):
             assert runs.close_stale_runs() == 1
         assert self.people.stored != {}
+        properties = report.call_args.args[2]
+        assert (properties["stage"], properties["error_class"]) == ("failed", "PeopleImportFailed")
+        assert properties["counts"]["contacts"] == {"imported": 0, "skipped": 1, "failed": 3}
         runs.close_stale_runs()
 
+        assert _import_contacts() == {**contacts_before, "failed": contacts_before["failed"] + 3}
         run.refresh_from_db()
         plans = run.progress["contacts"]["people_imports"]
         cohorts = Cohort.objects.filter(id__in=[plan["cohort_id"] for plan in plans])
@@ -1003,6 +1022,10 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
+        self.resend.data["contacts"] += [
+            {"id": f"c0000000-0000-4000-8000-00000000000{n}", "email": email, "unsubscribed": False}
+            for n, email in ((5, "HAPPY@example.com"), (6, " left-a-topic@example.com "), (7, "not-an-email"))
+        ]
 
         run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
         with self.captureOnCommitCallbacks(execute=True):
@@ -1029,8 +1052,17 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
         except ContactsCaptureFailed:
             outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
+        assert set(plan) == {"cohort_id", "storage_prefix", "chunks", "send_events", "created_by_id"}
+        [everyone_plan, _] = runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+        assert (everyone_plan.provider, everyone_plan.step) == ("resend", "contacts")
+        contacts_before = _import_contacts()
         runs.record_people_import(self.team.id, run.id, "contacts", outcome)
-        runs.finish_run(self.team.id, run.id)
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
+        outcomes = {"imported": counts["people"], "failed": counts["not_sent"]}
+        assert {key: _import_contacts()[key] - contacts_before[key] for key in outcomes} == outcomes
+        with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
+            runs.finish_run(self.team.id, run.id)
+        assert outcomes.items() <= report.call_args.args[2]["counts"]["contacts"].items()
         run.refresh_from_db()
         assert run.progress["contacts"]["last_error"] == (
             "3 contacts didn't reach PostHog, so their people weren't created or updated. Import again to retry."
@@ -1040,7 +1072,14 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
-        assert run.progress["contacts"]["counts"] == counts
+        assert run.progress["contacts"]["processed"] == 7
+        assert run.progress["contacts"]["counts"] == {**counts, "repeats_merged": 2, "invalid_skipped": 1}
+        notes = run.progress["contacts"]["items"][0]["notes"]
+        assert {
+            "2 contacts had the same email as another contact, ignoring capital letters and spaces, so they were "
+            "merged with that contact.",
+            "1 contact had no valid email, so it was skipped.",
+        } <= set(notes)
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1
         # The segment's list only sets its cohort's members, so its contacts' events go out once, with the list above.
