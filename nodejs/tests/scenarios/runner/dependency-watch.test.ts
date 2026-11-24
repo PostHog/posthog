@@ -166,24 +166,35 @@ describe('dependency watch', () => {
         expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
     }, 30_000)
 
-    it('confirms every dependency that first fails on a confirming check before the watch stops', async () => {
+    it.each<[string, Record<string, number[]>, string[]]>([
+        [
+            'every dependency that first fails on a confirming check',
+            { postgres: [1], redis: [2, 3], kafka: [3, 4] },
+            ['postgres recovered', 'redis gone', 'kafka gone'],
+        ],
+        [
+            'a dependency that fails again after it recovered',
+            { postgres: [1, 3, 4], redis: [2] },
+            ['postgres recovered', 'redis recovered', 'postgres gone'],
+        ],
+        [
+            'two dependencies that flap out of step, at most twice each',
+            { postgres: [1, 3, 5, 7, 9], redis: [2, 4, 6, 8, 10] },
+            ['postgres recovered', 'redis recovered', 'postgres recovered', 'redis recovered'],
+        ],
+    ])('confirms %s before the watch stops', async (_case, failingChecks, expected) => {
         const failingOn = (failing: number[]): (() => Promise<unknown>) => {
             let calls = 0
             return () =>
                 failing.includes(++calls) ? Promise.reject(new Error('connect ECONNREFUSED')) : Promise.resolve()
         }
+        const probes = Object.fromEntries(
+            Object.entries(failingChecks).map(([name, failing]) => [name, failingOn(failing)])
+        )
 
-        const { losses } = await watched({
-            postgres: failingOn([1]),
-            redis: failingOn([2, 3]),
-            kafka: failingOn([3, 4]),
-        })
+        const { losses } = await watched(probes)
 
-        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual([
-            'postgres recovered',
-            'redis gone',
-            'kafka gone',
-        ])
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(expected)
     })
 
     it('names each unheard dependency at its own ramp step', () => {

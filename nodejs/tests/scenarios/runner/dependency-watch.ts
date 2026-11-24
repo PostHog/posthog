@@ -16,6 +16,7 @@ type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
 type StepWindow = { scale: number; startedAt: number; endedAt: number }
 
 const RUNNER_BUSY_LIMIT = 0.5
+const CONFIRMATIONS_PER_POLL = 2
 
 async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
     const at = Date.now()
@@ -49,13 +50,19 @@ function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
 
 async function confirmed(check: () => Promise<ProbeFailure[]>): Promise<DependencyLoss[]> {
     const losses: DependencyLoss[] = []
-    const seen = new Set<string>()
+    const confirmations = new Map<string, number>()
     let first = await attempt(check)
     while (first.failures.length > 0) {
         const second = await attempt(check)
-        losses.push(...lossesOf(first, second))
-        first.failures.forEach(({ name }) => seen.add(name))
-        first = { ...second, failures: second.failures.filter(({ name }) => !seen.has(name)) }
+        for (const loss of lossesOf(first, second)) {
+            losses.push(loss)
+            const count = loss.kind === 'recovered' ? (confirmations.get(loss.name) ?? 0) + 1 : CONFIRMATIONS_PER_POLL
+            confirmations.set(loss.name, count)
+        }
+        first = {
+            ...second,
+            failures: second.failures.filter(({ name }) => (confirmations.get(name) ?? 0) < CONFIRMATIONS_PER_POLL),
+        }
     }
     return losses
 }

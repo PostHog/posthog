@@ -305,7 +305,7 @@ sequenceDiagram
 
 During drive and convergence the Runner polls `Environment.dependencyHealth()` every 5 seconds.
 A failed check runs again at once.
-A dependency that first fails on a confirming check gets a confirming check of its own, even when the run is stopping.
+A dependency that fails on a confirming check gets a confirming check of its own, even when the run is stopping and even after it recovered, up to two confirmations per poll and none after a loss.
 A dependency went away when both checks failed and the runner's event loop does not explain it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
 An error that carries a refusal, reset or unknown-host code, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
