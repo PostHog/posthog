@@ -31,6 +31,7 @@ const itemsWithRepeats = (count: number): SearchItem[] => [
 
 const emptyLocal = (): LocalLists => ({
     products: [],
+    sidebar: [],
     'data-management': [],
     people: [],
     health: [],
@@ -173,25 +174,80 @@ describe('buildSections', () => {
         ])
     })
 
-    it('ranks product tabs with the products', () => {
-        const tab: SearchItem = {
-            id: 'product-collections',
-            name: 'Collections',
-            category: 'products',
-            parentName: 'Session replay',
-            searchKeywords: ['playlists'],
-        }
+    test.each<[string, string, Partial<LocalLists>, string, string]>([
+        [
+            'product tabs',
+            'playlists',
+            {
+                products: [
+                    {
+                        id: 'product-collections',
+                        name: 'Collections',
+                        category: 'products',
+                        parentName: 'Session replay',
+                        searchKeywords: ['playlists'],
+                    },
+                ],
+            },
+            'Collections',
+            'products',
+        ],
+        [
+            'people pages',
+            'persons',
+            { people: [{ id: 'people-Persons', name: 'Persons', category: 'people', href: '/persons' }] },
+            'Persons',
+            'people',
+        ],
+        [
+            'health pages',
+            'pipeline status',
+            { health: [{ id: 'health-pipeline', name: 'Pipeline status', category: 'health', href: '/health/p' }] },
+            'Pipeline status',
+            'health',
+        ],
+        [
+            'sidebar sections',
+            'chats',
+            { sidebar: [{ id: 'sidebar-spaces', name: 'Chats', category: 'sidebar' }] },
+            'Chats',
+            'sidebar',
+        ],
+    ])('ranks %s with the results', (_, text, lists, name, section) => {
         const remote = emptyRemoteSlots()
-        remote.results = { cache: { playlists: [] } }
+        remote.results = { cache: { [text]: [] } }
         const sections = buildSections(
             input('search', {
-                local: { ...emptyLocal(), products: [tab] },
+                local: { ...emptyLocal(), ...lists },
                 remote,
-                remoteQueries: { results: 'playlists' },
-                localQuery: 'playlists',
+                remoteQueries: { results: text },
+                localQuery: text,
             })
         )
-        expect(sections[0].rows.map((row) => (row.kind === 'item' ? row.item.name : row.kind))).toEqual(['Collections'])
+        expect(sections[0].key).toBe('best-matches')
+        expect(sections[0].rows.map((row) => (row.kind === 'item' ? [row.item.name, row.section] : row.kind))).toEqual([
+            [name, section],
+        ])
+    })
+
+    it('ranks a page once when a product already opens it', () => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { cohorts: [] } }
+        const sections = buildSections(
+            input('search', {
+                local: {
+                    ...emptyLocal(),
+                    products: [{ id: 'product-cohorts', name: 'Cohorts', category: 'tools', href: '/cohorts' }],
+                    people: [{ id: 'people-Cohorts', name: 'Cohorts', category: 'people', href: '/cohorts' }],
+                },
+                remote,
+                remoteQueries: { results: 'cohorts' },
+                localQuery: 'cohorts',
+            })
+        )
+        expect(sections.flatMap((s) => s.rows.map((row) => (row.kind === 'item' ? row.item.id : row.kind)))).toEqual([
+            'product-cohorts',
+        ])
     })
 
     it('shows skeletons instead of unranked filter-only rows while ranked results load', () => {

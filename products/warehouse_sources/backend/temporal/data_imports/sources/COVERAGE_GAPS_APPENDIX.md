@@ -8732,10 +8732,10 @@ Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/ope
 - [x] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
 - [x] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
 - [x] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
-- [ ] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
-- [ ] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
-- [ ] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
-- [ ] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
+- [x] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
+- [x] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
+- [x] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
+- [x] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
 
 ## LambdaLabs — gaps
 

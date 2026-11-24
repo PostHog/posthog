@@ -92,9 +92,12 @@ export class RecordingApi {
             : null
         // Staff tokens read blocks by ref on internal pods, so those pods cap block bytes in memory too.
         this.publicBlockLimits =
-            this.servesPublicRoutes || hasJwtKeys(config.RECORDING_API_STAFF_JWT_SECRET || '')
-                ? parsePublicBlockLimits(config)
-                : null
+            this.servesPublicRoutes || this.servesStaffReads ? parsePublicBlockLimits(config) : null
+    }
+
+    // Staff tokens are the only caller of the block-by-ref route, so a pod without the staff secret does not serve it.
+    private get servesStaffReads(): boolean {
+        return this.servesInternalRoutes && hasJwtKeys(this.config.RECORDING_API_STAFF_JWT_SECRET || '')
     }
 
     private get servesInternalRoutes(): boolean {
@@ -320,7 +323,9 @@ export class RecordingApi {
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
-        router.get(blockRefPath, asyncHandler(this.getBlockByListedRef))
+        if (this.servesStaffReads) {
+            router.get(blockRefPath, asyncHandler(this.getBlockByListedRef))
+        }
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
