@@ -1,27 +1,24 @@
-import { useActions, useValues } from 'kea'
-
 import { IconRedo, IconUndo } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
-import { AddTileMenu } from './AddTileMenu'
+import { AddTileMenu } from '../tiles/AddTileMenu'
+import { useDashboardV2 } from './dashboardV2Context'
 
 export function DashboardV2Actions(): JSX.Element {
-    const { canUndo, canRedo, hasPermission, activeTab } = useValues(dashboardV2Logic)
-    const { undo, redo } = useActions(dashboardV2Logic)
+    const { history, can, activeTab } = useDashboardV2()
 
     return (
         <div className="flex flex-wrap items-center gap-1">
-            {hasPermission('addTile') && (
+            {can('addTile') && <AddTileMenu gridId={activeTab.id} label="Add" />}
+            {history && can('undo') && (
                 <>
-                    <AddTileMenu gridId={activeTab.id} label="Add" />
                     <Button
                         size="icon-sm"
                         aria-label="Undo"
                         tooltip="Undo"
                         data-attr="dashboard-v2-undo"
-                        disabledReason={canUndo ? undefined : 'Nothing to undo'}
-                        onClick={undo}
+                        disabledReason={history.canUndo ? undefined : 'Nothing to undo'}
+                        onClick={history.onUndo}
                     >
                         <IconUndo />
                     </Button>
@@ -30,8 +27,8 @@ export function DashboardV2Actions(): JSX.Element {
                         aria-label="Redo"
                         tooltip="Redo"
                         data-attr="dashboard-v2-redo"
-                        disabledReason={canRedo ? undefined : 'Nothing to redo'}
-                        onClick={redo}
+                        disabledReason={history.canRedo ? undefined : 'Nothing to redo'}
+                        onClick={history.onRedo}
                     >
                         <IconRedo />
                     </Button>
