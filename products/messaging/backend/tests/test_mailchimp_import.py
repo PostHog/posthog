@@ -138,8 +138,8 @@ class TestMailchimpImport(BaseTest):
         assert "A/B test with 2 variations. PostHog imported Short subject." in ab_test.description
         assert "no subject" not in ab_test.description
 
-    def test_a_template_whose_html_is_not_shared_comes_from_the_newest_campaign_made_from_it(self) -> None:
-        for number, created in ((1, "2026-09-01"), (2, "2026-09-03")):
+    def test_a_template_whose_html_is_not_shared_comes_from_the_newest_campaign_that_has_it(self) -> None:
+        for number, created in ((1, "2026-09-01"), (2, "2026-09-03"), (3, "2026-09-05")):
             self.mailchimp.data["campaigns"].append(
                 {
                     "id": f"made{number}",
@@ -148,7 +148,12 @@ class TestMailchimpImport(BaseTest):
                     "create_time": f"{created}T09:00:00+00:00",
                     "send_time": f"{created}T10:00:00+00:00",
                     "settings": {"title": f"Made {number}", "template_id": 102},
-                    "content": {"html": f'<p>Made {number} *|FNAME|*</p><img src="https://mcusercontent.com/1/a.png">'},
+                    "content": {
+                        # The newest one is an A/B test, which has no HTML of its own.
+                        "html": ""
+                        if number == 3
+                        else f'<p>Made {number} *|FNAME|*</p><img src="https://mcusercontent.com/1/a.png">'
+                    },
                 }
             )
 
@@ -163,6 +168,7 @@ class TestMailchimpImport(BaseTest):
     @parameterized.expand(
         [
             ("not_in_the_body", "<p>Hi</p>", "Hi *|FNAME|*, news", "Hi {{ person.properties.first_name }}, news"),
+            ("audience_tag", "<p>Hi</p>", "*|LIST:NAME|* news", "Weekly newsletter news"),
             ("already_in_the_body", "<p>*|MC_PREVIEW_TEXT|*</p>", "News", None),
             ("none", "<p>Hi</p>", "", None),
         ]

@@ -93,6 +93,8 @@ RECENT_DAYS = 90
 UNSENT_STATUSES = frozenset({"save", "paused", "schedule"})
 CATEGORY_KEY_MAX_LENGTH = 64
 EMAILS_PER_PAGE = 10
+# A draft, plain-text or A/B campaign can have no HTML of its own, so an older one is tried.
+MAX_CAMPAIGNS_PER_TEMPLATE = 5
 _PREVIEW_TAG = "*|MC_PREVIEW_TEXT|*"
 _MAILCHIMP_IMAGE = re.compile(
     r"(?:src\s*=\s*[\"']?|background\s*=\s*[\"']?|url\(\s*[\"']?)(?:https?:)?//(?:[a-z0-9-]+\.)*(?:mcusercontent|mailchimp)\.com/",
@@ -872,23 +874,24 @@ def _fetch_templates(
     audiences = _audiences(client) if by_key else []
     # A saved template belongs to no audience. With only one, its footer tags can only mean that audience.
     fixed = _audience_tags(audiences[0]) if len(audiences) == 1 else {}
-    made_from: dict[int, dict[str, Any]] | None = None
+    made_from: dict[int, list[dict[str, Any]]] | None = None
 
-    def newest_campaign(template_id: int) -> dict[str, Any] | None:
+    def campaigns_from(template_id: int) -> list[dict[str, Any]]:
         nonlocal made_from
         if made_from is None:
-            made_from = _newest_campaign_by_template(client)
-        return made_from.get(template_id)
+            made_from = _campaigns_by_template(client)
+        return made_from.get(template_id, [])
 
     yield from _paged_emails(
         list(by_key),
-        lambda key: _read_template(client, by_key[key], fixed, newest_campaign),
+        lambda key: _read_template(client, by_key[key], fixed, campaigns_from),
         context,
         checkpoint,
     )
 
 
-def _newest_campaign_by_template(client: MailchimpClient) -> dict[int, dict[str, Any]]:
+def _campaigns_by_template(client: MailchimpClient) -> dict[int, list[dict[str, Any]]]:
+    """The campaigns made from each saved template, newest first."""
     campaigns = client.all(
         "/campaigns",
         "campaigns",
@@ -898,19 +901,19 @@ def _newest_campaign_by_template(client: MailchimpClient) -> dict[int, dict[str,
             "sort_dir": "ASC",
         },
     )
-    newest: dict[int, dict[str, Any]] = {}
-    for campaign in campaigns:
+    by_template: dict[int, list[dict[str, Any]]] = {}
+    for campaign in reversed(campaigns):
         template_id = _as_dict(campaign.get("settings")).get("template_id")
         if isinstance(template_id, int) and template_id and campaign.get("id"):
-            newest[template_id] = campaign
-    return newest
+            by_template.setdefault(template_id, []).append(campaign)
+    return by_template
 
 
 def _read_template(
     client: MailchimpClient,
     template: Mapping[str, Any],
     fixed: Mapping[str, str],
-    newest_campaign: Callable[[int], dict[str, Any] | None],
+    campaigns_from: Callable[[int], list[dict[str, Any]]],
 ) -> _Email:
     template_id = int(template["id"])
     key = f"mailchimp-template-{template_id}"
@@ -921,20 +924,24 @@ def _read_template(
         return _Email(key=key, label=label, missing=True)
     body = _clean(content.get("html"))
     notes: tuple[str, ...] = ()
-    if not body.strip() and (campaign := newest_campaign(template_id)):
-        body = _campaign_html(client, str(campaign["id"]))
-        settings = _as_dict(campaign.get("settings"))
-        title = _clean(settings.get("title")) or _clean(settings.get("subject_line")) or str(campaign["id"])
-        notes = (
-            f"Mailchimp's API doesn't share a saved template's own HTML, so this is the email of {title}, the newest "
-            "campaign made from it. Check for text that belongs only to that campaign.",
-        )
+    if not body.strip():
+        for campaign in campaigns_from(template_id)[:MAX_CAMPAIGNS_PER_TEMPLATE]:
+            body = _campaign_html(client, str(campaign["id"]))
+            if not body.strip():
+                continue
+            settings = _as_dict(campaign.get("settings"))
+            title = _clean(settings.get("title")) or _clean(settings.get("subject_line")) or str(campaign["id"])
+            notes = (
+                f"Mailchimp's API doesn't share a saved template's own HTML, so this is the email of {title}, the "
+                "newest campaign made from it. Check for text that belongs only to that campaign.",
+            )
+            break
     if not body.strip():
         return _Email(
             key=key,
             label=label,
             skipped=(
-                "Mailchimp's API doesn't share this template's HTML, and no campaign was made from it. In Mailchimp, "
+                "Mailchimp's API doesn't share this template's HTML, and no recent campaign made from it has any. In Mailchimp, "
                 "export the template as HTML, then paste it into a new PostHog template. Or create a campaign from it "
                 "and import again."
             ),
@@ -1124,7 +1131,7 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
             email["text"] = converted.text
         preview_notes: tuple[str, ...] = ()
         if source.preview:
-            preview = convert_text(source.preview, is_html=False)
+            preview = convert_text(source.preview, is_html=False, fixed=source.fixed)
             email["preheader"] = preview.text
             if preview.unsupported:
                 preview_notes = ("PostHog can't convert every merge tag in the preview text. Check it.",)
