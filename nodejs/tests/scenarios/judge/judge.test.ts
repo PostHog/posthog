@@ -33,6 +33,7 @@ describe('judge', () => {
     let truthFails: string | undefined
     let truthLoses: number | undefined
     let duringProbe: (() => Promise<unknown>) | undefined
+    let duringFinalPage: (() => Promise<unknown>) | undefined
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -50,7 +51,10 @@ describe('judge', () => {
         createJudge({
             truth: {
                 head: (read) => edgeTruth(edge.url).head(read),
-                after: (cursor, read) => {
+                after: async (cursor, read) => {
+                    if (read?.final) {
+                        await duringFinalPage?.()
+                    }
                     if (truthFails === undefined) {
                         return edgeTruth(edge.url)
                             .after(cursor, read)
@@ -100,6 +104,7 @@ describe('judge', () => {
         truthFails = undefined
         truthLoses = undefined
         duringProbe = undefined
+        duringFinalPage = undefined
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -660,34 +665,46 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', ...expected })
     })
 
-    it.each<[string, () => Promise<unknown>, object]>([
+    const resendingOnTheFinalRead = async (): Promise<void> => {
+        await deliver('run-b-1')
+        duringFinalPage = async () => {
+            duringFinalPage = undefined
+            await deliver(UNIT)
+        }
+    }
+
+    it.each<[string, () => Promise<unknown>, () => Promise<unknown>, object]>([
         [
             'its only send',
             () => Promise.resolve(),
+            () => deliver(UNIT),
             {
                 passed: false,
                 violation: `${UNIT} email: accepted 0 times by the recovery horizon, expected 1`,
                 missing: [UNIT],
             },
         ],
-        [
-            'a resend',
-            () => deliver(UNIT),
-            {
-                passed: false,
-                observed: 1,
-                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
-                missing: [],
-                extra: [UNIT],
-            },
-        ],
+        ...(['a resend', 'a resend the edge accepts while the final read runs'] as const).map(
+            (story): [string, () => Promise<unknown>, () => Promise<unknown>, object] => [
+                story,
+                () => deliver(UNIT),
+                story === 'a resend' ? () => deliver(UNIT) : resendingOnTheFinalRead,
+                {
+                    passed: false,
+                    observed: 1,
+                    violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                    missing: [],
+                    extra: [UNIT],
+                },
+            ]
+        ),
     ])(
         'counts a send after the recovery horizon as extra, never as delivered: %s',
-        async (_story, before, expected) => {
+        async (_story, before, after, expected) => {
             judge.record(offered())
             await before()
             await judge.converge(20, NEVER_ABORTED)
-            await deliver(UNIT)
+            await after()
 
             const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
@@ -758,6 +775,16 @@ describe('judge', () => {
             },
             NO_RESETS,
             'the run reached no recovery horizon: the last convergence read failed: The operation was aborted due to timeout',
+        ],
+        [
+            "the edge kept accepting this run's sends through every final read",
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await deliver('run-b-1')
+                duringFinalPage = () => deliver(UNIT)
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
         ],
         [
             'a valve was never observed',
@@ -1247,10 +1274,10 @@ describe('judge', () => {
                 { read: 3 * PAGE, unread: undefined },
             ],
             [
-                'reads up to the head it took first, leaving out what the edge records after it',
+                'reads once more to a later head when the edge records more during the read, then stops',
                 1.5 * PAGE,
                 recordingMoreOnTheFirstPage(PAGE),
-                { read: 1.5 * PAGE, unread: undefined },
+                { read: 2.5 * PAGE, unread: undefined },
             ],
             [
                 'keeps what it read and names a harness limit when the edge stops answering',

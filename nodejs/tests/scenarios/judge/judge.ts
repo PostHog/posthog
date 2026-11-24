@@ -77,6 +77,7 @@ export type JudgeOptions = {
 export type FinalRead = { attempts: number; backoffMs: number }
 
 const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
+const FINAL_PASSES = 3
 const FINAL: TruthRead = { final: true }
 
 const messageOf = (error: unknown): string =>
@@ -117,6 +118,7 @@ export function createJudge({
     let horizon: RunBoundary['horizon']
     let teams: number[] = []
     let unread: string | undefined
+    let unsettled: string | undefined
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -158,6 +160,18 @@ export function createJudge({
         }
     }
 
+    const readToSettledHead = async (signal?: AbortSignal): Promise<void> => {
+        await pullToHead(signal)
+        for (let pass = 2; pass <= FINAL_PASSES; pass++) {
+            const settled = runRecords()
+            await pullToHead(signal)
+            if (runRecords() === settled) {
+                return
+            }
+        }
+        unsettled = `the edge kept accepting this run's sends through ${FINAL_PASSES} final reads of the truth`
+    }
+
     const read = async <T>(what: () => Promise<T>): Promise<T | undefined> => {
         try {
             const value = await what()
@@ -197,6 +211,7 @@ export function createJudge({
             horizon = undefined
             truth = []
             unread = undefined
+            unsettled = undefined
             teams = [...seed.teamIds]
         },
 
@@ -237,7 +252,8 @@ export function createJudge({
         },
 
         async check(invariants, gates, run, signal) {
-            await read(() => pullToHead(signal))
+            unsettled = undefined
+            await read(() => readToSettledHead(signal))
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined
@@ -246,6 +262,7 @@ export function createJudge({
                 horizon,
                 unobserved: run.unobserved,
                 ...(unread !== undefined && { unread }),
+                ...(unsettled !== undefined && { unsettled }),
             }
             const evidence = { journal, truth, fetchRetries, resident, janitorResets: run.janitorResets, boundary }
             return invariants.map(({ name, params }) => {

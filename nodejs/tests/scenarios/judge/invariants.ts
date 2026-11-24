@@ -22,6 +22,7 @@ export type RunBoundary = {
     truthFrom: number
     horizon?: { seq: number; at: number } | { unread: string }
     unread?: string
+    unsettled?: string
     unobserved: readonly string[]
 }
 
@@ -324,6 +325,9 @@ const runOf = (unitId: string): string => unitId.slice(0, unitId.lastIndexOf('-'
 function unjudgedNoLoss({ journal, truth, boundary }: JudgeEvidence): string | undefined {
     if (boundary.unread !== undefined) {
         return `the truth could not be read: ${boundary.unread}`
+    }
+    if (boundary.unsettled !== undefined) {
+        return boundary.unsettled
     }
     const gap = truth.findIndex(({ seq }, i) => seq !== boundary.truthFrom + i + 1)
     if (gap >= 0) {
