@@ -1,3 +1,5 @@
+import { dirname } from 'node:path'
+
 import { defineCommand } from '@/core/command'
 import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk } from '@/core/config'
 import type { Context } from '@/core/context'
@@ -15,6 +17,7 @@ import {
     LANGUAGE_SDKS,
     LANGUAGES,
     moduleInfo,
+    projectSdk,
     sdkLanguage,
     type Language,
 } from './shared'
@@ -42,7 +45,7 @@ export default defineCommand({
             type: 'string',
             choices: SCHEMA_SDKS,
             description:
-                'The SDK the module wraps. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK. Go: posthog-go-v2 imports posthog-go 2.x. posthog.json remembers it',
+                'The SDK the module wraps. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK, and posthog.json remembers it. Go: hog picks posthog-go 1.x or 2.x from go.mod, and posthog-go or posthog-go-v2 overrides that for this run',
         },
         file: {
             type: 'string',
@@ -114,7 +117,15 @@ export default defineCommand({
         for (const language of languages) {
             const saved = configured[language]
             const flag = options.sdk !== undefined && sdkLanguage(options.sdk) === language ? options.sdk : undefined
-            const sdk = await moduleSdk(ctx, language, flag, saved)
+            // A new module goes in the working folder, so go.mod is searched from there.
+            const folder =
+                options.file !== undefined
+                    ? absolutePath(ctx.runtime.cwd(), options.file)
+                    : saved
+                      ? dirname(absolutePath(root, saved.output_path))
+                      : ctx.runtime.cwd()
+            const sdk = await moduleSdk(ctx, language, flag, saved, folder)
+            const savesChoice = LANGUAGE_SDKS[language]?.savesChoice ?? true
             let file: string
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
@@ -133,16 +144,18 @@ export default defineCommand({
             const definitions = await fetchDefinitions(ctx, language, sdk)
             const outputPath = storedPath(root, file)
             // The module carries the time PostHog generated it, so only the hash says whether the events changed.
+            // A language that does not save its choice relies on the hash alone: PostHog hashes each SDK's
+            // module differently.
             const unchanged =
                 saved?.output_path === outputPath &&
-                effectiveSdk(language, saved.sdk) === effectiveSdk(language, sdk) &&
+                (!savesChoice || effectiveSdk(language, saved.sdk) === effectiveSdk(language, sdk)) &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
                 await ctx.runtime.writeFile(file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
-                    sdk,
+                    sdk: savesChoice ? sdk : undefined,
                     schema_hash: definitions.schema_hash,
                     updated_at: new Date(ctx.runtime.now()).toISOString(),
                     event_count: definitions.event_count,
@@ -210,28 +223,28 @@ export default defineCommand({
     }),
 })
 
-// The SDK to generate for: the flag, then the saved entry, then the language's own rule for a module that
-// nothing chose an SDK for.
+// The SDK to generate for: the flag, then what the project says, then the language's own rule for a module
+// that nothing chose an SDK for.
 async function moduleSdk(
     ctx: Context,
     language: Language,
     flag: SchemaSdk | undefined,
-    saved: SchemaLanguage | undefined
+    saved: SchemaLanguage | undefined,
+    folder: string
 ): Promise<SchemaSdk | undefined> {
     const sdks = LANGUAGE_SDKS[language]
     if (!sdks) {
         return undefined
     }
-    const defaultSdk = sdks.choices[0]
-    let sdk: SchemaSdk | undefined
     if (flag) {
-        sdk = flag
-    } else if (saved?.sdk !== undefined) {
-        sdk = effectiveSdk(language, saved.sdk)
-    } else if (saved || !ctx.prompts || !sdks.prompt) {
-        sdk = defaultSdk
-    } else {
-        sdk = await ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
+        return flag
     }
-    return sdks.recordsDefault || sdk !== defaultSdk ? sdk : undefined
+    const fromProject = await projectSdk(ctx, language, saved, folder)
+    if (fromProject !== undefined) {
+        return fromProject
+    }
+    if (saved || !ctx.prompts || !sdks.prompt) {
+        return sdks.choices[0]
+    }
+    return ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
 }

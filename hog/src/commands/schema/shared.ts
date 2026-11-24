@@ -1,10 +1,19 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { z } from 'zod'
 
-import { GO_SDKS, SCHEMA_SDKS, TYPESCRIPT_SDKS, type GoSdk, type LoadedConfig, type SchemaSdk } from '@/core/config'
+import {
+    GO_SDKS,
+    SCHEMA_SDKS,
+    TYPESCRIPT_SDKS,
+    type GoSdk,
+    type LoadedConfig,
+    type SchemaLanguage,
+    type SchemaSdk,
+} from '@/core/config'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { absolutePath } from '@/core/paths'
+import type { Runtime } from '@/core/runtime'
 
 export const LANGUAGES = ['typescript', 'golang', 'python'] as const
 export type Language = (typeof LANGUAGES)[number]
@@ -51,7 +60,11 @@ const GO_IMPORT_PATHS: Record<GoSdk, string> = {
 function goNextSteps(file: string, sdk: GoSdk): string[] {
     return [
         `Install the PostHog Go SDK if you have not yet: go get ${GO_IMPORT_PATHS[sdk]}`,
-        ...(sdk === 'posthog-go' ? ['On posthog-go 2.x, pull with --sdk posthog-go-v2 instead'] : []),
+        ...(sdk === 'posthog-go'
+            ? [
+                  'hog reads go.mod to pick the posthog-go version. On 2.x, add it to go.mod or pull with --sdk posthog-go-v2',
+              ]
+            : []),
         `Move ${file} into a folder named typed, or change the package line at the top of the file`,
         'Capture typed events: client.Enqueue(typed.EventNameCapture("user_id", requiredProp))',
     ]
@@ -62,22 +75,24 @@ function goNextSteps(file: string, sdk: GoSdk): string[] {
 interface LanguageSdks {
     // The first choice is the default.
     choices: readonly SchemaSdk[]
-    // Whether posthog.json names the default. TypeScript always did. Go never writes its default, because a
-    // hog released before the Go choice rejects every posthog.json whose Go entry names an SDK.
-    recordsDefault: boolean
+    // Whether posthog.json keeps the choice. Go reads it from go.mod instead, because a hog released before
+    // the Go choice rejects every posthog.json whose Go entry names an SDK.
+    savesChoice: boolean
+    // Reads the choice from the project, searching up from the module's folder.
+    detect?: (runtime: Pick<Runtime, 'exists' | 'readFile'>, folder: string) => Promise<SchemaSdk | undefined>
     // The error for a PostHog that predates a choice. The default has none: such a PostHog generates it
     // anyway, so hog never asks for it.
     unsupported: Partial<Record<SchemaSdk, [message: string, hint: string]>>
     // The module a choice writes, where it differs from the language's own.
     info: Partial<Record<SchemaSdk, LanguageInfo>>
-    // What hog asks when neither a flag nor posthog.json chooses.
+    // What hog asks when neither a flag nor the project chooses.
     prompt?: { message: string; options: { value: SchemaSdk; label: string }[] }
 }
 
 export const LANGUAGE_SDKS: Partial<Record<Language, LanguageSdks>> = {
     typescript: {
         choices: TYPESCRIPT_SDKS,
-        recordsDefault: true,
+        savesChoice: true,
         unsupported: {
             none: [
                 'This PostHog instance cannot generate TypeScript types without an SDK yet.',
@@ -104,7 +119,8 @@ export const LANGUAGE_SDKS: Partial<Record<Language, LanguageSdks>> = {
     },
     golang: {
         choices: GO_SDKS,
-        recordsDefault: false,
+        savesChoice: false,
+        detect: goModSdk,
         unsupported: {
             'posthog-go-v2': [
                 'This PostHog instance cannot generate Go for posthog-go 2.x yet.',
@@ -133,6 +149,70 @@ export function sdkLanguage(sdk: SchemaSdk): Language {
 export function effectiveSdk(language: Language, sdk: SchemaSdk | undefined): SchemaSdk | undefined {
     const sdks = LANGUAGE_SDKS[language]
     return sdks ? (sdk !== undefined && sdks.choices.includes(sdk) ? sdk : sdks.choices[0]) : undefined
+}
+
+// The SDK the project picks for a module when no flag does: the choice posthog.json keeps, or what the
+// language reads from the project. Undefined when neither says.
+export async function projectSdk(
+    ctx: Context,
+    language: Language,
+    saved: SchemaLanguage | undefined,
+    folder: string
+): Promise<SchemaSdk | undefined> {
+    const sdks = LANGUAGE_SDKS[language]
+    if (!sdks) {
+        return undefined
+    }
+    if (sdks.savesChoice) {
+        return saved?.sdk !== undefined ? effectiveSdk(language, saved.sdk) : undefined
+    }
+    return sdks.detect?.(ctx.runtime, folder)
+}
+
+// The posthog-go major the nearest go.mod requires, searching up from `folder`. Undefined when that go.mod
+// requires neither major, or both.
+export async function goModSdk(
+    runtime: Pick<Runtime, 'exists' | 'readFile'>,
+    folder: string
+): Promise<GoSdk | undefined> {
+    for (;;) {
+        const goMod = join(folder, 'go.mod')
+        if (await runtime.exists(goMod)) {
+            return requiredGoSdk(await runtime.readFile(goMod))
+        }
+        const parent = dirname(folder)
+        if (parent === folder) {
+            return undefined
+        }
+        folder = parent
+    }
+}
+
+// Reads `require` lines only, alone or in a block, so a `replace` of posthog-go does not count as a requirement.
+export function requiredGoSdk(goMod: string): GoSdk | undefined {
+    const found = new Set<GoSdk>()
+    let block: string | undefined
+    for (const raw of goMod.split('\n')) {
+        const line = raw.replace(/\/\/.*$/, '').trim()
+        if (block !== undefined) {
+            if (line === ')') {
+                block = undefined
+                continue
+            }
+        } else {
+            const opened = /^(\w+)\s*\($/.exec(line)
+            if (opened) {
+                block = opened[1]
+                continue
+            }
+        }
+        const spec = block === undefined ? (/^require\s+(.*)$/.exec(line)?.[1] ?? '') : block === 'require' ? line : ''
+        const match = /^github\.com\/posthog\/posthog-go(\/v2)?\s+v\d/.exec(spec)
+        if (match) {
+            found.add(match[1] ? 'posthog-go-v2' : 'posthog-go')
+        }
+    }
+    return found.size === 1 ? [...found][0] : undefined
 }
 
 export function moduleInfo(language: Language, sdk: SchemaSdk | undefined): LanguageInfo {
