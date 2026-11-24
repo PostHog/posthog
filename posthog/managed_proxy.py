@@ -36,7 +36,7 @@ def proxy_domain_can_be_provisioned(record: ProxyRecord) -> bool:
     )
 
 
-def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
+def restore_cloudflare_proxy(record: ProxyRecord) -> None:
     if record.cloudflare_activation_state in CLOUDFLARE_DEPROVISIONED_STATES:
         next_state = (
             CloudflareActivationState.RECOVERY_PENDING
@@ -54,6 +54,11 @@ def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
                 raise
     if record.root_redirect_url:
         update_cloudflare_proxy_root_redirect(record.domain, record.root_redirect_url)
+    if (
+        record.status in (ProxyRecord.Status.VALID, ProxyRecord.Status.WARNING)
+        and record.cloudflare_activation_state in CLOUDFLARE_RECOVERY_STATES
+    ):
+        ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=CloudflareActivationState.IDLE)
 
 
 def deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
@@ -79,55 +84,28 @@ def deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
     ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=final_state)
 
 
-def recover_cloudflare_certificate_hostname(organization_id: UUID, proxy_record_id: UUID) -> bool:
+def provision_cloudflare_hostname(
+    organization_id: UUID, proxy_record_id: UUID, *, recovering_certificate: bool = False
+) -> bool:
     with cloudflare_proxy_lock(proxy_record_id):
         record = (
             ProxyRecord.objects.filter(
                 organization_id=organization_id,
                 pk=proxy_record_id,
-                status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING),
-                cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES,
             )
             .exclude(organization__is_active=False)
+            .exclude(status=ProxyRecord.Status.DELETING)
             .first()
         )
         if record is None or not is_cloudflare_proxy(record) or not proxy_domain_can_be_provisioned(record):
             return False
-        _restore_cloudflare_proxy(record)
-        return True
-
-
-def reconcile_cloudflare_proxy(
-    organization_id: str | UUID, proxy_record_id: str | UUID, *, from_sweep: bool = False
-) -> bool:
-    with cloudflare_proxy_lock(proxy_record_id):
-        record = ProxyRecord.objects.filter(organization_id=organization_id, pk=proxy_record_id).first()
-        if record is None or not is_cloudflare_proxy(record):
-            return False
-
-        active = (
-            ProxyRecord.objects.filter(organization_id=organization_id, pk=record.pk)
-            .exclude(organization__is_active=False)
-            .exists()
-        )
-        if active:
-            if from_sweep and record.cloudflare_activation_state not in CLOUDFLARE_RECOVERY_STATES:
-                return False
-            if not proxy_domain_can_be_provisioned(record):
-                return False
-            if record.status in (ProxyRecord.Status.DELETING, ProxyRecord.Status.ERRORING):
-                return False
-            if record.status in (ProxyRecord.Status.WAITING, ProxyRecord.Status.TIMED_OUT):
-                return True
-
-        if not active:
-            deprovision_cloudflare_proxy(record)
-            return False
-
-        _restore_cloudflare_proxy(record)
-        if (
-            record.cloudflare_activation_state in CLOUDFLARE_RECOVERY_STATES
-            and record.status != ProxyRecord.Status.ISSUING
+        if recovering_certificate and (
+            record.status not in (ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING)
+            or record.cloudflare_activation_state not in CLOUDFLARE_RECOVERY_STATES
         ):
-            ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=CloudflareActivationState.IDLE)
+            return False
+        if not recovering_certificate and record.status == ProxyRecord.Status.ERRORING:
+            return False
+        if record.status not in (ProxyRecord.Status.WAITING, ProxyRecord.Status.TIMED_OUT):
+            restore_cloudflare_proxy(record)
         return True

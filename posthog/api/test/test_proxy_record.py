@@ -17,6 +17,7 @@ from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.proxy_record import CloudflareActivationState
 from posthog.tasks.proxy import reconcile_proxy
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
@@ -100,7 +101,12 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         url = f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/"
 
-        with cloudflare_proxy_lock(record.id):
+        lock = (
+            cloudflare_proxy_lock(record.id)
+            if same_organization
+            else patch("posthog.api.proxy_record.cloudflare_proxy_lock", side_effect=RedisError("Redis unavailable"))
+        )
+        with lock:
             response = getattr(self.client, method)(url, data={})
 
         if same_organization:
@@ -111,20 +117,6 @@ class TestProxyRecordAPI(APIBaseTest):
         record.refresh_from_db()
         self.assertEqual(record.status, ProxyRecord.Status.WAITING)
         self.assertIsNone(record.root_redirect_url)
-
-    @parameterized.expand([("patch",), ("delete",)])
-    def test_foreign_proxy_write_returns_not_found_without_redis(self, method: str) -> None:
-        record = ProxyRecord.objects.create(
-            organization=Organization.objects.create(name="Other organization"),
-            domain="foreign.example.com",
-            target_cname="foreign.proxy.example.com",
-        )
-        url = f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/"
-
-        with patch("posthog.api.proxy_record.cloudflare_proxy_lock", side_effect=RedisError("Redis unavailable")):
-            response = getattr(self.client, method)(url, data={})
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_returns_max_proxy_records_from_feature(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
@@ -615,6 +607,9 @@ class TestProxyRecordAPI(APIBaseTest):
             target_cname="abc123.proxy.example.com",
             status=initial_status,
             message=initial_message,
+            cloudflare_activation_state=CloudflareActivationState.SUSPENDED
+            if sweep_first
+            else CloudflareActivationState.IDLE,
         )
         running: set[str] = set()
 

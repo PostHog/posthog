@@ -12,6 +12,7 @@ from posthog.models import ProxyRecord
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
 from posthog.models.user import User
+from posthog.temporal.proxy_service import common
 from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, activity_send_proxy_created_email
 
 
@@ -31,6 +32,19 @@ def monitor_schedule(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     monkeypatch.setattr("posthog.temporal.proxy_service.common.a_schedule_exists", schedule_exists)
     monkeypatch.setattr("posthog.temporal.proxy_service.common.async_connect", AsyncMock())
     return schedule_exists
+
+
+@pytest.fixture
+def provisioned_proxy() -> ProxyRecord:
+    organization = Organization.objects.create(name="Test Org")
+    user = User.objects.create_and_join(organization, "admin@example.com", "password", first_name="Alice")
+    return ProxyRecord.objects.create(
+        organization=organization,
+        domain="proxy.example.com",
+        target_cname="target.example.com",
+        created_by=user,
+        status=ProxyRecord.Status.VALID,
+    )
 
 
 @pytest.mark.django_db
@@ -67,16 +81,10 @@ class TestSendProxyCreatedEmail:
             mock_instance.send.assert_called_once_with(send_async=True)
 
     @pytest.mark.parametrize("previous_provisioning", ["monitor_schedule", "prior_delivery", "unsent_delivery"])
-    def test_creation_email_after_recovery(self, previous_provisioning: str, monitor_schedule: AsyncMock) -> None:
-        org = Organization.objects.create(name="Test Org")
-        user = User.objects.create_and_join(org, "new-address@example.com", "password")
-        proxy = ProxyRecord.objects.create(
-            organization=org,
-            domain="proxy.example.com",
-            target_cname="target.example.com",
-            created_by=user,
-            status=ProxyRecord.Status.VALID,
-        )
+    def test_creation_email_after_recovery(
+        self, previous_provisioning: str, monitor_schedule: AsyncMock, provisioned_proxy: ProxyRecord
+    ) -> None:
+        proxy = provisioned_proxy
         if previous_provisioning == "monitor_schedule":
             monitor_schedule.side_effect = lambda _, schedule_id: schedule_id == f"monitor-proxy-{proxy.id}"
         else:
@@ -90,7 +98,9 @@ class TestSendProxyCreatedEmail:
             patch("posthog.email.is_email_available", return_value=True),
             patch("posthog.email._send_email.apply_async") as enqueue_email,
         ):
-            activity_send_proxy_created_email(_make_inputs(organization_id=org.id, proxy_record_id=proxy.id))
+            activity_send_proxy_created_email(
+                _make_inputs(organization_id=proxy.organization_id, proxy_record_id=proxy.id)
+            )
 
         assert enqueue_email.called == (previous_provisioning == "unsent_delivery")
 
@@ -139,59 +149,37 @@ class TestSendProxyCreatedEmail:
                 activity_send_proxy_created_email(inputs)
                 MockEmailMessage.assert_not_called()
 
-    def test_schedule_lookup_failure_retries_before_email_dispatch(self, monitor_schedule: AsyncMock) -> None:
-        org = Organization.objects.create(name="Test Org")
-        user = User.objects.create_and_join(org, "retry@example.com", "password")
-        proxy = ProxyRecord.objects.create(
-            organization=org, domain="proxy.example.com", target_cname="target.example.com", created_by=user
-        )
-        inputs = _make_inputs(organization_id=org.id, proxy_record_id=proxy.id)
-        monitor_schedule.side_effect = [RPCError("Temporarily unavailable", RPCStatusCode.UNAVAILABLE, b""), False]
+    @pytest.mark.parametrize("failure", ["rpc_error", "async_connect", "a_schedule_exists"])
+    def test_schedule_lookup_failure_retries_before_email_dispatch(
+        self, failure: str, provisioned_proxy: ProxyRecord, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        proxy = provisioned_proxy
+        inputs = _make_inputs(organization_id=proxy.organization_id, proxy_record_id=proxy.id)
         deliveries: list[dict] = []
 
-        def enqueue_email(*args, **kwargs) -> None:
-            deliveries.append(kwargs)
+        async def stall(*args, **kwargs) -> None:
+            await asyncio.Future()
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email._send_email.apply_async", new=enqueue_email),
+            patch("posthog.email._send_email.apply_async", side_effect=lambda *_, **kwargs: deliveries.append(kwargs)),
         ):
-            with pytest.raises(RPCError):
-                activity_send_proxy_created_email(inputs)
+            with monkeypatch.context() as outage:
+                expected: type[Exception]
+                if failure == "rpc_error":
+                    outage.setattr(
+                        common,
+                        "a_schedule_exists",
+                        AsyncMock(side_effect=RPCError("Temporarily unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+                    )
+                    expected = RPCError
+                else:
+                    outage.setattr(common, "PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS", 0)
+                    outage.setattr(common, failure, stall)
+                    expected = TimeoutError
+                with pytest.raises(expected):
+                    activity_send_proxy_created_email(inputs)
             assert deliveries == []
             activity_send_proxy_created_email(inputs)
 
         assert len(deliveries) == 1
-
-    @pytest.mark.parametrize("blocked_call", ["async_connect", "a_schedule_exists"])
-    def test_monitor_lookup_timeout_cancels_pending_temporal_call(self, blocked_call: str) -> None:
-        org = Organization.objects.create(name="Test Org")
-        user = User.objects.create_and_join(org, "timeout@example.com", "password")
-        proxy = ProxyRecord.objects.create(
-            organization=org, domain="proxy.example.com", target_cname="target.example.com", created_by=user
-        )
-        call_cancelled = False
-        deliveries: list[dict] = []
-
-        async def stall(*args, **kwargs) -> None:
-            nonlocal call_cancelled
-            try:
-                await asyncio.Future()
-            except asyncio.CancelledError:
-                call_cancelled = True
-                raise
-
-        def enqueue_email(*args, **kwargs) -> None:
-            deliveries.append(kwargs)
-
-        with (
-            patch("posthog.email.is_email_available", return_value=True),
-            patch("posthog.email._send_email.apply_async", new=enqueue_email),
-            patch("posthog.temporal.proxy_service.common.PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS", 0),
-            patch(f"posthog.temporal.proxy_service.common.{blocked_call}", new=stall),
-            pytest.raises(TimeoutError),
-        ):
-            activity_send_proxy_created_email(_make_inputs(organization_id=org.id, proxy_record_id=proxy.id))
-
-        assert call_cancelled
-        assert deliveries == []

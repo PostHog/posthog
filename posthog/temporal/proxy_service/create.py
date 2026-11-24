@@ -320,10 +320,10 @@ class CreateCloudflareProxyInputs:
 @activity.defn
 async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs) -> None:
     # Package registration imports this activity while managed_proxy loads its Cloudflare helpers.
-    from posthog.managed_proxy import reconcile_cloudflare_proxy  # noqa: PLC0415
+    from posthog.managed_proxy import provision_cloudflare_hostname  # noqa: PLC0415
 
     try:
-        active = await on_asyncify_pool(reconcile_cloudflare_proxy)(inputs.organization_id, inputs.proxy_record_id)
+        active = await on_asyncify_pool(provision_cloudflare_hostname)(inputs.organization_id, inputs.proxy_record_id)
     except CloudflareAPIError as error:
         if error.is_rate_limited():
             raise
@@ -349,11 +349,11 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
 
         if hostname_info is None:
-            from posthog.managed_proxy import recover_cloudflare_certificate_hostname  # noqa: PLC0415
+            from posthog.managed_proxy import provision_cloudflare_hostname  # noqa: PLC0415
 
             # Reused workflows have verified DNS but do not revisit hostname creation.
-            if await on_asyncify_pool(recover_cloudflare_certificate_hostname)(
-                inputs.organization_id, inputs.proxy_record_id
+            if await on_asyncify_pool(provision_cloudflare_hostname)(
+                inputs.organization_id, inputs.proxy_record_id, recovering_certificate=True
             ):
                 raise ApplicationError("Cloudflare hostname was restored and is waiting for a certificate")
             raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
