@@ -20,6 +20,7 @@ import { ActivityScope, OrganizationType, TeamBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../types'
 import { userLogic } from '../userLogic'
+import { DetailFieldChoice, getDetailFieldChoices } from './detailFieldChoices'
 
 export type ActivityLogsView = 'project' | 'organization'
 
@@ -189,6 +190,7 @@ export interface advancedActivityLogsLogicValues {
     availableFilters: AvailableFilters | null
     availableFiltersLoading: boolean
     canViewOrganization: boolean
+    detailFieldChoices: DetailFieldChoice[]
     exports: ExportedAsset[]
     exportsLoading: boolean
     filters: AdvancedActivityLogFilters
@@ -320,6 +322,7 @@ export interface advancedActivityLogsLogicMeta {
         ) => string
         canViewOrganization: (currentOrganization: OrganizationType | null) => boolean
         teamsById: (currentOrganization: OrganizationType | null) => Record<number, string>
+        detailFieldChoices: (availableFilters: AvailableFilters | null) => DetailFieldChoice[]
         hasActiveFilters: (filters: AdvancedActivityLogFilters, isOrganizationView: boolean) => boolean
         pagination: (
             filters: AdvancedActivityLogFilters,
@@ -554,6 +557,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 ),
         ],
 
+        detailFieldChoices: [
+            (s) => [s.availableFilters],
+            (availableFilters: AvailableFilters | null): DetailFieldChoice[] =>
+                getDetailFieldChoices(availableFilters?.detail_fields),
+        ],
+
         hasActiveFilters: [
             (s) => [s.filters, s.isOrganizationView],
             (filters: AdvancedActivityLogFilters, isOrganizationView: boolean): boolean => {
@@ -692,11 +701,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
 
         // Detail filter management
-        addActiveFilter: ({ fieldPath }) => {
-            if (fieldPath === '__add_custom__') {
-                actions.addActiveFilter('', true)
-                return
-            }
+        addActiveFilter: () => {
             actions.syncFiltersToAPI()
         },
         updateActiveFilter: () => {

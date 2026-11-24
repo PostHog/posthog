@@ -2,25 +2,32 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonSearchableSelect,
-    LemonSelect,
-    Tooltip,
-} from '@posthog/lemon-ui'
-
-import { midEllipsis } from 'lib/utils/strings'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonSelectSection, Tooltip } from '@posthog/lemon-ui'
 
 import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { DetailFieldSelect } from './DetailFieldSelect'
+
+const CUSTOM_FIELD_VALUE = '__add_custom__'
+
+const CUSTOM_FIELD_SECTIONS: LemonSelectSection<string>[] = [
+    {
+        title: 'Custom',
+        options: [
+            {
+                value: CUSTOM_FIELD_VALUE,
+                label: <span>Custom field path...</span>,
+                tooltip: <div>Enter a custom field path manually</div>,
+            },
+        ],
+    },
+]
 
 interface DetailFilterRowProps {
     filter: ActiveDetailFilter
 }
 
 const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
-    const { availableFilters, activeFilters } = useValues(advancedActivityLogsLogic)
+    const { detailFieldChoices, activeFilters } = useValues(advancedActivityLogsLogic)
     const { updateActiveFilter, removeActiveFilter } = useActions(advancedActivityLogsLogic)
 
     const [localValue, setLocalValue] = useState<string | string[]>(filter.value)
@@ -28,83 +35,10 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
     const [fieldPathError, setFieldPathError] = useState<string | null>(null)
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-    const fieldOptionsForRow = useMemo(() => {
-        if (!availableFilters?.detail_fields) {
-            return []
-        }
-
-        const selectedFields = new Set(
-            activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath)
-        )
-
-        // Group by field name instead of scope
-        const fieldGroups = new Map<string, { scopes: string[]; fullPaths: string[] }>()
-
-        Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
-            scopeData.fields.forEach((field) => {
-                const fieldValue = `${scope}::${field.name}`
-
-                if (!selectedFields.has(fieldValue) || fieldValue === filter.fieldPath) {
-                    if (!fieldGroups.has(field.name)) {
-                        fieldGroups.set(field.name, { scopes: [], fullPaths: [] })
-                    }
-
-                    const group = fieldGroups.get(field.name)!
-                    if (!group.scopes.includes(scope)) {
-                        group.scopes.push(scope)
-                        group.fullPaths.push(fieldValue)
-                    }
-                }
-            })
-        })
-
-        // Convert to options with composite display
-        const fieldOptions = Array.from(fieldGroups.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([fieldName, group]) => {
-                // Get the last part of the field path after splitting by "."
-                const displayName = fieldName.split('.').pop() || fieldName
-
-                // Create tooltip with full path and scopes
-                const scopeNames = group.scopes.map((scope) => scope.replace(/([A-Z])/g, ' $1').trim()).join(', ')
-                const displayPath = fieldName.length > 50 ? midEllipsis(fieldName, 50) : fieldName
-
-                // For single scope, use direct field path; for multiple, use first one as primary
-                const primaryValue = group.fullPaths[0]
-
-                return {
-                    value: primaryValue,
-                    label: (
-                        <div className="flex flex-col">
-                            <div>{displayName}</div>
-                            <div className="text-xs text-muted">{displayPath}</div>
-                        </div>
-                    ),
-                    tooltip: (
-                        <div className="text-xs">
-                            <div>
-                                <strong>Full path:</strong>
-                                <br />
-                                {fieldName}
-                            </div>
-                            <br />
-                            <div>
-                                <strong>Available in:</strong>
-                                <br />
-                                {scopeNames}
-                            </div>
-                        </div>
-                    ),
-                }
-            })
-
-        return [
-            {
-                title: 'Available Fields',
-                options: fieldOptions,
-            },
-        ]
-    }, [availableFilters, filter.key, filter.fieldPath, activeFilters])
+    const otherFieldPaths = useMemo(
+        () => activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath),
+        [activeFilters, filter.key]
+    )
 
     const validateCustomFieldPath = (path: string): string | null => {
         if (!path || !path.trim()) {
@@ -200,13 +134,14 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
                 </div>
             ) : (
-                <LemonSelect
+                <DetailFieldSelect
+                    choices={detailFieldChoices}
+                    excludedFieldPaths={otherFieldPaths}
                     value={filter.fieldPath}
                     onChange={handleFieldChange}
-                    options={fieldOptionsForRow}
                     placeholder="Select field"
-                    size="small"
                     className="min-w-60"
+                    data-attr="audit-logs-detail-filter-field"
                 />
             )}
 
@@ -254,97 +189,13 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
 }
 
 export const DetailFilters = (): JSX.Element => {
-    const { activeFilters, availableFilters } = useValues(advancedActivityLogsLogic)
+    const { activeFilters, availableFilters, detailFieldChoices } = useValues(advancedActivityLogsLogic)
     const { addActiveFilter } = useActions(advancedActivityLogsLogic)
 
-    const fieldOptions = useMemo(() => {
-        if (!availableFilters?.detail_fields) {
-            return []
-        }
-
-        const selectedFields = new Set(activeFilters.filter((f) => !f.isCustom).map((f) => f.fieldPath))
-
-        // Group by field name instead of scope
-        const fieldGroups = new Map<string, { scopes: string[]; fullPaths: string[] }>()
-
-        Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
-            scopeData.fields.forEach((field) => {
-                const fieldValue = `${scope}::${field.name}`
-
-                if (!selectedFields.has(fieldValue)) {
-                    if (!fieldGroups.has(field.name)) {
-                        fieldGroups.set(field.name, { scopes: [], fullPaths: [] })
-                    }
-
-                    const group = fieldGroups.get(field.name)!
-                    if (!group.scopes.includes(scope)) {
-                        group.scopes.push(scope)
-                        group.fullPaths.push(fieldValue)
-                    }
-                }
-            })
-        })
-
-        // Convert to options with composite display
-        const fieldOptions = Array.from(fieldGroups.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([fieldName, group]) => {
-                // Get the last part of the field path after splitting by "."
-                const displayName = fieldName.split('.').pop() || fieldName
-
-                // Create tooltip with full path and scopes
-                const scopeNames = group.scopes.map((scope) => scope.replace(/([A-Z])/g, ' $1').trim()).join(', ')
-                const displayPath = fieldName.length > 50 ? midEllipsis(fieldName, 50) : fieldName
-
-                // For single scope, use direct field path; for multiple, use first one as primary
-                const primaryValue = group.fullPaths[0]
-
-                return {
-                    value: primaryValue,
-                    label: (
-                        <div className="flex flex-col">
-                            <div>{displayName}</div>
-                            <div className="text-xs text-muted">{displayPath}</div>
-                        </div>
-                    ),
-                    tooltip: (
-                        <div className="text-xs">
-                            <div>
-                                <strong>Full path:</strong>
-                                <br />
-                                {fieldName}
-                            </div>
-                            <br />
-                            <div>
-                                <strong>Available in:</strong>
-                                <br />
-                                {scopeNames}
-                            </div>
-                        </div>
-                    ),
-                }
-            })
-
-        const sections = [
-            {
-                title: 'Available Fields',
-                options: fieldOptions,
-            },
-        ]
-
-        sections.push({
-            title: 'Custom',
-            options: [
-                {
-                    value: '__add_custom__',
-                    label: <span>Custom field path...</span>,
-                    tooltip: <div>Enter a custom field path manually</div>,
-                },
-            ],
-        })
-
-        return sections
-    }, [availableFilters, activeFilters])
+    const selectedFieldPaths = useMemo(
+        () => activeFilters.filter((f) => !f.isCustom).map((f) => f.fieldPath),
+        [activeFilters]
+    )
 
     if (!availableFilters?.detail_fields || Object.keys(availableFilters.detail_fields).length === 0) {
         return <></>
@@ -365,22 +216,17 @@ export const DetailFilters = (): JSX.Element => {
                 ))}
             </div>
 
-            <LemonSearchableSelect
-                value={undefined}
-                onChange={(value) => {
-                    if (value === '__add_custom__') {
-                        addActiveFilter('', true)
-                    } else if (value) {
-                        addActiveFilter(value, false)
-                    }
-                }}
-                options={fieldOptions}
+            <DetailFieldSelect
+                choices={detailFieldChoices}
+                excludedFieldPaths={selectedFieldPaths}
+                onChange={(value) =>
+                    addActiveFilter(value === CUSTOM_FIELD_VALUE ? '' : value, value === CUSTOM_FIELD_VALUE)
+                }
                 placeholder="Add filter"
-                searchPlaceholder="Search fields..."
-                searchKeys={['value']}
                 icon={<IconPlus />}
-                size="small"
+                extraSections={CUSTOM_FIELD_SECTIONS}
                 className="w-[200px]"
+                data-attr="audit-logs-detail-filter-add"
             />
         </div>
     )
