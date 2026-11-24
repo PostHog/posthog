@@ -1325,6 +1325,13 @@ class _Recommender:
                 evidence = "Its words all appear in paid searches that convert at or below their CPA benchmark"
                 ad_group = "an ad group of the campaign"
             if has_search:
+                # A single word in phrase match is almost broad match.
+                if len(query.query.split()) == 1:
+                    keyword = f"[{query.query}]"
+                    match_note = "The brackets make it exact match, so it only matches this search and close variants."
+                else:
+                    keyword = f'"{query.query}"'
+                    match_note = "The quotes make it phrase match, so it also matches longer searches that contain it."
                 steps: tuple[Step, ...] = (
                     self._open_campaign(
                         campaign.name if campaign else None,
@@ -1332,9 +1339,8 @@ class _Recommender:
                         "or create one.",
                     ),
                     Step(
-                        text=f"Open Keywords and add this one to {ad_group}. The quotes make it "
-                        "phrase match, so it also matches longer searches that contain it.",
-                        copyValue=f'"{query.query}"',
+                        text=f"Open Keywords and add this one to {ad_group}. {match_note}",
+                        copyValue=keyword,
                         url=ADS_KEYWORDS_URL,
                         linkText="Keywords",
                     ),

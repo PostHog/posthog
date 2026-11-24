@@ -882,6 +882,24 @@ class TestMarketingRecommendations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("one_word_is_exact_match", "funnel", "[funnel]", "exact match"),
+            ("longer_query_is_phrase_match", "funnel tracking tool", '"funnel tracking tool"', "phrase match"),
+        ]
+    )
+    def test_keyword_gap_picks_the_match_type_by_query_length(
+        self, _name: str, query: str, expected_copy: str, expected_match: str
+    ) -> None:
+        terms = (_term("funnel tracking", "c1", cost=100, conversions=10),)
+        organic = (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
+
+        gap = next(rec for rec in recommend(_inputs((_campaign(),), terms, organic)) if rec.rule == "keyword_gap")
+
+        keyword_step = next(step for step in gap.steps or [] if step.linkText == "Keywords")
+        assert keyword_step.copyValue == expected_copy
+        assert expected_match in keyword_step.text
+
+    @parameterized.expand(
+        [
             (
                 "disapproved_and_limited",
                 (2, 1),
