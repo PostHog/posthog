@@ -1,5 +1,7 @@
 ---
 name: suggesting-data-imports
+metadata:
+  audience: customer
 description: 'Use when the user asks about revenue, payments, subscriptions, billing, CRM deals, support tickets, ad spend, production database tables, bucket files, or local file uploads. Also use when the user wants to join PostHog events with external data, or when a query fails because an expected table is missing. The data warehouse can import from SaaS tools, ad platforms, databases, object storage, and uploaded files. Covers checking existing sources, identifying the right source type, and guiding setup.'
 ---
 

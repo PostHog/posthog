@@ -1,5 +1,7 @@
 ---
 name: managing-reminders
+metadata:
+  audience: customer
 description: 'Create and manage PostHog reminders — private, human-paced nudges that fire as in-app notifications on a schedule, optionally linked to a PostHog resource. Use when the user says "remind me to…", wants a one-off or recurring nudge (daily/weekly/monthly/yearly, a cron schedule, or a specific date/time), wants to be reminded to look at a dashboard, insight, experiment, feature flag, survey, notebook, replay, or error, or wants to list, change, or cancel their reminders. Covers when to pick a reminder over an alert or subscription, the one-off vs recurring vs cron schedule field mappings, timezones, and attaching a resource.'
 ---
 

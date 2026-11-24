@@ -1,5 +1,7 @@
 ---
 name: analyzing-offline-evaluations
+metadata:
+  audience: customer
 description: >
   Inspect and compare offline AI evaluation experiments, diagnose case-level
   regressions, and follow scorer history across application, model, or prompt

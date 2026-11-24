@@ -30,7 +30,7 @@ class SkillLinter:
     - Jinja2 syntax validation via parse-only (all .j2 files)
     - Frontmatter validation for product and project skill entry points
     - Tool/skill reference validation in markdown (against the MCP schema registries)
-    - Every product skill is in the MCP served-skills list or has `audience: internal`, and every listed name is a skill
+    - Every product skill states its audience, and the MCP served-skills file matches the skill headers
     """
 
     def __init__(self, repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> None:

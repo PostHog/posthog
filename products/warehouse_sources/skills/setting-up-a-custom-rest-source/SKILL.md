@@ -1,5 +1,7 @@
 ---
 name: setting-up-a-custom-rest-source
+metadata:
+  audience: customer
 description: >
   Connect an arbitrary REST API to the PostHog data warehouse as a Custom source by authoring a JSON manifest, with no
   per-source code. Use when the user points at an API that has no built-in PostHog connector — "import data from this

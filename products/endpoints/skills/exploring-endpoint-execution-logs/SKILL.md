@@ -1,5 +1,7 @@
 ---
 name: exploring-endpoint-execution-logs
+metadata:
+  audience: customer
 description: >
   Explore and diagnose a PostHog endpoint's execution logs — error messages, failed runs, cache
   misses, slow runs, or unexpected row counts during endpoint invocations. Use when the user says

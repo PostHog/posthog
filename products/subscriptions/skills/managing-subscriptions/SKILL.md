@@ -1,5 +1,7 @@
 ---
 name: managing-subscriptions
+metadata:
+  audience: customer
 description: >
   Create and manage scheduled PostHog subscriptions for insight snapshots,
   dashboard snapshots, and AI prompt reports. Use when a user wants recurring

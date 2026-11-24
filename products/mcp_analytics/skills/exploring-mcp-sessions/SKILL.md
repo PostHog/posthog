@@ -1,5 +1,7 @@
 ---
 name: exploring-mcp-sessions
+metadata:
+  audience: customer
 description: >
   Investigate individual PostHog MCP sessions — the sequence of tool calls a
   single agent made in one run, what it was trying to do, and where it went

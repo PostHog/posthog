@@ -9,6 +9,8 @@ description: >
   perspective", "my own blind-spot check", "custom validation criteria", "custom resolution
   criteria", "tune what PostHog Review publishes", "tune what PostHog Review implements".
 metadata:
+  audience: customer
+  feature_flag: review-hog
   owner_team: review_hog
   skill_type: authoring
 ---

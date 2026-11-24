@@ -1,5 +1,7 @@
 ---
 name: analyzing-experiment-session-replays
+metadata:
+  audience: customer
 description: 'Analyze session replay patterns across experiment variants to understand user behavior differences. Use when the user wants to see how users interact with different experiment variants, identify usability issues, compare behavior patterns between control and test groups, or get qualitative insights to complement quantitative experiment results. Also covers pairing the observed behavior with a linked survey when the user wants qualitative feedback beyond what recordings show.'
 ---
 

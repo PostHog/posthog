@@ -14,23 +14,23 @@ from typing import Any, cast
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer, _unrendered_skill_name
+from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer
 from products.posthog_ai.scripts.build_skills.frontmatter import parse_frontmatter, validate_frontmatter
 from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
-from products.posthog_ai.scripts.build_skills.skill_audience import SERVED_SKILLS_FILE
+from products.posthog_ai.scripts.build_skills.skill_audience import SERVED_SKILLS_FILE, write_served_skills
 from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
 from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill, SkillResource
 from products.posthog_ai.scripts.build_skills.tool_references import _check_tool_references
 
 
-def _list_every_skill(repo_root: Path) -> None:
-    """Write a served-skills list that names every product skill, unless the test wrote its own."""
-    served_file = repo_root / SERVED_SKILLS_FILE
-    if served_file.exists():
-        return
-    names = sorted({_unrendered_skill_name(skill) for skill in SkillDiscoverer(repo_root / "products").discover()})
-    served_file.parent.mkdir(parents=True, exist_ok=True)
-    served_file.write_text(json.dumps({"skills": {name: {} for name in names}, "context_mill_skills": {}}))
+def _give_every_skill_an_audience(repo_root: Path) -> None:
+    """Mark every product skill in the test repo as a customer skill, and write the served-skills file."""
+    skills = SkillDiscoverer(repo_root / "products").discover()
+    for skill in skills:
+        text = skill.source_file.read_text()
+        if text.startswith("---\n"):
+            skill.source_file.write_text(text.replace("---\n", "---\nmetadata:\n  audience: customer\n", 1))
+    write_served_skills(repo_root, skills)
 
 
 @pytest.mark.parametrize(
@@ -417,7 +417,7 @@ def test_build_manifest_rejects_duplicate_rendered_names(tmp_path: Path) -> None
     discoverer = SkillDiscoverer(products_dir=products)
     builder = SkillBuilder(repo_root=tmp_path, products_dir=products, output_dir=tmp_path / "output")
 
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
 
     assert builder.lint_all() is True
     with pytest.raises(ValueError, match="Duplicate skill name 'shared-name'"):
@@ -506,7 +506,7 @@ def test_lint_all_passes_for_valid_skills(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is True
 
 
@@ -523,7 +523,7 @@ def test_lint_all_passes_with_subdirectories(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is True
 
 
@@ -537,7 +537,7 @@ def test_lint_all_catches_missing_frontmatter(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
@@ -551,7 +551,7 @@ def test_lint_all_catches_overlong_project_skill_description(tmp_path: Path) -> 
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
@@ -565,7 +565,7 @@ def test_lint_all_catches_bad_jinja2_syntax(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
@@ -582,7 +582,7 @@ def test_lint_all_catches_bad_jinja2_in_subdirectory(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
@@ -607,7 +607,7 @@ def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is expected
 
 
@@ -622,76 +622,87 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
 @pytest.mark.parametrize(
-    "served_name,expected",
-    [("real-name", True), ("renamed-dir", False), ("ghost", False)],
-    ids=["frontmatter-name", "directory-name", "no-such-skill"],
-)
-def test_lint_all_checks_served_skills_against_shipped_names(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], served_name: str, expected: bool
-) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "renamed-dir"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: real-name\ndescription: A skill\n---\nBody\n")
-    served_file = tmp_path / "services" / "mcp" / "src" / "skills" / "served-skills.json"
-    served_file.parent.mkdir(parents=True)
-    served_file.write_text(json.dumps({"skills": {served_name: {}}, "context_mill_skills": {"elsewhere": {}}}))
-
-    builder = SkillBuilder(
-        repo_root=tmp_path,
-        products_dir=tmp_path / "products",
-        output_dir=tmp_path / "output",
-    )
-    _list_every_skill(tmp_path)
-    assert builder.lint_all() is expected
-    assert (f"lists '{served_name}'" in capsys.readouterr().err) is not expected
-
-
-def test_lint_all_fails_when_the_served_skills_list_is_missing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: some-skill\ndescription: A skill\n---\nBody\n")
-
-    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
-
-    assert builder.lint_all() is False
-    assert "served-skills.json is missing" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize(
-    "header,listed,error",
+    "header,error",
     [
-        ("", True, None),
-        ("metadata:\n  audience: internal\n", False, None),
-        ("metadata:\n  owner_team: alpha\n", False, "has no audience"),
-        ("", False, "has no audience"),
-        ("metadata:\n  audience: internal\n", True, "Keep one"),
-        ("metadata:\n  audience: staff\n", False, "not a known audience"),
+        ("metadata:\n  audience: customer\n", None),
+        ("metadata:\n  audience: scout\n", None),
+        ("metadata:\n  audience: internal\n", None),
+        ("metadata:\n  owner_team: alpha\n", "has no `metadata.audience`"),
+        ("", "has no `metadata.audience`"),
+        ("metadata:\n  audience: staff\n", "not a known audience"),
+        ("metadata:\n  audience: internal\n  feature_flag: some-flag\n", "does not serve an `internal` skill"),
     ],
-    ids=["listed", "internal", "other-metadata-only", "neither", "both", "unknown-audience"],
+    ids=[
+        "customer",
+        "scout",
+        "internal",
+        "other-metadata-only",
+        "no-metadata",
+        "unknown-audience",
+        "internal-with-flag",
+    ],
 )
-def test_lint_all_requires_one_audience_per_product_skill(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], header: str, listed: bool, error: str | None
+def test_lint_all_requires_a_known_audience_on_every_product_skill(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], header: str, error: str | None
 ) -> None:
     skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(f"---\nname: some-skill\n{header}description: A skill\n---\nBody\n")
-    served_file = tmp_path / "services" / "mcp" / "src" / "skills" / "served-skills.json"
-    served_file.parent.mkdir(parents=True)
-    served_file.write_text(json.dumps({"skills": {"some-skill": {}} if listed else {}, "context_mill_skills": {}}))
 
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
-
-    _list_every_skill(tmp_path)
+    builder.write_served_skills()
 
     assert builder.lint_all() is (error is None)
     assert error is None or error in capsys.readouterr().err
+
+
+def test_served_skills_file_lists_customer_and_scout_skills_by_frontmatter_name(tmp_path: Path) -> None:
+    headers = {
+        "renamed-dir": "name: flagged-skill\nmetadata:\n  audience: customer\n  feature_flag: some-flag\n",
+        "slack-skill": "name: slack-skill\nmetadata:\n  audience: customer\n  consumers: slack, posthog_ai\n",
+        "scout-skill": "name: scout-skill\nmetadata:\n  audience: scout\n",
+        "staff-skill": "name: staff-skill\nmetadata:\n  audience: internal\n",
+    }
+    for directory, header in headers.items():
+        skill_dir = tmp_path / "products" / "alpha" / "skills" / directory
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"---\n{header}description: A skill\n---\nBody\n")
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    served_file = builder.write_served_skills()
+
+    assert served_file == tmp_path / SERVED_SKILLS_FILE
+    assert json.loads(served_file.read_text()) == {
+        "skills": {
+            "flagged-skill": {"audience": "customer", "feature_flag": "some-flag"},
+            "scout-skill": {"audience": "scout"},
+            "slack-skill": {"audience": "customer", "consumers": ["slack", "posthog_ai"]},
+        }
+    }
+    assert builder.lint_all() is True
+
+
+@pytest.mark.parametrize("served_file_state", ["missing", "written-before-the-header-changed"])
+def test_lint_all_fails_when_the_served_skills_file_does_not_match_the_headers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], served_file_state: str
+) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
+    skill_dir.mkdir(parents=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text("---\nname: some-skill\nmetadata:\n  audience: internal\ndescription: A skill\n---\nBody\n")
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    if served_file_state == "written-before-the-header-changed":
+        builder.write_served_skills()
+        skill_file.write_text(skill_file.read_text().replace("audience: internal", "audience: customer"))
+
+    assert builder.lint_all() is False
+    assert "does not match the skill headers" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -732,7 +743,7 @@ def test_lint_all_catches_reserved_name_in_frontmatter(
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
     stderr = capsys.readouterr().err
     assert f"'{reserved_name}' is owned by PostHog/context-mill" in stderr
@@ -789,7 +800,7 @@ def test_lint_catches_binary_file(tmp_path: Path) -> None:
         products_dir=tmp_path / "products",
         output_dir=tmp_path / "output",
     )
-    _list_every_skill(tmp_path)
+    _give_every_skill_an_audience(tmp_path)
     assert builder.lint_all() is False
 
 
@@ -863,6 +874,9 @@ def test_init_skill_creates_file(tmp_path: Path, template: bool, expected_filena
 
     refs_dir = skill_file.parent / "references"
     assert refs_dir.is_dir()
+
+    builder.write_served_skills()
+    assert builder.lint_all() is False
 
 
 def test_init_skill_rejects_existing(tmp_path: Path) -> None:

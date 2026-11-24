@@ -1,5 +1,7 @@
 ---
 name: checking-member-access
+metadata:
+  audience: customer
 description: >
   Explains what a member or a role can do in a PostHog project, using the access control MCP tools.
   Use when the user asks what someone can see or edit, who can edit dashboards or feature flags, why a

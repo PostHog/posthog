@@ -1,5 +1,7 @@
 ---
 name: importing-push-tokens
+metadata:
+  audience: customer
 description: 'Move existing mobile push devices from another platform (OneSignal, Braze, Customer.io, Airship, or your own Firebase backend) into a PostHog workflows push channel, so people who installed the app before the switch still get push notifications. Covers exporting device tokens and user IDs, mapping the old user ID to the PostHog distinct ID, checking the pairing with a dry run, and importing in batches. Use when asked to import, migrate, or backfill push tokens, device tokens, FCM tokens, APNs tokens, or push subscribers.'
 ---
 
