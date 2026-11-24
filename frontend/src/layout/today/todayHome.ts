@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
 import { TodayPaneProduct, paneProductForPath, shownPaneProducts } from './todayPaneProducts'
 
 interface TodayHomeRowSpec {
@@ -81,4 +82,15 @@ export function isHomePanePath(path: string): boolean {
         isUnderPath(path, urls.inbox('monitoring')) ||
         isUnderPath(path, urls.pulse())
     )
+}
+
+/** Inbox sources belong to Data, so they open it only while the Data pane is on as well. */
+export function homePaneRouteForPath(path: string, featureFlags: FeatureFlagsSet): 'home' | 'data' | null {
+    if (!isTodayHomePaneEnabled(featureFlags)) {
+        return null
+    }
+    if (isHomePanePath(path)) {
+        return 'home'
+    }
+    return isTodayPaneEnabled('data', featureFlags) && isUnderPath(path, urls.inbox('sources')) ? 'data' : null
 }

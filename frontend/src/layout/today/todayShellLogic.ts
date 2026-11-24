@@ -20,7 +20,7 @@ import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { isDefinitionDetailPath } from './todayData'
-import { isHomePanePath } from './todayHome'
+import { homePaneRouteForPath, isHomePanePath } from './todayHome'
 import { isErrorTrackingIssuePath } from './todayMonitor'
 import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
 import { paneConfigProductForPath } from './todayPaneProducts'
@@ -144,12 +144,9 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
     }
-    const homePaneEnabled = isTodayHomePaneEnabled(featureFlags)
-    if (homePaneEnabled && isHomePanePath(path)) {
-        return 'home'
-    }
-    if (homePaneEnabled && isTodayPaneEnabled('data', featureFlags) && isUnderPath(path, urls.inbox('sources'))) {
-        return 'data'
+    const homePaneRoute = homePaneRouteForPath(path, featureFlags)
+    if (homePaneRoute) {
+        return homePaneRoute
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
