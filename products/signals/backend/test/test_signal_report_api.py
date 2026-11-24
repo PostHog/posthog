@@ -1734,8 +1734,8 @@ class TestSignalReportListAPI(APIBaseTest):
             check_versions={str(check.id): check_definition_version(check)},
         )
         for hours, observed_value, matches, error in [
-            (12, 8, False, None),
             (6, 3, True, None),
+            (12, 8, False, None),
             (18, None, None, "The query timed out."),
         ]:
             SignalReportArtefact.objects.create(
@@ -1755,11 +1755,19 @@ class TestSignalReportListAPI(APIBaseTest):
                 ).model_dump_json(),
             )
 
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+            content="{not json",
+        )
+
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
             response = self.client.get(self._list_url())
             needs_attention = self.client.get(self._list_url(needs_attention="true"))
 
         assert response.status_code == status.HTTP_200_OK
+        assert needs_attention.status_code == status.HTTP_200_OK
         assert [row["id"] for row in needs_attention.json()["results"]] == (
             [str(report.id)] if state == "not_on_track" else []
         )
