@@ -357,8 +357,8 @@ class OAuthTokenView(ProvisioningAPIView):
                 capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "Invalid or revoked refresh token")
 
-            # Not is_provisioning_partner: an admin clearing that flag to disable a partner leaves its
-            # outstanding refresh tokens working, and they must stay throttled.
+            # Not is_provisioning_partner: clearing that flag revokes the partner's tokens only after the
+            # change commits, and a refresh that gets here first must still be charged to the partner.
             if locked_app is None or not locked_app.carries_provisioning_config:
                 capture_provisioning_event("token_exchange", "not_provisioning_partner", grant_type="refresh_token")
                 raise ProvisioningError("invalid_grant", "This refresh token was not issued to a provisioning partner")

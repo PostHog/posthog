@@ -666,6 +666,55 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
 
+    @parameterized.expand(
+        [
+            ("partner_switched_off", True, {"is_provisioning_partner": False}, None, True),
+            (
+                "partner_switched_off_with_update_fields",
+                True,
+                {"is_provisioning_partner": False},
+                ["is_provisioning_partner", "_provisioning_config"],
+                True,
+            ),
+            ("partner_switched_on", False, {"is_provisioning_partner": True}, None, False),
+            ("partner_renamed", True, {"name": "Renamed Partner"}, None, False),
+            ("non_partner_renamed", False, {"name": "Renamed App"}, None, False),
+            (
+                "flag_cleared_but_not_saved",
+                True,
+                {"is_provisioning_partner": False, "name": "Renamed"},
+                ["name"],
+                False,
+            ),
+        ]
+    )
+    def test_switching_a_partner_off_revokes_its_sessions(
+        self,
+        _name: str,
+        was_partner: bool,
+        changes: dict,
+        update_fields: list[str] | None,
+        expects_revoke: bool,
+    ) -> None:
+        app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=was_partner)
+        access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="partner_access", expires=timezone.now() + timedelta(minutes=5)
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app, user=self.user, token="partner_refresh", access_token=access_token
+        )
+
+        for field, value in changes.items():
+            setattr(app, field, value)
+        with self.captureOnCommitCallbacks(execute=True):
+            app.save(update_fields=update_fields)
+
+        refresh_token.refresh_from_db()
+        app.refresh_from_db()
+        self.assertEqual(OAuthAccessToken.objects.filter(pk=access_token.pk).exists(), not expects_revoke)
+        self.assertEqual(refresh_token.revoked is not None, expects_revoke)
+        self.assertEqual(app.sessions_revoked_at is not None, expects_revoke)
+
 
 class TestCarriesProvisioningConfig(SimpleTestCase):
     @parameterized.expand(

@@ -374,8 +374,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
     @parameterized.expand([("partner", True), ("partner_flag_cleared", False)])
     def test_refresh_issues_partner_lifetime_token(self, _name: str, is_provisioning_partner: bool) -> None:
         first = self._request_bearer_token().json()
-        self.partner.is_provisioning_partner = is_provisioning_partner
-        self.partner.save(update_fields=["is_provisioning_partner"])
+        OAuthApplication.objects.filter(pk=self.partner.pk).update(is_provisioning_partner=is_provisioning_partner)
 
         res = self._refresh(first["refresh_token"])
 

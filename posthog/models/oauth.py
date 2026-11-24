@@ -1,6 +1,7 @@
 import copy
 import enum
 import uuid
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
@@ -10,7 +11,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import connection, models, router, transaction
 from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
@@ -593,7 +594,32 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     def save(self, *args, **kwargs):
         self.full_clean()
+
+        switching_partner_off = self._saves_partner_flag_off(kwargs.get("update_fields"))
+
         super().save(*args, **kwargs)
+
+        if switching_partner_off:
+            # After commit, so the revoke runs in a transaction of its own and takes the app row and
+            # then the token rows, as revoke_application_sessions defines, rather than after row locks
+            # the caller's transaction already holds. A save that rolls back revokes nothing.
+            transaction.on_commit(lambda: revoke_application_sessions(self))
+
+    def _saves_partner_flag_off(self, update_fields: Iterable[str] | None) -> bool:
+        """Whether this save turns ``is_provisioning_partner`` from true to false.
+
+        Every write of the flag goes through ``save``, so this is the one place that sees a partner
+        switched off. It compares against the stored row rather than a copy taken at load time, so
+        a stale in-memory instance cannot hide the change."""
+        if self._state.adding or self.is_provisioning_partner:
+            return False
+        if update_fields is not None and "is_provisioning_partner" not in update_fields:
+            return False
+        return (
+            OAuthApplication.objects.using(router.db_for_write(OAuthApplication))
+            .filter(pk=self.pk, is_provisioning_partner=True)
+            .exists()
+        )
 
     def allows_grant_type(self, *grant_types: str) -> bool:
         # The device grant's approval page can only show a client's self-declared name, so a device
