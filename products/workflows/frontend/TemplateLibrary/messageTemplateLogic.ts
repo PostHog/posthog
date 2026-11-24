@@ -759,7 +759,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 const loaded = await api.messaging.getTemplate(props.id)
                 if (loaded.type === 'push') {
                     // The email form can't hold a push, and older links to a push still open this page.
-                    router.actions.replace(urls.transactionalPush(loaded.id))
+                    if (router.values.location.pathname.includes(loaded.id)) {
+                        router.actions.replace(urls.transactionalPush(loaded.id))
+                    }
                     return { ...NEW_TEMPLATE } as MessageTemplate
                 }
                 const { form, draft, published } = splitDraft(loaded)
