@@ -260,13 +260,16 @@ def _save_lists(
 
 
 def _is_unsendable(email: str) -> bool:
-    if email.rpartition("@")[0].isascii():
-        return False
+    local, _, domain = email.rpartition("@")
+    return not local.isascii() and not _is_valid(email) and _is_valid(f"a@{domain}")
+
+
+def _is_valid(email: str) -> bool:
     try:
         validate_email(email)
     except ValidationError:
-        return True
-    return False
+        return False
+    return True
 
 
 def _import(

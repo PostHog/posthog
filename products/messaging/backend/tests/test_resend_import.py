@@ -989,7 +989,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                     "not_sent": 0,
                     "skipped_new_people": 0,
                     "unsendable": 1,
-                    "dropped": 0,
+                    "dropped": 1,
                 },
                 False,
             ),
@@ -1004,7 +1004,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                     "not_sent": 0,
                     "skipped_new_people": 2,
                     "unsendable": 1,
-                    "dropped": 0,
+                    "dropped": 1,
                 },
                 False,
             ),
@@ -1019,7 +1019,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                     "not_sent": 3,
                     "skipped_new_people": 0,
                     "unsendable": 1,
-                    "dropped": 0,
+                    "dropped": 1,
                 },
                 True,
             ),
@@ -1037,7 +1037,12 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         self.resend.data["contacts"] += [
             {"id": f"c0000000-0000-4000-8000-00000000000{n}", "email": email, "unsubscribed": False}
-            for n, email in ((5, "HAPPY@example.com"), (6, " left-a-topic@example.com "), (7, "not-an-email"))
+            for n, email in (
+                (5, "HAPPY@example.com"),
+                (6, " left-a-topic@example.com "),
+                (7, "not-an-email"),
+                (8, "zoë@bad_domain"),
+            )
         ]
 
         run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
@@ -1085,7 +1090,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
-        assert run.progress["contacts"]["processed"] == 7
+        assert run.progress["contacts"]["processed"] == 8
         assert run.progress["contacts"]["counts"] == {**counts, "repeats_merged": 2, "invalid_skipped": 1}
         notes = run.progress["contacts"]["items"][0]["notes"]
         assert {
