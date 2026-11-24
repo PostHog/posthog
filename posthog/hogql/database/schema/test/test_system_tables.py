@@ -1376,40 +1376,22 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("never_ran", None, None, None, None),
-            # Rows whose last run predates the column only have the older stamps.
-            ("synced_only", datetime(2026, 11, 1, tzinfo=UTC), None, None, datetime(2026, 11, 1, tzinfo=UTC)),
+            ("never_ran", None, None, None),
+            # Rows whose last run predates the column only have the sync stamp.
+            ("synced_only", datetime(2026, 11, 1, tzinfo=UTC), None, datetime(2026, 11, 1, tzinfo=UTC)),
+            ("checked_only", None, datetime(2026, 11, 5, tzinfo=UTC), datetime(2026, 11, 5, tzinfo=UTC)),
             (
-                "empty_run_before_the_column",
+                "checked_after_sync",
                 datetime(2026, 11, 1, tzinfo=UTC),
-                None,
-                "2026-11-05T00:00:00+00:00",
                 datetime(2026, 11, 5, tzinfo=UTC),
-            ),
-            (
-                "naive_legacy_stamp_ignored",
-                datetime(2026, 11, 1, tzinfo=UTC),
-                None,
-                "2026-11-05T00:00:00",
-                datetime(2026, 11, 1, tzinfo=UTC),
-            ),
-            ("checked_only", None, datetime(2026, 11, 5, tzinfo=UTC), None, datetime(2026, 11, 5, tzinfo=UTC)),
-            # The legacy stamp is a completion time, so it must not outrank the stored check.
-            (
-                "stored_check_wins",
-                datetime(2026, 11, 5, tzinfo=UTC),
-                datetime(2026, 11, 5, tzinfo=UTC),
-                "2026-11-05T00:10:00+00:00",
                 datetime(2026, 11, 5, tzinfo=UTC),
             ),
         ]
     )
-    def test_source_schemas_last_checked_at(self, _name, last_synced_at, last_checked_at, last_full_run_at, expected):
+    def test_source_schemas_last_checked_at(self, _name, last_synced_at, last_checked_at, expected):
         schema = _create_source_schema(self.team, "checked")
         ExternalDataSchema.objects.filter(pk=schema.pk).update(
-            last_synced_at=last_synced_at,
-            last_checked_at=last_checked_at,
-            sync_type_config={"last_full_run_at": last_full_run_at} if last_full_run_at else {},
+            last_synced_at=last_synced_at, last_checked_at=last_checked_at
         )
 
         response = execute_hogql_query(

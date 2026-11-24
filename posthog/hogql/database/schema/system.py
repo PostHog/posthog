@@ -1163,24 +1163,13 @@ source_schemas: PostgresTable = PostgresTable(
             ),
         ),
         "_last_checked_at": DateTimeDatabaseField(name="last_checked_at", hidden=True),
-        "_sync_type_config": StringDatabaseField(name="sync_type_config", hidden=True),
-        # Read only when it is an ISO time with an offset, as in `ExternalDataSchema.last_full_run`.
-        "_legacy_full_run_at": ExpressionField(
-            name="_legacy_full_run_at",
-            hidden=True,
-            expr=parse_expr(
-                "if(match(JSONExtractString(_sync_type_config, 'last_full_run_at'), "
-                "'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+([+-][0-9]{2}:[0-9]{2}|Z)$'), "
-                "parseDateTimeBestEffort(JSONExtractString(_sync_type_config, 'last_full_run_at')), NULL)"
-            ),
-        ),
-        # Rows whose last run predates the column fall back to the later of `last_synced_at` and the
-        # legacy stamp.
+        # Rows whose last run predates the column fall back to `last_synced_at` until their next run, or until
+        # `backfill_schema_last_checked_at` copies the legacy stamp in. The raw `sync_type_config` stays out of
+        # this table: a hidden field is still selectable by name.
         "last_checked_at": ExpressionField(
             name="last_checked_at",
-            expr=parse_expr(
-                "coalesce(_last_checked_at, greatest(coalesce(last_synced_at, _legacy_full_run_at), "
-                "coalesce(_legacy_full_run_at, last_synced_at)))"
+            expr=ast.Call(
+                name="coalesce", args=[ast.Field(chain=["_last_checked_at"]), ast.Field(chain=["last_synced_at"])]
             ),
             description=(
                 "When a sync last checked the source successfully, including runs that found no new rows. "
