@@ -184,6 +184,12 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
 
+    def test_a_query_that_raises_still_ends_the_stream_with_an_error_line(self) -> None:
+        with patch("products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=RuntimeError("boom")):
+            lines = self._lines([_insight("$pageview")])
+
+        self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
+
 
 class TestResolveQuery(SimpleTestCase):
     @parameterized.expand(

@@ -11,11 +11,13 @@ import math
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import nullcontext
 from contextvars import copy_context
 from datetime import datetime
 from functools import partial
 from queue import Empty, Queue
-from threading import BoundedSemaphore, Lock, Thread
+from threading import BoundedSemaphore, Event, Lock, Thread
+from time import monotonic
 from typing import Any, Optional
 
 from django.db import connections
@@ -58,6 +60,8 @@ MAX_QUERIES_PER_BATCH = 500
 WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
+CANCEL_RETRY_SECONDS = 2.0
+CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
 
 _FAILED = "The query failed."
@@ -173,7 +177,7 @@ def _result_line(index: int, response: Any, *, hit: bool, stale: bool) -> dict[s
     return line
 
 
-def _miss_line(index: int, cache_key: str) -> dict[str, Any]:
+def _miss_line(index: int, cache_key: Optional[str]) -> dict[str, Any]:
     return {
         "i": index,
         "result": {"result": None, "cache": {"key": cache_key, "fetchedAt": None, "stale": False, "hit": False}},
@@ -181,7 +185,7 @@ def _miss_line(index: int, cache_key: str) -> dict[str, Any]:
 
 
 def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
-    if isinstance(error, _EXPOSED_ERRORS | InvalidTarget):
+    if isinstance(error, (*_EXPOSED_ERRORS, InvalidTarget)):
         message = str(error)
     elif isinstance(error, ConcurrencyLimitExceeded):
         message = _THROTTLED
@@ -207,8 +211,10 @@ class QueryBatch:
         inputs: Sequence[QueryBatchInput],
         dashboard_id: Optional[int],
         client_query_id: str,
+        is_query_service: bool = False,
     ) -> None:
         self._team = team
+        self._is_query_service = is_query_service
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
@@ -222,7 +228,9 @@ class QueryBatch:
         self._active: set[str] = set()
         self._cancelled = False
         self._admitted = False
+        self._to_refresh: list[ResolvedQuery] = []
         self._lock = Lock()
+        self._idle = Event()
         self._read_cache(inputs)
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
@@ -241,7 +249,7 @@ class QueryBatch:
                 query.query,
                 dashboard_filters_json=query.filters,
                 variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
+                limit_context=self._limit_context(query.query),
                 user=self._user,
                 user_access_control=user_access_control,
                 allow_raw_results=False,
@@ -256,7 +264,13 @@ class QueryBatch:
                 item = inputs[index]
                 planned = planned_queries.get(index)
                 if planned is None:
-                    # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
+                    if item.cache_only:
+                        self.ready.append(_miss_line(index, None))
+                    else:
+                        # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
+                        to_run.append(index)
+                    continue
+                if not item.cache_only and planned.query_runner.requires_fresh_calculation():
                     to_run.append(index)
                     continue
                 try:
@@ -286,40 +300,64 @@ class QueryBatch:
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
 
-        for index in to_refresh:
-            self._refresh_in_background(resolved[index])
+        self._to_refresh = [resolved[index] for index in to_refresh]
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
 
+    def _limit_context(self, query: dict[str, Any]) -> Optional[LimitContext]:
+        # `/query` keeps API-key callers on the default limit.
+        return None if self._is_query_service else _limit_context(query)
+
+    def _dispatch_refreshes(self) -> None:
+        # After the cached lines are written, so a stale board is not held back by its own refreshes.
+        if not self._to_refresh:
+            return
+        queries, self._to_refresh = self._to_refresh, []
+        context = copy_context()
+
+        def refresh_all() -> None:
+            try:
+                for query in queries:
+                    self._refresh_in_background(query)
+            finally:
+                connections.close_all()
+
+        Thread(target=context.run, args=(refresh_all,), daemon=True, name="dashboard-query-batch-refresh").start()
+
     def _refresh_in_background(self, query: ResolvedQuery) -> None:
         # The stale result is already in the response. The async path recomputes it for the next read.
         try:
-            process_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                user=self._user,
-                dashboard_id=self._dashboard_id,
-            )
+            with tags_context(api_queries_budgeted=True) if self._is_query_service else nullcontext():
+                process_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=self._limit_context(query.query),
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                    user=self._user,
+                    dashboard_id=self._dashboard_id,
+                    is_query_service=self._is_query_service,
+                )
         except Exception:
             logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=self._team.pk, exc_info=True)
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
+        if self._cancelled:
+            return {"i": index, "error": _FAILED}
         try:
             response = process_query_dict(
                 self._team,
                 query.query,
                 dashboard_filters_json=query.filters,
                 variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
+                limit_context=self._limit_context(query.query),
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=self._user,
                 query_id=query_id,
                 dashboard_id=self._dashboard_id,
+                is_query_service=self._is_query_service,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
@@ -340,12 +378,18 @@ class QueryBatch:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
-            with tags_context(team_id=self._team.pk, client_query_id=query_id):
+            tags: dict[str, Any] = {"team_id": self._team.pk, "client_query_id": query_id}
+            if self._is_query_service:
+                # Debits the team's API queries budget and enforces it, as `/query` does for API keys.
+                tags["api_queries_budgeted"] = True
+            with tags_context(**tags):
                 line = job()
             self._emit(line)
         finally:
             with self._lock:
                 self._active.discard(query_id)
+                if self._cancelled and not self._active:
+                    self._idle.set()
             connections.close_all()
 
     def _start(self) -> bool:
@@ -366,13 +410,12 @@ class QueryBatch:
             active = tuple(self._active)
         if self._pool is not None:
             self._pool.shutdown(wait=False, cancel_futures=True)
-        if not complete:
-            # The client went away: stop what is still running in ClickHouse.
-            for query_id in active:
-                try:
-                    cancel_query_on_cluster(team_id=self._team.pk, client_query_id=query_id)
-                except Exception:
-                    logger.exception("dashboard_v2_query_batch_cancel_failed", team_id=self._team.pk)
+        if not complete and active:
+            # The client went away: stop what is still running in ClickHouse. A worker that was still planning
+            # or waiting for a limiter slot sends its SQL after the first kill, so keep killing until it ends.
+            Thread(
+                target=self._cancel_until_idle, args=(active,), daemon=True, name="dashboard-query-batch-cancel"
+            ).start()
         if self._admitted:
             self._admitted = False
             for future in self._futures:
@@ -395,6 +438,19 @@ class QueryBatch:
                 for future in remaining:
                     future.add_done_callback(done)
 
+    def _cancel_until_idle(self, active: tuple[str, ...]) -> None:
+        deadline = monotonic() + CANCEL_WINDOW_SECONDS
+        while active:
+            for query_id in active:
+                try:
+                    cancel_query_on_cluster(team_id=self._team.pk, client_query_id=query_id)
+                except Exception:
+                    logger.exception("dashboard_v2_query_batch_cancel_failed", team_id=self._team.pk)
+            if monotonic() >= deadline or self._idle.wait(CANCEL_RETRY_SECONDS):
+                return
+            with self._lock:
+                active = tuple(self._active)
+
     @staticmethod
     def _encode(line: dict[str, Any]) -> bytes:
         return SafeJSONRenderer().render(line) + b"\n"
@@ -406,6 +462,7 @@ class QueryBatch:
     def stream(self) -> Iterator[bytes]:
         for line in self.ready:
             yield self._encode(line)
+        self._dispatch_refreshes()
         if not self._start():
             yield from self._busy_lines()
             return
@@ -428,6 +485,7 @@ class QueryBatch:
     async def astream(self) -> AsyncIterator[bytes]:
         for line in self.ready:
             yield self._encode(line)
+        self._dispatch_refreshes()
         self._loop = asyncio.get_running_loop()
         self._async_queue = asyncio.Queue()
         if not self._start():
