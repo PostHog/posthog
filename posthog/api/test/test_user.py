@@ -3654,6 +3654,21 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     # Email verification request
 
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_request_reports_an_address_workflows_refuses(self, mock_scoped_capture):
+        refusal = mock.MagicMock(status_code=422, text="error")
+        refusal.json.return_value = {"type": "invalid_request", "code": "recipient_suppressed"}
+        with (
+            override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"email_verification_code": "tmpl-1"}),
+            patch("posthog.email.requests.post", return_value=refusal),
+        ):
+            response = self.client.post("/api/users/request_email_verification/", {"uuid": self.other_user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
+        mock_scoped_capture.assert_not_called()
+
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
