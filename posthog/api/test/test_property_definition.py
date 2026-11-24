@@ -1256,14 +1256,14 @@ class TestPropertyUsageMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, metric_name="failed")
         self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, team_id=self.team.pk + 1000)
         self._usage_row("property:group:1:industry", datetime(2026, 3, 20, 9, tzinfo=UTC), 7)
-        properties = [
+        properties: list[dict[str, Any]] = [
             {"type": "event", "name": "$browser"},
             {"name": "$os"},
             {"type": "group", "name": "industry", "group_type_index": 0},
             {"type": "group", "name": "industry", "group_type_index": 1},
         ]
 
-        def summarize(properties: list[dict]) -> list[tuple]:
+        def summarize(properties: list[dict[str, Any]]) -> list[tuple]:
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/",
                 {"properties": properties},
