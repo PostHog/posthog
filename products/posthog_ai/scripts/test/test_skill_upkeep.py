@@ -17,13 +17,20 @@ def _write_skill(repo: Path, name: str, body: str = "Body", product: str = "alph
     return skill_file
 
 
-def _write_repo(repo: Path, served: dict[str, dict[str, str]], tool_flags: dict[str, str] | None = None) -> None:
+def _write_repo(
+    repo: Path,
+    served: dict[str, dict[str, str]],
+    tool_flags: dict[str, str] | None = None,
+    open_tools: list[str] | None = None,
+) -> None:
     served_file = repo / SERVED
     served_file.parent.mkdir(parents=True)
     served_file.write_text(json.dumps({"skills": served, "context_mill_skills": {}}))
     schema_file = repo / "services" / "mcp" / "schema" / "tool-definitions.json"
     schema_file.parent.mkdir(parents=True)
-    schema_file.write_text(json.dumps({tool: {"feature_flag": flag} for tool, flag in (tool_flags or {}).items()}))
+    tools: dict[str, dict[str, str]] = {tool: {"feature_flag": flag} for tool, flag in (tool_flags or {}).items()}
+    tools.update({tool: {} for tool in open_tools or []})
+    schema_file.write_text(json.dumps(tools))
     (repo / "products" / "alpha").mkdir(parents=True, exist_ok=True)
     (repo / "products" / "alpha" / "product.yaml").write_text("name: Alpha\nowners:\n    - team-alpha\n")
 
@@ -57,19 +64,21 @@ def test_report_finds_served_skills_that_name_an_unserved_skill(tmp_path: Path, 
 
 
 @pytest.mark.parametrize(
-    "entry,expected",
+    "entry,body,expected",
     [
-        ({}, {"gate": 2}),
-        ({"feature_flag": "other"}, {"gate": 2}),
-        ({"feature_flag": "gate"}, None),
+        ({}, "Call `gated-list`, then posthog:gated-get, then `open-tool`.", {"gate": 2}),
+        ({"feature_flag": "other"}, "Call `gated-list`, then posthog:gated-get, then `open-tool`.", {"gate": 2}),
+        ({"feature_flag": "gate"}, "Call `gated-list`, then posthog:gated-get, then `open-tool`.", None),
+        ({}, "Call `open-tool`, `open-list` and `open-get`. `gated-get` is optional.", None),
     ],
-    ids=["no-flag-listed", "another-flag-listed", "the-tools-flag-listed"],
+    ids=["no-flag-listed", "another-flag-listed", "the-tools-flag-listed", "one-optional-gated-tool"],
 )
-def test_report_finds_tools_behind_a_flag_the_list_does_not_declare(
-    tmp_path: Path, entry: dict[str, str], expected: dict[str, int] | None
+def test_report_finds_skills_with_most_tools_behind_a_flag_the_list_does_not_declare(
+    tmp_path: Path, entry: dict[str, str], body: str, expected: dict[str, int] | None
 ) -> None:
-    _write_repo(tmp_path, {"served-skill": entry}, {"gated-list": "gate", "gated-get": "gate", "gated-unused": "gate"})
-    _write_skill(tmp_path, "served-skill", "Call `gated-list`, then posthog:gated-get, then `open-tool`.")
+    tool_flags = {"gated-list": "gate", "gated-get": "gate", "gated-unused": "gate"}
+    _write_repo(tmp_path, {"served-skill": entry}, tool_flags, open_tools=["open-tool", "open-list", "open-get"])
+    _write_skill(tmp_path, "served-skill", body)
 
     report = _report(tmp_path)
 
