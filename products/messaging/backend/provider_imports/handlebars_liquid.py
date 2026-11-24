@@ -138,6 +138,7 @@ class HandlebarsToLiquid:
         split_text: TextSplitter | None = None,
         root_path: str = "variables",
         variable_names: Collection[str] = (),
+        allows_raw: bool = True,
     ) -> None:
         self.is_html = is_html
         self._dialect = dialect
@@ -148,6 +149,7 @@ class HandlebarsToLiquid:
         self._root_path = root_path
         # Stay under `variables` when `root_path` is something else.
         self._variable_names = variable_names
+        self._allows_raw = allows_raw
         self.read_root = False
         self._html = HtmlContext() if is_html else None
         self._loop_names: list[str] = []
@@ -226,6 +228,7 @@ class HandlebarsToLiquid:
         self._converted_root = ""
         if body.startswith("&"):
             body, raw = body[1:].strip(), True
+        raw = raw and self._allows_raw
         try:
             liquid, raw = self._output_liquid(body, raw, frames)
         except (_Unsupported, _Unconvertible):

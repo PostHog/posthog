@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import tracemalloc
@@ -409,6 +410,22 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert converted.text.endswith("{% endif %} (https://example.com/a)")
         converted = convert_version({"html_content": "<a href='-link-'>Go</a>"}, generation="legacy")
         assert converted.text.startswith("Go ({% if variables.link == nil %}-link-{% else %}")
+
+    @parameterized.expand(
+        [
+            ("triple", "{{{first_name}}}"),
+            ("ampersand", "{{& first_name}}"),
+            ("insert", '{{{insert first_name "default=x"}}}'),
+            ("in_a_loop", "{{#each tags}}{{{this}}}{{/each}}"),
+        ]
+    )
+    def test_a_contact_field_never_prints_html(self, _name: str, html: str) -> None:
+        unescaped = re.compile(r"(?:join: \",\"|default: \"x\") \| raw \}\}")
+        assert unescaped.search(convert_version({"html_content": html}).html)
+        converted = convert_version({"html_content": html}, contact_fields=True)
+
+        assert "person.properties." in converted.html
+        assert not unescaped.search(converted.html)
 
     @parameterized.expand(
         [

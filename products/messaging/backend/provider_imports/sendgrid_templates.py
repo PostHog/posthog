@@ -178,6 +178,8 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         split_text=lambda text: _split_asm_tags(text, is_html),
         root_path="person.properties" if contact_fields else "variables",
         variable_names=_SENDER_VARIABLES,
+        # Anyone can set their own person properties, so their HTML never goes into an email.
+        allows_raw=not contact_fields,
     )
     try:
         converted = converter.convert(_parse_nodes(_tokenize(source, is_html)))
@@ -448,7 +450,7 @@ def convert_version(
     if any(state.reads_contact for state in states):
         send_notes.append(
             "SendGrid's contact fields print the person's property with the same name. Set those properties on your "
-            "people, or the fields print empty."
+            "people, or the fields print empty. HTML in them prints as text."
         )
     if names := sorted({name for state in states for name in state.legacy_variables}):
         send_notes.append(
