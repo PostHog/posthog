@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -13,7 +14,8 @@ import {
 } from '../accountSidebarConfigLogic'
 import { AccountPropertyEditSource, accountSidebarPropertiesLogic } from '../accountSidebarPropertiesLogic'
 import { AccountPinnedProperties, AccountPinnedPropertiesProps } from './AccountPinnedProperties'
-import { AccountPropertyConfigurator } from './AccountPropertyConfigurator'
+import { AccountPropertyConfigurator, AccountPropertyConfiguratorProps } from './AccountPropertyConfigurator'
+import { QuillAccountPropertyConfigurator } from './QuillAccountPropertyConfigurator'
 
 export interface AccountPinnedPropertiesPanelProps {
     accountId: string
@@ -26,10 +28,12 @@ export function AccountPinnedPropertiesPanel({
     layout = 'vertical',
     source = 'account_sidebar',
 }: AccountPinnedPropertiesPanelProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { currentProjectId } = useValues(projectLogic)
     const projectId = currentProjectId ?? 0
     const configLogic = accountSidebarConfigLogic({ projectId })
     const {
+        availableDefaultPinnedProperties,
         availableDefinitions,
         availableDefinitionsLoading,
         canSavePinnedProperties,
@@ -37,6 +41,7 @@ export function AccountPinnedPropertiesPanel({
         configLoading,
         draftPinnedProperties,
         activeConfiguratorKey,
+        pinnedPropertiesSource,
         stalePinnedProperties,
     } = useValues(configLogic)
     const {
@@ -45,6 +50,7 @@ export function AccountPinnedPropertiesPanel({
         loadAvailableDefinitions,
         loadConfig,
         savePinnedProperties,
+        resetDraftToDefault,
         setDraftPinnedProperties,
     } = useActions(configLogic)
     const propertyLogic = accountSidebarPropertiesLogic({ accountId, projectId })
@@ -73,6 +79,18 @@ export function AccountPinnedPropertiesPanel({
     const propertyOptions = buildPinnedPropertyOptions(
         availableDefinitions ?? { customProperties: [], relationships: [] }
     )
+    const configuratorProps: AccountPropertyConfiguratorProps = {
+        isOpen: activeConfiguratorKey === configuratorKey,
+        options: propertyOptions,
+        pinnedPropertyKeys: draftPinnedProperties.map(pinnedPropertyToConfiguratorKey),
+        onChange: (keys) => setDraftPinnedProperties(configuratorKeysToPinnedProperties(keys)),
+        onSave: () => savePinnedProperties(),
+        onCancel: cancelConfiguring,
+        saving: configLoading && config !== null,
+        saveDisabledReason: !configLoading && !canSavePinnedProperties ? 'No changes to save' : undefined,
+        resetOptions: availableDefaultPinnedProperties,
+        onReset: resetDraftToDefault,
+    }
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="account-rail-properties">
@@ -124,6 +142,7 @@ export function AccountPinnedPropertiesPanel({
                     ) : null}
                     <AccountPinnedProperties
                         properties={sidebarProperties}
+                        pinnedPropertiesSource={pinnedPropertiesSource}
                         layout={layout}
                         editingPropertyKey={editingPropertyKey}
                         savingPropertyKey={savingPropertyKey}
@@ -145,16 +164,11 @@ export function AccountPinnedPropertiesPanel({
                     />
                 </>
             )}
-            <AccountPropertyConfigurator
-                isOpen={activeConfiguratorKey === configuratorKey}
-                options={propertyOptions}
-                pinnedPropertyKeys={draftPinnedProperties.map(pinnedPropertyToConfiguratorKey)}
-                onChange={(keys) => setDraftPinnedProperties(configuratorKeysToPinnedProperties(keys))}
-                onSave={() => savePinnedProperties()}
-                onCancel={cancelConfiguring}
-                saving={configLoading && config !== null}
-                saveDisabledReason={!configLoading && !canSavePinnedProperties ? 'No changes to save' : undefined}
-            />
+            {todayRailNav ? (
+                <QuillAccountPropertyConfigurator {...configuratorProps} />
+            ) : (
+                <AccountPropertyConfigurator {...configuratorProps} />
+            )}
         </div>
     )
 }

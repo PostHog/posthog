@@ -71,6 +71,9 @@ class ReportSpendSerializer(serializers.Serializer):
     shared_scout_runs = SpendAmountSerializer(
         help_text="Full usage of scout runs that authored this report. Shared with all other output of those runs."
     )
+    scout_authored = serializers.BooleanField(
+        help_text="Whether a scout run authored this report directly. Such a report has no generation usage of its own."
+    )
 
 
 class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

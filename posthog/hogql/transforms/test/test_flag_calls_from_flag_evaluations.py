@@ -748,7 +748,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
             ),
         ]
     )
-    def test_swaps_when_persons_moves_its_join_filter_out_of_the_tree(
+    def test_swaps_when_persons_holds_a_copy_of_its_join_filter(
         self, _name: str, alias: str, name: str, source: str, ctes: str
     ):
         query = ctes + _PROMOTED_OUTER.format(alias=alias, name=name, source=source)
@@ -757,7 +757,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "FROM events" not in swap.source.to_hogql()
 
-    def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_moved_filter_reads(self):
+    def test_swaps_when_a_later_cte_has_the_name_of_a_table_that_the_persons_join_filter_reads(self):
         flag_people = _PROMOTED_OUTER.format(alias=" AS p", name="p", source="SELECT id FROM persons")
         query = f"WITH flag_people AS ({flag_people}), persons AS (SELECT 1 AS unrelated) SELECT * FROM flag_people"
 
@@ -765,7 +765,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "FROM events" not in swap.source.to_hogql()
 
-    def test_swaps_when_the_moved_filter_reads_a_project_defined_persons_field(self):
+    def test_swaps_when_the_persons_join_filter_reads_a_project_defined_persons_field(self):
         with team_scope(self.team.id, canonical=True):
             DataWarehouseExpression.objects.create(
                 team=self.team,
@@ -801,7 +801,7 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "FROM events" not in swap.source.to_hogql()
 
-    def test_declines_when_a_column_named_posthog_hides_the_events_scan_in_the_moved_filter(self):
+    def test_declines_when_a_column_named_posthog_hides_the_events_scan_in_the_persons_join_filter(self):
         source = (
             "SELECT posthog.events.person_id FROM posthog.events "
             "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
@@ -814,28 +814,30 @@ class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
 
         assert "flag_evaluations" not in swap.source.to_hogql()
 
-    @parameterized.expand(
-        [
-            ("a_column_of_the_enclosing_query", f"{_PROMOTED_SOURCE} AND person_id = e.person_id", "{joined}"),
-            (
-                "a_cte_of_an_outer_query",
-                f"SELECT person_id FROM flag_called_people WHERE {FLAG_CALLED}",
-                f"WITH flag_called_people AS (SELECT person_id, event FROM events WHERE {UNQUALIFIED}) "
-                "SELECT * FROM ({joined}) AS q",
-            ),
-        ]
-    )
-    def test_refuses_when_the_moved_filter_reads(self, _name: str, source: str, enclosing: str):
-        query = enclosing.format(joined=_PROMOTED_OUTER.format(alias=" AS p", name="p", source=source))
+    def test_refuses_when_the_persons_join_filter_reads_a_column_of_the_enclosing_query(self):
+        source = f"{_PROMOTED_SOURCE} AND person_id = e.person_id"
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
 
-        with pytest.raises(QueryError, match="a name in it would read a different column there"):
+        with pytest.raises(QueryError, match="Unable to resolve field: e"):
             _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+    def test_swaps_when_the_persons_join_filter_reads_a_cte_of_an_outer_query(self):
+        source = f"SELECT person_id FROM flag_called_people WHERE {FLAG_CALLED}"
+        joined = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+        query = (
+            f"WITH flag_called_people AS (SELECT person_id, event FROM events WHERE {UNQUALIFIED}) "
+            f"SELECT * FROM ({joined}) AS q"
+        )
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
 
 
 @time_machine.travel(NOW, tick=False)
 class TestSwapFlagCallsPropertyParityInPromotedPersonsFilter(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("materialized_on_events", True, False), ("not_materialized", False, True)])
-    def test_swaps_only_when_the_moved_filter_reads_properties_from_the_same_column_kind(
+    def test_swaps_only_when_the_persons_join_filter_reads_properties_from_the_same_column_kind(
         self, _name: str, materialize_it: bool, expected: bool
     ):
         source = f"{_PROMOTED_SOURCE} AND isNull(properties.$current_url)"

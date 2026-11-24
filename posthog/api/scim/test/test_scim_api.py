@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 from django.contrib.auth.hashers import check_password
+from django.test import Client
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
 from posthog.api.scim.user import PostHogSCIMUser
@@ -21,6 +23,7 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.utils import hash_key_value
+from posthog.session.models import Session
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
@@ -646,6 +649,69 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
+
+    @parameterized.expand(
+        [
+            ("put",),
+            ("patch_replace",),
+            ("patch_add",),
+        ]
+    )
+    def test_email_change_removes_sign_in_identities_and_sessions(self, method: str):
+        self.client.credentials(**self.scim_headers)
+        user = User.objects.create(
+            email="Valid@example.com", first_name="Valid", pending_email="valid@elsewhere.example.com"
+        )
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        UserSocialAuth.objects.create(user=user, provider="saml", uid="idp:valid@example.com")
+        UserSocialAuth.objects.create(user=user, provider="saml", uid="idp:8f2c-persistent-id")
+        UserSocialAuth.objects.create(user=user, provider="google-oauth2", uid="valid@example.com")
+        Client().force_login(user)
+
+        response = self._change_email(method, str(user.id), "renamed@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.email == "renamed@example.com"
+        assert user.pending_email is None
+        assert not UserSocialAuth.objects.filter(user=user).exists()
+        assert not Session.objects.filter(user_id=user.pk).exists()
+
+    def test_rejects_email_change_to_an_alias_of_another_account(self):
+        self.client.credentials(**self.scim_headers)
+        user = User.objects.create(email="valid@example.com", first_name="Valid")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        User.objects.create(email="taken@example.com", first_name="Taken")
+
+        response = self._change_email("put", str(user.id), "taken+alias@example.com")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "valid@example.com"
+
+    def test_put_with_the_same_email_changes_nothing_about_sign_in(self):
+        self.client.credentials(**self.scim_headers)
+        user = User.objects.create(
+            email="valid+admin@example.com", first_name="Valid", pending_email="valid@elsewhere.example.com"
+        )
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        # A rename to this address would be refused, because it is an alias of another account.
+        User.objects.create(email="valid@example.com", first_name="Sibling")
+        UserSocialAuth.objects.create(user=user, provider="saml", uid="idp:valid+admin@example.com")
+        Client().force_login(user)
+
+        response = self.client.put(
+            f"/scim/v2/{self.config.scim_slug}/Users/{user.id}",
+            self._scim_user_data("valid+admin@example.com", first_name="Renamed"),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "Renamed"
+        assert user.pending_email == "valid@elsewhere.example.com"
+        assert UserSocialAuth.objects.filter(user=user).exists()
+        assert Session.objects.filter(user_id=user.pk).exists()
 
     def _change_email(self, method: str, user_id: str, new_email: str):
         if method == "put":

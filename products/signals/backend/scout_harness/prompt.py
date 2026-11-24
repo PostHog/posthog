@@ -203,6 +203,7 @@ MEMORY_UPKEEP_SCOUT = "signals-scout-dreaming"
 LEARNED_KEY_PREFIX = "learned:"
 LEARNED_KEY_KINDS = ("person", "area", "shape")
 DREAM_DIGEST_KEY_PREFIX = "dream:digest:"
+DREAM_CANDIDATE_KEY_PREFIX = "dream:candidate:"
 
 # Worded as evidence to weigh, never a rule: the upkeep scout's learnings inform a scout's judgment
 # and its skill body still wins.
@@ -212,6 +213,7 @@ A memory upkeep scout, `{scout}`, runs on this project. It reads the fleet's scr
 
 - `{learned}<kind>:<subject>`: one learning per subject. It states a pattern and the counted evidence behind it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them. The upkeep scout names `area` and `shape` subjects itself, so list those keys rather than guess them.
 - `{digest}<skill-name>`: one digest per scout. It lists what the upkeep scout retired, merged or corrected in that scout's memory.
+- `{candidate}<kind>:<subject>`: the upkeep scout's unfinished bookkeeping toward a learning. It is not evidence: when a search returns one, ignore it.
 
 Another scout creates these entries, so a search by your own prefix does not return them. When the upkeep scout rewrites one of your entries, the entry still names you as its creator. Read the learnings where they live on every run, and do not copy them into your own entries: a copy would outlive the learning's expiry. Make these `scout-scratchpad-search` reads:
 
@@ -226,6 +228,7 @@ In your run summary, add one line that names by key each learning you used or ov
     scout=MEMORY_UPKEEP_SCOUT,
     learned=LEARNED_KEY_PREFIX,
     digest=DREAM_DIGEST_KEY_PREFIX,
+    candidate=DREAM_CANDIDATE_KEY_PREFIX,
     kinds=", ".join(f"`{kind}`" for kind in LEARNED_KEY_KINDS[:-1]) + f" or `{LEARNED_KEY_KINDS[-1]}`",
 )
 

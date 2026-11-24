@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core'
 
 import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { EMAIL_FONTS, EmailBlockStyle, fontOptions, resolvePageStyle } from '../emailDocument'
+import { EmailBlockStyle, fontOptions, fontUrlFor, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
 import { EmailFormatButton, EmailFormatButtons } from './EmailFormatButtons'
 import { EmailAlignField } from './fields/EmailAlignField'
@@ -66,7 +66,7 @@ export function EmailTextFields({
                     onChange={(fontFamily) =>
                         set({
                             fontFamily: fontFamily ?? undefined,
-                            fontUrl: EMAIL_FONTS.find((font) => font.value === fontFamily)?.url,
+                            fontUrl: fontUrlFor(fontFamily),
                         })
                     }
                 />

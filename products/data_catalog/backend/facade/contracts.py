@@ -81,18 +81,15 @@ class TopicCoverage:
 
 
 @dataclass(frozen=True)
-class TopicDefinition:
-    title: str
-    description: str
-
-
-@dataclass(frozen=True)
 class TopicCluster:
     title: str
     description: str
     session_count: int
     people: int
     coverage: TopicCoverage
+    # The tables and views that the topic's sessions read, or None when the scan could not trace one session,
+    # and on scans before the field. The API does not return this field; each read uses it to hide the topic.
+    tables: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -212,8 +209,6 @@ class UsageSnapshotPayload:
     conversations: list[list[str]] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
     topics: list[TopicCluster] | None = None
-    # The whole list, including topics with no sessions this scan, so the next scan keeps them.
-    topic_definitions: list[TopicDefinition] | None = None
     topic_sessions: TopicSessionCounts | None = None
     table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None
@@ -236,6 +231,7 @@ class UsageSnapshotSummary:
 @dataclass(frozen=True)
 class UsageSnapshotDetail(UsageSnapshotSummary):
     payload: UsageSnapshotPayload
+    hidden_topics: int = 0
 
 
 @dataclass(frozen=True)
