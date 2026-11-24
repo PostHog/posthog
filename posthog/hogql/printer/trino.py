@@ -3266,9 +3266,10 @@ class TrinoPrinter(PostgresPrinter):
         source = self.visit(node.args[0])
         upper = self.visit(node.args[1]) if len(node.args) == 2 else "array_max(map_keys(__hogql_series_map))"
         default = self._default_value(map_type.value_type, node)
-        lower = "array_min(map_keys(__hogql_series_map))"
-        candidate_keys = bounded_sequence(lower, f"greatest({lower}, {upper})")
-        keys = f"filter({candidate_keys}, __hogql_key -> __hogql_key <= {upper})"
+        keys = (
+            f"filter(sequence(array_min(map_keys(__hogql_series_map)), "
+            f"greatest(array_min(map_keys(__hogql_series_map)), {upper})), __hogql_key -> __hogql_key <= {upper})"
+        )
         entries = (
             f"transform({keys}, __hogql_key -> ROW(__hogql_key, "
             f"IF(contains(map_keys(__hogql_series_map), __hogql_key), "
@@ -3610,8 +3611,9 @@ class TrinoPrinter(PostgresPrinter):
             if not isinstance(value_type, ast.ArrayType):
                 self._invalid_function_arguments(node, f"{node.name} requires a resolved array type in Trino mode.")
             maximum = "coalesce(array_max(transform(__hogql_rows, __hogql_row -> cardinality(__hogql_row))), 0)"
-            candidates = bounded_sequence("1", f"greatest({maximum}, 1)")
-            positions = f"filter({candidates}, __hogql_position -> __hogql_position <= {maximum})"
+            positions = (
+                f"filter(sequence(1, greatest({maximum}, 1)), __hogql_position -> __hogql_position <= {maximum})"
+            )
             values = "transform(filter(__hogql_rows, __hogql_row -> cardinality(__hogql_row) >= __hogql_position), __hogql_row -> element_at(__hogql_row, __hogql_position))"
             aggregate = self._array_aggregate(node, base, values, value_type.item_type)
             result = f"transform({positions}, __hogql_position -> {aggregate})"
@@ -4449,8 +4451,7 @@ class TrinoPrinter(PostgresPrinter):
         rows = f"coalesce(array_agg({row}){aggregate_filter}{over}, ARRAY[])"
         rows = f"filter({rows}, __hogql_row -> __hogql_row[1] IS NOT NULL AND __hogql_row[2] IS NOT NULL)"
         maximum = "coalesce(array_max(transform(__hogql_insert_rows, __hogql_row -> __hogql_row[2])), -1)"
-        candidates = bounded_sequence("0", "greatest(__hogql_maximum, 0)")
-        positions = f"filter({candidates}, __hogql_position -> __hogql_position <= __hogql_maximum)"
+        positions = f"filter(sequence(0, greatest(__hogql_maximum, 0)), __hogql_position -> __hogql_position <= __hogql_maximum)"
         selected = (
             "element_at(transform(filter(__hogql_insert_rows, __hogql_row -> "
             "__hogql_row[2] = __hogql_position), __hogql_row -> __hogql_row[1]), 1)"
