@@ -20,7 +20,9 @@ fi
 fixture="$FAKE_PSQL_DIR/${1##*/}"
 case "${1##*/}" in
     down) echo "psql: error: connection to server failed" >&2; exit 2 ;;
-    fresh) echo 'ERROR:  relation "_sqlx_migrations" does not exist' >&2; exit 1 ;;
+    # psql 15 prints the result of the server select and the error of the next statement.
+    fresh) echo 'server posthog_other f'; echo 'ERROR:  relation "_sqlx_migrations" does not exist' >&2; exit 1 ;;
+    denied) echo 'server posthog_persons f'; echo 'ERROR:  permission denied for table _sqlx_migrations' >&2; exit 1 ;;
     badpass) echo 'psql: error: invalid percent-encoded token: "%secret"' >&2; exit 2 ;;
 esac
 cat "$fixture"
@@ -103,9 +105,17 @@ assert_eq "a failed required version holds" "1 missing" "$(run_check)"
 
 export PERSONS_DATABASE_URL="postgres://fixture/fresh"
 assert_eq "a database without the sqlx table holds" "1 missing" "$(run_check)"
+assert_eq "a database without the sqlx table still logs which database the read reached" \
+    '["persons: 0 rows, database posthog_other, in recovery f"]' \
+    "$(SCHEMA_CHECK_WAIT_SECONDS=0 "$BIN_DIR/deploy-requirements-check" 2>/dev/null | jq -c .seen)"
 
 export PERSONS_DATABASE_URL="postgres://fixture/down"
 assert_eq "a connection error is an error, not a hold" "2 error" "$(run_check)"
+
+export PERSONS_DATABASE_URL="postgres://fixture/denied"
+assert_eq "an error after the server row logs the error, not the server row" \
+    '["persons: ERROR:  permission denied for table _sqlx_migrations"]' \
+    "$(SCHEMA_CHECK_WAIT_SECONDS=0 "$BIN_DIR/deploy-requirements-check" 2>/dev/null | jq -c .errors)"
 
 unset PERSONS_DATABASE_URL
 assert_eq "a declared database without a URL is an error" "2 error" "$(run_check)"

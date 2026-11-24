@@ -145,18 +145,21 @@ check_once() {
     MISSING=()
     ERRORS=()
     SEEN=()
-    local database variable rows required missing_before
+    local database variable rows failure required missing_before
     for database in $DATABASES; do
         variable=$(url_variable "$database")
         if ! rows=$(timeout "$PSQL_TIMEOUT_SECONDS" psql "${!variable}" -X -q -t -A -F ' ' -c "$QUERY" 2>&1); then
+            # The server row can come before or after the error text, so it is removed from the
+            # failure and kept for the log.
+            failure=$(echo "$rows" | grep -v '^server ')
             # A database that sqlx-migrate never ran on has no table yet: every version is missing.
-            if [[ "$rows" == *'relation "_sqlx_migrations" does not exist'* ]]; then
-                rows=""
-            elif [ -z "$rows" ]; then
+            if [[ "$failure" == *'relation "_sqlx_migrations" does not exist'* ]]; then
+                rows=$(echo "$rows" | grep '^server ')
+            elif [ -z "$failure" ]; then
                 ERRORS+=("$database: psql gave no answer within $PSQL_TIMEOUT_SECONDS s")
                 continue
             else
-                ERRORS+=("$database: $(redact "$(echo "$rows" | head -1)" "${!variable}")")
+                ERRORS+=("$database: $(redact "$(echo "$failure" | head -1)" "${!variable}")")
                 continue
             fi
         fi
