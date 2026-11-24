@@ -427,10 +427,7 @@ export interface loginLogicActions {
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         solvedLoginChallenge: (
-            loginChallenge: {
-                nonce: string
-                siteKey: string
-            } | null,
+            loginChallenge: LoginChallenge | null,
             loginTurnstileToken: string | null
         ) => SolvedLoginChallenge | null
         codeResendAvailableAt: (codeSentAt: number | null) => number | null

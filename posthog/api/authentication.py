@@ -124,7 +124,6 @@ from posthog.utils import (
     get_trusted_client_ip,
 )
 from posthog.workos_radar import (
-    ChallengeRequired,
     RadarAction,
     RadarAuthMethod,
     SuspiciousAttemptBlocked,
@@ -547,8 +546,8 @@ class LoginSerializer(serializers.Serializer):
                     signals_id=str(validated_data.get("radar_signals_id") or ""),
                     account_id=str(existing_user.uuid) if existing_user else None,
                 )
-            except (SuspiciousAttemptBlocked, ChallengeRequired):
-                # Counts toward the lockout above, so a repeating caller stops costing Radar calls and nonces
+            except SuspiciousAttemptBlocked:
+                # Counts toward the lockout above, so a repeating caller stops costing Radar calls
                 user_login_failed.send(
                     sender=__name__, credentials={"email": validated_data["email"]}, request=axes_request
                 )

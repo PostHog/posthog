@@ -1,3 +1,6 @@
+import uuid
+import ipaddress
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -7,10 +10,12 @@ from parameterized import parameterized
 
 from posthog.turnstile import (
     CHALLENGE_NONCE_TTL_SECONDS,
+    OPEN_CHALLENGE_LIMIT,
     TURNSTILE_SITEVERIFY_URL,
     _nonce_identity_hash,
     consume_challenge_nonce,
     create_challenge_nonce,
+    has_too_many_open_challenges,
     verify_turnstile_token,
 )
 
@@ -110,6 +115,19 @@ class TestChallengeNonce(TestCase):
             self.redis_client.setex(f"turnstile_nonce:{nonce}", CHALLENGE_NONCE_TTL_SECONDS, "radar_att_01ABC")
 
         assert consume_challenge_nonce(nonce, "test@example.com", "1.2.3.4", action=consumed_for) == expected
+
+    def test_only_unsolved_challenges_count_toward_the_open_challenge_limit(self):
+        # Fresh IPs, because the counts live in the shared Redis for the whole window
+        busy_ip, other_ip = (str(ipaddress.IPv6Address(uuid.uuid4().int)) for _ in range(2))
+        nonces = [
+            create_challenge_nonce(f"user{i}@example.com", busy_ip, action="login") for i in range(OPEN_CHALLENGE_LIMIT)
+        ]
+        assert has_too_many_open_challenges(busy_ip) is True
+        assert has_too_many_open_challenges(other_ip) is False
+
+        consume_challenge_nonce(nonces[0], "user0@example.com", busy_ip, action="login")
+
+        assert has_too_many_open_challenges(busy_ip) is False
 
     def test_validate_and_consume_single_use(self):
         nonce = create_challenge_nonce("test@example.com", "1.2.3.4", action="signup")

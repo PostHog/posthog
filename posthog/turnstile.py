@@ -8,6 +8,7 @@ each challenge to the Radar attempt that asked for it, so a solved challenge can
 be reported against that attempt.
 """
 
+import time
 import uuid
 import hashlib
 
@@ -23,10 +24,31 @@ logger = structlog.get_logger(__name__)
 TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_VERIFY_TIMEOUT = 5.0
 CHALLENGE_NONCE_TTL_SECONDS = 300
+# An IP with this many challenges left unsolved in the window gets a block in place of another challenge
+OPEN_CHALLENGE_LIMIT = 20
+OPEN_CHALLENGE_WINDOW_SECONDS = 600
 
 
 def _nonce_identity_hash(email: str, ip_address: str) -> str:
     return hashlib.sha256(f"{email.lower()}{ip_address}".encode()).hexdigest()[:16]
+
+
+def _open_challenges_key(ip_address: str) -> str:
+    return f"turnstile_open:{hashlib.sha256(ip_address.encode()).hexdigest()[:16]}"
+
+
+def has_too_many_open_challenges(ip_address: str) -> bool:
+    """Whether the IP left too many challenges unsolved. A solved challenge does not count, so real users behind one IP do not add up."""
+    key = _open_challenges_key(ip_address)
+    try:
+        pipeline = get_client().pipeline(transaction=True)
+        pipeline.zremrangebyscore(key, 0, time.time() - OPEN_CHALLENGE_WINDOW_SECONDS)
+        pipeline.zcard(key)
+        _, open_challenges = pipeline.execute()
+    except Exception:
+        logger.warning("turnstile_open_challenge_count_failed", exc_info=True)
+        return False
+    return open_challenges >= OPEN_CHALLENGE_LIMIT
 
 
 def verify_turnstile_token(token: str, remote_ip: str) -> bool:
@@ -73,7 +95,11 @@ def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_at
     redis_key = f"turnstile_nonce:{nonce}"
     # The action and the ID stay on the server, so a solved login challenge cannot complete a signup
     # and the browser cannot name another attempt to report as a success
-    get_client().setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, f"{action}:{radar_attempt_id or _NO_ATTEMPT_ID}")
+    pipeline = get_client().pipeline(transaction=True)
+    pipeline.setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, f"{action}:{radar_attempt_id or _NO_ATTEMPT_ID}")
+    pipeline.zadd(_open_challenges_key(ip_address), {nonce: time.time()})
+    pipeline.expire(_open_challenges_key(ip_address), OPEN_CHALLENGE_WINDOW_SECONDS)
+    pipeline.execute()
     return nonce
 
 
@@ -100,7 +126,9 @@ def consume_challenge_nonce(nonce: str, email: str, ip_address: str, *, action: 
     pipeline = get_client().pipeline(transaction=True)
     pipeline.get(redis_key)
     pipeline.delete(redis_key)
-    stored, deleted = pipeline.execute()
+    # A failed answer is not unsolved either: it refuses the attempt, and the lockout counts that
+    pipeline.zrem(_open_challenges_key(ip_address), nonce)
+    stored, deleted, _ = pipeline.execute()
     if deleted == 0:
         logger.warning("turnstile_nonce_not_found_or_expired")
         return None

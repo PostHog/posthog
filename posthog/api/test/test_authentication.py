@@ -1,5 +1,6 @@
 import json
 import uuid
+import ipaddress
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -813,16 +814,8 @@ class TestLoginRadar(APIBaseTest):
         assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
         assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
 
-    @parameterized.expand(
-        [
-            ("block", RadarVerdict.BLOCK, "suspicious_attempt_blocked"),
-            ("challenge", RadarVerdict.CHALLENGE, "challenge_required"),
-        ]
-    )
-    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
-    @patch("posthog.workos_radar._call_radar_api")
-    def test_enforced_refusals_count_toward_the_lockout(self, _name, verdict, first_code, mock_call_api):
-        mock_call_api.return_value = RadarAttempt(verdict=verdict)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
+    def test_enforced_blocks_count_toward_the_lockout(self, mock_call_api):
         credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
 
         with (
@@ -834,8 +827,24 @@ class TestLoginRadar(APIBaseTest):
             ]
 
         # The attempt that reaches the limit gets the lockout response, as a wrong password does
-        assert codes == [first_code, "too_many_failed_attempts", "too_many_failed_attempts"]
+        assert codes == ["suspicious_attempt_blocked", "too_many_failed_attempts", "too_many_failed_attempts"]
         assert mock_call_api.call_count == 2
+
+    @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
+    @patch("posthog.turnstile.OPEN_CHALLENGE_LIMIT", 2)
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.CHALLENGE))
+    def test_unsolved_challenges_block_the_ip_without_counting_toward_the_lockout(self, _mock_call_api):
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+        # A fresh IP, because the open challenge count lives in the shared Redis for the whole window
+        ip = str(ipaddress.IPv6Address(uuid.uuid4().int))
+
+        with (
+            self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=2),
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"),
+        ):
+            codes = [self.client.post("/api/login", credentials, REMOTE_ADDR=ip).json()["code"] for _ in range(3)]
+
+        assert codes == ["challenge_required", "challenge_required", "suspicious_attempt_blocked"]
 
     @override_settings(CLOUDFLARE_TURNSTILE_SITE_KEY="site_key_123")
     @patch("posthog.workos_radar.workos_radar_check")
