@@ -464,6 +464,13 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("picks_p4", {"default_autostart_priority": "P4"}, True, "P4"),
+            (
+                "picks_p4_with_a_null_switch",
+                {"autostart_enabled": None, "default_autostart_priority": "P4"},
+                True,
+                "P4",
+            ),
+            ("picks_p0", {"default_autostart_priority": "P0"}, None, "P0"),
             ("turns_prs_off", {"autostart_enabled": False}, False, "P2"),
             ("turns_prs_on", {"autostart_enabled": True}, True, "P2"),
             ("other_setting", {"default_slack_notification_channel": "C123|#posthog-signals"}, None, "P4"),
@@ -564,15 +571,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
 
-    # Each case starts from the model default, so the POST is the only change on the row. A first
-    # write to the switch or the threshold also stores the other one.
+    # Each case starts from the model default, so the POST is the only change on the row. Setting
+    # the switch on that row also stores the P2 threshold.
     @parameterized.expand(
         [
             (
                 "threshold",
                 "default_autostart_priority",
                 "P1",
-                [("PR generation", "created", None, True), ("project PR threshold", "changed", "P4", "P1")],
+                [("project PR threshold", "changed", "P4", "P1")],
             ),
             (
                 "slack_threshold",

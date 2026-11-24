@@ -951,7 +951,7 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     autostart_enabled?: boolean | null
-    /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. The first write to this field or to autostart_enabled stores both values.
+    /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
      *
      * * `P0` - P0
      * * `P1` - P1

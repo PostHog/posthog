@@ -1017,15 +1017,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     def update(self, instance: SignalTeamConfig, validated_data: dict[str, Any]) -> SignalTeamConfig:
         # A project that never set the switch runs on the threshold `effective_autostart_priority`
-        # gives it. The first write to the switch or the threshold stores both values, so that the
-        # stored row keeps that threshold: otherwise turning PRs off and on again would bring back
-        # the P4 column default, and a person who picks P4 would still read as never having chosen.
-        if instance.autostart_enabled is None and validated_data.keys() & {
-            "autostart_enabled",
-            "default_autostart_priority",
-        }:
-            validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
-            validated_data.setdefault("autostart_enabled", True)
+        # gives it. Setting the switch also stores that threshold, so that turning PRs off and on
+        # again does not bring back the P4 column default. A stored P4 with a null switch reads as
+        # never chosen, so only a P4 pick also stores the switch. Any other pick leaves the switch
+        # null, because an explicit True waives the per-reviewer opt-in for trial PRs.
+        if instance.autostart_enabled is None:
+            if validated_data.get("autostart_enabled", False) is None:
+                del validated_data["autostart_enabled"]
+            if "autostart_enabled" in validated_data:
+                validated_data.setdefault("default_autostart_priority", effective_autostart_priority(instance))
+            elif validated_data.get("default_autostart_priority") == AutonomyPriority.P4:
+                validated_data["autostart_enabled"] = True
         return super().update(instance, validated_data)
 
     def validate_implementation_repositories(self, value: list[str]) -> list[str]:
@@ -1129,7 +1131,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 "help_text": (
                     "Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). "
                     "Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. "
-                    "The first write to this field or to autostart_enabled stores both values."
+                    "Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true."
                 )
             },
             "default_slack_notification_channel": {

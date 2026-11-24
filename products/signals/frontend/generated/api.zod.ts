@@ -75,7 +75,7 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
         .optional()
         .describe(
-            'Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. The first write to this field or to autostart_enabled stores both values.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+            'Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
         ),
     default_slack_notification_channel: zod
         .string()
