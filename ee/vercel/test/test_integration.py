@@ -927,6 +927,33 @@ class TestVercelIntegration(TestCase):
         expected_project_count = 2 if refusal is None else 1
         assert Team.objects.filter(organization=self.organization).count() == expected_project_count
 
+    def test_repeated_plan_limit_refusals_read_billing_once_per_cooldown(self) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": []}
+            for _ in range(3):
+                with self.assertRaises(exceptions.PermissionDenied):
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert billing_get.call_count == 1
+        assert Team.objects.filter(organization=self.organization).count() == 1
+
     def test_get_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource.config["metadata"] = {}

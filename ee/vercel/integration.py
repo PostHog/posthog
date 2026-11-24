@@ -57,6 +57,9 @@ CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
 # Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
 BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+# Bounds the billing reads that repeated plan-limit refusals for one organization can cause.
+BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS = 10
+BILLING_FEATURES_REFRESH_CACHE_KEY = "vercel:billing_features_refresh:{organization_id}"
 
 
 class VercelSSOError(Exception):
@@ -580,8 +583,10 @@ class VercelIntegration:
             # arrive later from the billing service. A resource created soon after the install can
             # find them missing and fall back to the one-project limit, so read them from billing
             # before refusing.
-            VercelIntegration._refresh_available_product_features(organization)
-            reached_limit = organization_project_limit_reached(organization)
+            refresh_key = BILLING_FEATURES_REFRESH_CACHE_KEY.format(organization_id=organization.id)
+            if cache.add(refresh_key, True, timeout=BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS):
+                VercelIntegration._refresh_available_product_features(organization)
+                reached_limit = organization_project_limit_reached(organization)
 
         if reached_limit is not None:
             raise exceptions.PermissionDenied(PROJECT_LIMIT_MESSAGES[reached_limit])
