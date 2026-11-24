@@ -34,32 +34,20 @@ export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
     const succeeded = row.status === 'succeeded'
     const emailOutcome = succeeded ? row.email_outcome : null
     const problemLevel = succeeded ? row.problem_log_level : null
-    if (emailOutcome) {
-        const alsoLogged =
-            problemLevel === 'error'
-                ? ' The run also logged an error.'
-                : problemLevel === 'warn'
-                  ? ' The run also logged a warning.'
-                  : ''
-        return (
-            <div className="flex flex-wrap items-center gap-1">
-                <Tooltip title={EMAIL_OUTCOME_TAG[emailOutcome].description + alsoLogged}>
-                    <LemonTag type="danger">{EMAIL_OUTCOME_TAG[emailOutcome].label.toUpperCase()}</LemonTag>
-                </Tooltip>
-            </div>
-        )
-    }
+    const problem = problemLevel === 'error' ? 'logged an error' : 'logged a warning'
     return (
         <div className="flex flex-wrap items-center gap-1">
-            <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-            {problemLevel ? (
+            {emailOutcome ? (
                 <Tooltip
-                    title={
-                        problemLevel === 'error'
-                            ? 'This run finished but logged an error. Expand the row to view it.'
-                            : 'This run finished but logged a warning. Expand the row to view it.'
-                    }
+                    title={`${EMAIL_OUTCOME_TAG[emailOutcome].description}${problemLevel ? ` The run also ${problem}.` : ''}`}
                 >
+                    <LemonTag type="danger">{EMAIL_OUTCOME_TAG[emailOutcome].label.toUpperCase()}</LemonTag>
+                </Tooltip>
+            ) : (
+                <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
+            )}
+            {problemLevel && !emailOutcome ? (
+                <Tooltip title={`This run finished but ${problem}. Expand the row to view it.`}>
                     <IconWarning
                         aria-label={problemLevel === 'error' ? 'Logged an error' : 'Logged a warning'}
                         className={problemLevel === 'error' ? 'text-danger text-base' : 'text-warning text-base'}
