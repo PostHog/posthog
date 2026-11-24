@@ -134,8 +134,8 @@ describe('DatasetItems', () => {
     })
 
     it('shows the original project key in the creator column after another key edits the item', () => {
-        const row = within(document.body).getByRole('row', { name: /item-2/ })
-        expect(within(row).getByTitle('example-creator-12345678').textContent).toBe('Project key · 12345678')
+        const row = within(document.body).getByText(ITEM_WITH_TRACE.id).closest('tr')
+        expect(row?.querySelector('[title="example-creator-12345678"]')?.textContent).toBe('Project key · 12345678')
     })
 
     it('opens the drawer on the source event from the trace link', () => {

@@ -244,6 +244,27 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         ] == expected_actors
         assert all(row["created_by"] is None and row["created_by_project_key_id"] == creator["id"] for row in history)
 
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+    def test_dataset_access_controls_keep_their_existing_key_scopes(self, _flag: MagicMock) -> None:
+        project_key = self._issue("Dataset writer", ["dataset:write"])
+        dataset = self.client.post(f"{self.project_url}/datasets/", {"name": "Shared dataset"})
+        assert dataset.status_code == 201, dataset.data
+        url = f"{self.project_url}/datasets/{dataset.data['id']}/"
+        access_controls = url + "access_controls/"
+        self._use(project_key)
+        assert self.client.get(access_controls).status_code == 403
+
+        reader = self.create_personal_api_key_with_scopes(["access_control:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {reader}")
+        assert self.client.get(access_controls).status_code == 200
+        assert self.client.get(url + "users_with_access/").status_code == 200
+        rule = {"organization_member": str(self.organization_membership.id), "access_level": "viewer"}
+        assert self.client.put(access_controls, rule, format="json").status_code == 403
+        writer = self.create_personal_api_key_with_scopes(["access_control:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {writer}")
+        updated = self.client.put(access_controls, rule, format="json")
+        assert updated.status_code == 200, updated.data
+
     def test_project_keys_can_read_dataset_snapshots_but_exports_require_a_user(self) -> None:
         writer = self._issue("Dataset writer", ["dataset:write"])
         reader = self._issue("Dataset reader", ["dataset:read"])

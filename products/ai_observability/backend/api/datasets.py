@@ -736,7 +736,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
     def dangerously_get_required_scopes(self, request: Request, view: GenericViewSet) -> list[str] | None:
         if self.action == "extend_retention" and is_service_auth(request):
             return ["dataset:write"]
-        return None
+        return super().dangerously_get_required_scopes(request, view)
 
     def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
         return queryset.filter(team_id=self.team.id)
