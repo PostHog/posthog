@@ -615,6 +615,24 @@ module    = "products/{product}/backend/tasks/*.py"
 attribute = "__all__"
 lifecycle = "setup"
 
+# entitlements/registry.py reads each product's entitlement reactors when it first builds the
+# registry.
+[registries.entitlement_reactors]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/entitlement_reactors.py"
+attribute = "ENTITLEMENT_REACTORS"
+lifecycle = "on-demand"
+
+# load_all_sources() imports every vendor's `source.py` with importlib, and the module registers its
+# source class on SourceRegistry by decorator; no attribute holds it. Vendors under the top-level
+# `products/warehouse_sources/sources` package load the same way, but the backend CI path filter
+# leaves that tree out, so no selection reads their watched files.
+[registries.warehouse_source_modules]
+loader    = "products.warehouse_sources.backend.temporal.data_imports.sources.load_all_sources"
+module    = "products/warehouse_sources/backend/temporal/data_imports/sources/*/source.py"
+attribute = "__all__"
+lifecycle = "on-demand"
+
 # The admin console imports each installed app's `console` module by name when it first lists its
 # pages; the module registers its panels and tools on the `console` registry it imports.
 [registries.admin_console]
