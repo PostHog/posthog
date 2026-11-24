@@ -138,7 +138,7 @@ def verify_email_or_login(request: Request, user: User) -> bool:
             email_verification_code_verifier.send_code(user)
         except EmailVerificationCodeUndeliverable:
             # The account already exists and signup still has work to do after this call, so the
-            # refusal must not abort it. A resend from the verify page or the next login shows the error.
+            # refusal must not abort it. A resend from the verify page or the next login reports the failure.
             pass
         return True
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")

@@ -45,8 +45,9 @@ from posthog.api.authentication import (
     social_grant_staff_to_google_workspace_members,
     social_login_notification,
 )
-from posthog.api.email_verification import EmailVerificationCodeUndeliverable, is_email_verification_disabled
+from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -657,15 +658,13 @@ class TestLoginAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
         mock_send_email_verification.assert_not_called()
 
-    @parameterized.expand([("code_sent", None), ("address_refused", EmailVerificationCodeUndeliverable())])
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     def test_email_unverified_null_user_can_log_in_if_email_available(
-        self, _name, send_error, mock_send_email_verification, mock_is_email_available
+        self, mock_send_email_verification, mock_is_email_available
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
-        mock_send_email_verification.side_effect = send_error
         self.assertEqual(self.user.is_email_verified, None)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -692,6 +691,24 @@ class TestLoginAPI(APIBaseTest):
 
         User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
 
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_email_unverified_null_user_still_logs_in_when_the_code_email_is_refused(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+    def test_email_unverified_login_reports_a_refused_code_email(self):
+        self.user.is_email_verified = False
+        self.user.save()
+
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthoganalytics.capture")
