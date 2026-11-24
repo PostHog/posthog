@@ -7,7 +7,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { METRICS } from './homeFixtures'
+import { clearCachedChecklistVerdict } from '../../instrumentationChecklist/instrumentationChecklistLogic'
+import { CHECKLIST_ALL_OK, CHECKLIST_WARNING, METRICS } from './homeFixtures'
 import { HomeHost } from './HomeHost'
 
 type Answer = [number, unknown]
@@ -16,17 +17,31 @@ describe('HomeHost', () => {
     let metricsAnswer: Answer
     let dashboards: { id: number }[]
     let dashboardsCreated: number
+    let dismissBodies: unknown[]
+    let checklistRefreshes: (string | null)[]
 
     beforeEach(() => {
+        clearCachedChecklistVerdict()
+        dismissBodies = []
+        checklistRefreshes = []
         metricsAnswer = [200, METRICS]
         dashboards = [{ id: 42 }]
         dashboardsCreated = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/ai_observability/traces/metrics/': () => metricsAnswer,
+                '/api/projects/:team_id/ai_observability/instrumentation_checklist/': ({ request }) => {
+                    const refresh = new URL(request.url).searchParams.get('refresh')
+                    checklistRefreshes.push(refresh)
+                    return [200, refresh === 'true' ? CHECKLIST_ALL_OK : CHECKLIST_WARNING]
+                },
                 '/api/projects/:team_id/dashboards/': () => [200, { count: dashboards.length, results: dashboards }],
             },
             post: {
+                '/api/projects/:team_id/ai_observability/instrumentation_checklist/dismiss/': async ({ request }) => {
+                    dismissBodies.push(await request.json())
+                    return [200, CHECKLIST_ALL_OK]
+                },
                 '/api/projects/:team_id/dashboards/create_unlisted_dashboard/': () => {
                     dashboardsCreated += 1
                     return [200, { id: 43 }]
@@ -50,6 +65,35 @@ describe('HomeHost', () => {
         expect(container.querySelectorAll('[data-attr^="home-tile-"]')).toHaveLength(6)
         expect(container.querySelectorAll('[data-attr^="home-section-"]')).toHaveLength(4)
         expect(container.textContent).toContain('Compared with the previous period')
+        await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).not.toBeNull())
+    })
+
+    it('dismisses a check through the shared checklist and installs its recomputed answer', async () => {
+        const { container } = render(<HomeHost />)
+        const dismiss = await waitFor(() => {
+            const button = container.querySelector('[data-attr="ai-observability-instrumentation-checklist-dismiss"]')
+            expect(button).not.toBeNull()
+            return button as HTMLElement
+        })
+
+        fireEvent.click(dismiss)
+
+        await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).toBeNull())
+        expect(dismissBodies).toEqual([{ check: 'sessions' }])
+    })
+
+    it('re-checks the shared checklist from the row and installs the fresh answer', async () => {
+        const { container } = render(<HomeHost />)
+        const refresh = await waitFor(() => {
+            const button = container.querySelector('[data-attr="home-instrumentation-refresh"]')
+            expect(button).not.toBeNull()
+            return button as HTMLElement
+        })
+
+        fireEvent.click(refresh)
+
+        await waitFor(() => expect(container.querySelector('[data-attr="home-instrumentation"]')).toBeNull())
+        expect(checklistRefreshes.at(-1)).toBe('true')
     })
 
     it('hides the dashboard link without creating a dashboard when there is none', async () => {

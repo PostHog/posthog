@@ -4,10 +4,12 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { instrumentationChecklistLogic } from '../../instrumentationChecklist/instrumentationChecklistLogic'
 import { ListErrorState } from '../lists/components/ListErrorState'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { HomeLayout } from './components/HomeLayout'
 import { HomeRangeTooLong } from './components/HomeRangeTooLong'
+import { InstrumentationRow } from './components/InstrumentationRow'
 import { KpiTileChartPanel } from './components/KpiTileChartPanel'
 import { KpiTileRow } from './components/KpiTileRow'
 import { OpenDashboardLink } from './components/OpenDashboardLink'
@@ -27,6 +29,9 @@ export function HomeHost(): JSX.Element {
     } = useValues(logic)
     const { loadMetrics, toggleChart, closeChart } = useActions(logic)
     const { timezone } = useValues(teamLogic)
+    const { checklist, checklistBusy, checklistLoading, pendingCheckKey, refreshFailed } =
+        useValues(instrumentationChecklistLogic)
+    const { dismissCheck, restoreCheck, loadInstrumentationChecklist } = useActions(instrumentationChecklistLogic)
     const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
 
@@ -79,7 +84,18 @@ export function HomeHost(): JSX.Element {
             dashboardLink={<OpenDashboardLink dashboardId={dashboardId} />}
             tiles={tiles}
             showComparison={metrics !== null && !metricsLoading}
-            instrumentation={null}
+            instrumentation={
+                <InstrumentationRow
+                    checklist={checklist}
+                    loading={checklistBusy}
+                    pendingCheckKey={pendingCheckKey}
+                    refreshing={checklistLoading}
+                    refreshFailed={refreshFailed}
+                    onDismiss={dismissCheck}
+                    onRestore={restoreCheck}
+                    onRefresh={() => loadInstrumentationChecklist({ refresh: true })}
+                />
+            }
         />
     )
 }

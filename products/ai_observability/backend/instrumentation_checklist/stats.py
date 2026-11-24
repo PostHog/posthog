@@ -188,9 +188,9 @@ def fetch_checklist_stats(team: Team, *, force_refresh: bool = False) -> Checkli
             return cached
 
     stats = _compute_checklist_stats(team)
-    # Below the floor every check grades pending, which is the card someone watches while their first
-    # events land. Holding that verdict for the whole TTL is the wrong answer to look at, and a
-    # project with that few events is cheap to count again.
+    # Below the tool calls floor that check still grades pending, and a project this small is the one
+    # watching its first events land. Holding a verdict for the whole TTL is the wrong answer to look
+    # at, and a project with that few events is cheap to count again.
     if stats.total_events >= VOLUME_FLOOR:
         safe_cache_set(cache_key, asdict(stats), timeout=CACHE_TTL_SECONDS)
     return stats
