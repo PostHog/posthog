@@ -191,6 +191,12 @@ describe('dashboardEdits', () => {
         expect(applyEdit(board, { edit: 'removeTab', id: 'docs' }, sizeOf).tabs.map((tab) => tab.id)).toEqual(['only'])
     })
 
+    it.each(['javascript:alert(1)', '//example.com/phish'])('refuses a link tab to %s', (href) => {
+        const board = dashboard([text('a', 0, 0, 8, 8)])
+
+        expect(applyEdit(board, { edit: 'addTab', title: 'Link', href }, sizeOf)).toEqual(board)
+    })
+
     it('keeps a drag made in a folded view clear of the section in the saved layout', () => {
         const board = dashboard([
             section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)]),

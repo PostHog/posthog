@@ -12,6 +12,9 @@ import {
 } from './dashboardSchema'
 import { type ContentWidget, GRID } from './dashboardTypes'
 
+// Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
+export const MAX_SECTION_DEPTH = 10
+
 export interface DashboardProblem {
     /** Where the problem is, such as `tabs[0].tiles[2].widget.config.query`. */
     path: string
@@ -52,7 +55,7 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
     const sizeOf = sizeOfWidgets(widgets)
     const seenIds = new Set<string>()
 
-    const checkGrid = (tiles: TileHead[], cols: number, path: string): void => {
+    const checkGrid = (tiles: TileHead[], cols: number, path: string, depth: number): void => {
         tiles.forEach((tile, index) => {
             const tilePath = `${path}[${index}]`
             if (seenIds.has(tile.id)) {
@@ -64,12 +67,19 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
             }
 
             if (tile.widget.type === 'section') {
+                if (depth >= MAX_SECTION_DEPTH) {
+                    problems.push({
+                        path: `${tilePath}.widget`,
+                        message: `Sections nest at most ${MAX_SECTION_DEPTH} deep`,
+                    })
+                    return
+                }
                 const section = sectionHeadSchema.safeParse(tile.widget)
                 if (!section.success) {
                     problems.push(...issuesAt(`${tilePath}.widget`, section.error))
                     return
                 }
-                checkGrid(section.data.tiles, tile.place.w, `${tilePath}.widget.tiles`)
+                checkGrid(section.data.tiles, tile.place.w, `${tilePath}.widget.tiles`, depth + 1)
                 return
             }
 
@@ -108,7 +118,7 @@ export function validateDashboard(document: unknown, widgets: WidgetSpec[]): Das
         }
         seenIds.add(tab.id)
         if ('tiles' in tab) {
-            checkGrid(tab.tiles, GRID.columns, `tabs[${index}].tiles`)
+            checkGrid(tab.tiles, GRID.columns, `tabs[${index}].tiles`, 0)
         }
     })
     return problems

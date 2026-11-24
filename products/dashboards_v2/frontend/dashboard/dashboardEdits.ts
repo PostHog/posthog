@@ -1,6 +1,7 @@
 import { contentRows, dropIntoGrid, settleGrid } from '../grid/gridTiles'
 import { bottomOf } from '../grid/placeTiles'
 import { type PresentationEdit, applyPresentationEdit } from '../presentation/presentationEdits'
+import { linkTabSchema } from './dashboardSchema'
 import {
     type Dashboard,
     GRID,
@@ -197,6 +198,10 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
             )
         case 'addTab':
+            // The same check a loaded document gets, so an edit cannot save a link that runs script.
+            if (edit.href && !linkTabSchema.shape.href.safeParse(edit.href).success) {
+                return dashboard
+            }
             return {
                 ...dashboard,
                 tabs: [

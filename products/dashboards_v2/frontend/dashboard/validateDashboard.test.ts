@@ -5,7 +5,7 @@ import { statSpec } from '../widgets/chart/viz/stat/statSpec'
 import { markdownSpec } from '../widgets/markdown/markdownSpec'
 import { dashboardSchema } from './dashboardSchema'
 import type { DashboardProblem } from './validateDashboard'
-import { validateDashboard } from './validateDashboard'
+import { MAX_SECTION_DEPTH, validateDashboard } from './validateDashboard'
 
 // Specs only, with no components, as a CI check or an MCP tool would load them.
 const SPECS = [chartSpec([statSpec, lineSpec, barSpec]), markdownSpec]
@@ -15,6 +15,14 @@ const withTiles = (tiles: unknown[]): unknown => ({
     tabs: [{ id: 'tab', title: 'Tab', tiles }],
 })
 const note = { type: 'markdown', config: { text: 'hi' } }
+const nestedSections = (depth: number): unknown =>
+    depth === 0
+        ? { id: 'leaf', place: { x: 0, y: 0, w: 8, h: 4 }, widget: note }
+        : {
+              id: `s${depth}`,
+              place: { x: 0, y: 0, w: 24, h: 8 },
+              widget: { type: 'section', title: 'S', tiles: [nestedSections(depth - 1)] },
+          }
 
 describe('validateDashboard', () => {
     test.each<{ name: string; document: unknown; expected: DashboardProblem[] }>([
@@ -122,6 +130,16 @@ describe('validateDashboard', () => {
             ]),
             expected: [
                 { path: 'tabs[0].tiles[0].widget.tiles[0].place', message: "The tile goes past the grid's 6 columns" },
+            ],
+        },
+        {
+            name: 'sections nested deeper than the limit',
+            document: withTiles([nestedSections(MAX_SECTION_DEPTH + 1)]),
+            expected: [
+                {
+                    path: `tabs[0].tiles[0]${'.widget.tiles[0]'.repeat(MAX_SECTION_DEPTH)}.widget`,
+                    message: `Sections nest at most ${MAX_SECTION_DEPTH} deep`,
+                },
             ],
         },
         {
