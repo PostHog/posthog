@@ -16,7 +16,7 @@ Do NOT:
 """
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
@@ -256,7 +256,7 @@ def _to_account_properties(properties: _ModelAccountProperties) -> contracts.Acc
     )
 
 
-def _to_account_ref(row: dict) -> contracts.AccountRef:
+def _to_account_ref(row: Mapping[str, Any]) -> contracts.AccountRef:
     return contracts.AccountRef(id=str(row["id"]), name=row["name"], external_id=row["external_id"])
 
 

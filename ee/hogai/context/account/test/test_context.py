@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
@@ -11,7 +11,10 @@ from django.core.exceptions import ObjectDoesNotExist
 from asgiref.sync import sync_to_async
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 if TYPE_CHECKING:
@@ -50,16 +53,24 @@ class TestAccountContext(NonAtomicBaseTest):
         assert await AccountContext(team=self.team, user=self.user, account_id="not-a-uuid").aget_account() is None
 
     async def test_aget_account_denied_by_access_control_is_not_found(self):
-        # An account the caller can't read object-level must be indistinguishable from a missing one.
         account = await self._create_account(name="Acme Corp", external_id="acme-1")
-        context = AccountContext(team=self.team, user=self.user, account_id=str(account.id))
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        await self.organization.asave(update_fields=["available_product_features"])
+        viewer = await sync_to_async(User.objects.create_and_join)(
+            self.organization, "account-context-viewer@example.com", "testtest"
+        )
+        membership = await OrganizationMembership.objects.aget(organization=self.organization, user=viewer)
+        await sync_to_async(create_access_control)(
+            team_id=self.team.pk,
+            resource="account",
+            resource_id=str(account.pk),
+            organization_member_id=membership.pk,
+            access_level="none",
+        )
+        context = AccountContext(team=self.team, user=viewer, account_id=str(account.id))
 
-        with patch.object(AccountContext, "user_access_control", new_callable=PropertyMock) as mock_uac:
-            mock_uac.return_value.check_access_level_for_resource.return_value = True
-            mock_uac.return_value.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
-
-            assert await context.aget_account() is None
-            result = await context.execute_and_format()
+        assert await context.aget_account() is None
+        result = await context.execute_and_format()
 
         assert "was not found" in result
 
