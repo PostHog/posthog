@@ -9,7 +9,8 @@ import { z } from 'zod'
 import { readJson } from '../src/testing'
 import type { Artifact } from '../src/updates/manifest'
 import { archiveName, rustTarget, shippedBinaries, TARGETS } from '../src/updates/targets'
-import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
+import { buildManifest, releaseNotices, sha256Sums, wrapperPackageJson } from './artifacts'
+import noticesFile from './notices.json' with { type: 'json' }
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
@@ -403,3 +404,28 @@ test.skipIf(!Bun.which('zip') || !Bun.which('unzip'))(
         expect(await readFile(join(out, 'hog.rb'), 'utf8')).toContain('bin.install Dir["*"]')
     }
 )
+
+describe('release notices', () => {
+    test('release/notices.json is one every hog can read', () => {
+        expect(() => releaseNotices(noticesFile)).not.toThrow()
+    })
+
+    test.each([
+        [
+            'an id named twice',
+            [
+                { id: 'hog-2-out', level: 'info', message: 'One.' },
+                { id: 'hog-2-out', level: 'info', message: 'Two.' },
+            ],
+            'names the notice hog-2-out twice',
+        ],
+        [
+            'a page outside posthog.com',
+            [{ id: 'away', level: 'info', message: 'Read this.', url: 'https://example.com' }],
+            'url',
+        ],
+        ['a level hogs would skip', [{ id: 'loud', level: 'critical', message: 'Read this.' }], 'level'],
+    ])('stops a release with %s', (_name, notices, message) => {
+        expect(() => releaseNotices({ notices })).toThrow(message)
+    })
+})

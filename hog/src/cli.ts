@@ -40,6 +40,7 @@ import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { UpdateCheck, updateChecksOff } from '@/updates/check'
+import { Notices } from '@/updates/notices'
 import { shippedBinaries, targetFor } from '@/updates/targets'
 import { VERSION } from '@/version'
 
@@ -696,7 +697,9 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
 
     // A `hog_outdated` failure already says to update, and a JSON failure is one object on stderr.
     if (failure?.code !== 'hog_outdated' && !(failure && mode.format === 'json')) {
-        await updates?.finish({ mode, command: state.command })
+        const notices = new Notices(runtime)
+        await updates?.finish({ mode, command: state.command, notices })
+        await notices.show({ mode, telemetry })
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.

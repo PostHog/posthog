@@ -11,12 +11,14 @@ import { parseVersion } from '../src/updates/version'
 import {
     buildManifest,
     homebrewFormula,
+    releaseNotices,
     type PackageJson,
     platformPackageJson,
     sha256Sums,
     wrapperPackageJson,
 } from './artifacts'
 import minimum from './minimum-version.json' with { type: 'json' }
+import noticesFile from './notices.json' with { type: 'json' }
 import { HOG_ROOT, RELEASE_FOLDER, run, targetFolder } from './shared'
 
 const { values } = parseArgs({
@@ -39,6 +41,14 @@ if (!reused && (!values.version || !values['build-date'] || Number.isNaN(Date.pa
 const minimumVersion = minimum.minimumVersion ?? undefined
 if (minimumVersion !== undefined && !parseVersion(minimumVersion)) {
     console.error(`release/minimum-version.json names ${minimumVersion}, which isn't a semver version.`)
+    process.exit(1)
+}
+
+let notices
+try {
+    notices = releaseNotices(noticesFile)
+} catch (error) {
+    console.error(error instanceof Error ? error.message : error)
     process.exit(1)
 }
 
@@ -146,7 +156,10 @@ if (reused) {
 
     await writeFile(join(assets, 'SHA256SUMS'), sha256Sums(artifacts))
     const dates = { publishedAt: new Date(), buildDate: new Date(values['build-date']!) }
-    await writeJson(join(assets, 'manifest.json'), buildManifest(version, artifacts, dates, minimumVersion))
+    await writeJson(
+        join(assets, 'manifest.json'),
+        buildManifest(version, artifacts, dates, { minimumVersion, notices })
+    )
     await copyFile(join(HOG_ROOT, 'release/install.sh'), join(assets, 'install.sh'))
     await copyFile(join(HOG_ROOT, 'release/install.ps1'), join(assets, 'install.ps1'))
 }

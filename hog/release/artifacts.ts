@@ -1,4 +1,7 @@
+import { z } from 'zod'
+
 import type { Artifact, Manifest } from '../src/updates/manifest'
+import { NoticeSchema, type Notice } from '../src/updates/notices'
 import { GITHUB_REPOSITORY, RELEASES_URL } from '../src/updates/release-urls'
 import { npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 
@@ -18,7 +21,7 @@ export function buildManifest(
     version: string,
     artifacts: Record<string, Artifact>,
     dates: { publishedAt: Date; buildDate: Date },
-    minimumVersion?: string
+    options: { minimumVersion?: string; notices?: Notice[] } = {}
 ): Manifest {
     return {
         schema: 1,
@@ -27,7 +30,8 @@ export function buildManifest(
         tag: releaseTag(version),
         publishedAt: dates.publishedAt.toISOString(),
         buildDate: dates.buildDate.toISOString(),
-        ...(minimumVersion ? { minimumVersion } : {}),
+        ...(options.minimumVersion ? { minimumVersion: options.minimumVersion } : {}),
+        ...(options.notices?.length ? { notices: options.notices } : {}),
         baseUrl: baseUrl(version),
         mirrorUrl: mirrorUrl(version),
         artifacts,
@@ -136,4 +140,19 @@ ${block('linux-x64')}
   end
 end
 `
+}
+
+// Stricter than what hog accepts from a manifest, which skips a notice it can't read: a notice in
+// release/notices.json that hog would skip stops the release instead.
+export function releaseNotices(file: unknown): Notice[] {
+    const parsed = z.object({ notices: z.array(NoticeSchema) }).safeParse(file)
+    if (!parsed.success) {
+        throw new Error(`release/notices.json is invalid: ${z.prettifyError(parsed.error)}`)
+    }
+    const ids = parsed.data.notices.map((notice) => notice.id)
+    const repeated = ids.find((id, index) => ids.indexOf(id) !== index)
+    if (repeated) {
+        throw new Error(`release/notices.json names the notice ${repeated} twice.`)
+    }
+    return parsed.data.notices
 }
