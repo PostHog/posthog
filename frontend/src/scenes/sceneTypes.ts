@@ -43,6 +43,7 @@ export enum Scene {
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
+    DashboardV2 = 'DashboardV2',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
     DataDeletionRequestNew = 'DataDeletionRequestNew',
@@ -254,8 +255,6 @@ export enum Scene {
     AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
     AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
-    AIObservabilityTag = 'AIObservabilityTag',
-    AIObservabilityTags = 'AIObservabilityTags',
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
@@ -398,6 +397,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.DashboardV2]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
@@ -515,8 +515,6 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
-    [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
-    [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
 

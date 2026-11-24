@@ -10,6 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    CompareFilter,
     CustomChannelCondition,
     CustomChannelField,
     CustomChannelOperator,
@@ -23,6 +24,10 @@ from posthog.schema import (
     WebAnalyticsPreComputeStrategy,
     WebAnalyticsQueryModifiers,
     WebOverviewQuery,
+    WebPageDirectoryMetric,
+    WebPageDirectoryQuery,
+    WebPageDirectoryQueryResponse,
+    WebPageDirectorySortBy,
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
@@ -49,6 +54,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
 
 DIMENSIONAL_READ_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
 
@@ -298,6 +304,12 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 {"Desktop": 0.0, "Mobile": 1.0},
             ),
             ("viewport_breakdown", WebStatsBreakdown.VIEWPORT, [], None),
+            (
+                "initial_page_with_pathname_filter",
+                WebStatsBreakdown.INITIAL_PAGE,
+                [EventPropertyFilter(key="$pathname", value="/pricing", operator=PropertyOperator.EXACT)],
+                None,
+            ),
         ]
     )
     def test_bounce_rate_shape_skips_pre_aggregated_tables(self, _name, breakdown, properties, expected_bounce_rates):
@@ -612,3 +624,219 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
         # visitors, views, sessions
         assert [item.value for item in dimensional.results[:3]] == expected_counts
+
+
+DIRECTORY_METRICS = [
+    WebPageDirectoryMetric.VISITORS,
+    WebPageDirectoryMetric.GOOGLE_SEARCH,
+    WebPageDirectoryMetric.AI_REFERRALS,
+    WebPageDirectoryMetric.BOUNCE_RATE,
+    WebPageDirectoryMetric.TIME_ON_PAGE,
+]
+HOST_FILTER = EventPropertyFilter(key="$host", value="app.example.com", operator=PropertyOperator.EXACT)
+HOSTLESS_FILTER = EventPropertyFilter(key="$host", operator=PropertyOperator.IS_NOT_SET)
+
+
+class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
+    def setUp(self):
+        for table in ("sharded_web_stats_dimensional_preaggregated", "sharded_web_bounces_dimensional_preaggregated"):
+            sync_execute(f"SYSTEM STOP TTL MERGES {table}")
+            self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
+        flag_patcher = patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+            return_value=True,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+        super().setUp()
+
+    def _pageview(self, distinct_id: str, session: str, ts: str, path: str, **props) -> None:
+        url = {"$current_url": f"https://{props['$host']}{path}"} if "$host" in props else {}
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=ts,
+            properties={"$session_id": session, "$pathname": path, **url, **props},
+        )
+
+    def _setup_test_data(self):
+        google, ai, direct, hostless = (str(uuid7("2024-01-01")) for _ in range(4))
+        app = {"$host": "app.example.com"}
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
+            for did in ("user_google", "user_ai", "user_direct", "user_hostless"):
+                _create_person(team_id=self.team.pk, distinct_ids=[did])
+            google_referral = {"$referrer": "https://www.google.com/", "$referring_domain": "www.google.com"}
+            self._pageview("user_google", google, "2024-01-01T10:00:00Z", "/pricing", **app, **google_referral)
+            self._pageview("user_google", google, "2024-01-01T10:03:00Z", "/docs", **app, **google_referral)
+            self._pageview("user_ai", ai, "2024-01-01T11:00:00Z", "/pricing", **app, utm_source="chatgpt.com")
+            self._pageview("user_direct", direct, "2024-01-01T12:00:00Z", "/", **app)
+            self._pageview("user_direct", direct, "2024-01-01T12:04:00Z", "/pricing", **app)
+            self._pageview("user_hostless", hostless, "2024-01-01T13:00:00Z", "/hostless")
+            flush_persons_and_events()
+
+        ensure_web_stats_dimensional_precomputed(self.team, datetime(2023, 12, 30, tzinfo=UTC), WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, datetime(2023, 12, 30, tzinfo=UTC), WINDOW_END)
+
+    def _run(self, web_query_modifiers: WebAnalyticsQueryModifiers | None, **kwargs) -> WebPageDirectoryQueryResponse:
+        query = WebPageDirectoryQuery(
+            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            webQueryModifiers=web_query_modifiers,
+            **{"properties": [], "metrics": DIRECTORY_METRICS, "includeSiteTotals": True, **kwargs},
+        )
+        return WebPageDirectoryQueryRunner(team=self.team, query=query).calculate()
+
+    @staticmethod
+    def _comparable(response: WebPageDirectoryQueryResponse) -> tuple:
+        return (
+            [row.model_dump() for row in response.results],
+            response.siteTotals.model_dump() if response.siteTotals else None,
+        )
+
+    @parameterized.expand(
+        [
+            ("sorted_by_visitors", {}),
+            ("sorted_by_google_search", {"sortBy": WebPageDirectorySortBy.GOOGLE_SEARCH}),
+            ("sorted_by_ai_referrals", {"sortBy": WebPageDirectorySortBy.AI_REFERRALS}),
+            ("search", {"search": "PRIC"}),
+            ("host_filter", {"properties": [HOST_FILTER]}),
+            ("hostless_filter", {"properties": [HOSTLESS_FILTER]}),
+            (
+                "browser_not_set_filter",
+                {"properties": [EventPropertyFilter(key="$browser", operator=PropertyOperator.IS_NOT_SET)]},
+            ),
+            ("compare_previous_period", {"compareFilter": CompareFilter(compare=True)}),
+            ("page_keys", {"pageKeys": ["app.example.com/pricing", "/hostless"]}),
+        ]
+    )
+    def test_directory_dimensional_matches_live(self, _name, kwargs):
+        live = self._run(None, **kwargs)
+        dimensional = self._run(OPT_IN, **kwargs)
+
+        assert live.preComputedAt is None
+        assert dimensional.preComputedAt is not None
+        assert self._comparable(dimensional) == self._comparable(live)
+        assert dimensional.results, "expected rows, so an empty result on both paths cannot pass"
+
+    def test_directory_dimensional_values(self):
+        response = self._run(OPT_IN)
+        rows = {row.page: row for row in response.results}
+
+        assert response.preComputedAt is not None
+        assert [row.page for row in response.results] == [
+            "app.example.com/pricing",
+            "/hostless",
+            "app.example.com/",
+            "app.example.com/docs",
+        ]
+        pricing = rows["app.example.com/pricing"]
+        assert pricing.visitors and pricing.googleSearch and pricing.aiReferrals
+        assert (pricing.visitors.current, pricing.googleSearch.current, pricing.aiReferrals.current) == (3, 1, 1)
+        assert pricing.bounceRate == pytest.approx(0.5)
+        assert response.siteTotals is not None and response.siteTotals.visitors is not None
+        assert response.siteTotals.visitors.current == 4
+        assert response.siteTotals.bounceRate == pytest.approx(1 / 3)
+
+    def test_directory_path_cleaning_matches_live(self):
+        self.team.path_cleaning_filters = [{"regex": "^/(pricing|docs)$", "alias": "/product"}]
+        self.team.save()
+
+        live = self._run(None, doPathCleaning=True)
+        dimensional = self._run(OPT_IN, doPathCleaning=True)
+
+        assert dimensional.preComputedAt is not None
+        assert self._comparable(dimensional) == self._comparable(live)
+        assert "app.example.com/product" in {row.page for row in dimensional.results}
+
+    @parameterized.expand(
+        [
+            (
+                "unsupported_filter",
+                {
+                    "properties": [
+                        EventPropertyFilter(key="$current_url", value="x", operator=PropertyOperator.ICONTAINS)
+                    ]
+                },
+            ),
+            ("test_account_filters", {"filterTestAccounts": True}),
+            (
+                "bounce_rate_with_pathname_filter",
+                {
+                    "metrics": [WebPageDirectoryMetric.BOUNCE_RATE],
+                    "sortBy": WebPageDirectorySortBy.BOUNCE_RATE,
+                    "includeSiteTotals": False,
+                    "pageKeys": ["/hostless"],
+                    "properties": [
+                        EventPropertyFilter(key="$pathname", value="/hostless", operator=PropertyOperator.EXACT)
+                    ],
+                },
+            ),
+            (
+                "bounce_rate_with_host_filter",
+                {
+                    "metrics": [WebPageDirectoryMetric.BOUNCE_RATE],
+                    "sortBy": WebPageDirectorySortBy.BOUNCE_RATE,
+                    "includeSiteTotals": False,
+                    "pageKeys": ["app.example.com/pricing"],
+                    "properties": [HOST_FILTER],
+                },
+            ),
+        ]
+    )
+    def test_directory_ineligible_query_stays_live(self, _name, kwargs):
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        response = self._run(OPT_IN, **kwargs)
+
+        assert response.preComputedAt is None
+        assert self._comparable(response) == self._comparable(self._run(None, **kwargs))
+
+    def _failing_dimensional_read(self, error: Exception):
+        return patch(
+            "products.web_analytics.backend.hogql_queries.web_page_directory.DimensionalPageDirectoryQueryBuilder.metric_select",
+            side_effect=error,
+        )
+
+    def _failing_query_execution(self, query_type_prefix: str, error: Exception):
+        failed: list[str] = []
+
+        def execute(*args, **kwargs):
+            if not failed and kwargs["query_type"].startswith(query_type_prefix):
+                failed.append(kwargs["query_type"])
+                raise error
+            return execute_hogql_query(*args, **kwargs)
+
+        return patch(
+            "products.web_analytics.backend.hogql_queries.web_page_directory.execute_hogql_query",
+            side_effect=execute,
+        )
+
+    @parameterized.expand([("building",), ("executing",)])
+    def test_directory_dimensional_error_falls_back_to_live(self, stage):
+        live = self._run(None)
+        error = RuntimeError("dimensional read failed")
+        failure = (
+            self._failing_dimensional_read(error)
+            if stage == "building"
+            else self._failing_query_execution("web_page_directory_dimensional_", error)
+        )
+        with failure:
+            response = self._run(OPT_IN)
+
+        assert response.preComputedAt is None
+        assert self._comparable(response) == self._comparable(live)
+
+    def test_directory_live_query_error_is_not_retried(self):
+        error = RuntimeError("live query failed")
+        with (
+            self._failing_query_execution("web_page_directory_time_on_page", error),
+            self.assertRaisesMessage(RuntimeError, "live query failed"),
+        ):
+            self._run(OPT_IN)
+
+    def test_directory_dimensional_timeout_does_not_rerun_live(self):
+        with self._failing_dimensional_read(ClickHouseQueryTimeOut()), self.assertRaises(ClickHouseQueryTimeOut):
+            self._run(OPT_IN)

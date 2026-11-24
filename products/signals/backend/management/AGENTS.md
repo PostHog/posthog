@@ -87,6 +87,36 @@ python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid>
 
 For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
 
+## Purging named reports and scratchpad entries
+
+Use these for a data deletion request that names reports or scout memories, instead of a script in a production shell.
+Both commands only preview until you pass `--execute`, and both touch one team's rows only.
+
+`purge_signal_reports` permanently deletes a list of reports.
+The preview prints each report's status, its signal count in ClickHouse, and the rows a hard delete removes from each model.
+It also prints the `document_embeddings` filters for the signal and report ids, for a physical delete that the command does not do.
+It refuses the whole list when an id is missing, belongs to another team, or has a `SignalReportRefund` row.
+With `--execute` it queues `deleted` plus cleared content for every signal of the report (the `retract_source_signals` change), tombstones the report embeddings, then hard deletes the reports in one transaction.
+Every report must already have status `deleted`; `--soft-delete` runs the `signal-report-deletion` workflow first for the ones that do not.
+The hard delete is the last step, so a run that fails before it is resumed by running the same command.
+The ClickHouse updates are queued `update-signal-spend` workflows that retry on their own and land after the command returns.
+
+```bash
+uv run manage.py purge_signal_reports --team-id 1 --report-ids <uuid> <uuid>
+uv run manage.py purge_signal_reports --team-id 1 --report-ids-file ids.txt --soft-delete --execute
+```
+
+`purge_signal_scratchpad` deletes scratchpad entries chosen by `--scout-skill` (entries that scout's runs created, or a `pipeline:*` writer's), by `--keys`, or `--all`.
+The preview lists the keys it deletes and the keys it keeps, and warns when a matching scout is enabled or ran in the last 24 hours, since a running scout can write new entries.
+The delete runs in one transaction and rolls back when the entries changed since the preview.
+
+```bash
+uv run manage.py purge_signal_scratchpad --team-id 1 --scout-skill signals-scout-general
+uv run manage.py purge_signal_scratchpad --team-id 1 --keys "report:abc" "followup:x" --execute
+```
+
+Neither command covers scout run records or task run logs.
+
 ## Repository selection (agentic)
 
 Test the repo selection flow in isolation:
@@ -191,8 +221,9 @@ reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
 `uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
 batch of verified implementation PRs that need participant snapshots. Remove
-`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
-100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+`--dry-run` to queue the GitHub refresh. `--limit` bounds the PRs each invocation
+checks (default 100, maximum 1000), so a batch can queue fewer when some PRs are not
+verified implementation PRs; use the printed `--after` cursor to continue. Run it without a
 cursor again to retry missing snapshots. The worker repairs missing merge times
 before checking the seven-day window. Completed snapshots are skipped.
 

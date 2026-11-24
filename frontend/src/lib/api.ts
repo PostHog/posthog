@@ -244,7 +244,6 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -5039,6 +5038,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** Comma-separated report tag slugs. A report matches when it carries any of them. */
+            tags?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
@@ -6477,14 +6478,6 @@ const api = {
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },
-        async publishHogFlow(
-            hogFlowId: HogFlow['id'],
-            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
-            // publish must send that token back.
-            data: { confirm: boolean; confirm_token?: string }
-        ): Promise<HogFlowPublishResponseApi> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
-        },
         async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
         },
@@ -7015,7 +7008,7 @@ const api = {
                   onError: (error: any) => void
                   /** Fires every time the underlying fetch returns a healthy response — i.e.
                    *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   /** Fires when the server cleanly closes the response body (not on errors,
                    *  not on abort). Use this to react to server-initiated stream rotation. */
                   onClose?: () => void
@@ -7028,7 +7021,7 @@ const api = {
                   data: any
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
-                  onOpen?: () => void
+                  onOpen?: (response: Response) => void
                   onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
@@ -7080,7 +7073,7 @@ const api = {
                     onError(error)
                     abortController.abort()
                 } else {
-                    onOpen?.()
+                    onOpen?.(response)
                     if (isLivestreamUrl) {
                         posthog.capture('livestream_sse_opened', {
                             url,

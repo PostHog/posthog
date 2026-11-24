@@ -1,10 +1,11 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
 import structlog
 import posthoganalytics
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
@@ -245,6 +246,7 @@ def execute_process_query(
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -259,6 +261,8 @@ def execute_process_query(
     user: Optional[User] = None
     if user_id:
         user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
+        if staff_rights_withheld:
+            user.withhold_staff_rights()
         is_staff_user = user.is_staff
     elif sharing_configuration_id:
         # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
@@ -345,7 +349,7 @@ def execute_process_query(
         if user_id:
             query_status.cache_key = getattr(err, "cache_key", None)
             query_status.query_scan = _query_scan_from_error(err)
-        if is_user_safe_error or is_staff_user:
+        if is_user_safe_error or (is_staff_user and not isinstance(err, ClickHouseDriverError)):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
             if isinstance(err, APIException):
@@ -393,6 +397,7 @@ def enqueue_process_query_task(
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    staff_rights_withheld: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -465,8 +470,12 @@ def enqueue_process_query_task(
     limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     # Attached only when set: during a rolling deploy a worker still on the old task signature
     # rejects unknown kwargs, so an always-present kwarg would fail every async query, not just
-    # shared-link ones.
-    shared_kwargs = {"sharing_configuration_id": sharing_configuration_id} if sharing_configuration_id else {}
+    # the ones that need it.
+    optional_kwargs: dict[str, Any] = {}
+    if sharing_configuration_id:
+        optional_kwargs["sharing_configuration_id"] = sharing_configuration_id
+    if staff_rights_withheld:
+        optional_kwargs["staff_rights_withheld"] = True
     task_signature = process_query_task.si(
         team.id,
         user_id,
@@ -476,7 +485,7 @@ def enqueue_process_query_task(
         is_query_service,
         limit_context,
         analytics_props=analytics_props,
-        **shared_kwargs,
+        **optional_kwargs,
     )
 
     if _test_only_bypass_celery:

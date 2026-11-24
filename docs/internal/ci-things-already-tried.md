@@ -252,6 +252,9 @@ The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
+In `ci-backend.yml` a ready PR takes that full matrix once.
+After a full run passes, a selector full-run request or a product cascade that has a selection runs the subset, until a failed merge queue attempt re-arms full runs.
+`.github/scripts/backend-full-run-state.js` reads that state from the gate's `Test results` check on the PR's earlier heads.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
 
@@ -319,17 +322,27 @@ _Also asked as:_ ignore whitespace changes in CI, skip CI for comment-only chang
 
 ### Compare against the last green head instead of the previous head for reuse
 
-**Verdict: rejected** · Nov 2026 · measured, not built
+**Verdict: landed** · Nov 2026 · [#138417](https://github.com/PostHog/posthog/pull/138417), first rejected on the measurement below
 
-Reuse compares the new head with the immediately previous head (`github.event.before`).
-When the previous head was not green, the suite runs, even if an older head was green with identical inputs.
+Reuse first compared the new head with the immediately previous head (`github.event.before`).
+When the previous head had other inputs or was not green, the suite ran, even if an older head was green with identical inputs.
 The proposal was to search back to the last green head.
 
 On the same replay of 120 PRs it adds 13 reused pushes on top of 255 across the six suites.
 About one in eight pushes whose previous head was not green has any earlier green head with identical inputs.
-It needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
+The first objection was cost: the search needs the PR's head history, which the `synchronize` event does not carry, and extra API calls on every miss.
 
-_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push
+Two findings removed that objection.
+The repository activity API lists every head a branch had in the last day in one call, force-pushed heads included.
+One GraphQL query then compares a few blobs on all of those heads, so a push that changes an input costs two more calls and reads no check run.
+The replay did not count a head that a rebase or a force-push removed from the PR's commits, or a previous head whose run was superseded.
+The gain is therefore not re-measured: read `heads_behind` on the `posthog-ci-reuse-decision` events, where any value above 0 is a reuse this search added.
+
+A failed gate on any head newer than the green one stops the search, whatever that head's inputs.
+The failure can come from a file no scoped filter matches, such as a database init script the suite mounts, and that file may still be on the branch.
+So the search adds reuse after a cancelled, superseded or skipped head, but not after a red one.
+
+_Also asked as:_ reuse from any earlier green commit, search back for a passing run, reuse after a red push (refused), reuse after a revert, reuse after a rebase or force-push
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
@@ -573,6 +586,8 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 The sandbox base-image job keeps `.dockerignore` and the local `COPY` inputs of all three Dockerfiles; built skills arrive as an artifact.
 Update its sparse paths when a Dockerfile adds an input outside those directories.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
+Its lint checkout must include shared fixtures outside `rust/` because `clippy --all-targets` compiles tests that embed those files.
+Map those fixtures in the Rust path filter and crate determinator rules too, so fixture-only changes run the compatibility tests.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.

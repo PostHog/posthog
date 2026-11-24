@@ -1,9 +1,8 @@
 import { type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import type { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,21 +13,19 @@ import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.
 import { ACTIONABILITY_LABEL, PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalReport, SignalReportActionability } from '../../types'
 import { reportClaimant } from '../../utils/reportClaim'
-import type { ReportActionabilityChange, ReportDecisionAttributions } from '../../utils/reportDecisions'
-import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
-import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
+import type {
+    ReportActionabilityChange,
+    ReportDecisionAttribution,
+    ReportDecisionAttributions,
+} from '../../utils/reportDecisions'
+import { safeHttpUrl } from '../../utils/reportPresentation'
+import { reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
 import { DetailSection } from './DetailSection'
+import { ReportAgentDecisions } from './ReportAgentDecisions'
 import { ReportDecisionRow } from './ReportDecisionRow'
+import { ReportPullRequestLine } from './ReportPullRequestLine'
 import { ReportRepositoryDecisionRow } from './ReportRepositoryDecisionRow'
-
-const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
-    unknown: 'Status unavailable',
-    draft: 'Draft',
-    open: 'Open',
-    closed: 'Closed',
-    merged: 'Merged',
-}
 
 const PRIORITY_OPTIONS: LemonSelectOptionLeaf<ReportPriorityApi>[] = Object.entries(PRIORITY_MEANING).map(
     ([priority, { label }]) => ({
@@ -66,12 +63,6 @@ function alreadyAddressedLabel(value: string): string {
     return ALREADY_ADDRESSED_LABEL[value as AlreadyAddressedValue] ?? value
 }
 
-const REVIEW_DECISIONS: Record<NonNullable<ReportPullRequest['review_decision']>, string> = {
-    approved: 'Approved',
-    changes_requested: 'Changes requested',
-    review_required: 'Review required',
-}
-
 function StatusRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
     return (
         <div className="flex min-h-6 items-center justify-between gap-3">
@@ -93,6 +84,57 @@ function externalClaimLabel(report: SignalReport): string | null {
     return claimant ? `${fullNameOrEmail(claimant)} (via ${agent})` : agent
 }
 
+function PriorityRow({
+    priority,
+    editable,
+    attribution,
+    onChange,
+    saving,
+}: {
+    priority: ReportPriorityApi
+    editable: boolean
+    attribution: ReportDecisionAttribution | null
+    onChange?: (priority: ReportPriorityApi) => void
+    saving: boolean
+}): JSX.Element {
+    if (editable) {
+        return (
+            <ReportDecisionRow<ReportPriorityApi>
+                label="Priority"
+                value={priority}
+                attribution={attribution}
+                options={PRIORITY_OPTIONS}
+                onChange={onChange}
+                saving={saving}
+                data-attr="report-priority-select"
+            />
+        )
+    }
+    return (
+        <StatusRow label="Priority">
+            {onChange ? (
+                <LemonSelect<ReportPriorityApi>
+                    aria-label="Change report priority"
+                    data-attr="report-priority-select"
+                    value={priority}
+                    onChange={onChange}
+                    loading={saving}
+                    disabledReason={saving ? 'Saving priority…' : undefined}
+                    size="xsmall"
+                    type="tertiary"
+                    dropdownPlacement="bottom-end"
+                    dropdownMatchSelectWidth={false}
+                    menu={{ className: 'w-56' }}
+                    options={PRIORITY_OPTIONS}
+                    renderButtonContent={() => <span className="text-default text-xs font-normal">{priority}</span>}
+                />
+            ) : (
+                priority
+            )}
+        </StatusRow>
+    )
+}
+
 export function ReportStatusSection({
     report,
     rightSlot,
@@ -103,6 +145,9 @@ export function ReportStatusSection({
     onActionabilityChange,
     actionabilitySaving = false,
     decisionAttributions = null,
+    selectedPullRequestUrl = null,
+    onSelectPullRequest,
+    onToggleAgentDecisions,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
@@ -114,40 +159,79 @@ export function ReportStatusSection({
     actionabilitySaving?: boolean
     /** Null before the report's detail loads. */
     decisionAttributions?: ReportDecisionAttributions | null
+    selectedPullRequestUrl?: string | null
+    onSelectPullRequest?: (url: string) => void
+    onToggleAgentDecisions?: (collapsed: boolean) => void
 }): JSX.Element {
     const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')
     const externalClaim = externalClaimLabel(report)
     const pullRequests = reportPullRequests(report)
+    const selectable = pullRequests.length > 1 && !!onSelectPullRequest
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
-    const hasDecisions = !!(
+    const hasAgentDecisions = !!(
         report.repo_slug ||
-        report.priority ||
         report.actionability ||
         typeof report.already_addressed === 'boolean'
     )
 
     return (
         <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
-            <dl className="m-0 flex flex-col gap-2">
-                {editableDecisions && hasDecisions && (
-                    <>
+            <div className="flex flex-col gap-2">
+                <dl className="m-0 flex flex-col gap-2">
+                    <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
+                    {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
+                    {report.priority && (
+                        <PriorityRow
+                            priority={report.priority}
+                            editable={editableDecisions}
+                            attribution={decisionAttributions?.priority ?? null}
+                            onChange={onPriorityChange}
+                            saving={prioritySaving}
+                        />
+                    )}
+                    {pullRequests.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            <dt className="text-xs text-secondary">Pull requests</dt>
+                            <dd className="m-0 text-xs">
+                                <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                                    {pullRequests.map((pullRequest) => (
+                                        <ReportPullRequestLine
+                                            key={pullRequest.id ?? pullRequest.url}
+                                            pullRequest={pullRequest}
+                                            reportRepository={report.repo_slug}
+                                            selected={selectable && pullRequest.url === selectedPullRequestUrl}
+                                            onSelect={
+                                                selectable ? () => onSelectPullRequest(pullRequest.url) : undefined
+                                            }
+                                        />
+                                    ))}
+                                </ul>
+                            </dd>
+                        </div>
+                    )}
+                    {trackerUrl && (
+                        <StatusRow label="Tracker issue">
+                            <Link to={trackerUrl} target="_blank">
+                                {report.tracker_issue_reference || 'Open issue'}
+                            </Link>
+                        </StatusRow>
+                    )}
+                </dl>
+                {editableDecisions && hasAgentDecisions && (
+                    <ReportAgentDecisions
+                        values={[
+                            report.repo_slug,
+                            report.actionability && actionabilityLabel(report.actionability),
+                            report.already_addressed ? 'Already addressed' : null,
+                        ]}
+                        onToggleCollapsed={onToggleAgentDecisions}
+                    >
                         {report.repo_slug && (
                             <ReportRepositoryDecisionRow
                                 repository={report.repo_slug}
                                 attribution={decisionAttributions?.repository ?? null}
                                 onChange={onRepositoryChange}
                                 saving={repositorySaving}
-                            />
-                        )}
-                        {report.priority && (
-                            <ReportDecisionRow<ReportPriorityApi>
-                                label="Priority"
-                                value={report.priority}
-                                attribution={decisionAttributions?.priority ?? null}
-                                options={PRIORITY_OPTIONS}
-                                onChange={onPriorityChange}
-                                saving={prioritySaving}
-                                data-attr="report-priority-select"
                             />
                         )}
                         {report.actionability && (
@@ -182,81 +266,9 @@ export function ReportStatusSection({
                                 data-attr="report-already-addressed-select"
                             />
                         )}
-                        <LemonDivider className="my-0" />
-                    </>
+                    </ReportAgentDecisions>
                 )}
-                <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
-                {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
-                {!editableDecisions && report.priority && (
-                    <StatusRow label="Priority">
-                        {onPriorityChange ? (
-                            <LemonSelect<ReportPriorityApi>
-                                aria-label="Change report priority"
-                                data-attr="report-priority-select"
-                                value={report.priority}
-                                onChange={onPriorityChange}
-                                loading={prioritySaving}
-                                disabledReason={prioritySaving ? 'Saving priority…' : undefined}
-                                size="xsmall"
-                                type="tertiary"
-                                dropdownPlacement="bottom-end"
-                                dropdownMatchSelectWidth={false}
-                                menu={{ className: 'w-56' }}
-                                options={PRIORITY_OPTIONS}
-                                renderButtonContent={() => (
-                                    <span className="text-default text-xs font-normal">{report.priority}</span>
-                                )}
-                            />
-                        ) : (
-                            report.priority
-                        )}
-                    </StatusRow>
-                )}
-                {pullRequests.map((pullRequest, index) => {
-                    const prUrl = safeHttpUrl(pullRequest.url)
-                    const prRef = prUrl ? parsePrUrlParts(prUrl) : null
-                    const isOpen = pullRequest.state === 'open' || pullRequest.state === 'draft'
-
-                    return (
-                        <div
-                            key={pullRequest.id ?? pullRequest.url}
-                            className={
-                                index === 0
-                                    ? 'contents'
-                                    : 'contents [&>div:first-child]:border-t [&>div:first-child]:border-primary [&>div:first-child]:pt-3'
-                            }
-                        >
-                            <StatusRow label="Pull request">
-                                {prRef && prUrl ? (
-                                    <Link to={prUrl} target="_blank">
-                                        {prRef.repoSlug}#{prRef.number}
-                                    </Link>
-                                ) : (
-                                    <span className="text-tertiary">Unavailable</span>
-                                )}
-                            </StatusRow>
-                            <StatusRow label="Status">
-                                {PULL_REQUEST_STATES[pullRequest.state] ?? PULL_REQUEST_STATES.unknown}
-                            </StatusRow>
-                            {isOpen && pullRequest.review_decision && (
-                                <StatusRow label="Review">{REVIEW_DECISIONS[pullRequest.review_decision]}</StatusRow>
-                            )}
-                            {pullRequest.state === 'merged' && pullRequest.merged_at && (
-                                <StatusRow label="Merged">
-                                    <TZLabel time={pullRequest.merged_at} timestampStyle="absolute" />
-                                </StatusRow>
-                            )}
-                        </div>
-                    )
-                })}
-                {trackerUrl && (
-                    <StatusRow label="Tracker issue">
-                        <Link to={trackerUrl} target="_blank">
-                            {report.tracker_issue_reference || 'Open issue'}
-                        </Link>
-                    </StatusRow>
-                )}
-            </dl>
+            </div>
         </DetailSection>
     )
 }

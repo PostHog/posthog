@@ -8,6 +8,7 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 
 import re
 import math
+import hashlib
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -40,7 +41,6 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
-    RoutingMode,
 )
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
@@ -52,26 +52,37 @@ from products.stamphog.backend.logic.approval_retention import (
     base_merge_is_clean,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_checks import AttestationCheck, all_reported, attestation_check
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.installations import (
+    delete_installation,
+    remove_from_installation_snapshot,
+    reviewable_repo_config,
+    reviewable_repo_configs,
+)
 from products.stamphog.backend.logic.merge_approval import approving_run_at_head
+from products.stamphog.backend.logic.rerun_evidence import evidence_fingerprint
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
-from products.stamphog.backend.logic.routing.service import RoutingBusy
+from products.stamphog.backend.logic.routing.service import ROUTING_SAFETY_NET_SECONDS, RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     FinishedReview,
     ReviewPath,
     route_after_approval_retracted,
+    route_after_attestation_poll,
     route_after_external_review,
+    route_after_head_change,
     route_after_verdict,
     route_on_pull_request_event,
     route_on_safety_net,
+    routes_after_review,
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import seen_on_head
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -90,16 +101,20 @@ STAMPHOG_PR_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 
 # PR actions worth a (re)review. Anything else (closed, assigned, edited, ...) is dropped.
-# `labeled` passes this filter but only ever queues a run for repos in LABEL review mode, when the
-# added label is the repo's own trigger label, and under a per-PR cooldown (_review_mode_skip_reason).
-# In ALL mode it stays ignored: every label add fires a new delivery id, so toggling any label would
-# re-run the sandbox + LLM review without a code change.
+# `labeled` counts only for the repo's trigger label (_review_mode_skip_reason). Every add fires a new delivery
+# id, so LABEL mode queues under a cooldown and ALL mode re-reviews only on new evidence.
 RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
 
 # Actions that (may) move the PR head. When one of these is skipped by the LABEL-mode gate, a prior
 # stamphog approval at the old head must still be retracted — the review workflow that normally does it
 # is skipped. `reopened` doesn't move the head itself but is included defensively.
 _HEAD_CHANGING_ACTIONS = frozenset({"synchronize", "reopened"})
+
+
+def _is_base_retarget(payload: dict[str, Any]) -> bool:
+    # A base retarget arrives as `edited` with a `changes.base` entry.
+    return payload.get("action") == "edited" and bool((payload.get("changes") or {}).get("base"))
+
 
 # Approval dismissal message for the LABEL-mode skip path. Unlike the workflow's dismissal, no re-review
 # follows here (the trigger label is absent), so the copy tells the author how to re-request one.
@@ -361,18 +376,22 @@ def _review_mode_skip_reason(
 ) -> str | None:
     """Why the repo's review mode drops this event, or None to proceed.
 
-    ALL mode reviews every relevant action but ignores `labeled` (any label add would re-run the
-    review with no code change). LABEL mode requires the trigger label to be present on the PR for
-    every action, and for `labeled` specifically also requires that the trigger label is what was just
-    added — plus a per-PR cooldown so label toggling can't spam runs.
+    ALL mode reviews every relevant action. It ignores `labeled` unless the trigger label was just
+    added, and that add goes through the manual request's evidence gate (`_review_label_request_in_all_mode`)
+    instead of the unconditional path. It has no cooldown, because the evidence gate and the per-head
+    cap already bound how often it re-runs a head. LABEL mode requires the trigger label to be present
+    on the PR for every action, and for `labeled` specifically also requires that the trigger label is
+    what was just added — plus a per-PR cooldown so label toggling can't spam runs.
     """
+    added_label = (payload.get("label") or {}).get("name") or ""
     if repo_config.review_mode != ReviewMode.LABEL:
-        return "labeled_ignored_in_all_mode" if action == "labeled" else None
+        if action == "labeled" and added_label != repo_config.trigger_label:
+            return "labeled_ignored_in_all_mode"
+        return None
 
     if not _pr_has_trigger_label(repo_config, pr):
         return "label_absent"
     if action == "labeled":
-        added_label = (payload.get("label") or {}).get("name") or ""
         if added_label != repo_config.trigger_label:
             return "other_label_added"
         if cache.get(_label_cooldown_key(repo_config, pr["number"])) is not None:
@@ -1176,10 +1195,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             logger.info("stamphog_pr_event_closed_unmerged_ignored")
         return
 
-    # A base retarget arrives as `edited` with a `changes.base` entry. It changes the reviewed diff
-    # without moving the head, so it flows through the full pipeline like a synchronize — plus an
-    # explicit retraction below, because every head-keyed sweep is blind to a same-head approval.
-    base_retargeted = action == "edited" and bool((payload.get("changes") or {}).get("base"))
+    # A base retarget changes the reviewed diff without moving the head, so it flows through the full
+    # pipeline like a synchronize — plus an explicit retraction below, because every head-keyed sweep
+    # is blind to a same-head approval.
+    base_retargeted = _is_base_retarget(payload)
     if action not in RELEVANT_PR_ACTIONS and not base_retargeted:
         logger.info("stamphog_pr_event_action_ignored", action=action)
         return
@@ -1425,6 +1444,16 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 _mark_pr_event_processed(delivery_id)
             return
 
+    if action == "labeled" and repo_config.review_mode == ReviewMode.ALL and not carved_out:
+        try:
+            _review_label_request_in_all_mode(repo_config, pr, delivery_id)
+        except Exception as e:
+            logger.exception("stamphog_pr_event_label_request_failed", delivery_id=delivery_id, error=str(e))
+            raise cast(Any, process_pull_request_event).retry(exc=e)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
+        return
+
     # Bind the transaction and its on_commit hook to the model's routed DB. A bare atomic() opens on
     # the default connection, so when the product DB is configured the select_for_update in
     # _supersede_prior_runs and this create would run outside any transaction, and on_commit would fire
@@ -1525,25 +1554,6 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
-def _reviewable(configs: QuerySet[StamphogRepoConfig], repository: str) -> QuerySet[StamphogRepoConfig]:
-    """The enabled configs for ``repository`` that were bound through the verified sync flow.
-
-    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
-    case-insensitively because callers pass repository names in whatever casing they hold, while
-    configs keep GitHub's casing.
-    """
-    return (
-        configs.using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
-        .exclude(installation_id="")
-    )
-
-
-def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
-    """The team's reviewable config for ``repository``."""
-    return _reviewable(StamphogRepoConfig.objects.for_team(team_id), repository).order_by("created_at", "id").first()
-
-
 def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     """The teams among ``team_ids``, environments included, where a manual review of ``repository``
     would find its config."""
@@ -1552,7 +1562,7 @@ def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
     rows = Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
     project_ids = {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
     configs = StamphogRepoConfig.objects.unscoped().filter(team_id__in=set(project_ids.values()))
-    reviewing = set(_reviewable(configs, repository).values_list("team_id", flat=True))
+    reviewing = set(reviewable_repo_configs(configs, repository).values_list("team_id", flat=True))
     return [team_id for team_id in team_ids if project_ids.get(team_id) in reviewing]
 
 
@@ -1608,6 +1618,53 @@ _UNPUBLISHED_SILENT_RUN = Q(
     output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}, verdict_posted_at__isnull=True
 )
 
+EVIDENCE_RERUN_OUTPUT_KEY = "evidence_rerun_of"
+_EVIDENCE_RERUNS_PER_HEAD = 3
+_DELIVERED_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+
+
+def _covering_run(runs_at_head: QuerySet[ReviewRun], *, visible: bool) -> ReviewRun | None:
+    """The newest run that covers the head. A silent run covers a visible request only once its verdict is posted."""
+    covering = runs_at_head.exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+    if visible:
+        covering = covering.exclude(_UNPUBLISHED_SILENT_RUN)
+    return covering.order_by("-created_at").first()
+
+
+def _may_rerun_on_evidence(runs_at_head: QuerySet[ReviewRun], covering: ReviewRun) -> bool:
+    """Whether new evidence may review the head again: the covering run is a refusal or an escalation that
+    the PR saw, and the head has an evidence re-run left. A gate denial is stored as a GATED WAIT, so it
+    never qualifies. A silent run's withheld verdict has its own path."""
+    if covering.status != ReviewRunStatus.COMPLETED or covering.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return False
+    if covering.is_silent:
+        return False
+    # A re-run that failed or was superseded reviewed nothing, so it does not use up the cap.
+    used = (
+        runs_at_head.filter(output__has_key=EVIDENCE_RERUN_OUTPUT_KEY)
+        .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        .count()
+    )
+    return used < _EVIDENCE_RERUNS_PER_HEAD
+
+
+def _reviewed_evidence(runs_at_head: QuerySet[ReviewRun], base_ref: str) -> set[str]:
+    """The evidence fingerprints that finished reviews of this head and base saw, from the context each
+    run stored. Reads only the fields the fingerprint covers, never the files or the patches."""
+    rows = runs_at_head.filter(status__in=_DELIVERED_STATUSES).values(
+        "output__pr", "output__reviews", "output__discussion", "output__review_threads"
+    )
+    return {
+        evidence_fingerprint(
+            row["output__pr"],
+            reviews=row["output__reviews"],
+            discussion=row["output__discussion"],
+            review_threads=row["output__review_threads"],
+        )
+        for row in rows
+        if isinstance(row["output__pr"], dict) and (row["output__pr"].get("base") or {}).get("ref") == base_ref
+    }
+
 
 @frozen
 class _HeadQueueResult:
@@ -1625,6 +1682,8 @@ def _queue_review_at_head(
     *,
     output: dict[str, Any],
     revisit_wait: bool = False,
+    evidence: str | None = None,
+    delivery_id: str = "",
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1637,6 +1696,13 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head, engine or gated, from counting as covering
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run.
+
+    ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
+    this head is a delivered refusal, the head is reviewed again only for evidence that no finished
+    review of this head saw, and at most ``_EVIDENCE_RERUNS_PER_HEAD`` times.
+
+    ``delivery_id`` is the webhook delivery that asked, if any. The new run carries it, so a retry of
+    that delivery resumes the run instead of reading it as a request that a run already covers.
 
     The request's stamped trigger decides how a silent run counts. A silent run covers only another
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
@@ -1659,16 +1725,10 @@ def _queue_review_at_head(
         ):
             return _HeadQueueResult(run=None, created=False)
         # Dedupe repeat requests against the current head; the row lock serializes races.
-        covering_runs = (
-            ReviewRun.objects.for_team(team_id)
-            .using(run_write_db)
-            .select_for_update()
-            .filter(pull_request=pr_obj, head_sha=head_sha)
-            .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+        runs_at_head = (
+            ReviewRun.objects.for_team(team_id).using(run_write_db).filter(pull_request=pr_obj, head_sha=head_sha)
         )
-        if visible:
-            covering_runs = covering_runs.exclude(_UNPUBLISHED_SILENT_RUN)
-        existing = covering_runs.order_by("-created_at").first()
+        existing = _covering_run(runs_at_head.select_for_update(), visible=visible)
         # Only the newest run counts. An older verdict at this head, from before the WAIT, does not
         # cover it either, because the WAIT replaced that verdict.
         if (
@@ -1683,6 +1743,14 @@ def _queue_review_at_head(
         reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
         if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
             existing = None
+        if (
+            existing is not None
+            and evidence is not None
+            and _may_rerun_on_evidence(runs_at_head, existing)
+            and evidence not in _reviewed_evidence(runs_at_head, (pr.get("base") or {}).get("ref") or "")
+        ):
+            output = {**output, EVIDENCE_RERUN_OUTPUT_KEY: str(existing.id)}
+            existing = None
         if existing is not None:
             if existing.status == ReviewRunStatus.QUEUED:
                 existing_run_id = str(existing.id)
@@ -1693,7 +1761,7 @@ def _queue_review_at_head(
             team_id=team_id,
             pull_request=pr_obj,
             head_sha=head_sha,
-            delivery_id=None,
+            delivery_id=delivery_id or None,
             status=ReviewRunStatus.QUEUED,
             output=output,
         )
@@ -1749,7 +1817,7 @@ def process_inbox_pr_review(
 
     # iexact because tasks stores repository slugs lowercased while configs keep GitHub's casing.
     try:
-        repo_config = _reviewable_repo_config(team_id, repository)
+        repo_config = reviewable_repo_config(team_id, repository)
     except Exception as e:
         logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
@@ -1875,6 +1943,159 @@ class QueuedReview:
     created: bool
 
 
+def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
+    """The evidence fingerprint of ``pr`` as it is now, when the run that covers its current head for a
+    visible request is a delivered refusal and the head has an evidence re-run left. None otherwise,
+    which saves the reads. Raises on a GitHub error.
+
+    ``_queue_review_at_head`` decides again under the row lock, so a run that lands in between is
+    handled there."""
+    runs_at_head = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr["number"], head_sha=pr["head"]["sha"])
+    )
+    covering = _covering_run(runs_at_head, visible=True)
+    if covering is None or not _may_rerun_on_evidence(runs_at_head, covering):
+        return None
+    repo = repo_config.repository
+    # BATCH, because these reads are optional: the egress limiter sheds them before the installation reserve
+    # that dismissals and verdicts need, and a shed read falls back to returning the covering run.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
+    return evidence_fingerprint(
+        pr,
+        reviews=client.get_pr_reviews(repo, pr["number"]),
+        discussion=client.get_pr_discussion(repo, pr["number"]),
+        review_threads=client.get_pr_review_threads(repo, pr["number"]),
+    )
+
+
+def _label_request_notice(repo_config: StamphogRepoConfig, run: ReviewRun, *, evidence_read_failed: bool) -> str:
+    """The comment that says why a trigger label added in ALL mode started no review, and what to do next."""
+    removed = f"The `{repo_config.trigger_label}` label has been removed."
+    push = "Push a new commit to get a fresh review."
+    if run.status not in TERMINAL_STATUSES:
+        return (
+            "**No new review started.** stamphog is already reviewing this commit, and its review appears "
+            f"on this pull request when it finishes. {removed}"
+        )
+    if run.verdict == ReviewVerdict.APPROVED:
+        return f"**No new review started.** stamphog already approved this commit. {removed}"
+    if run.status != ReviewRunStatus.COMPLETED or run.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return (
+            "**No new review started.** stamphog already reviewed this commit, and a label does not repeat "
+            f"that review. {removed} {push}"
+        )
+    if evidence_read_failed:
+        return (
+            "**No new review started.** stamphog could not read the comments and reviews on this pull request "
+            f"from GitHub, so it could not check what changed since its last review. {removed} "
+            "Add it again in a few minutes."
+        )
+    runs_at_head = (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha)
+    )
+    if not _may_rerun_on_evidence(runs_at_head, run):
+        return (
+            f"**No new review started.** stamphog reviews the same commit again at most "
+            f"{_EVIDENCE_RERUNS_PER_HEAD} times, and this commit reached that limit. {removed} {push}"
+        )
+    return (
+        "**No new review started.** stamphog found no new comments, reviews, resolved threads or description "
+        f"edits since its last review of this commit. {removed} To request another review, answer its findings, "
+        "edit the description or resolve review threads, then add the label again."
+    )
+
+
+def _reject_label_request(repo_config: StamphogRepoConfig, pr: dict[str, Any], notice: str) -> None:
+    """Take the trigger label back off a PR whose label add started no review, and say why.
+
+    The removal lets the next add fire a `labeled` event again, so a failed removal raises and the
+    delivery retries: left on the PR, the label could never be added again. The status comment is
+    edited in place and is best effort, like the cooldown notice.
+    """
+    pr_number = pr["number"]
+    # BATCH, because nothing here gates an approval. A shed removal raises, so the delivery retries it later.
+    client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.BATCH)
+    client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
+    # upsert_sticky_comment reads then creates, so overlapping deliveries of one request could each post a comment.
+    notice_key = (
+        f"{_label_cooldown_key(repo_config, pr_number)}:request:{hashlib.sha256(notice.encode()).hexdigest()[:16]}"
+    )
+    if not cache.add(notice_key, True, timeout=60):
+        return
+    try:
+        client.upsert_sticky_comment(
+            repo_config.repository, pr_number, neutralize_active_markdown(scrub_credentials(notice))
+        )
+    except Exception:
+        logger.warning(
+            "stamphog_pr_event_label_request_notice_failed",
+            repo=repo_config.repository,
+            pr_number=pr_number,
+            exc_info=True,
+        )
+
+
+def _review_label_request_in_all_mode(repo_config: StamphogRepoConfig, pr: dict[str, Any], delivery_id: str) -> None:
+    """Review the PR's head because its trigger label was just added in ALL mode, if anything new asks for it.
+
+    This shares the manual request's path: a head with no covering run gets one, and a delivered refusal
+    is reviewed again only on new evidence. A failed evidence read re-runs nothing. Every other case
+    starts no run, so the label comes off again and a comment says why. The label does not move the
+    head, so no approval needs a retraction here: a standing approval covers exactly this head. Errors
+    from the run creation propagate, so the caller retries the delivery.
+    """
+    # A label added after the PR closed asks nothing of stamphog, as a manual request on it is refused.
+    if (pr.get("state") or "") != "open":
+        logger.info("stamphog_pr_event_label_request_not_open", repo=repo_config.repository, pr_number=pr["number"])
+        return
+    evidence_read_failed = False
+    try:
+        evidence = _evidence_after_refusal(repo_config, pr)
+    except (StamphogGitHubError, GitHubEgressBudgetExhausted, *_GITHUB_ERRORS):
+        logger.warning(
+            "stamphog_pr_event_label_evidence_failed",
+            repo=repo_config.repository,
+            pr_number=pr["number"],
+            exc_info=True,
+        )
+        evidence = None
+        evidence_read_failed = True
+    queued = _queue_review_at_head(
+        repo_config,
+        pr,
+        pr["head"]["sha"],
+        # Stamped as LABEL in either mode: the reviewer is told as fact that a label requested it.
+        output={"review_trigger": ReviewTrigger.LABEL.value},
+        evidence=evidence,
+        delivery_id=delivery_id,
+    )
+    if queued.run is None:
+        logger.info("stamphog_pr_event_stale_payload_locked", repo=repo_config.repository, pr_number=pr["number"])
+        return
+    if queued.created:
+        logger.info(
+            "stamphog_pr_event_queued",
+            repo=repo_config.repository,
+            pr_number=pr["number"],
+            action="labeled",
+            review_run_id=str(queued.run.id),
+            evidence_rerun=EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
+        )
+        return
+    logger.info(
+        "stamphog_pr_event_label_request_covered",
+        repo=repo_config.repository,
+        pr_number=pr["number"],
+        existing_status=queued.run.status,
+    )
+    notice = _label_request_notice(repo_config, queued.run, evidence_read_failed=evidence_read_failed)
+    _reject_label_request(repo_config, pr, notice)
+
+
 def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
     """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
 
@@ -1886,7 +2107,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     Runs synchronously in the API request, so the caller learns right away why a request was
     refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
     """
-    repo_config = _reviewable_repo_config(team_id, repository)
+    repo_config = reviewable_repo_config(team_id, repository)
     if repo_config is None:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_FOUND,
@@ -1923,11 +2144,17 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
             "so auto-approval will not review it.",
         )
 
+    try:
+        evidence = _evidence_after_refusal(repo_config, pr)
+    except (StamphogGitHubError, GitHubEgressBudgetExhausted, *_GITHUB_ERRORS):
+        logger.warning("stamphog_manual_review_evidence_failed", repository=repo, pr_number=pr_number, exc_info=True)
+        evidence = None
     queued = _queue_review_at_head(
         repo_config,
         pr,
         pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
+        evidence=evidence,
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
@@ -1940,6 +2167,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         pr_number=pr_number,
         review_run_id=str(queued.run.id),
         created=queued.created,
+        evidence_rerun=queued.created and EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
         team_id=team_id,
     )
     return QueuedReview(run=queued.run, created=queued.created)
@@ -2087,15 +2315,7 @@ _ATTESTATION_WAKE = "attestation_check_wake"
 _ATTESTATION_WAKES_PER_HEAD = 3
 
 
-@frozen
-class PendingCheck:
-    """The check name and publishing App id that a policy ``attestations`` entry pins."""
-
-    name: str
-    app_id: int
-
-
-def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
+def pending_attestation_checks(run: ReviewRun) -> list[AttestationCheck]:
     """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
     A gate denial is saved as a GATED WAIT too, so the engine's own verdict decides. A PR that another
@@ -2107,11 +2327,8 @@ def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     entries = ((gate_result.get("classification") or {}).get("attestations") or {}).get("pending")
     if not isinstance(entries, list):
         return []
-    return [
-        PendingCheck(name=entry["check"], app_id=entry["app_id"])
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("check"), str) and type(entry.get("app_id")) is int
-    ]
+    checks = [attestation_check(entry) for entry in entries]
+    return [check for check in checks if check is not None]
 
 
 def waits_on_attestations(run: ReviewRun) -> bool:
@@ -2128,20 +2345,6 @@ def waits_on_attestations(run: ReviewRun) -> bool:
         .count()
     )
     return wakes < _ATTESTATION_WAKES_PER_HEAD
-
-
-def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
-    # The engine's own test for a pending check, so the new review finds every check it waited for.
-    # GitHub filters by name and App, so a poll does not page through every check run of the head.
-    check_runs = client.get_check_runs(
-        repository, head_sha, check_name=check.name, app_id=check.app_id, priority=Priority.BATCH
-    )
-    return any(
-        check_run.get("name") == check.name
-        and (check_run.get("app") or {}).get("id") == check.app_id
-        and check_run.get("status") == "completed"
-        for check_run in check_runs
-    )
 
 
 def rereview_once_attestations_reported(run: ReviewRun) -> bool:
@@ -2163,10 +2366,12 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    try:
-        if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
-            return False
-    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+    seen = seen_on_head(
+        run.team_id, repo_config_id=repo_config.id, pr_number=pull_request.pr_number, head_sha=run.head_sha
+    )
+    if not all_reported(
+        client, repo_config.repository, run.head_sha, pending, pr_number=pull_request.pr_number, seen=seen
+    ):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations
@@ -2178,8 +2383,8 @@ _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
 # Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
 ROUTING_BUSY_RETRY_SECONDS = 60
-# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long.
-ROUTING_SAFETY_NET_SECONDS = 30 * 60
+ROUTING_ATTESTATION_POLL_SECONDS = 2 * 60
+_ROUTING_ATTESTATION_MAX_POLLS = ROUTING_SAFETY_NET_SECONDS // ROUTING_ATTESTATION_POLL_SECONDS
 
 
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any], *, count_silent: bool) -> bool:
@@ -2207,6 +2412,23 @@ def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int
     route_reviewers_safety_net.apply_async(
         kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": pr_number},
         countdown=ROUTING_SAFETY_NET_SECONDS,
+    )
+
+
+def _schedule_routing_attestation_poll(
+    repo_config: StamphogRepoConfig, pr_number: int, head_sha: str, poll: int
+) -> None:
+    if poll > _ROUTING_ATTESTATION_MAX_POLLS:
+        return
+    route_reviewers_after_attestation.apply_async(
+        kwargs={
+            "team_id": repo_config.team_id,
+            "repo_config_id": str(repo_config.id),
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            "poll": poll,
+        },
+        countdown=ROUTING_ATTESTATION_POLL_SECONDS,
     )
 
 
@@ -2270,6 +2492,7 @@ def _approval_stands_over_head(repo_config: StamphogRepoConfig, pr_number: int, 
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
+    schedule_attestation_poll=_schedule_routing_attestation_poll,
     finished_review=_finished_review,
     has_review=_has_review_of_head,
     approval_stands=_approval_stands_over_head,
@@ -2296,7 +2519,8 @@ def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -
 
 def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
     action = payload.get("action", "")
-    if action not in ROUTING_ACTIONS:
+    head_changed = action == "synchronize" or _is_base_retarget(payload)
+    if action not in ROUTING_ACTIONS and not head_changed:
         return
     installation_id = str((payload.get("installation") or {}).get("id", ""))
     repo = (payload.get("repository") or {}).get("full_name", "")
@@ -2305,6 +2529,9 @@ def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
         return
     repo_config = _resolve_repo_config(installation_id, repo)
     if repo_config is None:
+        return
+    if head_changed:
+        route_after_head_change(repo_config, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH)
         return
     route_on_pull_request_event(
         repo_config, action=action, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH
@@ -2315,9 +2542,9 @@ def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
 def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_id: str) -> None:
     """Request reviews from the owners of the changed code when a PR opens or becomes ready.
 
-    In FALLBACK mode a head that stamphog will review waits for the verdict instead. GitHub and DB
-    errors retry with backoff. The stored routing record makes a retry or a redelivery for the same
-    head request nobody twice.
+    In FALLBACK mode a head that stamphog will review waits for the verdict instead. A push or a base
+    retarget decides an attested ALWAYS pull request again. GitHub and DB errors retry with backoff. The
+    stored routing record makes a retry or a redelivery for the same head request nobody twice.
     """
     _run_routing_step(self, lambda: _route_reviewers(payload, self.request.id or ""), delivery_id=delivery_id)
 
@@ -2330,7 +2557,8 @@ def route_reviewers_after_verdict(
 
     An approval requests only the pinned owners that no earlier routing requested. A WAIT keeps the head
     waiting for the safety net. Any other outcome routes in full, once per pull request. A verdict
-    for a head that is no longer the PR head does nothing.
+    for a head that is no longer the PR head does nothing. On an attested ALWAYS pull request, an
+    outcome other than an approval routes the head in full when the pull request has no reviewer left.
     """
     _run_routing_step(
         self,
@@ -2350,10 +2578,11 @@ def route_reviewers_after_verdict(
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
 def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
-    """Route a FALLBACK pull request in full on its current head, unless it was already routed.
+    """Route a pull request in full on its current head, unless it was already routed.
 
-    A full routing on any head, or a pinned-only routing after an approval of the current head,
-    means nothing is left to do.
+    In FALLBACK mode, a full routing on any head, or a pinned-only routing after an approval of the
+    current head, means nothing is left to do. In ALWAYS mode, only a head that still waits for its
+    attestation checks routes.
     """
     _run_routing_step(
         self,
@@ -2368,9 +2597,33 @@ def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr
     )
 
 
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_after_attestation(
+    self: Task, team_id: int, repo_config_id: str, pr_number: int, head_sha: str, poll: int
+) -> None:
+    """Poll the attestation checks that an ALWAYS head waits for, and decide the head once they all reported.
+
+    A verified proof of every changed file requests only the pinned owners while the pull request keeps a reviewer.
+    Anything else routes in full. ``poll`` counts the polls of the head, so the chain stops at the safety net.
+    """
+    _run_routing_step(
+        self,
+        lambda: route_after_attestation_poll(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            poll=poll,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
+
+
 def _route_after_external_review(team_id: int, repository: str, pr_number: int, head_sha: str, task_id: str) -> None:
     # A disabled repo has no config here. Its heads never wait for a silent review, so nothing is lost.
-    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+    repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
     if repo_config is None:
         return
     route_after_external_review(
@@ -2402,11 +2655,10 @@ def queue_routing_after_verdict(
     verdict: ReviewVerdict,
     silent: bool,
 ) -> None:
-    """Queue FALLBACK routing for a finished review. Never raises, because the outcome is already saved."""
-    # The loaded config is enough to skip the queue for other modes. The task reads the mode again.
-    if repo_config.routing_mode != RoutingMode.FALLBACK:
-        return
+    """Queue routing for a finished review. Never raises, because the outcome is already saved."""
     try:
+        if not routes_after_review(repo_config, pr_number):
+            return
         route_reviewers_after_verdict.delay(
             team_id=repo_config.team_id,
             repo_config_id=str(repo_config.id),
@@ -2423,8 +2675,9 @@ def queue_routing_after_verdict(
 def route_reviewers_after_approval_retracted(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
     """Route a FALLBACK pull request in full when a retraction left it with neither an approval nor its owners.
 
-    Only a pull request whose routing requested just the pinned owners of an approved head routes, and only
-    while no review of the live head exists or comes for the trigger label.
+    Only a pull request whose routing requested just the pinned owners of an approved head routes, or an attested
+    ALWAYS one without a reviewer left, and only while no review of the live head exists or comes for the trigger
+    label.
     """
     _run_routing_step(
         self,
@@ -2440,11 +2693,10 @@ def route_reviewers_after_approval_retracted(self: Task, team_id: int, repo_conf
 
 
 def queue_routing_after_approval_retracted(repo_config: StamphogRepoConfig, *, pr_number: int) -> None:
-    """Queue FALLBACK routing after a skip path retracted an approval. Never raises, because the dismissal is done."""
-    # ALWAYS already requested every owner when the pull request opened. The task reads the mode again.
-    if repo_config.routing_mode != RoutingMode.FALLBACK:
-        return
+    """Queue routing after a skip path retracted an approval. Never raises, because the dismissal is done."""
     try:
+        if not routes_after_review(repo_config, pr_number):
+            return
         route_reviewers_after_approval_retracted.delay(
             team_id=repo_config.team_id, repo_config_id=str(repo_config.id), pr_number=pr_number
         )
@@ -2510,7 +2762,7 @@ def silent_review_after_clean_external_review(
     safe: every check runs again, and the head dedupe collapses repeats into one run.
     """
     try:
-        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        repo_config = reviewable_repo_config(resolve_effective_team_id(team_id), repository)
         if repo_config is None:
             logger.info(
                 "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"

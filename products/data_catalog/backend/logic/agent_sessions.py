@@ -44,6 +44,7 @@ FIRST_INTENTS = 3
 MAX_INTENTS = 12
 MAX_INTENT_CHARS = 300
 RUN_TOOL = "data-catalog-metric-run"
+LIST_TOOL = "metric-list"
 SQL_TOOL = "execute-sql"
 # A session that called none of these tools computed no number, so it says nothing about catalog coverage.
 DATA_TOOLS = (RUN_TOOL, SQL_TOOL, "insight-query", "dashboard-insights-run")
@@ -150,6 +151,8 @@ class PieceCall:
     at: datetime
     tool: str
     note: str
+    # For an `exec` call, the command and what it looked for, such as "search ^skill-get$" or "learn load <skill>".
+    detail: str = ""
 
 
 @frozen
@@ -474,7 +477,7 @@ FROM (
                         anyIf(conversation_id, length(conversation_id) > 0) AS conversation,
                         min(timestamp) AS started_at,
                         max(timestamp) AS ended_at,
-                        arraySort(call -> call.1, groupArrayIf(tuple(timestamp, tool, intent), call_no <= {max_piece_calls})) AS calls,
+                        arraySort(call -> call.1, groupArrayIf(tuple(timestamp, tool, intent, detail), call_no <= {max_piece_calls})) AS calls,
                         max(is_data) AS queried,
                         max(source IN ('self_driving', 'wizard')) AS excluded
                     FROM (
@@ -482,8 +485,32 @@ FROM (
                             toString(properties.$session_id) AS session,
                             distinct_id,
                             timestamp,
-                            substring(ifNull(toString(properties.$mcp_intent), ''), 1, {max_intent_chars}) AS intent,
+                            substringUTF8(ifNull(toString(properties.$mcp_intent), ''), 1, {max_intent_chars}) AS intent,
                             toString(properties.$mcp_tool_name) AS tool,
+                            if(
+                                tool = 'exec',
+                                arrayStringConcat(
+                                    arrayFilter(
+                                        part -> length(part) > 0,
+                                        [
+                                            ifNull(toString(properties.exec_verb), ''),
+                                            ifNull(toString(properties.exec_learn_kind), ''),
+                                            substring(
+                                                coalesce(
+                                                    nullIf(toString(properties.exec_learn_target), ''),
+                                                    nullIf(toString(properties.exec_search_query), ''),
+                                                    nullIf(toString(properties.$mcp_exec_target_tool), ''),
+                                                    ''
+                                                ),
+                                                1,
+                                                {max_intent_chars}
+                                            )
+                                        ]
+                                    ),
+                                    ' '
+                                ),
+                                ''
+                            ) AS detail,
                             ifNull(toString(properties.$mcp_client_name), '') AS client_name,
                             ifNull(toString(properties.source), '') AS source,
                             ifNull(toString(properties.$mcp_conversation_id), '') AS conversation_id,
@@ -525,8 +552,10 @@ def fetch_candidate_chains(
     window_end: datetime,
     chain_limit: int,
     lookback: timedelta = timedelta(0),
+    extra_tools: frozenset[str] = frozenset(),
 ) -> list[list[Piece]]:
-    """The chains that reach into the window. With a lookback, a chain also keeps its pieces from just before it."""
+    """The chains that reach into the window. With a lookback, a chain also keeps its pieces from just before it.
+    A tool in ``extra_tools`` makes a chain eligible as a data tool does."""
     with tags_context(product=Product.DATA_CATALOG, feature=Feature.ENRICHMENT, team_id=team.id):
         response = execute_hogql_query(
             query=parse_select(_CHAINS_QUERY),
@@ -536,7 +565,9 @@ def fetch_candidate_chains(
                 "window_start": ast.Constant(value=window_start),
                 "end": ast.Constant(value=window_end),
                 "project": ast.Constant(value=str(team.uuid)),
-                "data_tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in DATA_TOOLS]),
+                "data_tools": ast.Tuple(
+                    exprs=[ast.Constant(value=tool) for tool in (*DATA_TOOLS, *sorted(extra_tools))]
+                ),
                 "data_tool_prefix": ast.Constant(value=DATA_TOOL_PREFIX),
                 "max_intent_chars": ast.Constant(value=MAX_INTENT_CHARS),
                 "max_piece_calls": ast.Constant(value=_MAX_PIECE_CALLS),
@@ -564,7 +595,10 @@ def fetch_candidate_chains(
                 person=person,
                 source=source or "",
                 client=client or "",
-                calls=tuple(PieceCall(at=at, tool=tool, note=note or "") for at, tool, note in calls),
+                calls=tuple(
+                    PieceCall(at=at, tool=tool, note=note or "", detail=detail or "")
+                    for at, tool, note, detail in calls
+                ),
                 last_call_at=ended_at,
                 conversation_id=conversation or "",
             )
@@ -600,10 +634,11 @@ class StitchRun:
     skipped_pieces: int
 
 
-def conversation_session(pieces: Sequence[Piece]) -> SessionText | None:
-    """The session text of one joined conversation, or None when it ran no data tool or has no notes."""
+def conversation_session(pieces: Sequence[Piece], extra_tools: frozenset[str] = frozenset()) -> SessionText | None:
+    """The session text of one joined conversation, or None when it ran no data tool or has no notes.
+    A tool in ``extra_tools`` keeps the conversation as a data tool does."""
     calls = sorted((call for piece in pieces for call in piece.calls), key=lambda call: call.at)
-    if not any(is_data_tool(call.tool) for call in calls):
+    if not any(is_data_tool(call.tool) or call.tool in extra_tools for call in calls):
         return None
     notes = [call.note for call in calls if call.note.strip()]
     if not notes:
@@ -623,7 +658,11 @@ def conversation_session(pieces: Sequence[Piece]) -> SessionText | None:
     )
 
 
-def joined_sessions(chains: Sequence[Sequence[Piece]], conversations: Iterable[Sequence[str]]) -> StitchedSessions:
+def joined_sessions(
+    chains: Sequence[Sequence[Piece]],
+    conversations: Iterable[Sequence[str]],
+    extra_tools: frozenset[str] = frozenset(),
+) -> StitchedSessions:
     """The conversations of `chains` under a stored join. A piece that no stored conversation holds stands alone."""
     unit_of = {piece_id: tuple(group) for group in conversations for piece_id in group}
     sessions: list[SessionText] = []
@@ -636,7 +675,7 @@ def joined_sessions(chains: Sequence[Sequence[Piece]], conversations: Iterable[S
                 continue
             group = tuple(piece_id for piece_id in unit_of.get(piece.piece_id, (piece.piece_id,)) if piece_id in by_id)
             seen.update(group)
-            session = conversation_session([by_id[piece_id] for piece_id in group])
+            session = conversation_session([by_id[piece_id] for piece_id in group], extra_tools)
             if session is not None:
                 sessions.append(session)
                 members[session.session_id] = group

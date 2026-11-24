@@ -87,7 +87,33 @@ Retries reject changes to the registered configuration. They do not reload the r
 The workflow or command runner owns terminal cleanup. A failed preparation attempt cannot tear down a successful retry.
 Cleanup can find an unsaved VM by name. Cancellation markers expire after their enrollment deadline; requests past that deadline are rejected even after the marker is removed.
 Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
-The workflow remains development-only and sends synthetic probes.
+The workflow sends synthetic probes and uses the same environment checks as the command.
+
+### Probe the staging deployment
+
+Run the same command from a trusted controller using the staging database, Modal credentials and sandbox signing key. A local database registration cannot authorize a request through a proxy reading the staging registry.
+
+Staging requires `CLOUD_DEPLOYMENT=DEV`, `DEBUG=0`, `SANDBOX_PROVIDER=modal`, and `AGENT_EGRESS_STAGING_PROBE_RUN_ID` set to the one TaskRun being tested. Keep that setting on the probe controller only. Production deployments remain excluded, and normal Tasks launches do not enroll.
+
+```text
+Controller using staging DB -> existing enrollment / renewal / cleanup lifecycle
+Synthetic VM -> isolated relay -> regional TCP ingress -> proxy -> staging registry
+```
+
+Use a dedicated active TaskRun with an eligible actor, no repositories and no sandbox. The configuration must name that run and its exact regional hostname. Staging rejects `sandbox_id` and `dev_proxy_ipv4`: each probe creates its own VM and uses the hostname's real network path. The existing ten-minute duration and request-concurrency limits still apply.
+
+Mount the operator-owned configuration directory and CA material on the controller. The proxy must trust that client CA and the controller's public verification keys. Only the controller receives the client CA private key; only the relay holds its generated private key. Use an image visible in the controller's Modal environment.
+
+```bash
+AGENT_EGRESS_STAGING_PROBE_RUN_ID=<run-uuid> \
+  python manage.py probe_agent_egress --config /run/egress/probes/probe.json
+```
+
+For `--temporal`, use a dedicated worker queue with the same run opt-in, configuration and mounted files. Workflow inputs still contain only IDs and a configuration path.
+
+Before sending traffic, verify the deployed registry, network policy, log redaction, TLS material and load-balancer readiness. Start with the default 60-second probe, then run for 360 seconds to cross capability refresh. Check 204 counts alongside proxy admission/completion events and the registry's final revocation record. Clearing or changing the opt-in blocks enrollment and renewal; the owning workflow can still revoke and clean up its existing probe. A controller crash leaves authority bounded by the 30-second lease and the VM by its TTL.
+
+This proves synthetic enrollment against deployed infrastructure. It does not establish general forwarding, upstream credential injection, DNS containment or production readiness. Denial tests, replica loss and certificate rotation still need separate deployment checks.
 
 ### Observe a development Tasks run
 
@@ -110,6 +136,44 @@ Each execution has its own relay name and capability file, so delayed writes or 
 Cleanup stops the relay and removes its guest capability file when Modal is reachable. The guest deliberately holds a bounded run capability; relay keys and upstream credentials belong outside it. This probe only authorizes `/v1/probe` and does not demonstrate an upstream credential adapter. An actor change invalidates its authorization through the registry.
 
 Observation failures stop that probe and are logged. They do not change the agent's network path. This tests lifecycle integration; it does not enforce agent egress, remove guest credentials or remove agentsh. Named-VM recovery applies to standalone probes, not to ordinary Tasks VM creation. Production certificates, credential adapters and enforced routing remain separate work.
+
+### Enroll selected normal runs
+
+`tasks-agent-egress-enrollment` selects a bounded enrollment canary through the normal Tasks workflow. It is off by default and also requires `AGENT_EGRESS_ENROLLMENT_CONFIG` on the worker. The shared JSON file lives under `AGENT_EGRESS_PROBE_CONFIG_DIR`:
+
+```json
+{
+  "endpoint_domain": "egress.example.com",
+  "region": "test-us",
+  "relay_image_id": "im-example",
+  "server_ca_file": "/run/egress/server-ca.pem",
+  "client_ca_file": "/run/egress/client-ca.pem",
+  "client_ca_key_file": "/run/egress/client-ca-key.pem",
+  "duration_seconds": 360
+}
+```
+
+The region must match `AGENT_EGRESS_REGION`. Use separate regional material and a certificate covering `*.egress.example.com`. The worker derives `run-<run UUID without hyphens>.egress.example.com` and binds it to the run's team, actor, execution and provisioned sandbox. No per-run configuration file is needed. Keys stay in worker mounts and the isolated relay; workflow history carries IDs, the configuration path and the enrollment mode.
+
+```text
+Selected TaskRun -> ordinary VM provision and agent launch
+  attach relay -> register execution -> publish bounded capability
+  renew lease and capability while synthetic requests run
+  parent ends / replaces VM / continues as new -> revoke and close relay
+```
+
+Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. It requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+
+Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
+
+Excess requests receive 429 before registry lookup or normal audit reservation. Every refusal increments `egress_requests_total{outcome="rate_limited"}`. Audit records include the authenticated relay-key fingerprint; rate-limit records are coalesced to one admission/completion pair per key per ten seconds, subject to audit availability. The metric counts all refusals, while the audit marker identifies affected relay keys without letting rejected traffic fill the shared queue.
+
+Rate-limit responses preserve HTTP/2 connections and bodyless HTTP/1.1 connections, so retrying does not require a new TLS handshake.
+An unread HTTP/1.1 body still closes the connection promptly; HTTP/2 closes the rejected stream while other streams can continue.
+
+The feature flag selects new enrollments; turning it off does not revoke running ones. Each activity rereads worker configuration and the run binding. Removing or changing configuration stops renewal; cleanup can revoke and remove its relay even if the configuration file is gone. An unavailable worker leaves authority bounded by the 30-second lease. Delayed cleanup cannot close a replacement relay or the agent VM.
+
+This canary lasts at most 600 seconds and does not restart after sandbox replacement or workflow continuation. Its relay lifetime includes a three-minute provisioning allowance, and its client certificate lasts at most 15 minutes. Provision a client CA that remains valid for the whole window. Full-run enrollment needs certificate renewal and longer-lived relay management before removing these limits. A normal run may outlive its canary; enrollment failure is logged and does not fail the agent run.
 
 ## Run the processes
 
@@ -275,6 +339,8 @@ Replacement requires the previous execution ID and keeps the old registration re
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. Missing, revoked or expired authority on a live run still fails the child.
+Failed probe rounds emit `agent_egress_probe_failed` with their status counts before checking whether the run ended. A normal child completion does not erase that failure evidence.
 
 Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
 

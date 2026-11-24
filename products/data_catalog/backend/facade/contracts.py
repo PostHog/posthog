@@ -135,6 +135,8 @@ class UncoveredGroup:
     draft_definition: str | None = None
     views: int = 0
     complexity: int = 0
+    # Zero on scans before the field, which ranked by complexity first.
+    priority: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,8 @@ class ProposedMetric:
     agents: AgentSource | None
     views: int = 0
     complexity: int = 0
+    # Zero on scans before the field, which ranked by complexity first.
+    priority: float = 0.0
     # The fingerprint digests of the merged measures. A read hides the proposal when it hides one of them.
     # The API does not return them.
     fingerprint_digests: list[str] = field(default_factory=list)

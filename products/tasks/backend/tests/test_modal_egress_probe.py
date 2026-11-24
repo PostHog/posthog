@@ -65,8 +65,28 @@ class TestModalEgressProbe(SimpleTestCase):
             name="test-egress", relay_image_id="im-example", endpoint=endpoint, dev_proxy_ipv4=dev_proxy_ipv4
         )
 
-    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(self) -> None:
-        probe = self.launch()
+    @parameterized.expand(
+        [
+            ("development", "run-a.egress.example.com"),
+            ("staging", "run-a.egress.example.com"),
+            ("double_hyphen", "run-a.edge--blue.example.com"),
+            ("punycode", "run-a.xn--bcher-kva.example.com"),
+        ]
+    )
+    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(
+        self, environment: str, hostname: str
+    ) -> None:
+        if environment == "staging":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_STAGING_PROBE_RUN_ID="00000000-0000-4000-8000-000000000001",
+                )
+            )
+        probe = self.launch(endpoint=f"https://{hostname}")
 
         config = self.create.call_args.args[0]
         self.assertEqual(config.template, SandboxTemplate.SLIM_BASE)
@@ -74,7 +94,7 @@ class TestModalEgressProbe(SimpleTestCase):
         self.assertTrue(config.vm_runtime)
         self.assertIsNone(config.environment_variables)
         policy = self.sandbox._sandbox._experimental_sidecars.create.call_args.kwargs
-        self.assertEqual(policy["outbound_domain_allowlist"], ["run-a.egress.example.com"])
+        self.assertEqual(policy["outbound_domain_allowlist"], [hostname])
         self.assertIsNone(policy["outbound_cidr_allowlist"])
         self.assertNotIn("volumes", policy)
         self.assertNotIn("secrets", policy)
@@ -94,6 +114,9 @@ class TestModalEgressProbe(SimpleTestCase):
         [
             ("http://run-a.egress.example.com", None),
             ("https://RUN-A.egress.example.com", None),
+            ("https://run-a.-edge.example.com", None),
+            ("https://run-a.edge-.example.com", None),
+            ("https://run-a." + "a" * 64 + ".example.com", None),
             ("https://run-a.egress.example.com/path", None),
             ("https://run-a.egress.example.com?key=value", None),
             ("https://user:password@run-a.egress.example.com", None),
@@ -197,9 +220,25 @@ class TestModalEgressProbe(SimpleTestCase):
             ("id", "ended"),
             ("id", "live"),
             ("id", "unavailable"),
+            ("name", "live", "staging"),
+            ("id", "live", "staging"),
         ]
     )
-    def test_cleanup_distinguishes_missing_sandbox_from_outage(self, reference: str, state: str) -> None:
+    def test_cleanup_distinguishes_missing_sandbox_from_outage(
+        self, reference: str, state: str, environment: str = "development"
+    ) -> None:
+        if environment == "staging":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_STAGING_PROBE_RUN_ID="",
+                )
+            )
+            with self.assertRaises(RuntimeError):
+                self.launch()
         lookup = self.lookup if reference == "name" else self.lookup_id
         lookup.side_effect = None
         lookup.return_value = self.sandbox._sandbox
@@ -266,8 +305,20 @@ class TestModalEgressProbe(SimpleTestCase):
             restarted = subprocess.run(command, input="", capture_output=True, text=True, timeout=5, check=True)
             self.assertEqual(restarted.stdout, "ready\n")
 
-    @parameterized.expand([("live",), ("missing",), ("ended",), ("removed",), ("delete_failed",), ("lookup_failed",)])
+    @parameterized.expand(
+        [("live",), ("enrollment",), ("missing",), ("ended",), ("removed",), ("delete_failed",), ("lookup_failed",)]
+    )
     def test_attached_relay_cleanup_keeps_main_sandbox_and_other_relays(self, state: str) -> None:
+        if state == "enrollment":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_ENROLLMENT_CONFIG="/run/egress/enrollment.json",
+                )
+            )
         relay_name = "egress-relay-first"
         probe = ModalEgressProbe.attach(
             sandbox_id="sb-original",
@@ -276,6 +327,8 @@ class TestModalEgressProbe(SimpleTestCase):
             endpoint="https://run-a.egress.example.com",
             ttl_seconds=900,
         )
+        if state == "enrollment":
+            self.enterContext(override_settings(AGENT_EGRESS_ENROLLMENT_CONFIG=""))
         self.sandbox._sandbox._experimental_sidecars.get.side_effect = None
         self.sandbox._sandbox._experimental_sidecars.get.return_value = self.sidecar
         self.sandbox._sandbox.exec.return_value.stdout.read.return_value = '{"204": 1}'

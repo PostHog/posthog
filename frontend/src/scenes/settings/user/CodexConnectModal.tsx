@@ -9,7 +9,7 @@ import { platformCommandControlKey } from 'lib/utils/dom'
 import { CODEX_LOGIN_PLATFORM_OPTIONS, codexLoginCommand } from './codexLoginCommands'
 import { personalCodexIntegrationLogic } from './personalCodexIntegrationLogic'
 
-const PLATFORM_HINTS = {
+export const PLATFORM_HINTS = {
     macos: 'Run it in Terminal.',
     linux: 'Run it in a terminal. It needs wl-clipboard, xclip, or xsel to copy to the clipboard.',
     windows: 'Run it in PowerShell.',

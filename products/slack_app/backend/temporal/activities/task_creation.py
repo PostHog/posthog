@@ -43,6 +43,7 @@ from products.slack_app.backend.temporal.helpers import (
     block_if_team_over_quota,
     safe_react,
     safe_unreact,
+    warn_if_personal_github_cannot_open_repository,
 )
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
@@ -978,6 +979,19 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
         )
+    # The warning comes after the mapping write, so an activity retry returns at the mapping
+    # guard and does not post it twice. A person who did not tag the app asked for no task,
+    # so they get no warning about one.
+    if task_run and repository and not inputs.untagged_question:
+        warn_if_personal_github_cannot_open_repository(
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            team_id=integration.team_id,
+            user_id=user_id,
+            slack_user_id=slack_user_id,
+            repository=repository,
+        )
     return task_run is not None
 
 
@@ -1316,6 +1330,7 @@ def forward_posthog_code_followup_activity(
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
         actor_slack_user_id=slack_user_id,
         person_message=person_message,
+        person_message_ts=user_message_ts,
         # The join check above applied the thread creator's choice about who may join, and a
         # run on a plan bills the creator's plan whoever sends the turn.
         plan_owner_consented=True,

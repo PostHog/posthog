@@ -20,6 +20,8 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { NotebookAppScene } from 'products/notebooks/frontend/AppBuilder/NotebookAppScene'
+
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -205,14 +207,16 @@ export function NotebookScene(): JSX.Element {
                 <NotebookRunAllBanner shortId={notebookId} />
             </BindLogic>
 
-            <Notebook
-                collapsedToolbarContainer={collapsedToolbarContainer}
-                key={notebookId}
-                shortId={notebookId}
-                editable={!isTemplate}
-                markdownSourceOpen={isMarkdownSourceOpen}
-                onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
-            />
+            <NotebookAppScene shortId={notebookId}>
+                <Notebook
+                    collapsedToolbarContainer={collapsedToolbarContainer}
+                    key={notebookId}
+                    shortId={notebookId}
+                    editable={!isTemplate}
+                    markdownSourceOpen={isMarkdownSourceOpen}
+                    onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
+                />
+            </NotebookAppScene>
             <NotebookShareModal shortId={notebookId} />
         </>
     )

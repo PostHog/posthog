@@ -55,8 +55,6 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
     SessionAuthentication,
-    TeamSecretTokenAuthentication,
-    TeamSecretTokenUser,
     WidgetAuthentication,
     _extract_phs_token,
     mint_export_renderer_token,
@@ -83,6 +81,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 from posthog.workos_radar import RadarAttempt, RadarVerdict
 from posthog.workos_radar_signal_handlers import RADAR_LOGIN_ATTEMPT_CACHE_ALIAS
@@ -2817,139 +2816,6 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
 
-class TestTeamSecretTokenAuthentication(APIBaseTest):
-    def setUp(self):
-        super().setUp()  # Call the setup from APIBaseTest
-        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-        self.team.save()
-        self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
-
-    @covers_authentication(TeamSecretTokenAuthentication)
-    def test_authenticate_with_valid_secret_api_key_in_header(self):
-        # Simulate a request with a valid team secret token
-        wsgi_request = self.factory.get(
-            "/",
-            data=None,
-            secure=False,
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
-
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-    def test_authenticate_tags_queries_with_team_secret_token_access_method(self):
-        wsgi_request = self.factory.get("/", headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"})
-        request = Request(wsgi_request)
-        authenticator = TeamSecretTokenAuthentication()
-        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
-            authenticator.authenticate(request)
-        mock_tag_authentication.assert_called_once_with(
-            user_id=None,
-            team_id=self.team.id,
-            access_method=AccessMethod.TEAM_SECRET_TOKEN,
-        )
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self) -> None:
-        wsgi_request = self.factory.get(
-            "/",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        result = TeamSecretTokenAuthentication().authenticate(Request(wsgi_request))
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
-        # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
-        wsgi_request = self.factory.post(
-            "/",
-            data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
-            content_type="application/json",
-        )
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-        request.parsers = [JSONParser()]  # Explicitly set JSONParser
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
-        # Query string authentication should not be supported for security reasons
-        wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_invalid_secret_api_key(self):
-        # Simulate a request with an invalid team secret token
-        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_without_secret_api_key(self):
-        # Simulate a request without a team secret token
-        wsgi_request = self.factory.get("/")
-        request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
-    def test_authenticate_with_matching_project_api_key_in_body(self):
-        # Test that when project token in body matches the secret key's team, it passes
-        wsgi_request = self.factory.post(
-            "/",
-            data=f'{{"project_api_key": "{self.team.api_token}"}}',
-            content_type="application/json",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        assert result is not None
-        user, _ = result
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-    def test_authenticate_with_no_project_api_key_in_body_passes(self):
-        # Test that when there's no project token in body, it still works normally
-        wsgi_request = self.factory.post(
-            "/",
-            data='{"some_other_field": "value"}',
-            content_type="application/json",
-            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
-        )
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        assert result is not None
-        user, _ = result
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
-
-
 class TestWidgetAuthentication(SimpleTestCase):
     @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
     def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
@@ -2969,36 +2835,32 @@ class TestSyntheticUser(SimpleTestCase):
         with self.assertRaises(TypeError):
             SyntheticUser(self._team())  # type: ignore[call-arg]
 
-    def test_team_secret_token_user_distinct_id_includes_team_id(self):
-        user = TeamSecretTokenUser(self._team(team_id=42))
-        self.assertEqual(user.distinct_id, "team-secret-token-42")
-        self.assertEqual(user.current_team_id, 42)
-        self.assertTrue(user.is_authenticated)
-        self.assertIsNone(user.id)
-
-    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
-        team = self._team(team_id=7)
-        fake_psak = type(
+    def _fake_psak(self, team):
+        return type(
             "FakePSAK",
             (),
             {"team": team, "team_id": team.id, "id": 99, "scopes": ["endpoint:read"]},
         )()
+
+    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
+        team = self._team(team_id=7)
+        fake_psak = self._fake_psak(team)
         user = ProjectSecretAPIKeyUser(fake_psak)
         self.assertEqual(user.distinct_id, "psak-7-99")
         self.assertIs(user.project_secret_api_key, fake_psak)
+        self.assertEqual(user.current_team_id, 7)
+        self.assertTrue(user.is_authenticated)
         self.assertIsNone(user.id)
 
-    def test_isinstance_check_recognises_both_subclasses(self):
+    def test_isinstance_check_recognises_subclass(self):
         from posthog.synthetic_user import SyntheticUser
 
         team = self._team()
-        fake_psak = type("FakePSAK", (), {"team": team, "team_id": team.id, "id": 1, "scopes": []})()
-        self.assertIsInstance(TeamSecretTokenUser(team), SyntheticUser)
-        self.assertIsInstance(ProjectSecretAPIKeyUser(fake_psak), SyntheticUser)
+        self.assertIsInstance(ProjectSecretAPIKeyUser(self._fake_psak(team)), SyntheticUser)
 
     def test_mutable_attrs_are_isolated_per_instance(self):
-        a = TeamSecretTokenUser(self._team(team_id=1))
-        b = TeamSecretTokenUser(self._team(team_id=2))
+        a = ProjectSecretAPIKeyUser(self._fake_psak(self._team(team_id=1)))
+        b = ProjectSecretAPIKeyUser(self._fake_psak(self._team(team_id=2)))
 
         a.groups.append("x")
         a.user_permissions.append("y")
@@ -3770,7 +3632,7 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
         )
         org.members.add(user)
         team = Team.objects.create(organization=org, name="Test Team")
-        team.rotate_secret_token_and_save(user=user, is_impersonated_session=False)
+        _, secret_token = create_project_secret_api_key(team)
         FeatureFlag.objects.create(
             team=team,
             key="rc-async-test",
@@ -3782,9 +3644,9 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
             },
             is_remote_configuration=True,
         )
-        return team
+        return team, secret_token
 
-    team = await setup_team_and_flag()
+    team, secret_token = await setup_team_and_flag()
 
     asgi_app = get_asgi_application()
     # httpx ASGITransport's `app` type spec is stricter than Django's ASGIHandler signature; the
@@ -3792,7 +3654,7 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
     async with AsyncClient(transport=ASGITransport(app=asgi_app), base_url="http://testserver") as ac:  # type: ignore[arg-type]
         response = await ac.get(
             f"/api/projects/{team.id}/feature_flags/rc-async-test/remote_config",
-            headers={"authorization": f"Bearer {team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
 
     assert response.status_code == status.HTTP_200_OK, response.text

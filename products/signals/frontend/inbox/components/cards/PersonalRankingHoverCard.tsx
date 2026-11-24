@@ -6,7 +6,7 @@ import { RankingScoreRows } from './RankingScoreRows'
 import { RankingStaffFooter } from './ReportCardRankingTag'
 
 /**
- * The score details on the Personalized sort. It leads with where the report sits on the user's own
+ * The score details on the personal order. It leads with where the report sits on the user's own
  * list, then shows the same model section as the Recommended card, because the scores are the same
  * for everyone on the team.
  */

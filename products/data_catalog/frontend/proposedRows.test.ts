@@ -11,6 +11,7 @@ function group(digest: string, overrides: Partial<UncoveredGroupApi> = {}): Unco
         views: 0,
         built: 4,
         complexity: 1,
+        priority: 0,
         sample_sql: `SELECT ${digest}`,
         draft_name: null,
         draft_description: null,
@@ -28,6 +29,7 @@ const PROPOSAL = {
     views: 12,
     built: 40,
     complexity: 1,
+    priority: 0,
     charts: [],
     other_charts: 0,
     surfaces: [],
@@ -81,6 +83,20 @@ describe('proposedRows', () => {
             'user_signups',
             'orphan_draft',
             'measure h',
+        ])
+    })
+
+    it('ranks by the scan priority before complexity', () => {
+        const rows = buildProposedRows({
+            ...PAYLOAD,
+            uncovered: [group('complex', { complexity: 3, priority: 2 }), group('widely_used', { priority: 5 })],
+            proposed_metrics: [{ ...PROPOSAL, priority: 3 }],
+        })
+
+        expect(rows.map((row) => row.name ?? row.measure)).toEqual([
+            'measure widely_used',
+            'user_signups',
+            'measure complex',
         ])
     })
 

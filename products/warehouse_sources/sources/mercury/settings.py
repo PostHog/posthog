@@ -65,6 +65,26 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         partition_key="createdAt",
         timestamp_columns=("createdAt",),
     ),
+    "BudgetExpenditures": MercuryEndpointConfig(
+        name="BudgetExpenditures",
+        path="/spend/budgets/{budgetId}/expenditures",
+        data_selector="expenditures",
+        # Expenditure rows do not carry their budget id, so it is copied in from the parent row.
+        primary_keys=("budgetId", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="Budgets",
+            resolve_param="budgetId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "budgetId"},
+        ),
+    ),
+    "Budgets": MercuryEndpointConfig(
+        name="Budgets",
+        path="/spend/budgets",
+        data_selector="budgets",
+        timestamp_columns=("startDate", "endDate"),
+    ),
     "Cards": MercuryEndpointConfig(
         name="Cards",
         path="/cards",
@@ -104,6 +124,24 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         partition_key="createdAt",
         timestamp_columns=("createdAt", "updatedAt", "canceledAt"),
     ),
+    "InvoicePayments": MercuryEndpointConfig(
+        name="InvoicePayments",
+        path="/ar/invoices/{invoiceId}/payments",
+        data_selector="payments",
+        # Payment rows do not carry their invoice id, so it is copied in from the parent row.
+        primary_keys=("invoiceId", "id"),
+        partition_key="createdAt",
+        # The endpoint returns every payment of an invoice in one response.
+        paginated=False,
+        timestamp_columns=("createdAt", "appliedDate"),
+        fanout=DependentEndpointConfig(
+            parent_name="Invoices",
+            resolve_param="invoiceId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "invoiceId"},
+        ),
+    ),
     "Merchants": MercuryEndpointConfig(
         name="Merchants",
         path="/merchants",
@@ -120,6 +158,12 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         name="Recipients",
         path="/recipients",
         data_selector="recipients",
+    ),
+    "Reimbursements": MercuryEndpointConfig(
+        name="Reimbursements",
+        path="/spend/reimbursements",
+        data_selector="reimbursements",
+        timestamp_columns=("submittedAt",),
     ),
     "SafeRequests": MercuryEndpointConfig(
         name="SafeRequests",
@@ -146,6 +190,14 @@ MERCURY_ENDPOINTS: dict[str, MercuryEndpointConfig] = {
         timestamp_columns=("createdAt", "postedAt", "failedAt"),
         # `start` filters on the earliest createdAt to include, per the Mercury API docs.
         incremental_param="start",
+    ),
+    "TransferApprovalRequests": MercuryEndpointConfig(
+        name="TransferApprovalRequests",
+        path="/request-transfer",
+        data_selector="requests",
+        primary_keys=("requestId",),
+        partition_key="createdAt",
+        timestamp_columns=("createdAt",),
     ),
     "TreasuryAccounts": MercuryEndpointConfig(
         name="TreasuryAccounts",

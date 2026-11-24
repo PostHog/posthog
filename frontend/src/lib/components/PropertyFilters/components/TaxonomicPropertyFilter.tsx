@@ -23,7 +23,6 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -32,6 +31,7 @@ import {
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
 import { QuillTaxonomicPopover } from 'lib/components/TaxonomicPopover/QuillTaxonomicPopover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'

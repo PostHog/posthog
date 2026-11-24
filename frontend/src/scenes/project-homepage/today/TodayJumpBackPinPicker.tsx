@@ -127,7 +127,7 @@ export function TodayJumpBackPinPicker({ trigger }: { trigger: JSX.Element }): J
                     [...pinnedKeys].find((k) => !nextKeys.has(k)) ?? next.find((k) => !pinnedKeys.has(k)) ?? null
                 const option = key ? optionsByKey.get(key) : null
                 if (option) {
-                    toggleJumpBackPin(jumpBackPinScope, option.entry)
+                    toggleJumpBackPin(jumpBackPinScope, option.entry, 'picker')
                 }
             }}
         >

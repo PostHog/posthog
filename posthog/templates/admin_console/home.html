@@ -128,9 +128,13 @@
                                 <ul class="m-0 p-0 list-none flex flex-col">
                                     {% for recent_tool in recent_tools %}
                                         <li class="flex items-center gap-2 py-1.5 border-b border-border last:border-b-0 min-w-0">
-                                            <img class="size-[18px] shrink-0"
-                                                 src="/static/admin-console/crests/{{ recent_tool.owner.crest }}.svg"
-                                                 alt="" />
+                                            {% if recent_tool.owner %}
+                                                <img class="size-[18px] shrink-0"
+                                                     src="/static/admin-console/crests/{{ recent_tool.owner.crest }}.svg"
+                                                     alt="" />
+                                            {% else %}
+                                                <span class="size-[18px] shrink-0"></span>
+                                            {% endif %}
                                             <a class="min-w-0 truncate font-semibold text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
                                                href="{% url 'admin_console_tool' tool_key=recent_tool.key %}">{{ recent_tool.title }}</a>
                                         </li>

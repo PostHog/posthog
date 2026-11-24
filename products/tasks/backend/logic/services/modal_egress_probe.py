@@ -19,6 +19,13 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
 )
+from products.tasks.backend.logic.services.sandbox_config import (
+    AGENT_EGRESS_DOMAIN_PATTERN,
+    agent_egress_enrollment_enabled,
+    agent_egress_enrollment_environment,
+    agent_egress_staging_environment,
+    agent_egress_staging_probe_enabled,
+)
 
 if TYPE_CHECKING:
     from modal.sandbox import SidecarContainer
@@ -117,8 +124,13 @@ class ModalEgressProbe:
         self.capability_path = CAPABILITY_PATH if relay_name == RELAY_NAME else f"{CAPABILITY_PATH}.{relay_name}"
 
     @staticmethod
-    def _sandbox_class() -> type[ModalSandbox]:
-        if not (settings.DEBUG or settings.TEST) or str(settings.SANDBOX_PROVIDER).upper() != "MODAL_DOCKER":
+    def _sandbox_class(*, cleanup: bool = False) -> type[ModalSandbox]:
+        if (
+            not ((settings.DEBUG or settings.TEST) and str(settings.SANDBOX_PROVIDER).upper() == "MODAL_DOCKER")
+            and not agent_egress_staging_probe_enabled()
+            and not agent_egress_enrollment_enabled()
+            and not (cleanup and (agent_egress_staging_environment() or agent_egress_enrollment_environment()))
+        ):
             raise RuntimeError("Egress probes require the local MODAL_DOCKER provider")
         sandbox_class = get_sandbox_class_for_run_backend("modal")
         if not issubclass(sandbox_class, ModalSandbox):
@@ -141,7 +153,8 @@ class ModalEgressProbe:
             target.scheme != "https"
             or not target.hostname
             or target.netloc != target.netloc.lower()
-            or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", target.hostname)
+            or len(target.hostname) > 253
+            or not re.fullmatch(AGENT_EGRESS_DOMAIN_PATTERN, target.hostname)
             or target.username is not None
             or target.password is not None
             or target.path not in ("", "/")
@@ -370,7 +383,7 @@ class ModalEgressProbe:
 
     @classmethod
     def close_named(cls, name: str) -> None:
-        sandbox_class = cls._sandbox_class()
+        sandbox_class = cls._sandbox_class(cleanup=True)
         try:
             sandbox = modal.Sandbox.from_name(sandbox_class.DEFAULT_APP_NAME, name, include_terminated=True)
             if sandbox.poll() is None:
@@ -380,7 +393,7 @@ class ModalEgressProbe:
 
     @classmethod
     def close_sandbox(cls, sandbox_id: str) -> None:
-        cls._sandbox_class()
+        cls._sandbox_class(cleanup=True)
         try:
             sandbox = modal.Sandbox.from_id(sandbox_id)
             if sandbox.poll() is None:
@@ -390,7 +403,7 @@ class ModalEgressProbe:
 
     @classmethod
     def close_relay(cls, sandbox_id: str, relay_name: str) -> None:
-        cls._sandbox_class()
+        cls._sandbox_class(cleanup=True)
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", relay_name):
             raise ValueError("Invalid egress relay name")
         try:

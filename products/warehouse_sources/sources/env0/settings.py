@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
-Env0EndpointScope = Literal["root", "organization", "project", "environment", "deployment"]
+Env0EndpointScope = Literal["root", "organization", "project", "environment", "deployment", "module"]
 
 
 @frozen
@@ -14,7 +14,7 @@ class Env0EndpointConfig:
     # project, environment or deployment, per `scope`).
     path: str
     # "root" endpoints are called once; every other scope fans out one request chain per
-    # parent resource of that kind, walking organizations -> projects / environments ->
+    # parent resource of that kind, walking organizations -> projects / environments / modules ->
     # deployments to enumerate the parents.
     scope: Env0EndpointScope = "root"
     # env0's core list endpoints are mostly unpaginated JSON arrays; only environments,
@@ -271,6 +271,35 @@ ENV0_ENDPOINTS: dict[str, Env0EndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "modules": Env0EndpointConfig(
+        name="modules",
+        path="/modules",
+        scope="organization",
+        org_id_param="organizationId",
+        # author embeds the full user, identity provider tokens included. authorId keeps the id.
+        strip_fields=("author",),
+    ),
+    "module_versions": Env0EndpointConfig(
+        name="module_versions",
+        path="/modules/{parent_id}/versions",
+        scope="module",
+        # Versions carry no id of their own; the version string is unique within its module.
+        primary_keys=["module_id", "version"],
+        inject_parent_fields={"id": "module_id"},
+    ),
+    "module_test_runs": Env0EndpointConfig(
+        name="module_test_runs",
+        path="/module/{parent_id}/tests",
+        scope="module",
+        paginated=True,
+        # A test run's id is optional in the API schema; its deployment log id is required and
+        # unique per run.
+        primary_keys=["module_id", "deploymentLogId"],
+        inject_parent_fields={"id": "module_id"},
+        # startedByUser embeds identity provider tokens and customEnv0EnvironmentVariables carries
+        # injected credentials (oidcToken, vcsAccessToken), the same as on deployments.
+        strip_fields=("startedByUser", "customEnv0EnvironmentVariables"),
     ),
 }
 

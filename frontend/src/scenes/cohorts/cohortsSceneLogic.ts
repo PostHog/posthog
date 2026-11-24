@@ -50,12 +50,12 @@ export interface cohortsSceneLogicValues {
     count: number
     pagination: PaginationManual
     paramsFromFilters: {
-        created_by_id?: number | undefined
+        created_by_id?: number
         limit: number
         offset: number
-        page?: number | undefined
-        search?: string | undefined
-        type?: 'dynamic' | 'static' | undefined
+        page?: number
+        search?: string
+        type?: 'dynamic' | 'static'
     }
     shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
@@ -116,12 +116,12 @@ export interface cohortsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         count: (cohorts: CountedPaginatedResponse<CohortType>) => number
         paramsFromFilters: (cohortFilters: CohortFilters) => {
-            created_by_id?: number | undefined
+            created_by_id?: number
             limit: number
             offset: number
-            page?: number | undefined
-            search?: string | undefined
-            type?: 'dynamic' | 'static' | undefined
+            page?: number
+            search?: string
+            type?: 'dynamic' | 'static'
         }
         pagination: (cohortFilters: CohortFilters, count: number) => PaginationManual
         shouldShowEmptyState: (

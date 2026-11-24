@@ -159,7 +159,6 @@ def _capture_feedback_event(*, user: User, properties: dict[str, Any]) -> str:
     client = get_client(
         region,
         sync_mode=True,
-        capture_mode="v1",
         timeout=5,
         max_retries=2,
     )

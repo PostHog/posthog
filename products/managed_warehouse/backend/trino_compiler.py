@@ -360,11 +360,8 @@ def compile_hogql_to_trino_sql(
             for variable in query.variables.values():
                 variables[variable.code_name] = variable.value
         parsed = cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(parsed, replacements))
-    if select_transform is not None:
-        parsed = select_transform(parsed)
 
-    clickhouse_output_names: list[str] | None = None
-    if preserve_clickhouse_output_names:
+    def predict_clickhouse_output_names(node: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
         clickhouse_context = HogQLContext(
             team_id=team_id,
             team=team,
@@ -376,16 +373,33 @@ def compile_hogql_to_trino_sql(
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,
         )
-        clickhouse_ast = prepare_ast_for_printing(clone_expr(parsed), clickhouse_context, dialect="clickhouse")
+        clickhouse_ast = prepare_ast_for_printing(clone_expr(node), clickhouse_context, dialect="clickhouse")
         if clickhouse_ast is None:
             raise ValueError("ClickHouse preparation returned an empty query")
 
         clickhouse_output = clickhouse_ast
         while isinstance(clickhouse_output, ast.SelectSetQuery):
             clickhouse_output = clickhouse_output.initial_select_query
-        clickhouse_output_names = ClickHousePrinter(
-            context=clickhouse_context, stack=[clickhouse_output]
-        ).select_column_names(clickhouse_output)
+        return ClickHousePrinter(context=clickhouse_context, stack=[clickhouse_output]).select_column_names(
+            clickhouse_output
+        )
+
+    if select_transform is not None:
+        # Only the first branch of a union names the output, so a BY NAME union keeps its own names:
+        # pinning one branch would stop it matching the others.
+        joins_by_name = isinstance(parsed, ast.SelectSetQuery) and any(
+            sub.set_operator.endswith(" BY NAME") for sub in parsed.subsequent_select_queries
+        )
+        if preserve_clickhouse_output_names and not joins_by_name:
+            # A transform can re-select the output through `*`, which keeps one column per HogQL name,
+            # and HogQL names `a.event` and `a.event AS event` both `event`. Pinning the ClickHouse
+            # names first keeps every column through the re-select.
+            alias_output_columns(parsed, predict_clickhouse_output_names(parsed))
+        parsed = select_transform(parsed)
+
+    clickhouse_output_names: list[str] | None = None
+    if preserve_clickhouse_output_names:
+        clickhouse_output_names = predict_clickhouse_output_names(parsed)
 
     trino_table_locators = build_trino_table_locators(
         database,

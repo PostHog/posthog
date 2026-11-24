@@ -371,11 +371,7 @@ def sync_task_pull_request_to_assignments(
     if merged:
         state = SignalReportAssignment.PrState.MERGED
 
-    report_ids = list(
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
     if not report_ids:
         return 0
 
@@ -575,13 +571,18 @@ def claim_report(
             if not release and _repeats_attach_under_ended_claim(locked_report, claim_id, actor, details):
                 return None
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
+        if (
+            claim_id
+            and assignment is not None
+            and not release
+            and not actor_works_under_claim(assignment, actor, user_id=user.id)
+        ):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_can_release_claim(assignment, actor):
+            if assignment.actor_kind and not actor_can_release_claim(assignment, actor, user_id=user.id):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
             assignment = None
@@ -591,13 +592,18 @@ def claim_report(
                 if (
                     not takeover
                     and assignment is not None
-                    and actor_works_under_claim(assignment, actor)
+                    and actor_works_under_claim(assignment, actor, user_id=user.id)
                     and _all_pull_requests_attached(locked_report, details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
             took_over = False
-            if assignment is not None and not actor_works_under_claim(assignment, actor):
+            # Another actor of the claim holder resumes their claim, unless it asks to take it over, as when a
+            # person turns their agent's claim into their own.
+            if assignment is not None and (
+                not actor_works_under_claim(assignment, actor, user_id=user.id)
+                or (takeover and not actor_owns_claim(assignment, actor))
+            ):
                 if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
                     raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
                 if not takeover:
@@ -623,6 +629,12 @@ def claim_report(
                 assignment = create_claim(locked_report, actor)
                 if on_new_claim is not None:
                     transaction.on_commit(partial(on_new_claim, takeover=took_over))
+            elif actor.task_id:
+                claim_artefact = SignalReportArtefact.objects.filter(
+                    team_id=report.team_id, id=assignment.claim_id
+                ).first()
+                if claim_artefact is not None:
+                    _associate_task_with_claim(locked_report, actor.task_id, claim_artefact)
 
         for pr_details in details:
             link_pull_request(
@@ -633,6 +645,20 @@ def claim_report(
             )
         if details:
             apply_report_completion(locked_report)
+        if actor.task_id:
+            # Function-local: the tasks module imports this one.
+            from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
+
+            for pr_details in details:
+                # Dispatch after commit so a rolled-back attach never edits a pull request body.
+                transaction.on_commit(
+                    partial(
+                        link_report_tracker_issues.delay,
+                        team_id=report.team_id,
+                        task_id=actor.task_id,
+                        pr_url=pr_details.url,
+                    )
+                )
 
         after = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if before == after:

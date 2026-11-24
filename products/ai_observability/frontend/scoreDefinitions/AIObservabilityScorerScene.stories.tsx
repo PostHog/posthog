@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -38,7 +37,6 @@ const meta: Meta<ScorerLogicProps> = {
     args: { scorerId: definition.id },
     parameters: {
         pageUrl: urls.aiObservabilityScorer(definition.id),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         (Story, { args }) => (

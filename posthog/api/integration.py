@@ -123,6 +123,7 @@ from posthog.models.integration import (
     GitHubIntegrationError,
     GitLabIntegration,
     GitLabIntegrationError,
+    GitLabOverwriteNotAllowed,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -1145,8 +1146,17 @@ class IntegrationSerializer(serializers.Serializer):
 
             try:
                 instance = GitLabIntegration.create_integration(
-                    hostname, project_id, project_access_token, team_id, request.user
+                    hostname,
+                    project_id,
+                    project_access_token,
+                    team_id,
+                    request.user,
+                    can_overwrite=github_callback_state.has_team_management_access(
+                        request.user, self.context["get_team"]()
+                    ),
                 )
+            except GitLabOverwriteNotAllowed:
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
             except GitLabIntegrationError as e:
                 raise ValidationError(str(e))
             return instance

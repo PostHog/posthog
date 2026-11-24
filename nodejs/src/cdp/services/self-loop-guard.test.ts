@@ -3,6 +3,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { Team } from '../../types'
 import {
     SELF_LOOP_DEPTH_PROPERTY,
+    canCarrySelfLoopDepth,
     extractRequestApiKey,
     getSelfLoopDepth,
     injectSelfLoopDepth,
@@ -24,6 +25,8 @@ const TEAM: Pick<Team, 'api_token' | 'secret_api_token'> = {
 const INGEST_URL = 'https://us.i.posthog.com/capture/'
 const BATCH_URL = 'https://eu.i.posthog.com/batch/'
 const LOGS_URL = 'https://us.i.posthog.com/i/v1/logs'
+const V1_URL = 'https://us.i.posthog.com/i/v1/analytics/events'
+const V1_AI_URL = 'https://eu.i.posthog.com/i/v1/ai/events'
 const API_URL = 'https://us.posthog.com/api/projects/100/insights/'
 const EXTERNAL_URL = 'https://external.example.com/webhook'
 
@@ -38,10 +41,35 @@ const batchBody = (events: string[], apiKey = OWN_TOKEN): string =>
         batch: events.map((event) => ({ event, distinct_id: 'synthetic_user_1', properties: {} })),
     })
 
-const detect = (overrides: { url?: string; body?: string | null }): boolean =>
+const v1Body = (events: string[]): string =>
+    JSON.stringify({
+        created_at: '2026-01-01T00:00:00Z',
+        batch: events.map((event, i) => ({
+            event,
+            uuid: `0190f3a2-0000-7000-8000-00000000000${i}`,
+            distinct_id: 'synthetic_user_1',
+            timestamp: '2026-01-01T00:00:00Z',
+            properties: {},
+            options: { process_person_profile: false },
+        })),
+    })
+
+const arrayBody = (tokens: (string | null)[], where: 'token' | 'properties' = 'token'): string =>
+    JSON.stringify(
+        tokens.map((token, i) =>
+            where === 'token'
+                ? { token, event: `e${i}`, distinct_id: 'synthetic_user_1', properties: {} }
+                : { event: `e${i}`, distinct_id: 'synthetic_user_1', properties: { token } }
+        )
+    )
+
+const bearer = (token: string): Record<string, string> => ({ Authorization: `Bearer ${token}` })
+
+const detect = (overrides: { url?: string; body?: string | null; headers?: Record<string, string> }): boolean =>
     isSelfReferentialIngestFetch({
         url: overrides.url ?? INGEST_URL,
         body: overrides.body === undefined ? captureBody('replicated_event') : overrides.body,
+        headers: overrides.headers,
         team: TEAM,
     })
 
@@ -56,6 +84,9 @@ describe('self-loop-guard', () => {
             ['https://us.i.posthog.com/i/v0/e/', true],
             ['https://us.i.posthog.com/capture/?api_key=abc', true],
             ['https://posthog.com/capture', true],
+            ['https://us.i.posthog.com/i/v1/analytics/events', true],
+            ['https://us.i.posthog.com/i/v1/analytics/events/', true],
+            ['https://eu.i.posthog.com/i/v1/ai/events', true],
             // observability + REST endpoints are NOT ingestion - cannot form a loop
             ['https://us.i.posthog.com/i/v1/logs', false],
             ['https://us.posthog.com/api/projects/100/insights/', false],
@@ -75,7 +106,7 @@ describe('self-loop-guard', () => {
             expect(extractRequestApiKey(captureBody('e'), INGEST_URL)).toBe(OWN_TOKEN)
         })
 
-        it.each(['token', 'api_token'])('reads the top-level %s field', (field) => {
+        it.each(['token', '$token', 'api_token'])('reads the top-level %s field', (field) => {
             expect(extractRequestApiKey(JSON.stringify({ [field]: OWN_TOKEN }), INGEST_URL)).toBe(OWN_TOKEN)
         })
 
@@ -157,8 +188,147 @@ describe('self-loop-guard', () => {
                 args: { body: JSON.stringify({ event: 'alpha' }) },
                 expected: false,
             },
+            {
+                case: 'posthog-js array body with the project own token on each event',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OWN_TOKEN]) },
+                expected: true,
+            },
+            {
+                case: 'array body with the project own token only in properties.token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OWN_TOKEN], 'properties') },
+                expected: true,
+            },
+            {
+                case: 'array body where only some events carry the project own token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, null]) },
+                expected: true,
+            },
+            {
+                case: 'array body whose only other token is on a $performance_event, which capture drops first',
+                args: {
+                    url: 'https://us.i.posthog.com/e/',
+                    body: JSON.stringify([
+                        { token: OWN_TOKEN, event: 'e0', distinct_id: 'synthetic_user_1', properties: {} },
+                        { token: OTHER_TOKEN, event: '$performance_event', distinct_id: 'synthetic_user_1' },
+                    ]),
+                },
+                expected: true,
+            },
+            {
+                case: 'array body mixing the project own token and another, which capture rejects',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OTHER_TOKEN]) },
+                expected: false,
+            },
+            {
+                case: 'array body with a different project token',
+                args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OTHER_TOKEN]) },
+                expected: false,
+            },
+            {
+                case: 'single event with the project own token only in properties.token',
+                args: { body: JSON.stringify({ event: 'alpha', properties: { token: OWN_TOKEN } }) },
+                expected: true,
+            },
+            {
+                case: 'single event with an api_token, which capture ignores, beside the project own properties.token',
+                args: {
+                    body: JSON.stringify({
+                        api_token: OTHER_TOKEN,
+                        event: 'alpha',
+                        properties: { token: OWN_TOKEN },
+                    }),
+                },
+                expected: true,
+            },
+            {
+                case: 'array body with the project own token on one event and an api_token on another',
+                args: {
+                    url: 'https://us.i.posthog.com/e/',
+                    body: JSON.stringify([
+                        { token: OWN_TOKEN, event: 'e0', distinct_id: 'synthetic_user_1', properties: {} },
+                        { api_token: OTHER_TOKEN, event: 'e1', distinct_id: 'synthetic_user_1', properties: {} },
+                    ]),
+                },
+                expected: true,
+            },
+            {
+                case: 'v1 batch with the project own token as a Bearer header',
+                args: { url: V1_URL, body: v1Body(['e1', 'e2']), headers: bearer(OWN_TOKEN) },
+                expected: true,
+            },
+            {
+                case: 'v1 AI endpoint with the project own token as a Bearer header',
+                args: { url: V1_AI_URL, body: v1Body(['$ai_generation']), headers: bearer(OWN_TOKEN) },
+                expected: true,
+            },
+            {
+                case: 'v1 with a lowercase header name and Bearer scheme, as capture accepts',
+                args: { url: V1_URL, body: v1Body(['e1']), headers: { authorization: `bearer  ${OWN_TOKEN} ` } },
+                expected: true,
+            },
+            {
+                case: 'v1 with a different project token',
+                args: { url: V1_URL, body: v1Body(['e1']), headers: bearer(OTHER_TOKEN) },
+                expected: false,
+            },
+            {
+                case: 'v1 with no Authorization header',
+                args: { url: V1_URL, body: v1Body(['e1']) },
+                expected: false,
+            },
+            {
+                case: 'v1 with a non-Bearer scheme, which capture rejects',
+                args: { url: V1_URL, body: v1Body(['e1']), headers: { Authorization: `Basic ${OWN_TOKEN}` } },
+                expected: false,
+            },
+            {
+                case: 'v1 with the project own token only in the body, which capture v1 ignores',
+                args: { url: V1_URL, body: captureBody('e', {}, OWN_TOKEN) },
+                expected: false,
+            },
+            {
+                case: 'legacy capture with the project own token only in an Authorization header',
+                args: { body: JSON.stringify({ event: 'alpha' }), headers: bearer(OWN_TOKEN) },
+                expected: false,
+            },
         ])('returns $expected for: $case', ({ args, expected }) => {
             expect(detect(args)).toBe(expected)
+        })
+    })
+
+    describe('canCarrySelfLoopDepth', () => {
+        const positionalEvent = [
+            'e',
+            '0190f3a2-0000-7000-8000-000000000000',
+            'synthetic_user_1',
+            't',
+            null,
+            null,
+            {},
+            {},
+        ]
+
+        it.each([
+            { case: 'v1 batch of event objects', url: V1_URL, body: v1Body(['e1', 'e2']), expected: true },
+            { case: 'v1 empty batch', url: V1_AI_URL, body: v1Body([]), expected: true },
+            {
+                case: 'v1 batch holding an event as a positional array',
+                url: V1_URL,
+                body: JSON.stringify({ created_at: 't', batch: [positionalEvent] }),
+                expected: false,
+            },
+            {
+                case: 'v1 batch written as a positional array',
+                url: V1_URL,
+                body: JSON.stringify(['t', false, null, parseJSON(v1Body(['e1'])).batch]),
+                expected: false,
+            },
+            { case: 'v1 body that is not JSON', url: V1_URL, body: 'not json', expected: false },
+            { case: 'v1 request with no body', url: V1_URL, body: null, expected: false },
+            { case: 'legacy posthog-js array body', url: INGEST_URL, body: arrayBody([OWN_TOKEN]), expected: true },
+            { case: 'legacy body that is not JSON', url: INGEST_URL, body: 'not json', expected: true },
+        ])('$case -> $expected', ({ url, body, expected }) => {
+            expect(canCarrySelfLoopDepth(url, body)).toBe(expected)
         })
     })
 
@@ -174,9 +344,15 @@ describe('self-loop-guard', () => {
             expect(props[SELF_LOOP_DEPTH_PROPERTY]).toEqual({ [FN]: 3 })
         })
 
-        it("stamps this function's depth onto every entry of a batch body", () => {
-            const parsed = parseJSON(injectSelfLoopDepth(batchBody(['a', 'b']), FN, 5) as string)
-            expect(parsed.batch.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
+        it.each([
+            { case: 'legacy batch', body: batchBody(['a', 'b']), entries: (parsed: any) => parsed.batch },
+            { case: 'capture v1 batch', body: v1Body(['a', 'b']), entries: (parsed: any) => parsed.batch },
+            { case: 'posthog-js array', body: arrayBody([OWN_TOKEN, OWN_TOKEN]), entries: (parsed: any) => parsed },
+        ])("stamps this function's depth onto every entry of a $case body", ({ body, entries }) => {
+            const before = entries(parseJSON(body))
+            const after = entries(parseJSON(injectSelfLoopDepth(body, FN, 5) as string))
+            expect(after.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
+            expect(after.map((e: any) => [e.options, e.token])).toEqual(before.map((e: any) => [e.options, e.token]))
         })
 
         it("preserves other functions' depths in the map - only its own entry is touched", () => {

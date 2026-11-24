@@ -175,6 +175,7 @@ export function MaterializationJobsTable({
                                                     </LinkPrimitive>
                                                 ) : (
                                                     <Text
+                                                        size="xs"
                                                         variant="muted"
                                                         render={<span />}
                                                         className="block truncate"

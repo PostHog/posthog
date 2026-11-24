@@ -332,4 +332,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "count": "Number of conversations or conversation segments with this value on the day.",
         },
     },
+    "ask_mode": {
+        "description": "Daily team Ask mode usage in Cursor, one row per day per model.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "event_date": "Day the usage is for.",
+            "model": "Model used for Ask mode queries.",
+            "usage": "Number of Ask mode uses with this model on the day.",
+        },
+    },
+    "plans": {
+        "description": "Daily team Plan mode usage in Cursor, one row per day per model.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "event_date": "Day the usage is for.",
+            "model": "Model used to generate plans. `default` means the Auto model selection.",
+            "usage": "Number of Plan mode uses with this model on the day.",
+        },
+    },
+    "mcp": {
+        "description": "Daily team MCP tool usage in Cursor, one row per day per tool and MCP server.",
+        "docs_url": "https://cursor.com/docs/account/teams/analytics-api",
+        "columns": {
+            "event_date": "Day the usage is for.",
+            "tool_name": "Name of the MCP tool.",
+            "mcp_server_name": "Name of the MCP server that provides the tool.",
+            "usage": "Number of calls to this tool on the day.",
+        },
+    },
+    "billing_items": {
+        "description": "Itemized Cursor billing: one row per usage event, credit, or adjustment, with its product, usage amounts, and cost.",
+        "docs_url": "https://cursor.com/docs/account/teams/admin-api",
+        "columns": {
+            "billingItemId": "Unique identifier for the billing item.",
+            "eventTime": "When the item happened, in UTC.",
+            "product": "Product the item belongs to, for example cursor or grok-bot.",
+            "chargeCategory": "Kind of item: usage, credit, or adjustment.",
+            "usageType": "How the item is billed: included, on_demand, credits, or free.",
+            "principal": "Who the item is billed to, with its type (user, service_account, api_key, or team) and ID.",
+            "usage": "Usage amounts by meter name, such as prompt-text-tokens and requests, as whole-number strings.",
+            "pricing": "Cost of the item in US dollars, as a decimal string, with a breakdown by meter when available.",
+            "displayExtras": "Display details: the model, the user's email, the display name, and any discount.",
+        },
+    },
 }

@@ -31,6 +31,7 @@ import {
 } from './roles'
 import {
     Hogli,
+    ProbeFailure,
     STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
@@ -67,7 +68,7 @@ export interface Environment {
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
-    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>
@@ -90,7 +91,7 @@ export type Action =
           signal: AbortSignal
       }
 
-export type Actuation = FaultHold & { journal?(): FailoverJournal }
+export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)

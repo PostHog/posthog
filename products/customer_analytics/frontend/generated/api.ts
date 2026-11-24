@@ -177,7 +177,7 @@ export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
 }
 
 /**
- * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * Fetch one account by external ID with its properties, controlled relationship ownership, tags, active relationship assignments and custom property values. Accepts a project secret API key with the `account:read` scope.
  * @summary Get an external customer analytics account
  */
 export const customerAnalyticsExternalAccountRetrieve = async (
@@ -195,7 +195,7 @@ export const getCustomerAnalyticsExternalAccountCreateUrl = () => {
 }
 
 /**
- * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts a project secret API key with the `account:write` scope.
  * @summary Create an external customer analytics account
  */
 export const customerAnalyticsExternalAccountCreate = async (

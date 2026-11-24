@@ -81,9 +81,6 @@ TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL"
 # Sorted set key for tracking cache expirations
 TEAM_CACHE_EXPIRY_SORTED_SET = "team_metadata_cache_expiry"
 
-# NOTE: Includes secret tokens (api_token, secret_api_token, secret_api_token_backup)
-# for flags service consumption. These are stored in dedicated redis + potentially S3.
-# This is acceptable for our threat model where flags service needs auth tokens to validate requests.
 TEAM_METADATA_FIELDS = [
     "id",
     "project_id",
@@ -91,8 +88,6 @@ TEAM_METADATA_FIELDS = [
     "uuid",
     "name",
     "api_token",
-    "secret_api_token",
-    "secret_api_token_backup",
     "timezone",
     "extra_settings",
     "session_recording_opt_in",

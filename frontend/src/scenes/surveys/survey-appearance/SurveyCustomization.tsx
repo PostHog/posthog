@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { SurveyTheme, defaultSurveyAppearance, getMatchingSurveyThemeId } from 'scenes/surveys/constants'
 import { useSiteThemeCard } from 'scenes/surveys/survey-appearance/SiteThemeCard'
 import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
@@ -22,6 +23,7 @@ import { AvailableFeature, SurveyType } from '~/types'
 import { reportSurveyThemeSelected } from 'products/surveys/frontend/surveyUsage'
 
 import { surveysLogic } from '../surveysLogic'
+import { QuillCustomization } from './QuillCustomization'
 
 function CustomizationSection({
     title,
@@ -68,6 +70,53 @@ export function Customization({
         onSelectTheme: selectTheme,
         disabled: !surveysStylingAvailable || !!disabledReason,
     })
+    const quillSurface = useQuillSurface()
+
+    const onWhiteLabelChange = (checked: boolean): void => {
+        if (checked) {
+            guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => onAppearanceChange({ whiteLabel: checked }))
+        } else {
+            onAppearanceChange({ whiteLabel: checked })
+        }
+    }
+
+    const onPopupDelayToggle = (checked: boolean): void => {
+        const surveyPopupDelaySeconds = checked ? 5 : undefined
+        onAppearanceChange({ surveyPopupDelaySeconds })
+    }
+
+    const onPopupDelayChange = (newValue: number | undefined): void => {
+        if (newValue && newValue > 0) {
+            onAppearanceChange({ surveyPopupDelaySeconds: newValue })
+        } else {
+            onAppearanceChange({
+                surveyPopupDelaySeconds: undefined,
+            })
+        }
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillCustomization
+                survey={survey}
+                surveyAppearance={surveyAppearance}
+                selectedThemeId={selectedThemeId}
+                onSelectTheme={selectTheme}
+                siteThemeCard={siteThemeCard}
+                surveysStylingAvailable={surveysStylingAvailable}
+                hasRatingButtons={hasRatingButtons}
+                hasPlaceholderText={hasPlaceholderText}
+                hasBranchingLogic={hasBranchingLogic}
+                deleteBranchingLogic={deleteBranchingLogic}
+                onAppearanceChange={onAppearanceChange}
+                validationErrors={validationErrors}
+                disabledReason={disabledReason}
+                onWhiteLabelChange={onWhiteLabelChange}
+                onPopupDelayToggle={onPopupDelayToggle}
+                onPopupDelayChange={onPopupDelayChange}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col divide-y divide-border [&>*]:py-5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
@@ -128,15 +177,7 @@ export function Customization({
                 <div className="flex flex-col gap-3">
                     <LemonCheckbox
                         label="Hide PostHog branding"
-                        onChange={(checked) => {
-                            if (checked) {
-                                guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                    onAppearanceChange({ whiteLabel: checked })
-                                )
-                            } else {
-                                onAppearanceChange({ whiteLabel: checked })
-                            }
-                        }}
+                        onChange={onWhiteLabelChange}
                         checked={survey.appearance?.whiteLabel}
                         disabledReason={disabledReason}
                     />
@@ -156,10 +197,7 @@ export function Customization({
                             <div className="flex flex-row items-center gap-2 font-medium">
                                 <LemonCheckbox
                                     checked={!!survey.appearance?.surveyPopupDelaySeconds}
-                                    onChange={(checked) => {
-                                        const surveyPopupDelaySeconds = checked ? 5 : undefined
-                                        onAppearanceChange({ surveyPopupDelaySeconds })
-                                    }}
+                                    onChange={onPopupDelayToggle}
                                     disabledReason={disabledReason}
                                 />
                                 Delay survey popup by at least{' '}
@@ -170,15 +208,7 @@ export function Customization({
                                     min={1}
                                     max={3600}
                                     value={survey.appearance?.surveyPopupDelaySeconds || NaN}
-                                    onChange={(newValue) => {
-                                        if (newValue && newValue > 0) {
-                                            onAppearanceChange({ surveyPopupDelaySeconds: newValue })
-                                        } else {
-                                            onAppearanceChange({
-                                                surveyPopupDelaySeconds: undefined,
-                                            })
-                                        }
-                                    }}
+                                    onChange={onPopupDelayChange}
                                     className="w-12 ignore-error-border"
                                     disabledReason={disabledReason}
                                 />{' '}

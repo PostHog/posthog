@@ -8,10 +8,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -58,7 +58,7 @@ import {
     SignalScoutRunSummary,
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
-import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { inboxBackPath, inboxTabRedirectPath } from './utils/inboxReportUrls'
 import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
@@ -302,7 +302,12 @@ function findReportRank(id: string): {
         reportsBySection,
         selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
         filterValues.activeSortField,
-        filterValues.activeSortDirection
+        filterValues.activeSortDirection,
+        {
+            collapsePlans:
+                !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS],
+            selectedReportIds: inboxBulkActionsLogic.findMounted()?.values.selectedReportIds,
+        }
     )
     const idx = rows.findIndex((row) => row.report.id === id)
     if (idx >= 0) {
@@ -313,7 +318,7 @@ function findReportRank(id: string): {
         })?.values
         // The opened report can come from the detail endpoint, which has no personal fields, so they
         // come from the list row the person saw.
-        const personalSort = filterValues.activeSortField === 'personal' || sectionValues?.loadedRanker === 'personal'
+        const personalSort = sectionValues?.loadedRanker === 'personal'
         return {
             rank: idx + 1,
             listSize: rows.length,
@@ -1082,9 +1087,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // A report page is a Reports-tab surface even when reached from a scout page, so its
-            // back button returns to the report list.
-            if (values.activeTab !== 'reports') {
+            // Keep Monitoring or Scouts behind its report so closing the report does not add a Reports entry to browser history.
+            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring' && values.activeTab !== 'scouts') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
@@ -1325,7 +1329,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // Opened from triage mode: the report page's back control returns to the spot in the
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
-                ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
+                ? { back: inboxBackPath(router.values.location) }
                 : withoutLinkParams(router.values.searchParams),
             router.values.hashParams,
             // Replace, so Back does not return to the link URL and its `link_source`.
@@ -1434,6 +1438,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
                 }
+                if (tab === 'monitoring' && !values.featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]) {
+                    router.actions.replace(urls.inbox('reports'), searchParams, hashParams)
+                    return
+                }
                 // A bare report deep-link `/inbox/<reportId>` is redirected to report form. Mark the list
                 // as visited only when we're actually staying on a list view — otherwise the redirected
                 // report would be misclassified as an in-app click instead of a deep-link.
@@ -1505,9 +1513,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (tab !== 'reports') {
                     router.actions.replace(urls.inboxReport('reports', reportId), searchParams, hashParams)
                     return
-                }
-                if (values.activeTab !== 'reports') {
-                    actions.setActiveTab('reports')
                 }
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full

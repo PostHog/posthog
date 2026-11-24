@@ -13,6 +13,8 @@ Prop-level docs live on each chart's props and config interfaces.
 Derived series: trend lines and moving averages are `overlay: true`, so they are excluded from stacking and from the baseline calculation and a projection cannot drag the axis below zero.
 Confidence bands are not overlays; they represent real uncertainty whose range should still influence the axis.
 Hiding a series through the legend hides everything derived from it.
+Moving averages use a centered window by default. Set `alignment: 'trailing'` to average finite values from the current and preceding points, including partial windows at the start.
+Point labels appear on the source series when a moving average is visible.
 
 ## ScatterChart
 

@@ -8,6 +8,7 @@ import {
     type TraceDialogSource,
     traceDialogOpenLogic,
 } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+import type { OpenTraceDialogOptions } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 
@@ -24,6 +25,7 @@ import { tracingCorrelationConfigLogic } from 'products/tracing/frontend/tracing
 import type { Span, SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
+import type { TraceRunToggleMethod, TraceViewSurface } from '../TraceView/traceViewLogic'
 
 // Pinned: autocapture and the span keys both match on the dialog's data-attr.
 export const TRACE_DIALOG_DATA_ATTR = 'trace-dialog'
@@ -80,31 +82,31 @@ export interface traceDialogLogicActions {
     } // traceDialogOpenLogic
     openTraceDialog: (
         trace: TraceLinkParams,
-        options: import('lib/components/ViewTraceButton/traceDialogOpenLogic').OpenTraceDialogOptions
+        options: OpenTraceDialogOptions
     ) => {
         entryPoint: TraceDialogEntryPoint
         openedFrom: TraceDialogSource | null
         trace: {
             spanId: string | null
             traceId: string
-            ts?: string | null | undefined
+            ts?: string | null
         }
     } // traceDialogOpenLogic
-    collapseSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+    collapseSelectedSpan: (surface: TraceViewSurface) => {
+        surface: TraceViewSurface
     } // traceViewLogic
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
     enableSpanKeys: (
         containerSelector: string,
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     ) => {
         containerSelector: string
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface
     } // traceViewLogic
-    expandSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
-        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+    expandSelectedSpan: (surface: TraceViewSurface) => {
+        surface: TraceViewSurface
     } // traceViewLogic
     selectNextSpan: () => {
         value: true
@@ -117,9 +119,9 @@ export interface traceDialogLogicActions {
     } // traceViewLogic
     setInspectorTab: (
         tab: SpanInspectorTab,
-        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+        surface?: TraceViewSurface | undefined
     ) => {
-        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface | null
         tab: SpanInspectorTab
     } // traceViewLogic
     setSpans: (spans: Span[]) => {
@@ -140,12 +142,12 @@ export interface traceDialogLogicActions {
     } // traceViewLogic
     toggleRun: (
         spanId: string,
-        method?: import('../TraceView/traceViewLogic').TraceRunToggleMethod | undefined,
-        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+        method?: TraceRunToggleMethod | undefined,
+        surface?: TraceViewSurface | undefined
     ) => {
-        method: null | import('../TraceView/traceViewLogic').TraceRunToggleMethod
+        method: TraceRunToggleMethod | null
         spanId: string
-        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
+        surface: TraceViewSurface | null
     } // traceViewLogic
     toggleSpanCollapsed: (spanId: string) => {
         spanId: string
