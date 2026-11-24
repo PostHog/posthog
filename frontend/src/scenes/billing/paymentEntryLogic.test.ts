@@ -161,33 +161,46 @@ describe('paymentEntryLogic', () => {
             ['startPaymentEntryFlow', 'the activate answer', 0],
             ['upgradeProducts', 'the activate answer', 0],
             ['startPaymentEntryFlow', 'the billing read that follows the answer', 1],
-        ] as const)('refuses %s again before %s and still completes the first', async (action, _, billingReads) => {
+        ] as const)('refuses %s again before %s and still completes the first', async (action, _, readsBefore) => {
             const activateAnswer = deferred<[number, unknown]>()
             const billingRead = deferred<[number, unknown]>()
-            const activate = jest.fn(() => activateAnswer.promise)
-            const readBilling = jest.fn(() => billingRead.promise)
-            useMocks({ post: { '/api/billing/activate': activate }, get: { '/api/billing': readBilling } })
+            const activateRequests: string[] = []
+            const billingReadRequests: string[] = []
+            useMocks({
+                post: {
+                    '/api/billing/activate': ({ request }) => {
+                        activateRequests.push(request.url)
+                        return activateAnswer.promise
+                    },
+                },
+                get: {
+                    '/api/billing': ({ request }) => {
+                        billingReadRequests.push(request.url)
+                        return billingRead.promise
+                    },
+                },
+            })
             logic = paymentEntryLogic()
             logic.mount()
-            const pushSpy = jest.spyOn(router.actions, 'push')
             const start = (): void =>
                 action === 'upgradeProducts'
                     ? logic.actions.upgradeProducts('scale:scale', '/replay/home')
                     : logic.actions.startPaymentEntryFlow(null, '/replay/home')
 
             start()
-            await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
-            if (billingReads) {
+            await waitFor(() => expect(activateRequests).toHaveLength(1))
+            if (readsBefore) {
                 activateAnswer.resolve([200, { success: true }])
             }
-            await waitFor(() => expect(readBilling).toHaveBeenCalledTimes(billingReads))
+            await waitFor(() => expect(billingReadRequests).toHaveLength(readsBefore))
             start()
             activateAnswer.resolve([200, { success: true }])
             billingRead.resolve([200, { customer_id: 'cus_test', subscription_level: 'paid' }])
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(activate).toHaveBeenCalledTimes(1)
-            expect(pushSpy).toHaveBeenCalledWith('/replay/home', expect.objectContaining({ upgraded: 'true' }))
+            expect(activateRequests).toHaveLength(1)
+            expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
+            expect(router.values.searchParams).toMatchObject({ upgraded: 'true' })
         })
 
         it('surfaces a toast when activate throws', async () => {

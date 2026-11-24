@@ -365,8 +365,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 lemonToast.info("We're still confirming your last payment.")
                 return null
             }
-            // A new flow would drop the response of the activation in flight, and overlapping activations can
-            // make billing create more than one subscription.
+            // A new flow would drop this response, and overlapping activations can create two subscriptions.
             if (cache.activationInFlight) {
                 return null
             }
