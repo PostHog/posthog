@@ -84,12 +84,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_default_numeric_conversions_preserve_decimal_values(self) -> None:
         result = execute_hogql_query(
-            "SELECT toIntOrDefault(toDecimal('3.50', 2), 7), toFloatOrDefault(toDecimal('3.50', 2), 7)",
+            "SELECT toIntOrDefault(toDecimal('3.50', 2), 7), toFloatOrDefault(toDecimal('3.50', 2), 7), "
+            "toIntOrZero(3.5), toFloatOrZero(3.5)",
             team=self.team,
             workload=Workload.ONLINE,
         )
 
-        assert result.results == [(3, 3.5)]
+        assert result.results == [(3, 3.5, 0, 3.5)]
 
     @parameterized.expand(
         [

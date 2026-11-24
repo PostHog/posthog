@@ -507,6 +507,59 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "if_with_string_default",
+                "Numeric",
+                ("9",),
+                "SELECT toIntOrZero(if(distinct_id = 'example-user-0', properties.example_value, '7')) "
+                "FROM posthog.ai_events",
+                9,
+            ),
+            (
+                "any",
+                "Numeric",
+                ("9",),
+                "SELECT toFloatOrZero(any(coalesce(properties.example_value, NULL))) FROM posthog.ai_events",
+                9.0,
+            ),
+            (
+                "max_cte",
+                "Numeric",
+                ("9", "10"),
+                "WITH values AS (SELECT max(properties.example_value) AS value FROM posthog.ai_events) "
+                "SELECT toIntOrZero(value) FROM values",
+                9,
+            ),
+            (
+                "searched_case",
+                "DateTime",
+                ("2024-04-05T06:07:08Z",),
+                "SELECT toYear(toDateTime(CASE WHEN distinct_id = 'example-user-0' THEN properties.example_value "
+                "WHEN distinct_id = 'other' THEN '2020-01-01' END)) FROM posthog.ai_events",
+                2024,
+            ),
+            (
+                "simple_case",
+                "Numeric",
+                ("9",),
+                "SELECT toIntOrZero(CASE distinct_id WHEN 'example-user-0' THEN properties.example_value "
+                "ELSE '7' END) FROM posthog.ai_events",
+                9,
+            ),
+        ]
+    )
+    def test_string_parsers_preserve_nested_ai_property_values(
+        self, _name: str, property_type: str, values: tuple[str, ...], query: str, expected: float | int
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
+        self._create_generations("posthog.ai_events", *({"example_value": value} for value in values))
+
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(expected,)]
+
+    @parameterized.expand(
+        [
             ("boolean", "example_flag", "Boolean", False, True),
             ("numeric", "example_number", "Numeric", 3, 4),
         ]

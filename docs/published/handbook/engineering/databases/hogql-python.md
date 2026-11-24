@@ -320,8 +320,11 @@ Direct property aliases in subqueries and CTEs expose their converted types.
 CTE comparisons on untyped person and group aliases use the original field even when another column changes type.
 Type inference also sees those converted types in `UNION ALL` projections and in direct arguments to `coalesce` and `ifNull`.
 
-On `posthog.ai_events`, passing converted properties through expressions such as `if`, `CASE`, `any`, or `max` before calling `toFloatOrZero`, `toIntOrZero`, or `toDateTime` can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`).
-These expressions can retain the type inferred before the property conversion.
+On `posthog.ai_events`, result branches of `if` and `CASE` and value arguments to aggregates such as `any` and `max` keep properties as stored strings.
+Use an explicit conversion such as `max(toFloat(properties.score))` for numeric ordering.
+
+`LIKE`, regex functions such as `match`, and other string-only functions can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`) when a property definition converts their input to another type.
+Use `toString(properties.score)` when a string comparison or function should read the converted value as text.
 
 When HogQL compiles to ClickHouse, `toFloatOrZero` and `toIntOrZero` stringify inputs HogQL identifies as non-strings. For example, `toIntOrZero(3.5)` parses `'3.5'` and returns `0`.
 Two-argument `toFloatOrDefault` and `toIntOrDefault` keep native numeric inputs, including decimal truncation for integer conversions.

@@ -152,6 +152,8 @@ STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOr
 # A property that the outer call needs as its stored string must stay unconverted through them, as in
 # `JSONExtractArrayRaw(properties.items ?? '[]')`.
 NULL_DEFAULT_FUNCTIONS = frozenset({"ifnull", "coalesce"})
+_AI_STRING_AGGREGATES = frozenset({"any", "anylast", "argmax", "argmin", "max", "min"})
+_AI_STRING_CONDITIONALS = frozenset({"if", "multiif", "_casewithexpression"})
 
 
 class PropertySwapper(CloningVisitor):
@@ -195,6 +197,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._preserve_ai_property_strings = False
         self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
@@ -357,7 +360,9 @@ class PropertySwapper(CloningVisitor):
         # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
         # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
-        is_null_default = node.name.lower() in NULL_DEFAULT_FUNCTIONS
+        saved_ai_strings = self._preserve_ai_property_strings
+        name = node.name.lower()
+        is_null_default = name in NULL_DEFAULT_FUNCTIONS
         self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
             saved_suppress and is_null_default
         )
@@ -366,15 +371,37 @@ class PropertySwapper(CloningVisitor):
         try:
             if node.name in JSON_FUNCTIONS and node.args:
                 result = self._visit_json_function_call(node)
+            elif name in _AI_STRING_AGGREGATES or name in _AI_STRING_CONDITIONALS:
+                result = self._visit_ai_string_value_call(node, name)
             else:
                 result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
+            self._preserve_ai_property_strings = saved_ai_strings
 
         if is_null_default:
             self._refresh_null_default_type(result)
         return self._maybe_extract_exception_string_array(result)
+
+    def _visit_ai_string_value_call(self, node: ast.Call, name: str) -> ast.Call:
+        if name in _AI_STRING_AGGREGATES:
+            value_indices = range(1)
+            fallback = -1
+        else:
+            fallback = len(node.args) - 1
+            first_result = 2 if name == "_casewithexpression" else 1
+            value_indices = range(first_result, fallback, 2)
+
+        # Converting these values changes string ordering or makes existing string fallbacks incompatible.
+        args = []
+        for index, arg in enumerate(node.args):
+            self._preserve_ai_property_strings = index in value_indices or index == fallback
+            args.append(self.visit(arg))
+        self._preserve_ai_property_strings = False
+        result = super().visit_call(dataclasses.replace(node, args=[]))
+        result.args = args
+        return result
 
     def _refresh_null_default_type(self, node: ast.Call) -> None:
         call_type = node.type
@@ -899,8 +926,8 @@ class PropertySwapper(CloningVisitor):
                         return ("person", property_name)
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     # Detection can misclassify IDs, so native String AI columns keep their schema types.
-                    if isinstance(resolved_table, AiEventsTable) and resolved_table.maps_to_native_string_column(
-                        property_name
+                    if isinstance(resolved_table, AiEventsTable) and (
+                        self._preserve_ai_property_strings or resolved_table.maps_to_native_string_column(property_name)
                     ):
                         return None
                     if property_name in self.event_properties:
