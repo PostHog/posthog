@@ -42,9 +42,3 @@
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }
-
-/* Markdown headings in a text tile carry LemonMarkdown's rule underneath; a tile already frames its text. */
-.dash-WidgetCard .LemonMarkdown :is(h1, h2) {
-    padding-bottom: 0;
-    border-bottom: 0;
-}

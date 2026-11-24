@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 import { Component, type ComponentType, type ErrorInfo, type ReactNode, Suspense, memo } from 'react'
 
 import type { ContentWidget } from '../dashboard/dashboardTypes'
-import type { WidgetDefinition } from './widgetDefinition'
+import type { WidgetComponentProps, WidgetDefinition } from './widgetDefinition'
 import { WidgetLoading } from './WidgetLoading'
 
 interface TileErrorState {
@@ -40,14 +40,14 @@ class TileErrorBoundary extends Component<{ widget: ContentWidget; children: Rea
 }
 
 /**
- * Memoised on the widget and its definition, which both keep their identity through every layout edit, so moving
- * tiles never re-renders it.
+ * Memoised on the widget, its definition and `setConfig`, which all keep their identity through every layout edit, so
+ * moving tiles never re-renders it.
  */
 export const WidgetView = memo(function WidgetView({
     widget,
     definition,
-}: {
-    widget: ContentWidget
+    setConfig,
+}: WidgetComponentProps & {
     definition: WidgetDefinition | undefined
 }): JSX.Element {
     if (!definition) {
@@ -62,7 +62,7 @@ export const WidgetView = memo(function WidgetView({
     return (
         <TileErrorBoundary widget={widget}>
             <Suspense fallback={<Loading widget={widget} />}>
-                <definition.Component widget={widget} />
+                <definition.Component widget={widget} setConfig={setConfig} />
             </Suspense>
         </TileErrorBoundary>
     )
