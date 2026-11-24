@@ -118,14 +118,17 @@ const SES_HEADER_VALUE_MAX_LENGTH = 870
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
 
-// A References that would pass SES's header limit keeps the thread root and the newest IDs, as RFC 5322 section 3.6.4 suggests.
+// References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
+// thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
 export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailType['thread']): MessageHeader[] {
     if (!thread) {
         return []
     }
-    const [root, ...rest] = thread.references
+    const ids =
+        thread.references.at(-1) === thread.inReplyTo ? thread.references : [...thread.references, thread.inReplyTo]
+    const [root, ...rest] = ids
     const newest: string[] = []
-    let length = root?.length ?? 0
+    let length = root.length
     for (const id of rest.reverse()) {
         if (length + 1 + id.length > SES_HEADER_VALUE_MAX_LENGTH) {
             break
@@ -135,7 +138,7 @@ export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailTyp
     }
     return [
         { Name: 'In-Reply-To', Value: thread.inReplyTo },
-        ...(root ? [{ Name: 'References', Value: [root, ...newest].join(' ') }] : []),
+        { Name: 'References', Value: [root, ...newest].join(' ') },
     ]
 }
 

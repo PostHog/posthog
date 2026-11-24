@@ -4092,6 +4092,18 @@ describe('EmailService', () => {
             expect(references.length).toBeLessThan(ids.length)
         })
 
+        it('ends References with the parent a reply answers', async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: '<parent@mail.example.com>', references: ['<root@mail.example.com>'] },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].headers['References']).toEqual('<root@mail.example.com> <parent@mail.example.com>')
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
