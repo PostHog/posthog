@@ -8,6 +8,7 @@ import { Skeleton, ToastProvider } from '@posthog/quill'
 import 'scenes/project-homepage/today/Today.scss'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -34,7 +35,6 @@ import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 import { TodayTour } from './TodayTour'
-import { TodayWarehouseTabsPane } from './TodayWarehouseTabsPane'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -62,6 +62,9 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+const TodayWarehouseSidebar = lazyWithRetry(() =>
+    import('./TodayWarehouseSidebar').then((m) => ({ default: m.TodayWarehouseSidebar }))
+)
 const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
     spaces: { Sidebar: TodaySpacesPane },
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
@@ -72,8 +75,15 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
     data: { Sidebar: TodayDataSidebar, previews: true },
     settings: { Sidebar: TodaySettingsSidebar },
     products: { Sidebar: TodayProductsPane },
-    warehouse: { Sidebar: TodayWarehouseTabsPane },
+    warehouse: { Sidebar: TodayWarehouseSidebar },
 }
+
+// Loaded only on warehouse pages, so the shell does not pull the managed warehouse logic into every page.
+const WarehouseShellStatusReporter = lazyWithRetry(() =>
+    import('products/data_warehouse/frontend/scenes/WarehouseConsole/WarehouseShellStatusReporter').then((m) => ({
+        default: m.WarehouseShellStatusReporter,
+    }))
+)
 
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
@@ -83,13 +93,14 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const {
         activePane,
+        routePane,
+        featureFlags,
+        paneHasSidebar,
         mobileLayout,
         phoneLayout,
         sidebarVisible,
         sidebarWidth,
         phoneHeaderHidden,
-        sidebarInContent,
-        currentWarehouseItem,
     } = useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
@@ -138,7 +149,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
-    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
+    const paneSidebar = activePane === 'home' || !paneHasSidebar ? null : PANE_SIDEBARS[activePane]
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {paneSidebar &&
@@ -153,7 +164,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     )
 
     const { title, action: PaneAction } = TODAY_PANES[activePane]
-    const paneTitle = activePane === 'warehouse' ? (currentWarehouseItem?.label ?? title) : title
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
@@ -164,7 +174,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 title={
                     // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
                     <div className="-ms-0.5 flex min-w-0 items-center gap-1">
-                        <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
+                        <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{title}</h2>
                         <TodaySidebarPinButton />
                     </div>
                 }
@@ -184,6 +194,12 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     <NewSpaceDialog />
                 </Suspense>
             )}
+            {/* The warehouse pane's sidebar waits for this answer, so it loads on every warehouse page. */}
+            {routePane === 'warehouse' && featureFlags[FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE] && (
+                <Suspense fallback={null}>
+                    <WarehouseShellStatusReporter />
+                </Suspense>
+            )}
             <TodayNavSwitchDialog />
             <TodayTour />
         </>
@@ -199,7 +215,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         tabIndex={-1}
                         className="group/sidebar TodayShell__sidebar TodayShell__page outline-none"
                         data-open={sidebarVisible}
-                        aria-label={paneTitle}
+                        aria-label={title}
                         aria-hidden={!sidebarVisible}
                         {...(sidebarVisible ? {} : { inert: '' })}
                     >
@@ -235,7 +251,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             tabIndex={-1}
                             className="group/sidebar TodayShell__sidebar TodayShell__drawer outline-none"
                             data-open={sidebarVisible}
-                            aria-label={paneTitle}
+                            aria-label={title}
                             aria-hidden={!sidebarVisible}
                             {...(sidebarVisible ? {} : { inert: '' })}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -245,12 +261,11 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     </>
                 ) : (
-                    sidebarVisible &&
-                    !sidebarInContent && (
+                    sidebarVisible && (
                         <aside
                             ref={sidebarRef}
                             className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
-                            aria-label={paneTitle}
+                            aria-label={title}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
                         >

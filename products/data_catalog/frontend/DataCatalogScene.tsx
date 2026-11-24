@@ -141,6 +141,7 @@ export function DataCatalogScene(): JSX.Element {
                     data-attr="data-catalog-tabs"
                     tabs={tabs}
                     sceneInset
+                    listedInWarehouseMenu
                     // The pending counts load after the tabs render and widen the labels before the active tab.
                     trackTabSizes
                 />

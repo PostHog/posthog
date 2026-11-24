@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -55,6 +56,17 @@ describe('warehouseStorageLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadStorageSuccess'])
+    })
+
+    it.each([
+        [{ tab: 'readiness' }, '/warehouse/posthog-data'],
+        [{}, '/warehouse/storage'],
+    ])('sends the old link with %j to %s', (searchParams, expectedPath) => {
+        router.actions.push('/warehouse/storage', searchParams)
+        warehouseStorageLogic().mount()
+
+        // The router adds the project prefix to the path.
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
     })
 
     it('sorts tables by size, counting delete files, and filters by search', () => {

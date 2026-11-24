@@ -2034,6 +2034,11 @@
         "params": [],
         "scope": "project"
     },
+    "warehousePostHogData": {
+        "template": "/warehouse/posthog-data",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseProperties": {
         "template": "/data-management/warehouse-properties",
         "params": [],
@@ -2046,6 +2051,11 @@
     },
     "warehouseSettings": {
         "template": "/warehouse/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "warehouseSourceData": {
+        "template": "/warehouse/source-data",
         "params": [],
         "scope": "project"
     },

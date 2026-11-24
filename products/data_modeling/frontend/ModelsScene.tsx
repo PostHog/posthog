@@ -149,7 +149,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <SceneTabs activeKey={activeTab} tabs={tabs} sceneInset />
+            <SceneTabs activeKey={activeTab} tabs={tabs} sceneInset listedInWarehouseMenu />
         </SceneContent>
     )
 }

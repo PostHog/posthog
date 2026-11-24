@@ -1,5 +1,6 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 
@@ -11,7 +12,11 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobWorkflow,
 )
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
-from products.managed_warehouse.backend.source_job_state import list_latest_source_jobs, record_source_job_state
+from products.managed_warehouse.backend.source_job_state import (
+    count_finished_source_jobs_by_day,
+    list_latest_source_jobs,
+    record_source_job_state,
+)
 
 
 class TestManagedWarehouseSourceJobState(TestCase):
@@ -126,3 +131,50 @@ class TestManagedWarehouseSourceJobState(TestCase):
         assert state_a.status == ManagedWarehouseSourceJobStatus.COMPLETED
         assert state_b.environment_id == environment_b.id
         assert state_b.status == ManagedWarehouseSourceJobStatus.FAILED
+
+    def _finish(self, attempt_id: str, status: ManagedWarehouseSourceJobStatus, finished_at: datetime) -> None:
+        record_source_job_state(
+            self._update(
+                workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+                status=status,
+                attempt_id=attempt_id,
+                started_at=finished_at - timedelta(minutes=1),
+                finished_at=finished_at,
+            )
+        )
+
+    def test_groups_terminal_attempts_by_day_in_the_requested_timezone(self) -> None:
+        los_angeles = ZoneInfo("America/Los_Angeles")
+        # 05:00 UTC is 22:00 the previous evening in Los Angeles, so it must land on 07-13 there.
+        self._finish("a", ManagedWarehouseSourceJobStatus.COMPLETED, datetime(2026, 7, 14, 5, tzinfo=UTC))
+        self._finish("b", ManagedWarehouseSourceJobStatus.FAILED, datetime(2026, 7, 14, 6, tzinfo=UTC))
+        self._finish("c", ManagedWarehouseSourceJobStatus.COMPLETED, datetime(2026, 7, 14, 9, tzinfo=UTC))
+        self._finish("d", ManagedWarehouseSourceJobStatus.STALE, datetime(2026, 7, 14, 9, tzinfo=UTC))
+        self._finish("e", ManagedWarehouseSourceJobStatus.COMPLETED, datetime(2026, 7, 20, tzinfo=UTC))
+        self._finish("f", ManagedWarehouseSourceJobStatus.RUNNING, datetime(2026, 7, 14, 9, tzinfo=UTC))
+
+        counts = count_finished_source_jobs_by_day(
+            team_id=self.team.id,
+            schema_ids=[self.schema_id],
+            start=datetime(2026, 7, 13, tzinfo=los_angeles),
+            end=datetime(2026, 7, 15, tzinfo=los_angeles),
+            tz=los_angeles,
+        )
+
+        assert [(c.day, c.completed, c.failed) for c in counts] == [
+            (date(2026, 7, 13), 1, 1),
+            (date(2026, 7, 14), 1, 0),
+        ]
+
+    def test_only_counts_the_requested_schemas(self) -> None:
+        self._finish("a", ManagedWarehouseSourceJobStatus.COMPLETED, datetime(2026, 7, 14, 9, tzinfo=UTC))
+
+        counts = count_finished_source_jobs_by_day(
+            team_id=self.team.id,
+            schema_ids=[uuid4()],
+            start=datetime(2026, 7, 14, tzinfo=UTC),
+            end=datetime(2026, 7, 15, tzinfo=UTC),
+            tz=UTC,
+        )
+
+        assert counts == []

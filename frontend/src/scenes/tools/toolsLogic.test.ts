@@ -26,7 +26,8 @@ describe('toolsLogic', () => {
 
         const hrefs = logic.values.tools.map((tool) => tool.href?.split(/[?#]/)[0])
         expect(hrefs.includes(urls.sqlEditor())).toBe(listed)
-        expect(hrefs.includes(urls.sources())).toBe(listed)
+        // Sources is a product of its own, so it stays listed with the warehouse menu on.
+        expect(hrefs.includes(urls.sources())).toBe(true)
         expect(hrefs.includes(urls.propertyDefinitions())).toBe(true)
         expect(hrefs.includes(urls.businessIntelligence().split(/[?#]/)[0])).toBe(true)
         expect(hrefs.includes(urls.endpoints())).toBe(true)

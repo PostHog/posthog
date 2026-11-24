@@ -9,8 +9,8 @@ rules:
           - '/taskPullRequests.ts'
           - '/taskPullRequests.test.ts'
       owners: team-surfaces
-    # The warehouse rail pane: its menu, header and sidebar, and the scene tabs its sidebar shows.
-    - match: ['/TodayWarehouse*', '/todayWarehouse*', '/TodaySceneTabsList*', '/todaySceneTabsLogic*']
+    # The warehouse rail pane: its items and sidebar.
+    - match: ['/TodayWarehouse*', '/todayWarehouse*']
       owners: team-managed-warehouse
     - match:
           - '/todayPhoneTabsLogic.test.ts'

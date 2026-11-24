@@ -10,11 +10,9 @@ import { urls } from 'scenes/urls'
 import { navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { initKeaTests } from '~/test/init'
 
-import { todaySceneTabsLogic } from './todaySceneTabsLogic'
 import {
     TODAY_RAIL_WIDTH,
     TODAY_SIDEBAR_MAX_WIDTH,
-    TodayRailPane,
     railPaneForPath,
     railPaneHref,
     todayShellLogic,
@@ -43,9 +41,9 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/destinations', 'products', true],
         ['/project/1/sql', 'warehouse', true],
         ['/project/1/warehouse', 'warehouse', true],
-        ['/project/1/data-management/sources/abc/schemas', 'warehouse', true],
-        ['/project/1/data-warehouse/new-source', 'warehouse', true],
-        ['/project/1/data-warehouse/connect', 'warehouse', true],
+        ['/project/1/data-management/sources/abc/schemas', 'products', true],
+        ['/project/1/data-warehouse/new-source', 'products', true],
+        ['/project/1/data-warehouse/connect', 'products', true],
         ['/project/1/data-warehouse/connect-destination', 'products', true],
         ['/project/1/data-warehouse/migrate/connect', 'products', true],
         ['/project/1/models/abc', 'warehouse', true],
@@ -379,6 +377,20 @@ describe('todayShellLogic', () => {
         }
     )
 
+    it('reopens a hidden warehouse sidebar from the rail without leaving the page', () => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+        router.actions.push('/project/1/sql')
+        logic.actions.setSidebarOpen(false)
+
+        logic.actions.clickRailPane('warehouse')
+
+        expect(logic.values.sidebarVisible).toBe(true)
+        expect(router.values.location.pathname).toBe('/project/1/sql')
+    })
+
     it('never shows a sidebar on Home, so the page takes the full width', () => {
         const logic = todayShellLogic()
         logic.mount()
@@ -580,101 +592,75 @@ describe('todayShellLogic', () => {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
     })
-    it('gives a sidebar-less pane the full width without forgetting the sidebar setting', () => {
+    it('docks the warehouse sidebar like any other pane, and gives home none', () => {
         setRailFlags({ warehouse: true })
         const logic = todayShellLogic()
         logic.mount()
 
-        logic.actions.setSidebarOpen(false)
-        logic.actions.pickPane('warehouse')
-        expect(logic.values.activePane).toBe('warehouse')
-        expect(logic.values.sidebarOpen).toBe(false)
-        expect(logic.values.sidebarVisible).toBe(false)
-
         logic.actions.setSidebarOpen(true)
         logic.actions.pickPane('warehouse')
-        expect(logic.values.sidebarOpen).toBe(true)
-        expect(logic.values.sidebarVisible).toBe(false)
-        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
-
-        router.actions.push('/project/1/airplane')
         expect(logic.values.activePane).toBe('warehouse')
-        expect(logic.values.sidebarVisible).toBe(false)
-
-        const tabsLogic = todaySceneTabsLogic()
-        tabsLogic.mount()
-        tabsLogic.actions.addSceneTabs()
+        expect(logic.values.paneHasSidebar).toBe(true)
         expect(logic.values.sidebarVisible).toBe(true)
-        expect(logic.values.sidebarInContent).toBe(true)
-        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
-        tabsLogic.actions.removeSceneTabs()
-        tabsLogic.actions.releaseSceneTabs()
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + logic.values.sidebarWidth)
+
+        logic.actions.setSidebarOpen(false)
         expect(logic.values.sidebarVisible).toBe(false)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
 
         logic.actions.pickPane('home')
-        expect(logic.values.sidebarVisible).toBe(false)
+        expect(logic.values.paneHasSidebar).toBe(false)
 
         logic.actions.pickPane('warehouse')
         setRailFlags({ warehouse: false })
         expect(logic.values.activePane).not.toBe('warehouse')
-        expect(logic.values.paneHasSidebar).toBe(false)
-        expect(logic.values.sidebarVisible).toBe(false)
     })
 
     test.each([
-        ['the sidebar is open on a warehouse page', '/project/1/models', true, 1024, true, true],
-        ['the sidebar is closed', '/project/1/models', false, 1024, true, false],
-        ['the rail flag is off', '/project/1/models', true, 1024, false, false],
-        ['the page is not a warehouse page', '/project/1/insights', true, 1024, true, false],
-        ['the layout is a phone', '/project/1/models', true, 390, true, false],
-        ['the drawer is open on a narrow desktop', '/project/1/models', false, 900, true, true, true],
-        ['the drawer is open on a phone', '/project/1/models', false, 390, true, false, true],
-        ['another pane is picked on a warehouse page', '/project/1/models', true, 1024, true, false, false, 'products'],
-    ])(
-        'sceneTabsInSidebar when %s',
-        (_name, path, sidebarOpen, width, flagOn, expected, drawerOpen = false, pickedPane = '') => {
-            const originalWidth = window.innerWidth
-            Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
-            try {
-                setRailFlags({ rail: flagOn, warehouse: true })
+        ['console off, status unknown', false, null, true],
+        ['console off, no warehouse', false, false, true],
+        ['console on, status unknown', true, null, false],
+        ['console on, no warehouse', true, false, false],
+        ['console on, warehouse exists', true, true, true],
+    ])('the warehouse pane with %s has a sidebar: %s', (_name, consoleOn, provisioned, hasSidebar) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE, FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
+            {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: true,
+                [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]: consoleOn,
+            }
+        )
+        const logic = todayShellLogic()
+        logic.mount()
+        logic.actions.setWarehouseProvisioned(provisioned)
+        logic.actions.setSidebarOpen(true)
+        logic.actions.pickPane('warehouse')
+
+        expect(logic.values.activePane).toBe('warehouse')
+        expect(logic.values.paneHasSidebar).toBe(hasSidebar)
+        expect(logic.values.sidebarVisible).toBe(hasSidebar)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + (hasSidebar ? logic.values.sidebarWidth : 0))
+
+        logic.actions.toggleSidebar('shortcut')
+        expect(logic.values.sidebarOpen).toBe(!hasSidebar)
+    })
+
+    it('opens the warehouse sidebar when the pane is picked on a narrow desktop and on a phone', () => {
+        const originalWidth = window.innerWidth
+        try {
+            for (const width of [900, 390]) {
+                Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+                setRailFlags({ warehouse: true })
                 const logic = todayShellLogic()
                 logic.mount()
-                logic.actions.setSidebarOpen(sidebarOpen)
-                router.actions.push(path)
-                if (pickedPane) {
-                    logic.actions.pickPane(pickedPane as TodayRailPane)
-                }
-                // A location change closes the drawer, so open it after navigating.
-                logic.actions.setMobileSidebarOpen(drawerOpen)
-                expect(logic.values.sceneTabsInSidebar).toBe(expected)
-            } finally {
-                Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+
+                logic.actions.pickPane('warehouse')
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/warehouse')
+                expect(logic.values.sidebarVisible).toBe(true)
+                logic.unmount()
             }
-        }
-    )
-
-    it('on phone widths, opens the warehouse page without a sheet, even with scene tabs mounted', () => {
-        const originalWidth = window.innerWidth
-        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
-        try {
-            setRailFlags({ warehouse: true })
-            const logic = todayShellLogic()
-            logic.mount()
-
-            logic.actions.pickPane('warehouse')
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/warehouse')
-            expect(logic.values.sidebarVisible).toBe(false)
-
-            // Tabs mounted on a deep-linked page must not give the pane a sidebar that Back would open empty.
-            const tabsLogic = todaySceneTabsLogic()
-            tabsLogic.mount()
-            tabsLogic.actions.addSceneTabs()
-            expect(logic.values.sidebarVisible).toBe(false)
-
-            logic.actions.setPhonePages([{ pathname: '/project/1/warehouse', url: '/project/1/warehouse' }])
-            logic.actions.goBackOnPhone()
-            expect(logic.values.activePane).toBe('warehouse')
-            expect(logic.values.sidebarVisible).toBe(false)
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }

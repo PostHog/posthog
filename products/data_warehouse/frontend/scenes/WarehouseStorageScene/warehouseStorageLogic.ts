@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -222,6 +223,14 @@ export const warehouseStorageLogic = kea<warehouseStorageLogicType>([
         ensureLoaded: () => {
             if (values.consoleState === 'ready' && !values.storage && !values.storageLoading) {
                 actions.loadStorage()
+            }
+        },
+    })),
+    // Data readiness was a tab of this page before the PostHog data and Source data pages replaced it.
+    urlToAction(() => ({
+        [urls.warehouseStorage()]: (_, searchParams) => {
+            if (searchParams.tab === 'readiness') {
+                router.actions.replace(urls.warehousePostHogData())
             }
         },
     })),

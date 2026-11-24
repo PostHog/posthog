@@ -8,11 +8,19 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 export type WarehouseItemKey =
     | 'home'
-    | 'sources'
     | 'sql_editor'
+    | 'posthog_data'
+    | 'source_data'
     | 'models'
+    | 'models_list'
+    | 'models_usage'
+    | 'models_lineage'
+    | 'models_data_quality'
     | 'managed_viewsets'
     | 'data_catalog'
+    | 'data_catalog_relationships'
+    | 'data_catalog_certifications'
+    | 'data_catalog_usage'
     | 'data_ops'
     | 'usage'
     | 'queries'
@@ -25,10 +33,12 @@ export interface WarehouseItem {
     // pinned: sent as the `item` and `from` properties of `warehouse menu item clicked`, and part of each menu row's data-attr.
     key: WarehouseItemKey
     label: string
+    // What the menu button shows on this page, when the label alone would not say which page it is.
+    title?: string
     href: string
     iconType: FileSystemIconType
     sceneKey: string
-    group: 'home' | 'import' | 'model' | 'manage'
+    group: 'home' | 'data' | 'models' | 'data_catalog' | 'manage'
     flag?: FeatureFlagKey
     // Any of these flags also shows the item, as `alternativeFlags` does in a product manifest.
     alternativeFlags?: FeatureFlagKey[]
@@ -49,28 +59,74 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         group: 'home',
     },
     {
-        key: 'sources',
-        label: 'Sources',
-        href: urls.sources(),
-        iconType: 'data_source',
-        sceneKey: 'Sources',
-        group: 'import',
-    },
-    {
         key: 'sql_editor',
         label: 'SQL editor',
         href: urls.sqlEditor(),
         iconType: 'sql_editor',
         sceneKey: 'SQLEditor',
-        group: 'model',
+        group: 'home',
     },
     {
+        key: 'posthog_data',
+        label: 'PostHog data',
+        href: urls.warehousePostHogData(),
+        iconType: 'data_pipeline',
+        sceneKey: 'WarehousePostHogData',
+        group: 'data',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'source_data',
+        label: 'Source data',
+        href: urls.warehouseSourceData(),
+        iconType: 'data_source',
+        sceneKey: 'WarehouseSourceData',
+        group: 'data',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    // The tabs of the Models page, one item each. The first is the page without a `tab` parameter.
+    {
         key: 'models',
-        label: 'Models',
+        label: 'Overview',
+        title: 'Models overview',
         href: urls.models(),
         iconType: 'data_modeling',
         sceneKey: 'Models',
-        group: 'model',
+        group: 'models',
+    },
+    {
+        key: 'models_list',
+        label: 'Models',
+        href: urls.models('models'),
+        iconType: 'data_modeling',
+        sceneKey: 'Models',
+        group: 'models',
+    },
+    {
+        key: 'models_usage',
+        label: 'Usage',
+        title: 'Models usage',
+        href: urls.models('usage'),
+        iconType: 'metrics',
+        sceneKey: 'Models',
+        group: 'models',
+        flag: FEATURE_FLAGS.DATA_MODELING_USAGE,
+    },
+    {
+        key: 'models_lineage',
+        label: 'Lineage',
+        href: urls.models('lineage'),
+        iconType: 'data_modeling',
+        sceneKey: 'Models',
+        group: 'models',
+    },
+    {
+        key: 'models_data_quality',
+        label: 'Data quality',
+        href: urls.models('data-quality'),
+        iconType: 'data_modeling',
+        sceneKey: 'Models',
+        group: 'models',
     },
     {
         key: 'managed_viewsets',
@@ -78,16 +134,43 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         href: urls.dataWarehouseManagedViewsets(),
         iconType: 'managed_viewsets',
         sceneKey: 'DataManagement',
-        group: 'model',
+        group: 'models',
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
     },
+    // The tabs of the Data catalog page, one item each. The first is the page without a `tab` parameter.
     {
         key: 'data_catalog',
-        label: 'Data catalog',
+        label: 'Metrics',
         href: urls.dataCatalog(),
         iconType: 'data_catalog',
         sceneKey: 'DataCatalog',
-        group: 'model',
+        group: 'data_catalog',
+    },
+    {
+        key: 'data_catalog_relationships',
+        label: 'Relationships',
+        href: urls.dataCatalog('relationships'),
+        iconType: 'data_catalog',
+        sceneKey: 'DataCatalog',
+        group: 'data_catalog',
+    },
+    {
+        key: 'data_catalog_certifications',
+        label: 'Certifications',
+        href: urls.dataCatalog('certifications'),
+        iconType: 'data_catalog',
+        sceneKey: 'DataCatalog',
+        group: 'data_catalog',
+    },
+    {
+        key: 'data_catalog_usage',
+        label: 'Usage',
+        title: 'Data catalog usage',
+        href: urls.dataCatalog('usage'),
+        iconType: 'metrics',
+        sceneKey: 'DataCatalog',
+        group: 'data_catalog',
+        flag: FEATURE_FLAGS.DATA_CATALOG_USAGE,
     },
     {
         key: 'data_ops',
@@ -157,10 +240,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
     },
 ]
 
-// Warehouse pages that no menu item names: the new-source wizard and the source connect flow.
-// The destination and migration connect pages share the `/data-warehouse` prefix but are not warehouse pages.
-const EXTRA_WAREHOUSE_PATHS = ['/data-warehouse/new-source', '/data-warehouse/connect']
-
 export function hrefPath(href: string): string {
     return href.split(/[?#]/)[0]
 }
@@ -173,7 +252,8 @@ function itemPaths(item: WarehouseItem): string[] {
     return [hrefPath(item.href), ...(item.extraPaths ?? []).map(hrefPath)]
 }
 
-const WAREHOUSE_ROUTE_ROOTS = [...new Set([...WAREHOUSE_ITEMS.flatMap(itemPaths), ...EXTRA_WAREHOUSE_PATHS])]
+// Sources, the new-source wizard and the connect flows are a product of their own, so none is a warehouse page.
+const WAREHOUSE_ROUTE_ROOTS = [...new Set(WAREHOUSE_ITEMS.flatMap(itemPaths))]
 
 export function isWarehousePath(path: string): boolean {
     return WAREHOUSE_ROUTE_ROOTS.some((root) => isUnder(path, root))
@@ -193,17 +273,37 @@ export function visibleWarehouseItems(featureFlags: FeatureFlagsSet): WarehouseI
     )
 }
 
-/** The menu item for the page at `path`: the one with the longest matching path. */
-export function warehouseItemForLocation(path: string, items: WarehouseItem[]): WarehouseItem | null {
-    let match: WarehouseItem | null = null
+function hrefTab(href: string): string | null {
+    return new URLSearchParams(href.split('?')[1] ?? '').get('tab')
+}
+
+/**
+ * The menu item for the page at `path`: the one with the longest matching path. Items that share a path are the
+ * tabs of one page, so `tab` picks between them and the item without a tab is the default.
+ */
+export function warehouseItemForLocation(
+    path: string,
+    items: WarehouseItem[],
+    tab: string | null = null
+): WarehouseItem | null {
+    let matches: WarehouseItem[] = []
     let matchLength = -1
     for (const item of items) {
         for (const itemPath of itemPaths(item)) {
-            if (isUnder(path, itemPath) && itemPath.length > matchLength) {
-                match = item
+            if (!isUnder(path, itemPath) || itemPath.length < matchLength) {
+                continue
+            }
+            if (itemPath.length > matchLength) {
+                matches = []
                 matchLength = itemPath.length
             }
+            matches.push(item)
         }
     }
-    return match
+    return (
+        matches.find((item) => hrefTab(item.href) === tab) ??
+        matches.find((item) => hrefTab(item.href) === null) ??
+        matches[0] ??
+        null
+    )
 }

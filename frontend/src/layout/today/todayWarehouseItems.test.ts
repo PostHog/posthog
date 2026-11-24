@@ -32,10 +32,12 @@ describe('todayWarehouseItems', () => {
 
     test.each([
         ['/sql', 'sql_editor'],
-        ['/data-management/sources/abc/schemas', 'sources'],
+        ['/data-management/sources/abc/schemas', null],
         ['/models', 'models'],
         ['/models/abc', 'models'],
         ['/warehouse', 'home'],
+        ['/warehouse/posthog-data', 'posthog_data'],
+        ['/warehouse/source-data', 'source_data'],
         ['/warehouse/usage', 'usage'],
         ['/warehouse/queries', 'queries'],
         ['/warehouse/storage', 'storage'],
@@ -56,8 +58,23 @@ describe('todayWarehouseItems', () => {
     })
 
     test.each([
+        ['/models', 'lineage', 'models_lineage'],
+        ['/models', null, 'models'],
+        // A tab no item names, or a page under the path, falls back to the page's first tab.
+        ['/models', 'nonsense', 'models'],
+        ['/models/abc', 'lineage', 'models_lineage'],
+        ['/data-catalog', 'relationships', 'data_catalog_relationships'],
+        ['/data-catalog', null, 'data_catalog'],
+        // `tab` belongs to the page it is on, so it does not move another page to one of its tabs.
+        ['/warehouse/storage', 'usage', 'storage'],
+    ])('marks %s with tab %s as %s', (path, tab, key) => {
+        expect(warehouseItemForLocation(path, WAREHOUSE_ITEMS, tab)?.key ?? null).toBe(key)
+    })
+
+    test.each([
         ['/sql', true],
         ['/data-catalog', true],
+        ['/data-management/sources', false],
         ['/sql?open_query=abc', true],
         ['/etl', false],
         ['/data-management/destinations?tab=all', false],

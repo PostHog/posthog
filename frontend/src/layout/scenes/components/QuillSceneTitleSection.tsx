@@ -59,11 +59,9 @@ export function QuillSceneTitleSection({
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const { phoneHeaderShown, sidebarBreadcrumbShown, currentWarehouseItem, warehouseHeaderShown } =
-        useValues(todayShellLogic)
-    // The warehouse header holds no scene title, so the scene's PostHog AI tool registers here. Both returns render it
-    // first, so a switch between them keeps the tool registered.
-    const maxToolRegistration = !!maxToolProps && warehouseHeaderShown && (
+    const { phoneHeaderShown, sidebarBreadcrumbShown, routePane } = useValues(todayShellLogic)
+    // Unlike the classic title row, this one has no PostHog AI button, so a warehouse page's tool registers here.
+    const maxToolRegistration = !!maxToolProps && routePane === 'warehouse' && (
         <Suspense fallback={null}>
             <MaxToolRegistration maxToolProps={maxToolProps} />
         </Suspense>
@@ -106,20 +104,6 @@ export function QuillSceneTitleSection({
     useRegisterSceneMenuBarSlot(menuBarSlot)
     // The menu bar's Help menu carries the settings link, so the title shows its own only without a bar.
     const menuBarShown = useSceneMenuBarSlotFilled()
-
-    const titleInWarehouseHeader = !!currentWarehouseItem && !forceBackTo && breadcrumbs.length <= 2 && !forceEdit
-    if (titleInWarehouseHeader) {
-        return (
-            <>
-                {maxToolRegistration}
-                <div data-quill className={cn('flex flex-wrap items-center justify-end gap-1 empty:hidden', className)}>
-                    {actions}
-                    <div ref={setMenuBarSlot} className="flex min-w-0 items-center empty:hidden" />
-                    {!menuBarShown && <SceneTitleSettingsButton />}
-                </div>
-            </>
-        )
-    }
 
     return (
         <>
