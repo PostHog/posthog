@@ -234,6 +234,7 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                             tags={draftTags}
                             onChange={setDraftTags}
                             saving={saving}
+                            objectType="customer_task"
                             data-attr="customer-task-modal-tags"
                         />
                     ) : (

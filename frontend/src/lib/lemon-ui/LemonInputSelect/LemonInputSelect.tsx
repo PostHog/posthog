@@ -109,7 +109,7 @@ function VirtualizedOptionRow<T = string>({
                     : undefined
             }
         >
-            <span className="whitespace-nowrap ph-no-capture truncate">
+            <span className="whitespace-nowrap ph-no-capture truncate flex-1 min-w-0">
                 {!option.__isInput && !option.__isCustomValue
                     ? (option.labelComponent ?? option.label)
                     : getInputLabel(option)}
@@ -181,6 +181,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     sortable?: boolean
     /** Render single-mode values as snack pills (matching multi-mode appearance) */
     singleValueAsSnack?: boolean
+    /** Omit already-selected options from the dropdown in multiple-select mode (they remain removable via snacks). */
+    hideSelectedOptions?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -221,6 +223,7 @@ export function LemonInputSelect<T = string>({
     sortable = false,
     status = 'default',
     singleValueAsSnack = false,
+    hideSelectedOptions = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     // A disabledReason disables the whole control, not just the inner input - value
     // snacks, clear buttons, and drag reordering must all be inert too
@@ -371,6 +374,9 @@ export function LemonInputSelect<T = string>({
             relevantOptions = Array.from(allOptionsMap.values())
         }
         for (const option of relevantOptions) {
+            if (hideSelectedOptions && mode === 'multiple' && stringKeys.includes(option.key)) {
+                continue
+            }
             if (option.key === inputValue && option.__isInput) {
                 // We don't want to show the input-based option again. The check for __isInput covers the case the user types something that is already an option, but we want to keep the original option
                 continue
@@ -391,6 +397,7 @@ export function LemonInputSelect<T = string>({
     }, [
         allOptionsMap,
         allowCustomValues,
+        hideSelectedOptions,
         inputValue,
         mode,
         stringKeys,
@@ -402,7 +409,13 @@ export function LemonInputSelect<T = string>({
         optionMaps,
     ])
 
-    const displayOptions = frozenOptions ?? visibleOptions
+    const displayOptions = useMemo(() => {
+        const base = frozenOptions ?? visibleOptions
+        if (hideSelectedOptions && mode === 'multiple') {
+            return base.filter((option) => !stringKeys.includes(option.key))
+        }
+        return base
+    }, [frozenOptions, visibleOptions, hideSelectedOptions, mode, stringKeys])
 
     // Reset the selected index when the displayed options change
     useEffect(() => {
@@ -864,7 +877,7 @@ export function LemonInputSelect<T = string>({
         option: LemonInputSelectOption<T>,
         isSelected: boolean
     ): React.ReactElement | null | undefined => {
-        if (option.__isInput) {
+        if (option.__isInput || (hideSelectedOptions && mode === 'multiple')) {
             return undefined
         }
 
@@ -1052,7 +1065,7 @@ export function LemonInputSelect<T = string>({
                                                 : undefined
                                         }
                                     >
-                                        <span className="whitespace-nowrap ph-no-capture truncate">
+                                        <span className="whitespace-nowrap ph-no-capture truncate flex-1 min-w-0">
                                             {
                                                 !option.__isInput && !option.__isCustomValue
                                                     ? (option.labelComponent ?? option.label) // Regular option

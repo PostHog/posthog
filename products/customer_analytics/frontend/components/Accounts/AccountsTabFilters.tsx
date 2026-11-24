@@ -66,6 +66,7 @@ export function AccountsTabFilters(): JSX.Element {
                             setTagsFilter(tags)
                             reportFilterChange('tag')
                         }}
+                        objectType="account"
                         listDataAttr="accounts-tags-filter"
                     >
                         {() => (

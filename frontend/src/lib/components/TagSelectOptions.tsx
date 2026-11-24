@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import { TagOptionLabel } from './TagOptionLabel'
 import { TagOption } from './tagSelectLogic'
 
 export function TagSelectOptions({
@@ -21,23 +22,25 @@ export function TagSelectOptions({
 }): JSX.Element {
     return (
         <ul className="deprecated-space-y-px p-1">
-            {displayedTags.map(({ tag, count }) => (
-                <li key={tag}>
+            {displayedTags.map((option) => (
+                <li key={option.tag}>
                     <LemonButton
                         fullWidth
                         role="checkbox"
-                        aria-checked={value.includes(tag)}
-                        aria-label={count === undefined ? tag : `${tag} (${count})`}
-                        tooltip={tag}
+                        aria-checked={value.includes(option.tag)}
+                        aria-label={option.count === undefined ? option.tag : `${option.tag} (${option.count})`}
+                        // The count carries its own usage tooltip, which a row-wide tooltip would cover.
+                        tooltip={option.total_count === undefined ? option.tag : undefined}
                         size="small"
-                        onClick={() => onToggle(tag)}
+                        onClick={() => onToggle(option.tag)}
                     >
                         <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                            <LemonCheckbox checked={value.includes(tag)} decorative className="pointer-events-none" />
-                            <span className="min-w-0 flex-1 truncate" title={tag}>
-                                {tag}
-                            </span>
-                            {count !== undefined && <span className="text-muted tabular-nums">{count}</span>}
+                            <LemonCheckbox
+                                checked={value.includes(option.tag)}
+                                decorative
+                                className="pointer-events-none"
+                            />
+                            <TagOptionLabel {...option} />
                         </span>
                     </LemonButton>
                 </li>

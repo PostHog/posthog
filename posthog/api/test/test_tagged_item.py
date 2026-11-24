@@ -14,6 +14,7 @@ from posthog.api.tagged_item import (
     BULK_UPDATE_TAGS_MAX_TAGS,
     BulkUpdateTagsRequestSerializer,
     BulkUpdateTagsUUIDRequestSerializer,
+    TagListQuerySerializer,
 )
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
@@ -127,6 +128,55 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == ["dashboard-000", "dashboard-001"]
         assert response.json()["next"] is not None
+
+    def test_list_tags_with_counts_scoped_to_object_type(self) -> None:
+        d1 = Dashboard.objects.create(team_id=self.team.id, name="d1")
+        d2 = Dashboard.objects.create(team_id=self.team.id, name="d2")
+        insight = Insight.objects.create(team_id=self.team.id, name="i1")
+
+        tag_popular = Tag.objects.create(name="churn-risk", team_id=self.team.id)
+        tag_rare = Tag.objects.create(name="churn risk", team_id=self.team.id)
+        tag_other_model = Tag.objects.create(name="churn_risk", team_id=self.team.id)
+        Tag.objects.create(name="unrelated", team_id=self.team.id)
+
+        d1.tagged_items.create(tag=tag_popular)
+        d2.tagged_items.create(tag=tag_popular)
+        d1.tagged_items.create(tag=tag_rare)
+        insight.tagged_items.create(tag=tag_other_model)
+        insight.tagged_items.create(tag=tag_popular)
+
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        other_dashboard = Dashboard.objects.create(team_id=other_team.id, name="other dash")
+        other_tag = Tag.objects.create(name="churn-other-team", team_id=other_team.id)
+        other_dashboard.tagged_items.create(tag=other_tag)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/tags?search=churn&object_type=dashboard&include_counts=true&limit=2"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 3
+        assert response.json()["results"] == [
+            {"tag": "churn-risk", "count": 2, "total_count": 3},
+            {"tag": "churn risk", "count": 1, "total_count": 1},
+        ]
+        assert response.json()["next"] is not None
+
+        page_two = self.client.get(
+            f"/api/projects/{self.team.id}/tags?search=churn&object_type=dashboard&include_counts=true&limit=2&offset=2"
+        )
+        assert page_two.status_code == status.HTTP_200_OK
+        assert page_two.json()["results"] == [{"tag": "churn_risk", "count": 0, "total_count": 1}]
+        assert page_two.json()["next"] is None
+
+        names_only = self.client.get(f"/api/projects/{self.team.id}/tags?search=churn&object_type=dashboard")
+        assert names_only.status_code == status.HTTP_200_OK
+        assert names_only.json()["results"] == ["churn-risk", "churn risk", "churn_risk"]
+
+    def test_list_tags_rejects_unknown_object_type(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?object_type=not_a_model&include_counts=true")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "object_type"
 
 
 class TestBulkUpdateTags(APIBaseTest):
@@ -489,3 +539,18 @@ class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
         tags = [f"Tag-{i % 20}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS)]
         serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTagListQueryValidation(SimpleTestCase):
+    @parameterized.expand(["account", "customer_task", "dashboard", "notebook"])
+    def test_accepts_registered_object_types(self, object_type: str) -> None:
+        serializer = TagListQuerySerializer(data={"object_type": object_type, "include_counts": "true"})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["object_type"] == object_type
+        assert serializer.validated_data["include_counts"] is True
+
+    @parameterized.expand(["", "unknown_model"])
+    def test_rejects_invalid_object_type(self, object_type: str) -> None:
+        serializer = TagListQuerySerializer(data={"object_type": object_type})
+        assert not serializer.is_valid()
+        assert "object_type" in serializer.errors

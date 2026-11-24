@@ -120,6 +120,7 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
             onTagClick={addTagToFilter}
             saving={isTagsSaving(accountId)}
+            objectType="account"
             data-attr="accounts-tags-cell"
             editorFullWidth
         />

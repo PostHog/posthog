@@ -98,6 +98,7 @@ export function AccountNotesExpansion({
                         tags={tags}
                         onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
                         saving={!!pendingNotebookTags[notebook.short_id]}
+                        objectType="notebook"
                         data-attr="account-note-tags"
                     />
                 )
@@ -154,7 +155,12 @@ export function AccountNotesExpansion({
                         className="min-w-64"
                     />
                     <AccountNotesViewSelector logicProps={{ sourceKey: logic.pathString, sourceLogic: logic }} />
-                    <TagsFilter value={tagsFilter} onChange={setTagsFilter} data-attr="account-notes-tags-filter" />
+                    <TagsFilter
+                        value={tagsFilter}
+                        onChange={setTagsFilter}
+                        objectType="notebook"
+                        data-attr="account-notes-tags-filter"
+                    />
                     <NotesCreatedByFilter value={createdByFilter} onChange={setCreatedByFilter} />
                 </div>
                 <LemonButton

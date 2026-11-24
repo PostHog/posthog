@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo } from 'react'
 import api, { PaginatedResponse } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LoadTags, TagOption, excludingTags, tagSelectLogic } from './tagSelectLogic'
+import { LoadTags, TagObjectType, TagOption, excludingTags, tagSelectLogic } from './tagSelectLogic'
 
 const TAGS_PER_PAGE = 100
 
-export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): LoadTags {
+export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags, objectType?: TagObjectType): LoadTags {
     const { currentTeamId } = useValues(teamLogic)
     return useCallback<LoadTags>(
         async (query, offset, isStale) => {
@@ -26,15 +26,23 @@ export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): 
                 return { results: [], hasMore: false }
             }
             const params = new URLSearchParams({ search: query, limit: String(TAGS_PER_PAGE), offset: String(offset) })
+            if (objectType) {
+                params.set('object_type', objectType)
+                params.set('include_counts', 'true')
+            }
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-            const page: PaginatedResponse<string> = await api.get(`api/projects/${currentTeamId}/tags?${params}`)
+            const page: PaginatedResponse<string | TagOption> = await api.get(
+                `api/projects/${currentTeamId}/tags?${params}`
+            )
             return {
-                results: page.results.map((tag) => ({ tag })),
+                results: page.results.map((item) =>
+                    typeof item === 'string' ? { tag: item } : { ...item, objectType }
+                ),
                 hasMore: page.next != null,
                 nextOffset: offset + page.results.length,
             }
         },
-        [options, customLoadTags, currentTeamId]
+        [options, customLoadTags, currentTeamId, objectType]
     )
 }
 
@@ -57,7 +65,7 @@ export interface TagPages {
     retry: () => void
 }
 
-export function useTagPages(logicKey: string, loadTags?: LoadTags): TagPages {
+export function useTagPages(logicKey: string, loadTags?: LoadTags, objectType?: TagObjectType): TagPages {
     const logic = tagSelectLogic({ logicKey })
     const {
         awaitingFirstPage,
@@ -70,7 +78,7 @@ export function useTagPages(logicKey: string, loadTags?: LoadTags): TagPages {
         tagResults,
     } = useValues(logic)
     const { loadMoreTags, loadTagPage, setSearch, setShowPopover } = useActions(logic)
-    const projectSource = useTagSource()
+    const projectSource = useTagSource(undefined, undefined, objectType)
     const source = loadTags ?? projectSource
 
     useEffect(() => {

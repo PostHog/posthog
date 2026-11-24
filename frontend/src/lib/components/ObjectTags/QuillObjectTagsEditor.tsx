@@ -1,9 +1,9 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 
 import { cn } from '@posthog/quill'
 
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
-import type { LoadTags } from 'lib/components/tagSelectLogic'
+import type { LoadTags, TagObjectType } from 'lib/components/tagSelectLogic'
 import { useTagPages } from 'lib/components/useTagPages'
 
 export function QuillObjectTagsEditor({
@@ -13,6 +13,7 @@ export function QuillObjectTagsEditor({
     saving,
     tagsAvailable,
     loadTags,
+    objectType,
     placeholder,
     fullWidth,
 }: {
@@ -23,11 +24,16 @@ export function QuillObjectTagsEditor({
     /** Fixed suggestions. Leave out to suggest the project's tags, loaded a page at a time. */
     tagsAvailable?: string[]
     loadTags?: LoadTags
+    objectType?: TagObjectType
     placeholder: string
     fullWidth: boolean
 }): JSX.Element {
-    const tagPages = useTagPages(useId(), loadTags)
+    const tagPages = useTagPages(useId(), loadTags, objectType)
     const pagesLoading = tagPages.awaitingFirstPage || tagPages.pageLoading
+    const optionsByTag = useMemo(
+        () => Object.fromEntries(tagPages.tags.map((option) => [option.tag, option])),
+        [tagPages.tags]
+    )
 
     // The combobox keeps focus in its input while its list is open, so focus leaving both ends the edit.
     const stopEditingOnFocusOut = (event: React.FocusEvent<HTMLDivElement>): void => {
@@ -60,6 +66,7 @@ export function QuillObjectTagsEditor({
                     onInputChange={tagPages.setSearch}
                     loading={saving || pagesLoading}
                     options={tagPages.tags.map(({ tag }) => tag).filter((tag) => !tags.includes(tag))}
+                    optionsByTag={optionsByTag}
                     error={tagPages.error ? "Couldn't load tags." : undefined}
                     onRetry={tagPages.retry}
                     onScrollEnd={tagPages.loadMore}

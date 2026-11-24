@@ -43,7 +43,13 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             <LemonDivider className="my-0" />
             <div className="flex flex-col gap-1 p-4" data-attr="account-rail-tags">
                 <span className="secondary text-secondary">Tags</span>
-                <ObjectTags tags={account.tags ?? []} onChange={updateTags} saving={tagsSaving} wrap />
+                <ObjectTags
+                    tags={account.tags ?? []}
+                    onChange={updateTags}
+                    saving={tagsSaving}
+                    objectType="account"
+                    wrap
+                />
             </div>
             <LemonDivider className="my-0" />
             <AccountPinnedPropertiesPanel accountId={account.id} />

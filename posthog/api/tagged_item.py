@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.db import models
-from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db.models import Count, Prefetch, Q, QuerySet, prefetch_related_objects
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import response, serializers, status, viewsets
@@ -18,6 +18,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
+from posthog.models.tagged_item_registry import content_type_for_entry, taggable_for_legacy_field
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
@@ -477,6 +478,41 @@ class TaggedItemSerializer(serializers.Serializer):
         return obj.tag.name
 
 
+class TagListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive substring search over tag names.",
+    )
+    object_type = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Taggable model identifier (for example 'account') used to scope usage counts and ranking.",
+    )
+    include_counts = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, return tag objects with a count scoped to object_type and a total_count across all tagged objects, ranked by count from most used to least used.",
+    )
+
+    def validate_object_type(self, value: str) -> str:
+        if taggable_for_legacy_field(value) is None:
+            raise serializers.ValidationError(f"Unknown object_type: '{value}'.")
+        return value
+
+
+class _TagCountPagination(BoundedLimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+    def __init__(self, total_count: int) -> None:
+        self._total_count = total_count
+
+    def get_count(self, queryset: Any) -> int:
+        # Left-joining TaggedItem preserves one row per Tag, so the unjoined count is exact and skips a second join.
+        return self._total_count
+
+
 class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = TaggedItemSerializer
@@ -487,20 +523,63 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             OpenApiParameter("search", OpenApiTypes.STR, required=False),
             OpenApiParameter("limit", OpenApiTypes.INT, required=False),
             OpenApiParameter("offset", OpenApiTypes.INT, required=False),
+            OpenApiParameter(
+                "object_type",
+                OpenApiTypes.STR,
+                required=False,
+                description="Taggable model identifier (for example 'account') used to scope usage counts and ranking.",
+            ),
+            OpenApiParameter(
+                "include_counts",
+                OpenApiTypes.BOOL,
+                required=False,
+                description="When true, return {tag, count, total_count} objects ranked by count descending. count covers object_type only; total_count covers every tagged object.",
+            ),
         ]
     )
     def list(self, request, *args, **kwargs) -> response.Response:
-        tags = Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
+        query_serializer = TagListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        object_type: str | None = query_serializer.validated_data.get("object_type")
+        include_counts: bool = query_serializer.validated_data["include_counts"]
         search = request.query_params.get("search")
 
-        if search is None:
-            return response.Response(tags)
+        if not include_counts and object_type is None:
+            tags = Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
 
+            if search is None:
+                return response.Response(tags)
+
+            if search:
+                tags = tags.filter(name__icontains=search)
+
+            paginator = BoundedLimitOffsetPagination()
+            paginator.default_limit = 100
+            paginator.max_limit = 100
+            page = paginator.paginate_queryset(tags, request, view=self)
+            return paginator.get_paginated_response(page)
+
+        base_tags = Tag.objects.filter(team=self.team)
         if search:
-            tags = tags.filter(name__icontains=search)
+            base_tags = base_tags.filter(name__icontains=search)
 
-        paginator = BoundedLimitOffsetPagination()
-        paginator.default_limit = 100
-        paginator.max_limit = 100
-        page = paginator.paginate_queryset(tags, request, view=self)
-        return paginator.get_paginated_response(page)
+        if object_type is not None:
+            entry = taggable_for_legacy_field(object_type)
+            assert entry is not None
+            usage_count = Count("tagged_items", filter=Q(tagged_items__content_type=content_type_for_entry(entry)))
+        else:
+            usage_count = Count("tagged_items")
+        annotated_tags = base_tags.annotate(usage_count=usage_count, total_count=Count("tagged_items"))
+
+        ordered_tags = annotated_tags.values("name", "usage_count", "total_count").order_by("-usage_count", "name")
+        count_paginator = _TagCountPagination(total_count=base_tags.count())
+        counted_page = count_paginator.paginate_queryset(ordered_tags, request, view=self)
+        assert counted_page is not None
+        if include_counts:
+            results: list[Any] = [
+                {"tag": row["name"], "count": row["usage_count"], "total_count": row["total_count"]}
+                for row in counted_page
+            ]
+        else:
+            results = [row["name"] for row in counted_page]
+        return count_paginator.get_paginated_response(results)

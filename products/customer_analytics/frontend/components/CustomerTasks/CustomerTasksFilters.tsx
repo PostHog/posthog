@@ -127,6 +127,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
             <TagsFilter
                 value={filters.tags ?? []}
                 onChange={(tags) => setFilters({ tags })}
+                objectType="customer_task"
                 data-attr="customer-tasks-tags-filter"
             />
             <LemonMenu items={archive}>

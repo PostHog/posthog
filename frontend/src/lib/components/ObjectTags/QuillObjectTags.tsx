@@ -1,7 +1,7 @@
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { Badge, Button, Popover, PopoverContent, PopoverTrigger, Text, cn } from '@posthog/quill'
 
-import type { LoadTags } from 'lib/components/tagSelectLogic'
+import type { LoadTags, TagObjectType } from 'lib/components/tagSelectLogic'
 
 import { QuillObjectTagsEditor } from './QuillObjectTagsEditor'
 
@@ -26,6 +26,7 @@ export interface QuillObjectTagsProps {
     saving?: boolean
     tagsAvailable?: string[]
     loadTags?: LoadTags
+    objectType?: TagObjectType
     addLabel: string
     editLabel: string
     inputPlaceholder: string
@@ -54,6 +55,7 @@ export function QuillObjectTags({
     saving,
     tagsAvailable,
     loadTags,
+    objectType,
     addLabel,
     editLabel,
     inputPlaceholder,
@@ -105,6 +107,7 @@ export function QuillObjectTags({
                     saving={saving}
                     tagsAvailable={tagsAvailable}
                     loadTags={loadTags}
+                    objectType={objectType}
                     placeholder={inputPlaceholder}
                     fullWidth={editorFullWidth}
                 />

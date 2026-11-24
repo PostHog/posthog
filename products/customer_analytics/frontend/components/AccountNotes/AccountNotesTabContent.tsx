@@ -115,6 +115,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             tags={tags}
                             onChange={(newTags) => updateNoteTags(note, newTags)}
                             saving={!!pendingNoteTags[note.short_id]}
+                            objectType="notebook"
                             data-attr="account-note-tags"
                         />
                     </div>
@@ -179,6 +180,7 @@ export function AccountNotesTabContent(): JSX.Element {
                         setTagsFilter(tags)
                         reportFilterChange('tag')
                     }}
+                    objectType="notebook"
                     data-attr="account-notes-tags-filter"
                 />
                 <NotesCreatedByFilter

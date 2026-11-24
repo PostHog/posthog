@@ -1,8 +1,9 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 
 import { LemonInputSelect, LemonInputSelectProps } from '@posthog/lemon-ui'
 
-import { LoadTags } from './tagSelectLogic'
+import { TagOptionLabel } from './TagOptionLabel'
+import { LoadTags, TagObjectType } from './tagSelectLogic'
 import { useTagPages } from './useTagPages'
 
 type TagsInputSelectProps = Pick<
@@ -22,6 +23,7 @@ type TagsInputSelectProps = Pick<
     onChange: (tags: string[]) => void
     saving?: boolean
     loadTags?: LoadTags
+    objectType?: TagObjectType
 }
 
 /** A tag editor that suggests the project's tags a page at a time, so it stays fast on projects with many tags. */
@@ -30,16 +32,34 @@ export function TagsInputSelect({
     onChange,
     saving,
     loadTags,
+    objectType,
     ...inputProps
 }: TagsInputSelectProps): JSX.Element {
-    const { tags, awaitingFirstPage, pageLoading, error, setOpen, setSearch, retry } = useTagPages(useId(), loadTags)
+    const { tags, awaitingFirstPage, pageLoading, error, setOpen, setSearch, retry } = useTagPages(
+        useId(),
+        loadTags,
+        objectType
+    )
+
+    const options = useMemo(
+        () =>
+            tags
+                .filter(({ tag }) => !value.includes(tag))
+                .map((option) => ({
+                    key: option.tag,
+                    label: option.tag,
+                    labelComponent: option.count !== undefined ? <TagOptionLabel {...option} /> : undefined,
+                })),
+        [tags, value]
+    )
 
     return (
         <LemonInputSelect
             mode="multiple"
             allowCustomValues
+            hideSelectedOptions
             value={value}
-            options={tags.map(({ tag }) => ({ key: tag, label: tag }))}
+            options={options}
             onChange={onChange}
             onFocus={() => setOpen(true)}
             onInputChange={setSearch}

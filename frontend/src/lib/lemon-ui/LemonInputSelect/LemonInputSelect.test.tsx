@@ -528,4 +528,36 @@ describe('LemonInputSelect', () => {
             expect(onChange).toHaveBeenLastCalledWith(['user-id'])
         }
     )
+
+    it('multiple-select mode: hideSelectedOptions omits already-selected values and custom values from the dropdown', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'churn-risk', label: 'churn-risk' },
+                    { key: 'churn-watch', label: 'churn-watch' },
+                ]}
+                value={['active trial', 'churn-risk']}
+                onChange={onChange}
+                allowCustomValues
+                disableFiltering
+                hideSelectedOptions
+            />
+        )
+
+        const input = await openDropdown(container)
+        await userEvent.type(input, 'churn')
+
+        expect(await findDropdownButtonByText('churn-watch')).toBeInTheDocument()
+        expect(screen.queryByText('Add "active trial"')).not.toBeInTheDocument()
+        expect(await findDropdownButtonByText('churn-risk')).toBeUndefined()
+
+        // Selected snacks remain removable via their close buttons
+        const closeButtons = container.querySelectorAll('.LemonSnack__close button')
+        expect(closeButtons).toHaveLength(2)
+        await userEvent.click(closeButtons[0] as HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(['churn-risk'])
+    })
 })

@@ -15,6 +15,9 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+import { TagOptionLabel } from 'lib/components/TagOptionLabel'
+import type { TagOption } from 'lib/components/tagSelectLogic'
+
 const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
@@ -32,6 +35,7 @@ type TagsComboboxProps = {
     onScrollEnd?: () => void
     loadingMore?: boolean
     options?: string[]
+    optionsByTag?: Record<string, TagOption>
     placeholder?: string
     autoFocus?: boolean
     disabled?: boolean
@@ -68,6 +72,7 @@ function TagsComboboxInner({
     onScrollEnd,
     loadingMore,
     options = [],
+    optionsByTag,
     placeholder,
     autoFocus,
     disabled,
@@ -142,6 +147,7 @@ function TagsComboboxInner({
                 onRetry={onRetry}
                 onScrollEnd={onScrollEnd}
                 loadingMore={loadingMore}
+                optionsByTag={optionsByTag}
             />
         </Combobox>
     )
@@ -163,6 +169,7 @@ function TagsComboboxBody({
     onRetry,
     onScrollEnd,
     loadingMore,
+    optionsByTag,
 }: {
     id?: string
     placeholder?: string
@@ -179,6 +186,7 @@ function TagsComboboxBody({
     onRetry?: () => void
     onScrollEnd?: () => void
     loadingMore?: boolean
+    optionsByTag?: Record<string, TagOption>
 }): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
@@ -257,7 +265,7 @@ function TagsComboboxBody({
                         }
                         return (
                             <ComboboxItem key={item} value={item}>
-                                {item}
+                                <TagOptionLabel {...(optionsByTag?.[item] ?? { tag: item })} />
                             </ComboboxItem>
                         )
                     }}

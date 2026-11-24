@@ -1,9 +1,37 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+export const TAG_OBJECT_NOUNS = {
+    account: ['account', 'accounts'],
+    action: ['action', 'actions'],
+    ai_dataset: ['dataset', 'datasets'],
+    ai_scorer: ['scorer', 'scorers'],
+    customer_task: ['task', 'tasks'],
+    dashboard: ['dashboard', 'dashboards'],
+    endpoint: ['endpoint', 'endpoints'],
+    event_definition: ['event', 'events'],
+    experiment: ['experiment', 'experiments'],
+    experiment_saved_metric: ['saved metric', 'saved metrics'],
+    feature_flag: ['feature flag', 'feature flags'],
+    hog_flow: ['workflow', 'workflows'],
+    insight: ['insight', 'insights'],
+    message_template: ['message template', 'message templates'],
+    notebook: ['notebook', 'notebooks'],
+    offline_experiment: ['offline experiment', 'offline experiments'],
+    project: ['project', 'projects'],
+    property_definition: ['property', 'properties'],
+    replay_scanner: ['replay scanner', 'replay scanners'],
+    task: ['task', 'tasks'],
+    ticket: ['ticket', 'tickets'],
+} as const satisfies Record<string, readonly [string, string]>
+
+export type TagObjectType = keyof typeof TAG_OBJECT_NOUNS
+
 export interface TagOption {
     tag: string
     count?: number
+    total_count?: number
+    objectType?: TagObjectType
 }
 
 export interface TagPage {

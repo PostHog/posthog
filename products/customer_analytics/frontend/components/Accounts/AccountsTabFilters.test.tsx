@@ -30,7 +30,7 @@ describe('AccountsTabFilters', () => {
     beforeEach(() => {
         manualViewsLogic = null
         savedViews = []
-        tagsRequest = jest.fn(() => [200, { results: ['enterprise'], next: null, count: 1 }])
+        tagsRequest = jest.fn(() => [200, { results: [{ tag: 'enterprise', count: 5 }], next: null, count: 1 }])
         viewsRequest = jest.fn(() => [200, { count: savedViews.length, results: savedViews }])
         useMocks({
             get: {
@@ -152,13 +152,17 @@ describe('AccountsTabFilters', () => {
         }
     )
 
-    it('loads existing tags when the tag filter opens', async () => {
+    it('loads existing tags with account counts when the tag filter opens', async () => {
         renderFilters()
 
         fireEvent.click(screen.getByText('All tags'))
         await waitFor(() => expect(tagsRequest).toHaveBeenCalled())
+        const requestUrl = new URL(tagsRequest.mock.calls[0][0].request.url)
+        expect(requestUrl.searchParams.get('object_type')).toBe('account')
+        expect(requestUrl.searchParams.get('include_counts')).toBe('true')
 
         expect(await screen.findByText('enterprise')).toBeInTheDocument()
+        expect(document.querySelector('[aria-label="enterprise (5)"]')).not.toBeNull()
     })
 
     it('renders the "My accounts" checkbox', () => {

@@ -151636,7 +151636,15 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
+    /**
+     * When true, return {tag, count, total_count} objects ranked by count descending. count covers object_type only; total_count covers every tagged object.
+     */
+    include_counts?: boolean;
     limit?: number;
+    /**
+     * Taggable model identifier (for example 'account') used to scope usage counts and ranking.
+     */
+    object_type?: string;
     offset?: number;
     search?: string;
     };

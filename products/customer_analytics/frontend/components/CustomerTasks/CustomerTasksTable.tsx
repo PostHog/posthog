@@ -125,6 +125,7 @@ export function CustomerTasksTable({
                         onChange={(tags) => updateTask(task.id, { tags })}
                         onTagClick={addTagToFilter}
                         saving={Boolean(mutationKeys[task.id])}
+                        objectType="customer_task"
                         data-attr="customer-task-tags"
                         editorFullWidth
                         wrap

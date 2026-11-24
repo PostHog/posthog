@@ -52,6 +52,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
                 <TagSelect
                     value={accountTags}
                     onChange={setAccountTags}
+                    objectType="account"
                     listDataAttr="announcement-accounts-tags-filter"
                 >
                     {() => (

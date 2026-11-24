@@ -7,7 +7,7 @@ import { LemonButton, LemonInputSelect, LemonTag, LemonTagType, Popover } from '
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { QuillObjectTags } from 'lib/components/ObjectTags/QuillObjectTags'
-import { LoadTags } from 'lib/components/tagSelectLogic'
+import { LoadTags, TagObjectType } from 'lib/components/tagSelectLogic'
 import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { colorForString } from 'lib/utils/colors'
@@ -50,6 +50,7 @@ export type ObjectTagsProps =
           onBlur?: never
           tagsAvailable?: never
           loadTags?: never
+          objectType?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
@@ -59,6 +60,8 @@ export type ObjectTagsProps =
           /** Fixed suggestions. Leave out to suggest the project's tags, loaded a page at a time. */
           tagsAvailable?: string[]
           loadTags?: LoadTags
+          /** Scope tag suggestions to this model's usage counts and rank by most-used first. */
+          objectType?: TagObjectType
       })
 
 const COLOR_OVERRIDES: Record<string, LemonTagType> = {
@@ -75,6 +78,7 @@ export function ObjectTags({
     saving, // Required unless `staticOnly`
     tagsAvailable,
     loadTags,
+    objectType,
     style = {},
     staticOnly = false,
     className,
@@ -129,6 +133,7 @@ export function ObjectTags({
                 saving={saving}
                 tagsAvailable={tagsAvailable}
                 loadTags={loadTags}
+                objectType={objectType}
                 addLabel={addLabel}
                 editLabel={editLabel}
                 inputPlaceholder={inputPlaceholder}
@@ -163,6 +168,7 @@ export function ObjectTags({
                     <LemonInputSelect
                         mode="multiple"
                         allowCustomValues
+                        hideSelectedOptions
                         value={tags}
                         options={tagsAvailable.map((t) => ({ key: t, label: t }))}
                         onChange={setTags}
@@ -181,6 +187,7 @@ export function ObjectTags({
                         onBlur={stopEditing}
                         saving={saving}
                         loadTags={loadTags}
+                        objectType={objectType}
                         data-attr="new-tag-input"
                         placeholder={inputPlaceholder}
                         autoFocus

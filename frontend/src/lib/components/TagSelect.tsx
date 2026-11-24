@@ -4,7 +4,7 @@ import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps } from
 
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 
-import { LoadTags, TagOption } from './tagSelectLogic'
+import { LoadTags, TagObjectType, TagOption } from './tagSelectLogic'
 import { TagSelectMenu } from './TagSelectMenu'
 import { useTagPages, useTagSource } from './useTagPages'
 
@@ -17,6 +17,7 @@ export type TagSelectProps = {
     listDataAttr?: string
     options?: TagOption[]
     loadTags?: LoadTags
+    objectType?: TagObjectType
     borderless?: boolean
 }
 
@@ -29,12 +30,13 @@ export function TagSelect({
     listDataAttr,
     options,
     loadTags: customLoadTags,
+    objectType,
     borderless = false,
     ...buttonProps
 }: TagSelectProps & Pick<LemonButtonProps, 'type' | 'size' | 'aria-label'>): JSX.Element {
     const fallbackKey = useId()
     const triggerRef = useRef<HTMLElement | null>(null)
-    const source = useTagSource(options, customLoadTags)
+    const source = useTagSource(options, customLoadTags, objectType)
     const {
         tags: tagResults,
         search,

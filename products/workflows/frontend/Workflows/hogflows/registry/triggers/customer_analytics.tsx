@@ -108,6 +108,7 @@ function StepTriggerConfigurationAccountTagChanged({ node }: { node: any }): JSX
                 <TagsInputSelect
                     value={selectedTags}
                     placeholder="Any tag"
+                    objectType="account"
                     onChange={(value) =>
                         setWorkflowActionConfig(node.data.id, {
                             type: 'event',
