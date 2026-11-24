@@ -31,7 +31,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ...facade.contracts import DigestRow, DigestSource
 from ...logic.digest_sources import load_digest_sources
-from ...logic.pending_review import TeamPendingReview, build_org_pending_reviews
+from ...logic.pending_review import TeamPendingReview, build_org_pending_reviews, groups_visible_to
 from .email_context import build_subject, build_template_context, pending_rows
 from .types import (
     DATA_CATALOG_DIGEST_EMAIL_UNAVAILABLE_TYPE,
@@ -217,7 +217,8 @@ def _project_digest(
     source_team_ids: Mapping[str, Collection[int]],
     new_since: datetime,
 ) -> ProjectDigest | None:
-    rows = pending_rows(review) if review else []
+    user_access_control = UserAccessControl(user=user, team=team)
+    rows = pending_rows(groups_visible_to(review, team, user, user_access_control, new_since)) if review else []
     for source in load_digest_sources():
         if team.id in source_team_ids.get(source.name, ()):
             rows += _source_rows(source, team, user, new_since)

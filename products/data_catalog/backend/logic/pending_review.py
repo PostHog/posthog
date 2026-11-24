@@ -75,11 +75,11 @@ def _group[ModelT: Model](
     )
 
 
-def _metrics_group(team: Team, sample_size: int, new_since: datetime | None) -> PendingGroup:
+def _metrics_group(proposed: QuerySet[Metric], sample_size: int, new_since: datetime | None) -> PendingGroup:
     return _group(
         PendingKind.METRICS,
         "metric",
-        _proposed_metrics(team),
+        proposed,
         lambda metric: metric.display_name or metric.name,
         sample_size,
         new_since,
@@ -143,7 +143,7 @@ def build_team_pending_review(
     groups = [
         group
         for group in (
-            _metrics_group(team, sample_size, new_since),
+            _metrics_group(_proposed_metrics(team), sample_size, new_since),
             _relationships_group(team, sample_size, new_since),
             _certifications_group(team, sample_size, new_since),
         )
@@ -161,17 +161,33 @@ def build_team_pending_review(
 
 def pending_review_counts(team: Team, user: User, user_access_control: UserAccessControl) -> PendingReviewCounts:
     """How many items wait in each review queue, as the caller's lists show them, up to ten minutes behind an access change."""
-    proposed_metrics = metrics_visible_to_user(
+    return PendingReviewCounts(
+        metrics=_visible_proposed_metrics(team, user, user_access_control).count(),
+        relationships=_proposed_relationships(team).count(),
+        certifications=_proposed_certifications(team).count(),
+    )
+
+
+def groups_visible_to(
+    review: TeamPendingReview,
+    team: Team,
+    user: User,
+    user_access_control: UserAccessControl,
+    new_since: datetime | None = None,
+) -> list[PendingGroup]:
+    """The review's queues as `user` sees them: the metrics queue drops metrics that read a table `user` cannot read."""
+    others = [group for group in review.groups if group.kind != PendingKind.METRICS]
+    metrics = _metrics_group(_visible_proposed_metrics(team, user, user_access_control), DEFAULT_SAMPLE_SIZE, new_since)
+    return [metrics, *others] if metrics.count else others
+
+
+def _visible_proposed_metrics(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
+    return metrics_visible_to_user(
         team,
         user,
         user_access_control,
         MetricListFilters(status=MetricStatus.PROPOSED),
         load_denied_tables=_denied_tables_for_proposed_metrics,
-    )
-    return PendingReviewCounts(
-        metrics=proposed_metrics.count(),
-        relationships=_proposed_relationships(team).count(),
-        certifications=_proposed_certifications(team).count(),
     )
 
 

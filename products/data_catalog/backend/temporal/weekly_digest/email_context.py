@@ -1,12 +1,13 @@
+import html
 from urllib.parse import parse_qsl, urlencode
 
 from django.conf import settings
 
-from posthog.helpers.email_utils import sanitize_display_name
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.organization import Organization
 
 from ...facade.contracts import DigestRow
-from ...logic.pending_review import PendingKind, TeamPendingReview
+from ...logic.pending_review import PendingGroup, PendingKind
 from .types import ProjectDigest
 
 UTM_PARAMS = {"utm_source": "data_catalog_weekly_digest", "utm_medium": "email"}
@@ -38,7 +39,7 @@ def catalog_url(team_id: int, kind: PendingKind | None = None) -> str:
     return app_url(team_id, catalog_path(kind))
 
 
-def pending_rows(review: TeamPendingReview) -> list[DigestRow]:
+def pending_rows(groups: list[PendingGroup]) -> list[DigestRow]:
     return [
         DigestRow(
             noun=group.noun,
@@ -47,7 +48,7 @@ def pending_rows(review: TeamPendingReview) -> list[DigestRow]:
             sample_names=group.sample_names,
             path=catalog_path(group.kind),
         )
-        for group in review.groups
+        for group in groups
     ]
 
 
@@ -59,7 +60,7 @@ def build_project_section(project: ProjectDigest) -> dict:
     """One project block of the email: its rows, their links, and where the primary button goes."""
     busiest = max(project.rows, key=lambda row: row.count)
     return {
-        "team_name": sanitize_display_name(project.team_name, fallback=TEAM_NAME_FALLBACK),
+        "team_name": _defanged(sanitize_display_name(project.team_name, fallback=TEAM_NAME_FALLBACK)),
         "project_url": catalog_url(project.team_id),
         "total": project.total,
         "review_url": app_url(project.team_id, busiest.path),
@@ -68,7 +69,7 @@ def build_project_section(project: ProjectDigest) -> dict:
 
 
 def _build_row(team_id: int, row: DigestRow) -> dict:
-    sample_names = [name for name in row.sample_names if sanitize_display_name(name, fallback="")]
+    sample_names = [_defanged(name) for name in row.sample_names if sanitize_display_name(name, fallback="")]
     return {
         "noun": row.noun,
         "count": row.count,
@@ -85,13 +86,18 @@ def build_template_context(organization: Organization, projects: list[ProjectDig
     shown = busiest_first[:MAX_PROJECT_SECTIONS]
     return {
         "organization": organization,
-        "organization_name": sanitize_display_name(organization.name, fallback=ORGANIZATION_NAME_FALLBACK),
+        "organization_name": _defanged(sanitize_display_name(organization.name, fallback=ORGANIZATION_NAME_FALLBACK)),
         "total": sum(project.total for project in projects),
         "new_total": sum(project.new_total for project in projects),
         "project_sections": [build_project_section(project) for project in shown],
         "omitted_project_count": len(busiest_first) - len(shown),
         "settings_url": settings_url(),
     }
+
+
+def _defanged(text: str) -> str:
+    """Breaks domain-shaped text so mail clients cannot auto-link it, and leaves the HTML escaping to the template."""
+    return html.unescape(sanitize_email_string(text))
 
 
 def build_subject(new_total: int, total: int) -> str:

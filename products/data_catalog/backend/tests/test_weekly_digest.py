@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import OperationalError
+from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -51,28 +52,21 @@ from products.data_catalog.backend.temporal.weekly_digest.workflows import DataC
 _ACTIVITIES = "products.data_catalog.backend.temporal.weekly_digest.activities"
 
 
-def _review(team: Team, metrics: int = 2, certifications: int = 1, new_metrics: int = 1) -> TeamPendingReview:
+def _review(team: Team, certifications: int = 3, new_certifications: int = 1) -> TeamPendingReview:
     groups = [
-        PendingGroup(
-            kind=PendingKind.METRICS, noun="metric", count=metrics, sample_names=["revenue"], new_count=new_metrics
-        ),
         PendingGroup(
             kind=PendingKind.CERTIFICATIONS,
             noun="certification",
             count=certifications,
             sample_names=["customer_facts"],
+            new_count=new_certifications,
         ),
     ]
-    return TeamPendingReview(
-        team_id=team.id,
-        team_name=team.name,
-        groups=groups,
-        total=metrics + certifications,
-    )
+    return TeamPendingReview(team_id=team.id, team_name=team.name, groups=groups, total=certifications)
 
 
 def _project(review: TeamPendingReview) -> ProjectDigest:
-    return ProjectDigest(team_id=review.team_id, team_name=review.team_name, rows=pending_rows(review))
+    return ProjectDigest(team_id=review.team_id, team_name=review.team_name, rows=pending_rows(review.groups))
 
 
 def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_name: str = "Acme") -> ProjectDigest:
@@ -131,6 +125,17 @@ class TestEmailContext(SimpleTestCase):
         assert section["rows"][0]["sample_names"] == ["revenue"]
         assert section["rows"][0]["omitted_count"] == 2
 
+    def test_rendered_email_leaves_no_domain_shaped_name_linkable(self) -> None:
+        project = _pending_metrics(
+            team_id=7, count=1, sample_names=["posthog.login.attacker.com"], team_name="acme.attacker.com"
+        )
+        context = build_template_context(Organization(name="login.attacker.com"), [project])
+
+        html_body = get_template("email/data_catalog_weekly_digest.html").render(context)
+
+        assert "attacker.com" not in html_body
+        assert html_body.count("attacker.\u200bcom") == 3
+
     def test_lists_the_busiest_projects_and_counts_the_rest(self) -> None:
         counts = range(1, MAX_PROJECT_SECTIONS + 2)
         projects = [_pending_metrics(team_id=count, count=count, sample_names=[]) for count in counts]
@@ -159,12 +164,12 @@ class TestSendDigestForUser(APIBaseTest):
         self.email_class_patcher.stop()
         super().tearDown()
 
-    def _send(self, *, dry_run: bool = False, test: bool = False, new_metrics: int = 1) -> DigestOutcome:
+    def _send(self, *, dry_run: bool = False, test: bool = False, new_certifications: int = 1) -> DigestOutcome:
         return _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
-            reviews={self.team.id: _review(self.team, new_metrics=new_metrics)},
+            reviews={self.team.id: _review(self.team, new_certifications=new_certifications)},
             teams_by_id={self.team.id: self.team},
             date_suffix="2026-15",
             dry_run=dry_run,
@@ -206,7 +211,7 @@ class TestSendDigestForUser(APIBaseTest):
 
     @parameterized.expand([(False, DigestOutcome.SKIPPED_NOTHING_NEW), (True, DigestOutcome.SENT)])
     def test_a_backlog_with_nothing_new_sends_only_in_test_mode(self, test: bool, expected: DigestOutcome) -> None:
-        assert self._send(test=test, new_metrics=0) == expected
+        assert self._send(test=test, new_certifications=0) == expected
 
     def test_dry_run_sends_nothing(self) -> None:
         assert self._send(dry_run=True) == DigestOutcome.DRY_RUN
@@ -249,6 +254,24 @@ class TestBuildAndSendForOrg(APIBaseTest):
         self.is_email_patcher.stop()
         self.email_class_patcher.stop()
         super().tearDown()
+
+    @parameterized.expand([("hidden", {"payroll"}, 0), ("readable", set(), 1)])
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_a_new_metric_counts_only_for_people_who_can_read_its_tables(
+        self, _name: str, denied_tables: set[str], expected_sent: int, create_database: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=denied_tables)
+        Metric.objects.unscoped().filter(team=self.team).update(created_at=timezone.now() - timedelta(days=8))
+        Metric.objects.unscoped().create(
+            team=self.team, name="median_salary_by_level", description="d", referenced_table_names=["payroll"]
+        )
+
+        counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == expected_sent
+        if expected_sent:
+            (row,) = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"][0]["rows"]
+            assert row["new_count"] == 1
 
     @parameterized.expand([(1, 1), (8, 0)])
     def test_sends_only_when_an_item_arrived_in_the_last_week(self, days_old: int, expected_sent: int) -> None:
