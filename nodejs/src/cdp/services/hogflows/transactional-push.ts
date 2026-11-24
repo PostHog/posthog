@@ -1,7 +1,9 @@
+import { createHash } from 'crypto'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { requestFingerprint } from './idempotency-keys'
@@ -11,8 +13,23 @@ export const TRANSACTIONAL_PUSH_EVENT = '$transactional_push'
 // Never change it: a retry inside the claim's window would get another run id and send a second time.
 export const TRANSACTIONAL_PUSH_RUN_SCOPE = 'transactional-push'
 
-// Django mints the transactional email token with this claim for a push send, so a push token can't run an email.
-export const TRANSACTIONAL_PUSH_TOKEN_CLAIMS = { kind: 'push' }
+// Longer than a token lives, clock tolerance included, so a token can't be used a second time before it expires.
+const TOKEN_USE_TTL_SECONDS = 10 * 60
+
+// Below Django's request timeout, so a stalled Redis can't queue a push Django already reported as failed.
+const TOKEN_USE_DEADLINE_MS = 2000
+
+export const isTokenForPerson = (claims: Record<string, unknown>, distinctId: string): boolean =>
+    claims.distinct_id_sha256 === createHash('sha256').update(distinctId).digest('hex')
+
+// Django mints a new token for every request, a retry included, so a token used twice was copied.
+export const useTransactionalPushToken = async (redis: RedisV2, jti: string): Promise<'first_use' | 'used'> => {
+    const result = await redis.useClient(
+        { name: 'transactional-push-token-use', deadlineMs: TOKEN_USE_DEADLINE_MS },
+        (client) => client.set(`@posthog/cdp/transactional-push-token/${jti}`, '1', 'EX', TOKEN_USE_TTL_SECONDS, 'NX')
+    )
+    return result === 'OK' ? 'first_use' : 'used'
+}
 
 export const TransactionalPushRequestSchema = z.object({
     distinct_id: z.string().min(1).max(400),
@@ -30,6 +47,8 @@ export type TransactionalPushOutcome =
     | 'idempotency_unavailable'
     | 'not_configured'
     | 'unauthorized'
+    | 'token_reused'
+    | 'token_check_unavailable'
     | 'invalid_request'
     | 'not_found'
     | 'not_sendable'

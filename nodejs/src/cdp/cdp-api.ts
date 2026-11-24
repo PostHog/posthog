@@ -95,12 +95,13 @@ import {
 import {
     TRANSACTIONAL_PUSH_EVENT,
     TRANSACTIONAL_PUSH_RUN_SCOPE,
-    TRANSACTIONAL_PUSH_TOKEN_CLAIMS,
     TransactionalPushOutcome,
     TransactionalPushRequestSchema,
+    isTokenForPerson,
     sendsOnlyPush,
     transactionalPushFingerprints,
     transactionalPushRequestsTotal,
+    useTransactionalPushToken,
 } from './services/hogflows/transactional-push'
 import {
     KeyedTransactionalEmailRequest,
@@ -424,6 +425,8 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
+    private transactionalPushJwt: ScopedServiceJwt
+    private redis: RedisV2
     private transactionalEmailBatchCapacity: BatchCapacity
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
@@ -459,6 +462,7 @@ export class CdpApi {
         this.emailStatusService = services.emailStatusService
         this.outputs = services.outputs
         this.personsManager = services.personsManager
+        this.redis = services.redis
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -525,6 +529,10 @@ export class CdpApi {
         this.manageTransactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
+        )
+        this.transactionalPushJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_PUSH,
+            config.WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET || ''
         )
         this.transactionalEmailBatchCapacity = new BatchCapacity(config.CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS)
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
@@ -1517,7 +1525,7 @@ export class CdpApi {
     // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
     // narrower claims via extraClaims and every one must match too; a route without a workflow
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
-    // and returns false on any mismatch.
+    // and returns no claims on any mismatch.
     // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
     // once per send. The job goes straight onto the email queue's fast lane.
     //
@@ -1883,20 +1891,14 @@ export class CdpApi {
             return res.status(status).json(body)
         }
         try {
-            if (!this.transactionalEmailJwt.enabled) {
+            if (!this.transactionalPushJwt.enabled) {
+                logger.error('🔑', 'Transactional push refused: WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET is unset')
                 return reply('not_configured', 503, {
-                    error: 'Transactional push auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                    error: 'Transactional push auth not configured (WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET unset)',
                 })
             }
-            if (
-                !this.verifyScopedWorkflowJwt(
-                    this.transactionalEmailJwt,
-                    req,
-                    res,
-                    'transactional push',
-                    TRANSACTIONAL_PUSH_TOKEN_CLAIMS
-                )
-            ) {
+            const claims = this.verifyScopedWorkflowJwt(this.transactionalPushJwt, req, res, 'transactional push')
+            if (!claims) {
                 transactionalPushRequestsTotal.inc({ outcome: 'unauthorized' })
                 return
             }
@@ -1908,6 +1910,23 @@ export class CdpApi {
                     issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
                 })
                 return reply('invalid_request', 400, { error: 'invalid_request' })
+            }
+            const unauthorized = { error: 'Unauthorized: Invalid transactional push token' }
+            // A token sends to the one person Django minted it for, once.
+            if (!isTokenForPerson(claims, parsed.data.distinct_id) || typeof claims.jti !== 'string' || !claims.jti) {
+                return reply('unauthorized', 401, unauthorized)
+            }
+            let tokenUse: 'first_use' | 'used'
+            try {
+                tokenUse = await useTransactionalPushToken(this.redis, claims.jti)
+            } catch (error) {
+                logger.error('🔑', 'Transactional push token check failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                return reply('token_check_unavailable', 503, { error: 'token_check_unavailable' })
+            }
+            if (tokenUse === 'used') {
+                return reply('token_reused', 401, unauthorized)
             }
             const { distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
 
@@ -2174,7 +2193,7 @@ export class CdpApi {
         res: express.Response,
         label: string,
         extraClaims?: Record<string, string | undefined>
-    ): boolean {
+    ): Record<string, unknown> | undefined {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']
         const token =
@@ -2189,9 +2208,9 @@ export class CdpApi {
         const flowMatches = id === undefined || claims?.hog_flow_id === id
         if (!claims || claims.team_id !== parseInt(team_id) || !flowMatches || !extrasMatch) {
             res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
-            return false
+            return undefined
         }
-        return true
+        return claims
     }
 
     // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django

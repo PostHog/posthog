@@ -340,6 +340,8 @@ export type CdpConfig = ClickhouseConfig & {
     // Scoped JWT keys verifying Django's transactional email sends. Its own key: only Django
     // mints it. Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's transactional push sends. Never the email key, so that key can't send a push.
+    WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
@@ -633,6 +635,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-email-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-push-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).

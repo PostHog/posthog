@@ -6688,15 +6688,26 @@ describe('CDP API', () => {
         let mockQueueInvocations: jest.Mock
         const body = { distinct_id: 'distinct_A_1', variables: { order_id: '42' } }
 
+        const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
         const mintToken = (
             hogFlowId: string,
-            claims: Record<string, string> = { kind: 'push' },
-            { secret = 'local-dev-workflows-transactional-email-jwt' }: { secret?: string } = {}
+            claims: Record<string, string | undefined> = {},
+            {
+                secret = 'local-dev-workflows-transactional-push-jwt',
+                audience = 'posthog:workflows:send_transactional_push',
+            }: { secret?: string; audience?: string } = {}
         ) =>
-            jwt.sign({ team_id: team.id, hog_flow_id: hogFlowId, ...claims }, secret, {
-                audience: 'posthog:workflows:send_transactional_email',
-                expiresIn: '2m',
-            })
+            jwt.sign(
+                {
+                    team_id: team.id,
+                    hog_flow_id: hogFlowId,
+                    distinct_id_sha256: sha256(body.distinct_id),
+                    jti: randomUUID(),
+                    ...claims,
+                },
+                secret,
+                { audience, expiresIn: '2m' }
+            )
         const pushFlow = (status: HogFlow['status'] = 'active', stepType = 'function_push'): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -6717,7 +6728,11 @@ describe('CDP API', () => {
                     edges: [{ from: 'trigger', to: 'push', type: 'continue' }],
                 })
                 .build()
-        const send = (flowId: string, token: string, payload: Record<string, unknown> = body) =>
+        const send = (
+            flowId: string,
+            payload: Record<string, unknown> = body,
+            token = mintToken(flowId, { distinct_id_sha256: sha256(payload.distinct_id as string) })
+        ) =>
             supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_push`)
                 .set({ Authorization: `Bearer ${token}` })
@@ -6736,7 +6751,7 @@ describe('CDP API', () => {
         it('queues one run on the workflow queue for the person, with the data', async () => {
             const hogFlow = await insertHogFlow(pushFlow())
 
-            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+            const res = await send(hogFlow.id)
 
             expect(res.status).toEqual(202)
             expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
@@ -6755,18 +6770,74 @@ describe('CDP API', () => {
             })
         })
 
-        it.each([
-            ['an email send token on the push route', 'transactional_push', {}],
-            ['a push token on the email route', 'transactional_email', { kind: 'push' }],
-        ])('refuses %s', async (_name, route, claims) => {
+        const emailKey = {
+            secret: 'local-dev-workflows-transactional-email-jwt',
+            audience: 'posthog:workflows:send_transactional_email',
+        }
+        it.each<[string, string, (flowId: string) => string]>([
+            ['a token signed with the email key', 'transactional_push', (id) => mintToken(id, {}, emailKey)],
+            [
+                'a token for the email audience signed with the push key',
+                'transactional_push',
+                (id) => mintToken(id, {}, { audience: emailKey.audience }),
+            ],
+            ['a push token on the email route', 'transactional_email', (id) => mintToken(id)],
+            [
+                'a token minted for another person',
+                'transactional_push',
+                (id) => mintToken(id, { distinct_id_sha256: sha256('B') }),
+            ],
+            [
+                'a token without a person',
+                'transactional_push',
+                (id) => mintToken(id, { distinct_id_sha256: undefined }),
+            ],
+            ['a token without an id', 'transactional_push', (id) => mintToken(id, { jti: undefined })],
+        ])('refuses %s', async (_name, route, tokenFor) => {
             const hogFlow = await insertHogFlow(pushFlow())
 
             const res = await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
-                .set({ Authorization: `Bearer ${mintToken(hogFlow.id, claims)}` })
+                .set({ Authorization: `Bearer ${tokenFor(hogFlow.id)}` })
                 .send({ ...body, to: 'user@example.com' })
 
             expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('refuses a token used a second time', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const token = mintToken(hogFlow.id)
+
+            const first = await send(hogFlow.id, body, token)
+            const second = await send(hogFlow.id, body, token)
+
+            expect([first.status, second.status]).toEqual([202, 401])
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it.each<[string, () => Promise<never>]>([
+            ['fails', () => Promise.reject(new Error('READONLY'))],
+            ['never answers', () => new Promise<never>(() => {})],
+        ])('refuses a send when the token write %s', async (_name, write) => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const useClient = api['redis'].useClient
+            jest.spyOn(api['redis'], 'useClient').mockImplementationOnce((options) => useClient(options, write))
+
+            const res = await send(hogFlow.id)
+
+            expect([res.status, res.body]).toEqual([503, { error: 'token_check_unavailable' }])
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('refuses every send while the push key is unset, even one signed with the email key', async () => {
+            const unset = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_PUSH, '')
+            jest.replaceProperty(api as any, 'transactionalPushJwt', unset)
+            const hogFlow = await insertHogFlow(pushFlow())
+
+            const res = await send(hogFlow.id, body, mintToken(hogFlow.id, {}, emailKey))
+
+            expect(res.status).toEqual(503)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
@@ -6776,7 +6847,7 @@ describe('CDP API', () => {
         ])('refuses %s', async (_name, status, stepType) => {
             const hogFlow = await insertHogFlow(pushFlow(status as HogFlow['status'], stepType))
 
-            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+            const res = await send(hogFlow.id)
 
             expect(res.status).toEqual(400)
             expect(res.body).toEqual({ error: 'not_sendable' })
@@ -6789,7 +6860,7 @@ describe('CDP API', () => {
             )
             const hogFlow = await insertHogFlow(pushFlow())
 
-            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+            const res = await send(hogFlow.id)
 
             expect(res.status).toEqual(429)
             expect(res.body).toEqual({ error: 'quota_limited' })
@@ -6802,9 +6873,9 @@ describe('CDP API', () => {
 
             const queueIdempotently = jest.spyOn(api['hogflowQueue'], 'queueInvocationsIdempotently')
 
-            const first = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
-            const retry = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
-            const other = await send(hogFlow.id, mintToken(hogFlow.id), { ...keyed, distinct_id: 'someone-else' })
+            const first = await send(hogFlow.id, keyed)
+            const retry = await send(hogFlow.id, keyed)
+            const other = await send(hogFlow.id, { ...keyed, distinct_id: 'someone-else' })
 
             expect(first.status).toEqual(202)
             expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
@@ -6818,14 +6889,14 @@ describe('CDP API', () => {
         it('answers a retry with the first send after the workflow is turned off', async () => {
             const hogFlow = await insertHogFlow(pushFlow())
             const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
-            const first = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            const first = await send(hogFlow.id, keyed)
             jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockResolvedValue({
                 ...hogFlow,
                 status: 'draft',
             })
 
-            const retry = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
-            const fresh = await send(hogFlow.id, mintToken(hogFlow.id), { ...keyed, idempotency_key: 'another-key' })
+            const retry = await send(hogFlow.id, keyed)
+            const fresh = await send(hogFlow.id, { ...keyed, idempotency_key: 'another-key' })
 
             expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
             expect(fresh.status).toEqual(400)
@@ -6835,7 +6906,7 @@ describe('CDP API', () => {
             const hogFlow = await insertHogFlow(pushFlow())
             jest.spyOn(api['deps'].teamManager, 'getTeam').mockRejectedValueOnce(new Error('connection timeout'))
 
-            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+            const res = await send(hogFlow.id)
 
             expect(res.status).toEqual(500)
             expect(res.body).toEqual({ error: 'internal_error' })
@@ -6847,10 +6918,7 @@ describe('CDP API', () => {
             const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockResolvedValue(null)
 
-            const [a, b] = await Promise.all([
-                send(hogFlow.id, mintToken(hogFlow.id), keyed),
-                send(hogFlow.id, mintToken(hogFlow.id), keyed),
-            ])
+            const [a, b] = await Promise.all([send(hogFlow.id, keyed), send(hogFlow.id, keyed)])
 
             expect([a.body.replayed, b.body.replayed].sort()).toEqual([false, true])
             expect(a.body.invocation_id).toEqual(b.body.invocation_id)
@@ -6875,7 +6943,7 @@ describe('CDP API', () => {
             it('answers on the broker ack and leaves the insert to the push consumer', async () => {
                 const hogFlow = await insertHogFlow(pushFlow())
 
-                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+                const res = await send(hogFlow.id)
 
                 expect(res.status).toEqual(202)
                 expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
@@ -6891,7 +6959,7 @@ describe('CDP API', () => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = '*'
                 const hogFlow = await insertHogFlow(pushFlow())
 
-                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+                const res = await send(hogFlow.id)
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
@@ -6906,7 +6974,7 @@ describe('CDP API', () => {
                 )
                 const hogFlow = await insertHogFlow(pushFlow())
 
-                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+                const res = await send(hogFlow.id)
 
                 expect(res.status).toEqual(503)
                 expect(res.body).toEqual({ error: 'intake_unavailable' })
@@ -6923,7 +6991,7 @@ describe('CDP API', () => {
                 step.config = { ...step.config, sensitive: true } as typeof step.config
                 const hogFlow = await insertHogFlow(flow)
 
-                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+                const res = await send(hogFlow.id)
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(inserted)
