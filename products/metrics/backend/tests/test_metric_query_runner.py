@@ -1616,6 +1616,40 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], expected)
 
+    @parameterized.expand([("any_type", None), ("histogram", "histogram")])
+    def test_count_increase_reads_classic_count_rows_of_a_histogram_capture_could_not_fold(
+        self, _name: str, metric_type: str | None
+    ):
+        for offset, count in [(-420, 10), (30, 40)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http_latency_seconds",
+                metric_type="histogram",
+                points=[(self.anchor + dt.timedelta(seconds=offset), 1.0)],
+                labels={"pod": "web-1"},
+                histogram_bounds=[0.1, 1.0],
+                histogram_counts=[count, 0, 0],
+                count=count,
+            )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http_latency_seconds_count",
+            metric_type="sum",
+            is_monotonic=True,
+            points=[(self.anchor - dt.timedelta(seconds=120), 20.0)],
+            labels={"pod": "web-1"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http_latency_seconds_count",
+            metric_type="sum",
+            is_monotonic=True,
+            points=[(self.anchor - dt.timedelta(seconds=120), 5.0), (self.anchor + dt.timedelta(seconds=30), 8.0)],
+            labels={"pod": "web-2"},
+        )
+        rows = self._run("count_increase", metric_name="http_latency_seconds", metric_type=metric_type)
+        self.assertEqual([row["value"] for row in rows], [23.0])
+
     @parameterized.expand(
         [
             ("with_range_function", {"metric_type": "histogram", "range_function": "rate"}),
