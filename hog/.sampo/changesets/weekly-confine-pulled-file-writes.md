@@ -2,4 +2,4 @@
 npm/hog: patch
 ---
 
-hog now writes pulled schema and endpoint files only inside the project, won't write through a `posthog.json` link, and skips sourcemaps outside the selected paths, so files in a repository cannot make it change files elsewhere.
+`schema pull` and `endpoints pull` now write only inside the project, and hog won't write through a `posthog.json` link. `error-tracking` commands refuse folders in `errorTracking.sources` outside the project, and never open a sourcemap outside the selected paths. Pass a folder outside the project on the command line.

@@ -273,6 +273,7 @@ hog keeps those writes inside the project:
 - `schema pull` refuses an `output_path` in `posthog.json` outside the project, and any module path inside the repository that links out of it. A module outside the repository, such as `../web/typed.ts`, needs `--file` on each run.
 - hog won't write a `posthog.json` that links out of its folder.
 - `endpoints pull` writes only inside the endpoints folder, and leaves alone a file there that links somewhere else. `endpoints.dir` in `posthog.json` must be inside the project.
-- `error-tracking` commands skip a bundle whose sourcemap is outside the selected paths, so they don't rewrite, upload or delete that map. Pass the folder that holds the maps too.
+- `error-tracking` commands refuse a folder in `errorTracking.sources` that resolves outside the project, through `..`, an absolute path or a link.
+- `error-tracking` commands skip a bundle whose sourcemap is outside the selected paths, and never open that map, so they don't read, rewrite, upload or delete it. Pass the folder that holds the maps too.
 
-A path you pass with `--file`, or a file you name with `--to`, can be anywhere.
+A path you pass with `--file`, a file you name with `--to`, or a folder you pass to an `error-tracking` command can be anywhere.

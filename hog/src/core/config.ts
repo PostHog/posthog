@@ -18,7 +18,10 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
 const Source = z
     .strictObject({
-        path: z.string().min(1).describe('A folder or file to scan, relative to posthog.json.'),
+        path: z
+            .string()
+            .min(1)
+            .describe('A folder or file to scan, relative to posthog.json. It must be inside the project.'),
         kind: z
             .enum(ARTIFACT_KINDS)
             .optional()

@@ -561,19 +561,18 @@ describe('hog error-tracking upload', () => {
         rmSync(sources, { recursive: true, force: true })
         cpSync(join(NATIVE, '../src'), sources, { recursive: true })
         cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
+        // posthog.json sources must stay inside the project, so the project is the source folder and
+        // the link points back at it. Discovery doesn't follow linked folders, so the link is no loop.
+        symlinkSync(sources, join(sources, 'linked'))
         const plan = async (ignore: string[], linked = false): Promise<string> => {
-            const folder = project({})
-            if (linked) {
-                symlinkSync(sources, join(folder, 'linked'))
-            }
-            const path = linked ? 'linked' : sources
             writeFileSync(
-                join(folder, 'posthog.json'),
-                JSON.stringify({ errorTracking: { sources: [{ path, ignore }] } })
+                join(sources, 'posthog.json'),
+                JSON.stringify({ errorTracking: { sources: [{ path: linked ? 'linked' : '.', ignore }] } })
             )
+
             const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
                 env: { CLAUDECODE: '1' },
-                cwd: folder,
+                cwd: sources,
                 useDisk: true,
             })
             expect(result.exitCode).toBe(EXIT_SUCCESS)
@@ -591,6 +590,36 @@ describe('hog error-tracking upload', () => {
         } finally {
             rmSync(sources, { recursive: true, force: true })
         }
+    })
+
+    test.each([
+        ['an absolute path', (outside: string) => outside],
+        ['a path that climbs out with ..', (outside: string) => join('..', basename(outside))],
+        [
+            'a link out of the project',
+            (outside: string, folder: string) => {
+                symlinkSync(outside, join(folder, 'linked'))
+                return 'linked'
+            },
+        ],
+    ])('errorTracking.sources refuses %s, which still works on the command line', async (_name, source) => {
+        const outside = project({ 'mapping.txt': SMALL_MAPPING })
+        const folder = project({})
+        const path = source(outside, folder)
+        writeFileSync(
+            join(folder, 'posthog.json'),
+            JSON.stringify({ errorTracking: { sources: [{ path, mapId: 'map-1' }] } })
+        )
+        const run = (args: string[]): ReturnType<typeof runHog> =>
+            runHog(['et', 'upload', '--dry-run', ...args], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        const fromConfig = await run([])
+        const fromCommandLine = await run([path, '--map-id', 'map-1'])
+
+        expect(fromConfig.exitCode).toBe(EXIT_FAILURE)
+        expect(fromConfig.error()).toMatchObject({ code: 'unsafe_source_path', hint: expect.any(String) })
+        expect(fromCommandLine.exitCode).toBe(EXIT_SUCCESS)
+        expect(fromCommandLine.json(UploadOutput).symbolSets).toHaveLength(1)
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

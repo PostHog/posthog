@@ -333,10 +333,10 @@ posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it d
 - a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
 - any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
-Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files. Each folder there must be inside the project. Pass a folder outside it on the command line.
 `upload` and `process` take `-` to read the paths from stdin, one per line, so a build tool can pass every file it wrote.
 `--kind` skips detection.
-hog skips a bundle whose sourcemap is outside the selected paths, so it never rewrites, uploads or deletes a file elsewhere.
+hog skips a bundle whose sourcemap is outside the selected paths and never opens that map, so it never reads, rewrites, uploads or deletes a file elsewhere.
 
 JavaScript releases work in two modes, as in posthog-cli:
 
