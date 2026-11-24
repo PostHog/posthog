@@ -413,8 +413,9 @@ class UsageReportCounters:
     go_mcp_events_count_in_period: int
     ruby_mcp_events_count_in_period: int
 
-    # MCP usage overlaps billable event and per-SDK totals.
+    # Excluded from web_events_count_in_period, like the other per-SDK MCP counts.
     web_mcp_events_count_in_period: int
+    # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int
@@ -1320,8 +1321,12 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         )
         mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
+    # The base scan can't split out WebMCP events because that needs `$mcp_interface` from `properties`.
+    parent_subtractions = dict(ai_sub_sdk_metric_counts.parent_subtractions)
+    if web_mcp_counts := dict(mcp_analytics_counts_by_metric["web_mcp_events"]):
+        parent_subtractions["web_events"] = web_mcp_counts
     # Remove sub-SDK events from each parent metric. max(0, count) guards against cross-query ingestion jitter.
-    for parent_metric, team_subtractions in ai_sub_sdk_metric_counts.parent_subtractions.items():
+    for parent_metric, team_subtractions in parent_subtractions.items():
         metrics[parent_metric] = [
             (team_id, max(0, count - team_subtractions.get(team_id, 0))) for team_id, count in metrics[parent_metric]
         ]

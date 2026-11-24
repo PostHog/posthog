@@ -1866,6 +1866,7 @@ class TestQueryUsageReportSQL:
         # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
         mock_execute_split_query.side_effect = [
             {
+                "web_events": [(1, 5)],
                 "node_events": [(1, 10)],
                 "python_events": [(1, 7)],
                 "node_mcp_events": [(1, 9)],
@@ -1966,6 +1967,7 @@ class TestQueryUsageReportSQL:
         assert result["kmp_events"] == [(1, 8)]
         assert result["ruby_events"] == [(1, 2)]
         assert result["dotnet_events"] == [(1, 2)]
+        assert result["web_events"] == [(1, 3)]
 
         # New MCP Analytics metrics are merged straight into the returned dict.
         assert result["mcp_missing_capability_events"] == [(1, 6)]
@@ -6720,7 +6722,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         metrics = get_all_event_metrics_in_period(self.begin, self.end)
         assert dict(metrics["web_mcp_events"]) == {self.team.id: 2, self.analytics_team.id: 1}
-        assert dict(metrics["web_events"])[self.analytics_team.id] == 1
+        assert dict(metrics["web_events"])[self.analytics_team.id] == 0
         assert dict(metrics["web_lite_events"]) == {self.team.id: 1}
         assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 5, self.analytics_team.id: 1}
         assert dict(metrics["mcp_tools_list_events"]) == {self.team.id: 1}
