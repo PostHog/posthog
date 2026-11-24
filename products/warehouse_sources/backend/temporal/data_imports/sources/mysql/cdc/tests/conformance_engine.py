@@ -112,18 +112,19 @@ class _SimulatedBinlog:
         timestamp = int(transaction.committed_at.timestamp())
         start = _end(transaction.number - 1)
         rows = [change for change in transaction.changes if change.op != "T"]
+        truncates = [change for change in transaction.changes if change.op == "T"]
+        # MySQL commits a TRUNCATE on its own, and the binlog position after it is its commit position.
+        assert not (rows and truncates), "MySQL can't hold a TRUNCATE in a transaction with row changes"
+        for change in truncates:
+            stream.log_pos = _end(transaction.number)
+            yield _event(QueryEvent, query=f"TRUNCATE TABLE {change.table}", schema=b"", timestamp=timestamp)
         if rows:
             stream.log_pos = start + 1
             yield _event(QueryEvent, query="BEGIN", schema=b"", timestamp=timestamp)
             for index, change in enumerate(rows):
                 stream.log_pos = start + 2 + index
                 yield self._rows_event(change, timestamp)
-        for change in transaction.changes:
-            if change.op == "T":
-                stream.log_pos = _end(transaction.number) - 1
-                yield _event(QueryEvent, query=f"TRUNCATE TABLE {change.table}", schema=b"", timestamp=timestamp)
-        stream.log_pos = _end(transaction.number)
-        if rows:
+            stream.log_pos = _end(transaction.number)
             yield _event(XidEvent, timestamp=timestamp)
 
     def _rows_event(self, change: RowChange, timestamp: int) -> Any:

@@ -16,9 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.
     BinlogStreamOutgrownError,
 )
 
-# ER_MASTER_FATAL_ERROR_READING_BINLOG: the server can't serve the requested position, most often because
-# the file was purged.
+# ER_MASTER_FATAL_ERROR_READING_BINLOG: the server stopped sending the binlog. Only some of its messages mean
+# the position is gone; others (a replica with the same server_id, an oversized event) leave it readable.
 ER_BINLOG_UNAVAILABLE = 1236
+_LOST_POSITION_MESSAGES = ("could not find first log file", "position > file size", "purged")
 # A replica id is a 32-bit unsigned number. Stay above the low ids DBAs hand out to their own replicas.
 _SERVER_ID_RANGE = (1 << 24, (1 << 32) - 1)
 _VISIBILITY_TIMEOUT_SECONDS = 60.0
@@ -29,6 +30,10 @@ _VISIBILITY_POLL_SECONDS = 0.2
 class BinlogStreamLostError(Exception):
     """The binlog can no longer be read from PostHog's position: the file was purged, or the source now points
     at another server. Capture recovers by starting a new stream and re-snapshotting."""
+
+
+class BinlogDisabledError(Exception):
+    """Binary logging is off on the server. The customer turns it back on; the stream is not lost."""
 
 
 class BinlogPositionNotVisibleError(Exception):
@@ -51,7 +56,7 @@ def binlog_status(conn: pymysql.Connection) -> tuple[str, int]:
             cur.execute("SHOW MASTER STATUS")
         row = cur.fetchone()
     if row is None:
-        raise BinlogStreamLostError("Binary logging is off on the source database")
+        raise BinlogDisabledError("Binary logging is off on the source database")
     return str(row[0]), int(row[1])
 
 
@@ -169,4 +174,7 @@ def unused_server_id(conn: pymysql.Connection) -> int:
 def is_stream_lost_error(exc: BaseException) -> bool:
     if isinstance(exc, BinlogStreamLostError | BinlogStreamOutgrownError):
         return True
-    return isinstance(exc, pymysql.err.OperationalError) and bool(exc.args) and exc.args[0] == ER_BINLOG_UNAVAILABLE
+    if not isinstance(exc, pymysql.err.OperationalError) or len(exc.args) < 2 or exc.args[0] != ER_BINLOG_UNAVAILABLE:
+        return False
+    message = str(exc.args[1]).lower()
+    return any(marker in message for marker in _LOST_POSITION_MESSAGES)

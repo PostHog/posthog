@@ -137,7 +137,8 @@ class CDCConformanceSuite:
         self._assert_converged(kit, USERS)
         assert kit.deleted_rows(USERS) == {(1,): {"id": 1, "name": "a"}}
 
-    def test_truncate_resets_only_the_truncated_table(self, kit: ConformanceKit) -> None:
+    @pytest.mark.parametrize("write_after", [True, False], ids=["write_after_truncate", "truncate_ends_the_log"])
+    def test_truncate_resets_only_the_truncated_table(self, kit: ConformanceKit, write_after: bool) -> None:
         db = kit.db
         db.commit(insert(USERS, id=1, name="a"), insert(ORDERS, id=10, status="new"))
         kit.capture()
@@ -146,7 +147,8 @@ class CDCConformanceSuite:
 
         db.commit(update(USERS, {"id": 1}, name="b"), update(ORDERS, {"id": 10}, status="paid"))
         db.commit(truncate(USERS))
-        db.commit(insert(USERS, id=2, name="c"))
+        if write_after:
+            db.commit(insert(USERS, id=2, name="c"))
         kit.capture()
 
         users = kit.schema(USERS)
