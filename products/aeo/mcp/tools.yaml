@@ -475,16 +475,16 @@ tools:
         description: >
             Change one AI citation tracking prompt. Send only the fields to change; the prompt keeps its id. `active`
             turns it on or off (only active prompts run in the daily check); turning one on fails with 400 when the
-            project already has `max_active_prompts` prompts on (see `aeo-setup-context-get`). `topic` changes its topic in place (an
-            empty string removes it); past checks keep the topic they ran with. `prompt` changes the text: it adds the
-            next version (`current_version` goes up by one) with an optional `version_description` note, and each later
-            check records the version that ran, so results before and after the change stay comparable. A change of case
-            or whitespace only adds no version. `current_version` makes an existing version current again, for example
-            to roll back a text change; it adds no version and fails with 400 when the version does not exist. A text
-            change or rollback fails with 409 when another prompt in the set (archived ones included) already has that
-            text. `archived: true` archives the prompt (send it alone); `archived: false` restores it, and it stays off
-            unless you also send `active: true`. An archived prompt accepts no other change until it is restored (400).
-            Ask the user to confirm a text change first. Returns the updated prompt.
+            project already has `max_active_prompts` prompts on (see `aeo-setup-context-get`). `topic` changes its topic
+            in place (an empty string removes it); past checks keep the topic they ran with. `prompt` changes the text:
+            it adds the next version (`current_version` goes up by one) with an optional `version_description` note, and
+            each later check records the version that ran, so results before and after the change stay comparable. A
+            change of case or whitespace only adds no version. `current_version` makes an existing version current
+            again, for example to roll back a text change; it adds no version and fails with 400 when the version does
+            not exist. A text change or rollback fails with 409 when another prompt in the set (archived ones included)
+            already has that text. `archived: true` archives the prompt (send it alone); `archived: false` restores it,
+            and it stays off unless you also send `active: true`. An archived prompt accepts no other change until it is
+            restored (400). Ask the user to confirm a text change first. Returns the updated prompt.
         param_overrides:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
@@ -509,8 +509,9 @@ tools:
         description: >
             Get the domains the project may be about, the most likely first, each with its `source` (`own_brand`,
             `app_urls`, `recording_domains` or `pageviews`), plus how many active prompts, keywords and checks the
-            project has, `max_active_prompts` (how many prompts it can keep on at once), whether AI data processing is approved and whether the first run can be queued. Call it before
-            `aeo-setup-start`, and confirm the domain with the user when there is more than one candidate.
+            project has, `max_active_prompts` (how many prompts it can keep on at once), whether AI data processing is
+            approved and whether the first run can be queued. Call it before `aeo-setup-start`, and confirm the domain
+            with the user when there is more than one candidate.
         feature_flag: web-analytics-content-autopilot
     aeo-setup-get:
         operation: aeo_setup_retrieve
@@ -543,10 +544,9 @@ tools:
             `prompt_target` checks per engine, so ask the user before setting `run_first_check`. With it true, the
             prompts are saved active, up to the project's `max_active_prompts` (the rest are saved paused and the
             `prompts` step's `detail` is `prompt_limit`), and a first run is queued; each engine then keeps checking
-            them on its schedule.
-            With it false, new prompts are saved paused and no run is queued, so they cost nothing until someone turns
-            them on; prompts the project already has active keep running on their schedule, with the engines chosen
-            here. To turn the paused ones on and run once later, send only `only_first_run: true` and
+            them on its schedule. With it false, new prompts are saved paused and no run is queued, so they cost nothing
+            until someone turns them on; prompts the project already has active keep running on their schedule, with the
+            engines chosen here. To turn the paused ones on and run once later, send only `only_first_run: true` and
             `activate_paused_prompts: true`. Steps the project already covers are skipped. Unlike `aeo-prompts-suggest`
             and `aeo-keywords-suggest`, this saves what PostHog suggests, so confirm the domain with the user first.
             Returns a pending job right away; poll `aeo-setup-get` with the `id` until `status` is `completed` or
