@@ -112,6 +112,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
             ),
             (
+                "security_callback_alerts_without_blocking",
+                SCORES,
+                {"alert_threshold": 0.9, "block_threshold": 0.95},
+                "fetch('https://probe.oast.fun/')",
+                ["security_callback"],
+                True,
+                False,
+            ),
+            (
                 "rule_alerts_when_high_control_skips_the_model_alert",
                 SCORES,
                 None,
@@ -607,6 +616,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         [
             ("name_only", {"name": "Renamed"}, 1),
             ("code", {"hog": "print('changed')"}, 2),
+            ("disabling_a_scored_function", {"enabled": False}, 1),
             (
                 "secret_rotated_to_a_benign_value",
                 {
@@ -654,6 +664,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             hog_function.save()
 
         assert len(self.gateway.requests) == expected_requests
+        assert len(self.captured_events()) == expected_requests
 
     @parameterized.expand(
         [
@@ -707,7 +718,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("site_destination", True, None, {"type": "site_destination"}),
             ("internal_destination", True, None, {"type": "internal_destination"}),
             ("deleted", True, None, {"deleted": True}),
-            ("disabled", True, None, {"enabled": False}),
         ]
     )
     def test_nothing_is_classified(
@@ -741,6 +751,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
         assert len(self.gateway.requests) == expected_requests
 
+    def test_a_queued_task_with_an_enabled_content_hash_still_scores_due_work(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(hog="print(event.event)")
+        events_before = len(self.captured_events())
+
+        classify_hog_function_for_abuse.delay(
+            team_id=self.team.id, hog_function_id=str(hog_function.id), enabled_content_hash="a" * 64
+        )
+
+        assert len(self.gateway.requests) == 2
+        [verdict] = self.captured_events()[events_before:]
+        assert verdict["properties"]["hog_function_id"] == str(hog_function.id)
+        assert "risk_score" in verdict["properties"]
+
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
         HogFunction.objects.filter(pk=hog_function.pk).update(
@@ -752,14 +776,15 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         assert len(self.gateway.requests) == 2
         assert "risk_score" in self.captured_events()[-1]["properties"]
 
-    def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
+    def test_a_disabled_save_is_scored_and_enabling_it_reports_again(self) -> None:
         hog_function = self.create_destination(enabled=False)
 
         hog_function.enabled = True
         with self.committed():
             hog_function.save()
 
-        assert len(self.gateway.requests) == 1
+        assert len(self.gateway.requests) == 2
+        assert [event["properties"]["enabled"] for event in self.captured_events()] == [False, True]
 
     @parameterized.expand(
         [

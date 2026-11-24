@@ -175,8 +175,12 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
 
     async def _load_batch(
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> None:
-        """Insert rather than COPY FROM STDIN, which Redshift does not support."""
+    ) -> int:
+        """Insert rather than COPY FROM STDIN, which Redshift does not support.
+
+        Returns an approximation of the bytes sent: the encoded size of the bound parameters.
+        The statement text and the protocol framing around each row are not counted.
+        """
         nested = {field.name for field in batch.schema if is_nested_type(field.type)}
         statement = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
             sql.Identifier(self._schema),
@@ -194,6 +198,7 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
 
         async with self._write_cursor(client) as cursor:
             await cursor.executemany(statement, payload)
+        return sum(_encoded_size(value) for row in payload for value in row)
 
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table as a copy of the destination table.
@@ -258,6 +263,14 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
             remove_duplicates=False,
             skip_delete=True,
         )
+
+
+def _encoded_size(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bytes):
+        return len(value)
+    return len(str(value).encode())
 
 
 def _encode(value: Any) -> Any:

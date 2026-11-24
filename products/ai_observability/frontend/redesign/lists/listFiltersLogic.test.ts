@@ -7,7 +7,6 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { pageLoad } from '../shared/testPageLoad'
-import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { currentUrlWith } from '../trace/rawSearchParam'
 import { LIST_SEARCH_DEBOUNCE_MS, ListFilters, listFiltersLogic } from './listFiltersLogic'
 
@@ -18,7 +17,7 @@ const MODEL_FILTER: AnyPropertyFilter = {
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Event,
 }
-const NO_FILTERS: ListFilters = { propertyFilters: [], filterTestAccounts: null, search: '', quickFilter: null }
+const NO_FILTERS: ListFilters = { propertyFilters: [], search: '', quickFilter: null }
 
 describe('listFiltersLogic', () => {
     let logic: ReturnType<typeof listFiltersLogic.build>
@@ -60,7 +59,6 @@ describe('listFiltersLogic', () => {
             { propertyFilters: [MODEL_FILTER] },
             (l) => l.actions.setPropertyFilters([MODEL_FILTER]),
         ],
-        ['filter_test_accounts', 'false', { filterTestAccounts: false }, (l) => l.actions.setFilterTestAccounts(false)],
         [
             'trace_search',
             '1.50',
@@ -100,27 +98,6 @@ describe('listFiltersLogic', () => {
         mountAt(`${LIST_PATH}?trace_search=invoice`)
 
         expect(logic.values).toMatchObject({ searchDraft: 'invoice', filters: { ...NO_FILTERS, search: 'invoice' } })
-    })
-
-    it.each([
-        ['the shell sets a date range', (): void => shellScopeLogic.actions.setDateRange('-1h', null)],
-        [
-            'another writer keeps the params as typed',
-            (): void => router.actions.replace(...currentUrlWith(router.values, { date_from: '-1h' })),
-        ],
-    ])('keeps the test accounts choice when %s', (_name, rewriteUrl) => {
-        shellScopeLogic.mount()
-        mountAt(LIST_PATH)
-        logic.actions.setFilterTestAccounts(true)
-        const { filters } = logic.values
-
-        rewriteUrl()
-
-        expect(param('date_from')).toEqual('-1h')
-        expect(param('filter_test_accounts')).toEqual('true')
-        expect(logic.values.filters.filterTestAccounts).toBe(true)
-        expect(logic.values.filters).toBe(filters)
-        shellScopeLogic.unmount()
     })
 
     it('clears the quick filter when the same one is picked again', () => {
@@ -179,14 +156,14 @@ describe('listFiltersLogic', () => {
         const errorsUrl = `${urls.aiObservabilityErrors()}?view=errors&trace_search=invoice`
 
         router.actions.push(errorsUrl)
-        logic.actions.setFilterTestAccounts(true)
+        logic.actions.setPropertyFilters([MODEL_FILTER])
 
-        expect(logic.values.filters).toEqual({ ...NO_FILTERS, filterTestAccounts: true })
+        expect(logic.values.filters).toEqual({ ...NO_FILTERS, propertyFilters: [MODEL_FILTER] })
         expect(router.values.location.pathname).toContain(urls.aiObservabilityErrors())
         expect(router.values.searchParams).toEqual({ view: 'errors', trace_search: 'invoice' })
     })
 
-    it('clears all four filters, the typed search and their params, turns test account filtering off, and keeps the others', () => {
+    it('clears the three filters, the typed search and their params, and keeps the others', () => {
         const filters = encodeURIComponent(JSON.stringify([MODEL_FILTER]))
         mountAt(
             `${LIST_PATH}?filters=${filters}&filter_test_accounts=true&trace_search=invoice&view=errors&date_from=-7d`
@@ -194,7 +171,7 @@ describe('listFiltersLogic', () => {
 
         logic.actions.resetFilters()
 
-        expect(logic.values).toMatchObject({ filters: { ...NO_FILTERS, filterTestAccounts: false }, searchDraft: '' })
-        expect(router.values.searchParams).toEqual({ date_from: '-7d', filter_test_accounts: 'false' })
+        expect(logic.values).toMatchObject({ filters: NO_FILTERS, searchDraft: '' })
+        expect(router.values.searchParams).toEqual({ date_from: '-7d', filter_test_accounts: 'true' })
     })
 })

@@ -67,7 +67,6 @@ export function SectionTitle({
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 data-attr="dashboard-v2-section-toggle"
-                disabledReason={canEdit ? undefined : 'Unlock the layout to open or close sections'}
                 onClick={onToggle}
             >
                 {collapsed ? <IconChevronRight /> : <IconChevronDown />}

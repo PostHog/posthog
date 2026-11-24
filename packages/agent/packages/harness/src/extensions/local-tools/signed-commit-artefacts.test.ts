@@ -164,7 +164,7 @@ describe("reportCommitArtefacts", () => {
     });
   }
 
-  it("posts one commit artefact per commit per associated report, attributed via header", async () => {
+  it("posts one commit artefact per commit per PR target report, attributed via header", async () => {
     fetchMock.mockImplementation(async (url: string | URL) => {
       if (String(url).includes("/signals/reports/?")) {
         return jsonResponse({
@@ -184,7 +184,7 @@ describe("reportCommitArtefacts", () => {
     });
 
     const lookupCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/signals/reports/?task_id=task-1"),
+      String(url).includes("/signals/reports/?task_id=task-1&pr_targets=true"),
     );
     expect(lookupCalls).toHaveLength(1);
 

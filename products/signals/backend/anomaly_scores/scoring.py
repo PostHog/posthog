@@ -31,11 +31,14 @@ from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, D
 from posthog.tasks.alerts.detectors.registry import get_detector
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 
+from products.alerts.backend.facade.lazy_judge import LazyAndEnsemble, split_ai_member
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.artifacts import model_id_of
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     IntervalScoring,
     ScoringLimits,
     ScoringProfile,
@@ -133,15 +136,21 @@ class InsightScores:
     unmatched_series: int = 0
     # The artifact blob that scored the buckets. None when the split is off.
     model_id: str | None = None
+    # The profile's detector split into its local part and its AI member. None when the profile has no AI member.
+    ai_member: LazyAndEnsemble | None = None
+    # The fetched values of each series, which the AI member reads. Empty when the profile has no AI member.
+    fetched: tuple["FetchedSeries", ...] = ()
 
 
 @frozen
-class _FetchedSeries:
+class FetchedSeries:
     series_key: str
     label: str
     breakdown_value: str | None
     values: list[float]
     buckets: list[datetime]
+    # The position of the series or formula in the query, for the description of what it counts.
+    series_index: int = 0
 
 
 def _short_hash(payload: Any) -> str:
@@ -475,36 +484,45 @@ def score_insight(
     after: datetime | None = None,
     limits: ScoringLimits = DEFAULT_LIMITS,
     split: SplitRun | None = None,
+    ai_judge: AIJudgeConfig = NO_AI_JUDGE,
 ) -> InsightScores:
     """Score the new buckets of an insight.
 
     With ``split``, a stored state with the insight's identity and its artifacts makes this a score step, and
     anything else a train step. Both return the state for the next visit, and a train step returns the
     artifacts to store.
+
+    With a profile that has an AI member, the flags are the local part's alone. `judging.judge_flags` adds the AI member.
     """
-    profile = resolve_profile(team, insight)
+    profile = resolve_profile(team, insight, ai_judge)
     query = trends_query_for(insight, profile)
     interval = scoring_interval(query)
     scoring = interval_scoring(profile, interval)
     timezone = team.timezone_info
+    lazy = split_ai_member(scoring.detector)
     scores = InsightScores(
         interval=interval,
         profile=profile.name,
         detector=str(scoring.detector["type"]),
+        # The full config, so a change to the AI member changes the version, and its scores are never mixed.
         detector_version=detector_version(scoring, artifacts=split is not None),
         series=[],
+        ai_member=lazy if lazy.judge is not None else None,
     )
+    # Detection, fits and stored artifacts read only the local part, so a stored model has the same shape in both profiles.
+    local = dataclasses.replace(scoring, detector=lazy.local)
 
     if split is None:
         to_score = buckets_to_score(interval, now=now, after=after, timezone=timezone, limits=limits)
-        fetched = _fetch(insight, team, query, fetch_buckets(query, scoring, to_score), limits, None)
+        fetched = _fetch(insight, team, query, fetch_buckets(query, local, to_score), limits, None)
+        scores = _keep_fetched(scores, fetched)
         series = [
             ScoredSeries(
                 series_key=line.series_key,
                 label=line.label,
                 breakdown_value=line.breakdown_value,
                 points=score_series(
-                    line.values, line.buckets, scoring=scoring, interval=interval, now=now, after=after, limits=limits
+                    line.values, line.buckets, scoring=local, interval=interval, now=now, after=after, limits=limits
                 ),
             )
             for line in fetched
@@ -513,7 +531,7 @@ def score_insight(
 
     identity = state_identity(query, scoring, team, limits)
     state = split.state
-    detector = get_detector(scoring.detector)
+    detector = get_detector(local.detector)
     if (
         state is not None
         and split.artifacts is not None
@@ -529,13 +547,13 @@ def score_insight(
             state,
             split.artifacts,
             detector,
-            scoring=scoring,
+            scoring=local,
             now=now,
             after=after,
             limits=limits,
         )
     return _train_step(
-        insight, team, query, scores, identity, detector, scoring=scoring, now=now, after=after, limits=limits
+        insight, team, query, scores, identity, detector, scoring=local, now=now, after=after, limits=limits
     )
 
 
@@ -557,6 +575,7 @@ def _train_step(
     to_score = buckets_to_score(interval, now=now, after=after, timezone=team.timezone_info, limits=limits)
     buckets = fetch_buckets(query, scoring, to_score)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.TRAIN)
+    scores = _keep_fetched(scores, fetched)
     series: list[ScoredSeries] = []
     artifacts: dict[str, DetectorArtifact] = {}
     newest: list[datetime] = []
@@ -622,8 +641,13 @@ def _score_step(
     since = min((through for through in (after, state.scored_through) if through is not None), default=None)
     to_score = buckets_to_score(interval, now=now, after=since, timezone=team.timezone_info, limits=limits)
     # One bucket more than the context that preprocessing reads, as in the full fetch.
-    buckets = fetch_buckets(query, scoring, to_score, history=detector.context_buckets() + 1)
+    history = detector.context_buckets() + 1
+    if scores.ai_member is not None:
+        # The judge reads the history before a flagged bucket, so it sees as much of it as in a train step.
+        history = max(history, history_buckets(scoring))
+    buckets = fetch_buckets(query, scoring, to_score, history=history)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.SCORE)
+    scores = _keep_fetched(scores, fetched)
     series: list[ScoredSeries] = []
     unmatched = 0
     returned_keys: set[str] = set()
@@ -664,7 +688,7 @@ def _fetch(
     buckets: int,
     limits: ScoringLimits,
     run: ScoringRun | None,
-) -> list[_FetchedSeries]:
+) -> list[FetchedSeries]:
     timezone = team.timezone_info
     scoring_query = build_scoring_query(query, buckets, limits)
 
@@ -712,7 +736,7 @@ def _fetch(
             skipped=len(results) - len(current_results),
         )
 
-    series: list[_FetchedSeries] = []
+    series: list[FetchedSeries] = []
     key_counts: dict[str, int] = {}
     for result in current_results[: limits.max_series]:
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
@@ -720,16 +744,22 @@ def _fetch(
         repeats = key_counts.get(key, 0)
         key_counts[key] = repeats + 1
         series.append(
-            _FetchedSeries(
+            FetchedSeries(
                 # Lines that differ only by name share a key. Event uuids come from the key, so each repeat needs its own.
                 series_key=key if repeats == 0 else _short_hash({"key": key, "repeat": repeats}),
                 label=str(result.get("label") or ""),
                 breakdown_value=breakdown_value,
                 values=list(result.get("data") or []),
                 buckets=[_parse_bucket(day, timezone) for day in result.get("days") or []],
+                series_index=int(result.get("order") or 0),
             )
         )
     return series
+
+
+def _keep_fetched(scores: InsightScores, fetched: list[FetchedSeries]) -> InsightScores:
+    """Keep the fetched values for the AI member. Without one, nothing reads them."""
+    return dataclasses.replace(scores, fetched=tuple(fetched)) if scores.ai_member is not None else scores
 
 
 def _formulas(query: TrendsQuery) -> list[str]:

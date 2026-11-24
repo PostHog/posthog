@@ -9,6 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
@@ -23,6 +24,13 @@ from products.tasks.backend.models import TaskRun
 
 STATE_KEY = "agent_egress_probe"
 MAX_CLOSED_EXECUTIONS = 128
+logger = structlog.get_logger(__name__)
+
+
+class AgentEgressRunEnded(ValueError):
+    def __init__(self, status: str) -> None:
+        self.status = status
+        super().__init__(f"The task run has ended: {status}")
 
 
 class AgentEgressExecution(BaseModel):
@@ -83,7 +91,12 @@ class AgentEgressLifecycle:
 
     def _active(self) -> AgentEgressExecution:
         self.config.validate_controller()
-        state = self._read(self._run())
+        run = self._run()
+        state = self._read(run)
+        if run.status in ("completed", "cancelled", "failed"):
+            raise AgentEgressRunEnded(run.status)
+        if (run.state or {}).get("cancel_requested_at"):
+            raise AgentEgressRunEnded("cancelled")
         if state.closed or state.expires_at <= timezone.now().timestamp():
             raise ValueError("The egress execution has ended")
         return state
@@ -164,13 +177,18 @@ class AgentEgressLifecycle:
             self.registry.renew(team_id=self.config.team_id, run_id=self.config.run_id, execution_id=self.execution_id)
             is None
         ):
+            self._active()
             raise ValueError("The execution no longer has egress authority")
 
     def _publish(self, probe: ModalEgressProbe) -> None:
         self._active()
-        capability = self.registry.issue_capability(
-            team_id=self.config.team_id, run_id=self.config.run_id, execution_id=self.execution_id
-        )
+        try:
+            capability = self.registry.issue_capability(
+                team_id=self.config.team_id, run_id=self.config.run_id, execution_id=self.execution_id
+            )
+        except ValueError:
+            self._active()
+            raise
         probe.publish_capability(capability)
         self._renew()
         with transaction.atomic():
@@ -256,6 +274,14 @@ class AgentEgressLifecycle:
         state = self._active()
         result = self._connect(state).probe(count=self.config.requests_per_round, concurrency=self.config.concurrency)
         if set(result) != {204}:
+            logger.warning(
+                "agent_egress_probe_failed",
+                team_id=self.config.team_id,
+                run_id=str(self.config.run_id),
+                execution_id=str(self.execution_id),
+                statuses=result,
+            )
+            self._active()
             raise ValueError("The registered probe request failed")
         return result
 

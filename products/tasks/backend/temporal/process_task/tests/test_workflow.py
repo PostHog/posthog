@@ -1989,7 +1989,10 @@ class TestProcessTaskWorkflowUnit:
         assert wf._self_driving_quota_recheck_scheduled() is False
 
     @pytest.mark.parametrize("mode", ["disabled", "observation", "enrollment"])
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch, mode: str):
+    @pytest.mark.parametrize("terminal_status", [None, "completed", "cancelled", "failed"])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(
+        self, monkeypatch, mode: str, terminal_status: str | None
+    ):
         cleanup_inputs: list[CleanupSandboxInput] = []
         events: list[str] = []
         observing = asyncio.Event()
@@ -2011,6 +2014,10 @@ class TestProcessTaskWorkflowUnit:
                 events.append("revoke")
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            if activity_fn is update_task_run_status:
+                assert mode == "disabled" or "revoke" in events
+                events.append("terminal")
+                return
             assert activity_fn is cleanup_sandbox
             cleanup_inputs.append(activity_input)
             events.append("destroy")
@@ -2018,6 +2025,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
         monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: True)
         monkeypatch.setattr(
             process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
         )
@@ -2029,9 +2037,13 @@ class TestProcessTaskWorkflowUnit:
             workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
             await asyncio.wait_for(observing.wait(), timeout=5)
 
+        if terminal_status:
+            await workflow._update_task_run_status(terminal_status)
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
-        assert events == (["revoke", "destroy"] if mode != "disabled" else ["destroy"])
+        assert events == (["revoke"] if mode != "disabled" else []) + (["terminal"] if terminal_status else []) + [
+            "destroy"
+        ]
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",

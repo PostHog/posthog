@@ -345,14 +345,21 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def _google_ads_sessions(self) -> GoogleAdsSessions:
         # gclid is the one parameter every auto-tagged Google Ads click carries, so it finds paid sessions without
         # relying on the UTMs this rule checks. It cannot tell ad accounts apart, so every account shares the count.
+        #
+        # Counted from events because the sessions table aggregates every session in the range before it can
+        # filter on gclid, so its memory grows with all traffic instead of with paid traffic. Every event type
+        # counts: a session often carries its gclid on events other than the pageview.
         rows = self._select(
             """
-            SELECT count(), countIf(notEmpty(coalesce($entry_utm_term, '')))
+            SELECT
+                uniqExact($session_id),
+                uniqExactIf($session_id, notEmpty(coalesce(toString(properties.utm_term), '')))
             FROM {table}
-            WHERE $start_timestamp >= {date_from} AND $start_timestamp <= {date_to}
-                AND notEmpty(coalesce($entry_gclid, ''))
+            WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                AND notEmpty(coalesce(toString(properties.gclid), ''))
+                AND notEmpty($session_id)
             """,
-            "sessions",
+            "events",
         )
         if not rows:
             return GoogleAdsSessions(total=0, with_keyword=0)
