@@ -266,7 +266,7 @@ class TestAttachmentUploads(APIBaseTest):
             patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
             patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
         ):
-            consume(f"transactional_email_send:{self.team.id}:1", Budget(burst=1, per_hour=1))
+            consume(f"transactional_email_send:{self.team.id}", Budget(burst=1, per_hour=1))
             statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]

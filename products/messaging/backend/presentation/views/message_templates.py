@@ -141,7 +141,9 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import (
     WorkflowAccessDenied,
     WorkflowNotFound,
+    get_email_sending_tier_limits,
     get_enforced_email_sending_daily_cap,
+    max_email_sending_tier,
 )
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow_ref
@@ -1073,8 +1075,7 @@ def unconfirmed_email_send() -> ExplainedRefusal:
 TRANSACTIONAL_EMAIL_SEND_FLOOR = Budget(burst=600, per_hour=20_000)
 
 
-def transactional_email_send_budget(team_id: int) -> Budget | None:
-    """The team's send budget, or None when its tier could not be read, so the send goes unlimited."""
+def transactional_email_send_budget(team_id: int) -> Budget:
     key = f"transactional_email_send_daily_cap:{team_id}"
     try:
         daily_cap = cache.get(key)
@@ -1084,12 +1085,16 @@ def transactional_email_send_budget(team_id: int) -> Budget | None:
     if daily_cap is None:
         daily_cap = get_enforced_email_sending_daily_cap(team_id)
         if daily_cap is None:
-            # A floor budget would clip a higher tier's stored balance, so skip the limit for this send.
-            return None
+            # A failed lookup gets the top tier, uncached: still bounded, and never smaller than the stored balance.
+            return transactional_email_tier_budget(get_email_sending_tier_limits(max_email_sending_tier()).per_day)
         try:
             cache.add(key, daily_cap, 60)
         except Exception as e:
             capture_exception(e)
+    return transactional_email_tier_budget(daily_cap)
+
+
+def transactional_email_tier_budget(daily_cap: int) -> Budget:
     return Budget(
         burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
         per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),
@@ -1112,11 +1117,10 @@ class TransactionalEmailSendThrottle(BaseThrottle):
     def allow_units(self, request: Request, units: int) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
-        budget = transactional_email_send_budget(self.team_id)
-        if budget is None:
-            return True
-        # Keyed by size, so a request holding a stale tier never clips another tier's balance.
-        decision = consume(f"transactional_email_send:{self.team_id}:{budget.burst}", budget, cost=units)
+        # One bucket per team, so a tier change keeps the spent balance and a demotion clips it.
+        decision = consume(
+            f"transactional_email_send:{self.team_id}", transactional_email_send_budget(self.team_id), cost=units
+        )
         if isinstance(decision, BucketUnavailable) or decision.allowed:
             return True
         try:
