@@ -261,6 +261,7 @@ class TestMintScopedToken:
     def test_private_mint_revokes_an_unacknowledged_token(
         self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
     ) -> None:
+        mint_settings.SANDBOX_AI_GATEWAY_WORKER_URL = "http://localhost:18080"
         with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.side_effect = [
                 self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
@@ -273,8 +274,9 @@ class TestMintScopedToken:
                 is None
             )
         assert post.call_count == 2
-        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "http://localhost:18080/v1"
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args_list[0].args == (f"{expected_url}/tokens",)
         assert post.call_args.args == (f"{expected_url}/tokens/revoke",)
         assert post.call_args.kwargs["json"] == {"token": "phe_ordinary"}
         assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
