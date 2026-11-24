@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -14,6 +15,7 @@ from posthog.schema import (
     DateRange,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
+    MarketingAnalyticsTableQueryResponse,
 )
 
 from posthog.constants import AvailableFeature
@@ -22,6 +24,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
+    MarketingAnalyticsTableQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     FlaggedAd,
     Keyword,
@@ -42,6 +47,25 @@ PURCHASE = "customers/1/conversionActions/10"
 SIGNUP = "customers/1/conversionActions/20"
 MANAGER_SIGNUP = "customers/9/conversionActions/20"
 BOTH_SPLITS = ("campaign", "search_term")
+TEST_PREFIX = "posthog_test_"
+CAMPAIGN_COLUMNS = {
+    "campaign_id": "Int64",
+    "campaign_name": "String",
+    "campaign_advertising_channel_type": "String",
+    "campaign_budget_amount_micros": "Int64",
+    "campaign_target_cpa_target_cpa_micros": "Int64",
+}
+STATS_COLUMNS = {
+    "campaign_id": "Int64",
+    "campaign_name": "String",
+    "segments_date": "Date",
+    "metrics_cost_micros": "Int64",
+    "metrics_clicks": "Int64",
+    "metrics_impressions": "Int64",
+    "metrics_conversions": "Float64",
+    "metrics_conversions_value": "Float64",
+    "customer_currency_code": "String",
+}
 SESSION_START_MS = 1768478400000  # 2026-01-15 12:00 UTC
 
 
@@ -536,6 +560,153 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
         assert wasted[0].cpa.benchmarkSource == benchmark_source
         assert [gap.kind for gap in response.dataGaps or []] == gaps
+
+    def _google_ads_source(self, campaigns: str, stats: str) -> MarketingAnalyticsRecommendationsSource:
+        # Linked to a Google Ads source, so the dashboard's table runner reads the same costs.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="google",
+            connection_id="google",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="GoogleAds",
+            prefix=TEST_PREFIX,
+        )
+        tables = {}
+        for schema, columns, csv in (
+            ("campaign", CAMPAIGN_COLUMNS, campaigns),
+            ("campaign_stats", STATS_COLUMNS, stats),
+        ):
+            with TemporaryDirectory() as directory:
+                path = Path(directory) / f"{schema}.csv"
+                path.write_text(",".join(columns) + "\n" + csv)
+                table, _, _, _, cleanup = create_data_warehouse_table_from_csv(
+                    path,
+                    f"googleads_{schema}",
+                    columns,
+                    f"test_storage_bucket-posthog.marketing_analytics.google_{schema}",
+                    self.team,
+                    source=source,
+                    source_prefix=TEST_PREFIX,
+                )
+            self.addCleanup(cleanup)
+            ExternalDataSchema.objects.create(
+                team=self.team, source=source, name=schema, table=table, should_sync=True, last_synced_at=timezone.now()
+            )
+            tables[schema] = table.name
+        return MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds", campaignTable=tables["campaign"], campaignStatsTable=tables["campaign_stats"]
+        )
+
+    def _signups(self, utm_campaign: str, count: int) -> None:
+        for index in range(count):
+            person = f"{utm_campaign}-{index}"
+            properties = {"$session_id": str(uuid7("2026-01-15")), "utm_source": "google", "utm_campaign": utm_campaign}
+            _create_event(
+                team=self.team, event="$pageview", distinct_id=person, timestamp="2026-01-15", properties=properties
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=person,
+                timestamp="2026-01-15",
+                properties=properties,
+            )
+
+    @parameterized.expand(
+        [
+            ("google_ads_conversions_without_a_marked_goal", False, "user signed up", (), False, [], []),
+            # Google Ads reports Broad as the cheapest campaign, but PostHog sees no sign up from it.
+            ("marked_goal_replaces_google_ads_conversions", True, "user signed up", (), False, ["Broad"], []),
+            (
+                "unmatched_utm_campaign_keeps_campaigns_without_conversions_unjudged",
+                True,
+                "user signed up",
+                ("broad_v2",),
+                False,
+                [],
+                ["posthog_campaigns_unmatched"],
+            ),
+            ("not_ready_falls_back", True, "user signed up", (), True, [], ["posthog_conversions_not_ready"]),
+            ("unusable_goal_falls_back", True, None, (), False, [], ["posthog_conversion_goals_unusable"]),
+        ]
+    )
+    def test_marked_conversion_goals_replace_google_ads_conversions(
+        self,
+        _name: str,
+        marked: bool,
+        event: str | None,
+        unmatched: tuple[str, ...],
+        not_ready: bool,
+        reviewed: list[str],
+        gaps: list[str],
+    ) -> None:
+        goal = {
+            "kind": "EventsNode",
+            "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        }
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                **goal,
+                "event": event,
+                "name": event or "All events",
+                "conversion_goal_id": "signups",
+                "conversion_goal_name": "Sign ups",
+                "use_in_recommendations": marked,
+            },
+            {
+                **goal,
+                "event": "purchase",
+                "name": "purchase",
+                "conversion_goal_id": "purchases",
+                "conversion_goal_name": "Purchases",
+            },
+        ]
+        self.team.marketing_analytics_config.save()
+        source = self._google_ads_source(
+            "1,Exact,SEARCH,100000000,150000000\n2,Broad,SEARCH,100000000,150000000\n",
+            "1,Exact,2026-01-15,1000000000,100,1000,10,0,USD\n2,Broad,2026-01-15,3000000000,100,1000,30,0,USD\n",
+        )
+        self._signups("Exact", 4)
+        for campaign in unmatched:
+            self._signups(campaign, 1)
+        flush_persons_and_events()
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+
+        if not_ready:
+            with patch.object(
+                MarketingAnalyticsTableQueryRunner,
+                "calculate",
+                return_value=MarketingAnalyticsTableQueryResponse(results=[], precomputeNotReady=True),
+            ):
+                response = runner.calculate()
+        else:
+            response = runner.calculate()
+
+        review = [rec for rec in response.results if rec.rule == "review_campaign"]
+        assert [rec.subject for rec in review] == reviewed
+        # A marked goal drops the target CPA, which Google Ads bids to with its own conversions.
+        assert all(rec.cpa is not None and rec.cpa.benchmarkSource == "account" for rec in review)
+        assert [gap.kind for gap in response.dataGaps or []] == gaps
+        # The fallback must not be served as fresh once the precompute it waited for lands.
+        assert (
+            runner._is_transient_result(
+                CachedMarketingAnalyticsRecommendationsQueryResponse(
+                    **response.model_dump(),
+                    is_cached=False,
+                    last_refresh=timezone.now(),
+                    next_allowed_client_refresh=timezone.now(),
+                    timezone="UTC",
+                    cache_key="key",
+                )
+            )
+            is not_ready
+        )
 
     @parameterized.expand(
         [

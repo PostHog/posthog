@@ -244,14 +244,16 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
             ),
             ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
+            # PostHog conversions that match no campaign may belong to it.
+            ("conversions_not_measured", 360.0, 0.0, None, False),
         ]
     )
     def test_campaign_without_conversions_needs_enough_spend_to_review(
-        self, _name: str, cost: float, brand_cost: float, reason: str | None
+        self, _name: str, cost: float, brand_cost: float, reason: str | None, measured: bool = True
     ) -> None:
         campaigns = (
             _campaign(id="a", name="Converting", cost=1000, conversions=20),
-            _campaign(id="b", name="Silent", cost=cost, conversions=0),
+            _campaign(id="b", name="Silent", cost=cost, conversions=0, conversions_measured=measured),
             _campaign(id="c", name="Average", cost=2000, conversions=20),
         )
         terms = (
@@ -497,6 +499,62 @@ class TestMarketingRecommendations(SimpleTestCase):
         recs = recommend(_inputs((brand_campaign, generic, other), terms))
 
         assert {rec.rule.value for rec in recs if rec.subject == "Generic" and rec.level == "campaign"} == expected
+
+    @parameterized.expand(
+        [
+            (
+                "google_ads_conversions",
+                True,
+                3,
+                {
+                    ("review_campaign", "Leaky"),
+                    ("content_gap", "feature flags"),
+                    ("content_gap", "session replay"),
+                    ("spend_without_conversions", "free analytics"),
+                },
+                False,
+            ),
+            # Counted in the benchmark, Leaky would raise it enough to stay out of review itself.
+            (
+                "posthog_conversions_leave_leaks_out_of_the_benchmark",
+                False,
+                3,
+                {("review_campaign", "Leaky")},
+                True,
+            ),
+            # Subtracting its 2 Google Ads brand conversions would leave 2 and put Leaky at 3x the benchmark.
+            ("posthog_conversions_keep_brand_conversions", False, 4, set(), False),
+        ]
+    )
+    def test_search_term_conversions_decide_term_rules_and_leaking_cpas(
+        self,
+        _name: str,
+        search_term_conversions: bool,
+        leaky_conversions: int,
+        expected: set[tuple[str, str]],
+        lists_costly_searches: bool,
+    ) -> None:
+        campaigns = (
+            _campaign(id="leaky", name="Leaky", cost=2000, conversions=leaky_conversions),
+            _campaign(id="cheap", name="Cheap", cost=1000, conversions=10),
+            _campaign(id="pricey", name="Pricey", cost=3000, conversions=10),
+        )
+        terms = (
+            _term("example", "leaky", cost=800, conversions=2),
+            _term("product analytics", "leaky", cost=1200, conversions=1),
+            _term("session replay", "cheap", cost=1000, conversions=10),
+            _term("feature flags", "pricey", cost=2400, conversions=10),
+            _term("free analytics", "pricey", cost=600, conversions=0),
+        )
+
+        recs = recommend(replace(_inputs(campaigns, terms), search_term_conversions=search_term_conversions))
+
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert ("with 2 conversions" in leak.reason) is search_term_conversions
+        assert {(rec.rule.value, rec.subject) for rec in recs if rec.rule != "brand_leak"} == expected
+        # Google Ads saw "product analytics" convert once, which says nothing about PostHog conversions.
+        review_steps = [step.text for rec in recs if rec.rule == "review_campaign" for step in rec.steps or []]
+        assert any('spent the most: "product analytics"' in text for text in review_steps) is lists_costly_searches
 
     @parameterized.expand(
         [

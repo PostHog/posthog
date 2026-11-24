@@ -17,6 +17,7 @@ export function QuillCountsAsToggles({
 }): JSX.Element {
     const revenueId = useId()
     const customerId = useId()
+    const adsConversionId = useId()
 
     return (
         <div className="flex flex-col gap-1">
@@ -37,6 +38,15 @@ export function QuillCountsAsToggles({
                     disabledReason={disabledReason}
                 />
                 <FieldLabel htmlFor={customerId}>Customer</FieldLabel>
+            </Field>
+            <Field orientation="horizontal" className="w-fit">
+                <Checkbox
+                    id={adsConversionId}
+                    checked={!!goal.use_in_recommendations}
+                    onCheckedChange={(use_in_recommendations: boolean) => onChange({ ...goal, use_in_recommendations })}
+                    disabledReason={disabledReason}
+                />
+                <FieldLabel htmlFor={adsConversionId}>Google Ads conversion</FieldLabel>
             </Field>
         </div>
     )

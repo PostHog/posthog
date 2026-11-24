@@ -110,7 +110,11 @@ function GoalCountsAsCell({ row }: CellContext<ConversionGoalFilter, unknown>): 
         )
     }
 
-    const flags = [goal.counts_as_revenue && 'Revenue', goal.counts_as_customer && 'Customer'].filter(Boolean)
+    const flags = [
+        goal.counts_as_revenue && 'Revenue',
+        goal.counts_as_customer && 'Customer',
+        goal.use_in_recommendations && 'Google Ads conversion',
+    ].filter(Boolean)
 
     return flags.length ? (
         <Text size="xs" render={<span />}>

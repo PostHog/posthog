@@ -32550,6 +32550,15 @@ class ConversionGoalFilter1(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32616,6 +32625,15 @@ class ConversionGoalFilter2(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32687,6 +32705,15 @@ class ConversionGoalFilter3(BaseModel):
     schema_map: dict[str, str | Any]
     table_name: str
     timestamp_field: str
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

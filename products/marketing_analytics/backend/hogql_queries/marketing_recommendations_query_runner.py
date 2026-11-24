@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional
@@ -6,6 +7,13 @@ from typing import Any, Optional
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     CacheMissResponse,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DateRange,
+    GenericCachedQueryResponse,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationsDataGap,
     MarketingAnalyticsRecommendationsDataGapKind,
@@ -13,6 +21,8 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
     MarketingAnalyticsRecommendationsSourceType,
+    MarketingAnalyticsTableQuery,
+    NativeMarketingSource,
     QueryStatusResponse,
 )
 
@@ -28,6 +38,10 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
+from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
+    MarketingAnalyticsTableQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     DISAPPROVED,
     LIMITED_APPROVALS,
@@ -85,6 +99,28 @@ PERFORMANCE_MAX_GAP = (
     "Performance Max search terms are not split by conversion action, so Performance Max campaigns and their search "
     "terms count the primary conversion actions. The account's search term CPA includes them."
 )
+UNMATCHED_CAMPAIGNS_SHOWN = 3
+# The id the conversion goal queries give a row that no campaign's cost matched.
+NO_CAMPAIGN_ID = "-"
+POSTHOG_CONVERSIONS_NOT_READY_GAP = (
+    "PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. "
+    "Check again in a few minutes."
+)
+
+
+@frozen
+class PostHogConversions:
+    # None when the goals marked for recommendations cannot be counted, so CPAs fall back to Google Ads.
+    by_campaign: dict[str, float] | None
+    gap: MarketingAnalyticsRecommendationsDataGapKind | None = None
+    gap_message: str | None = None
+    # utm_campaign values of Google Ads conversions that match no campaign, most conversions first.
+    unmatched_campaigns: tuple[str, ...] = ()
+
+
+class _RecommendationGoalsTableQueryRunner(MarketingAnalyticsTableQueryRunner):
+    def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+        return [goal for goal in super()._get_team_conversion_goals() if goal.use_in_recommendations]
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
@@ -122,7 +158,90 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         payload = super().get_cache_payload()
         # Resolutions apply after the cache, so both views of the results share one entry.
         payload["query"].pop("includeResolved", None)
+        # These live in the team's config, not in the query, and each one changes the PostHog conversions.
+        if self._recommendation_goals:
+            config = self.team.marketing_analytics_config
+            payload["posthog_conversions"] = {
+                "goals": self._recommendation_goals,
+                "attribution_mode": config.attribution_mode,
+                "attribution_window_days": config.attribution_window_days,
+                "campaign_name_mappings": config.campaign_name_mappings,
+                "custom_source_mappings": config.custom_source_mappings,
+                "campaign_field_preferences": config.campaign_field_preferences,
+            }
         return payload
+
+    def _is_transient_result(self, cached: GenericCachedQueryResponse) -> bool:
+        # Served as fresh, the Google Ads fallback would outlive the precompute it waited for.
+        return any(
+            gap.kind == MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSIONS_NOT_READY
+            for gap in getattr(cached, "dataGaps", None) or []
+        )
+
+    @cached_property
+    def _recommendation_goals(self) -> list[dict[str, object]]:
+        return [
+            goal
+            for goal in self.team.marketing_analytics_config.conversion_goals or []
+            if goal.get("use_in_recommendations")
+        ]
+
+    @cached_property
+    def _posthog_conversions(self) -> PostHogConversions | None:
+        if not self._recommendation_goals:
+            return None
+        date_range = self.query_date_range
+        runner = _RecommendationGoalsTableQueryRunner(
+            query=MarketingAnalyticsTableQuery(
+                properties=[],
+                dateRange=DateRange(
+                    date_from=date_range.date_from().isoformat(),
+                    date_to=date_range.date_to().isoformat(),
+                    explicitDate=True,
+                ),
+                drillDownLevel=MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+                limit=ROW_LIMIT,
+            ),
+            team=self.team,
+            user=self.user,
+            modifiers=self.modifiers,
+            timings=self.timings,
+            limit_context=self.limit_context,
+        )
+        # Share one HogQL database, so the request pays Database.create_for once.
+        runner.__dict__["_shared_hogql_database"] = self.hogql_database
+        goals, skipped = runner._filter_invalid_conversion_goals(runner._get_team_conversion_goals())
+        if not goals:
+            return PostHogConversions(
+                by_campaign=None,
+                gap=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSION_GOALS_UNUSABLE,
+                gap_message="CPAs use the conversions Google Ads reports, because none of the goals marked for "
+                "recommendations can be counted: " + " ".join(goal.message for goal in skipped),
+            )
+        response = runner.calculate()
+        if response.precomputeNotReady:
+            return PostHogConversions(
+                by_campaign=None,
+                gap=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSIONS_NOT_READY,
+                gap_message=POSTHOG_CONVERSIONS_NOT_READY_GAP,
+            )
+        names = [goal.conversion_goal_name for goal in goals]
+        google = INTEGRATION_PRIMARY_SOURCE[NativeMarketingSource.GOOGLE_ADS]
+        by_campaign: dict[str, float] = defaultdict(float)
+        unmatched: dict[str, float] = defaultdict(float)
+        for row in response.results:
+            cells = {item.key: item.value for item in row}
+            conversions = sum(float(cells.get(name) or 0) for name in names)
+            campaign_id = cells.get(MarketingAnalyticsBaseColumns.ID)
+            if campaign_id and campaign_id != NO_CAMPAIGN_ID:
+                by_campaign[str(campaign_id)] += conversions
+            # A row without an id holds conversions whose utm_campaign matched no campaign's cost.
+            elif conversions and cells.get(MarketingAnalyticsBaseColumns.SOURCE) == google:
+                unmatched[str(cells.get(MarketingAnalyticsBaseColumns.CAMPAIGN) or "")] += conversions
+        return PostHogConversions(
+            by_campaign=dict(by_campaign),
+            unmatched_campaigns=tuple(sorted(unmatched, key=lambda campaign: -unmatched[campaign])),
+        )
 
     def run(
         self,
@@ -176,13 +295,19 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         data_gaps: list[MarketingAnalyticsRecommendationsDataGap] = []
         # Each ad account has its own campaigns, costs and currency, so rules compare a campaign only with
         # campaigns from the same account. Search Console data is shared because it has no account link.
+        posthog = self._posthog_conversions if ads else None
+        posthog_by_campaign = posthog.by_campaign if posthog else None
+        if posthog:
+            data_gaps.extend(_posthog_gaps(posthog))
         for source in ads:
-            actions = self._account_conversion_actions(source)
+            actions = None if posthog_by_campaign is not None else self._account_conversion_actions(source)
             missing = self._missing_conversion_action_tables(source) if actions else []
             if missing:
                 # Campaign and search term CPAs feed each other, so the account falls back as a whole.
                 actions = None
-            campaigns = tuple(self._campaigns(source, actions))
+            campaigns = tuple(
+                self._campaigns(source, actions, posthog_by_campaign, bool(posthog and posthog.unmatched_campaigns))
+            )
             has_performance_max = any(campaign.channel_type == "PERFORMANCE_MAX" for campaign in campaigns)
             data_gaps.extend(self._data_gaps(source, actions, missing, has_performance_max))
             results.extend(
@@ -203,6 +328,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         policy_ads=tuple(self._policy_ads(source)),
                         flagged_ads=tuple(self._flagged_ads(source)),
                         customer_id=self._customer_id(source),
+                        search_term_conversions=posthog_by_campaign is None,
                     )
                 )
             )
@@ -266,7 +392,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return result.results or []
 
     def _campaigns(
-        self, source: MarketingAnalyticsRecommendationsSource, actions: list[str] | None
+        self,
+        source: MarketingAnalyticsRecommendationsSource,
+        actions: list[str] | None,
+        posthog_by_campaign: dict[str, float] | None,
+        has_unmatched_conversions: bool,
     ) -> list[CampaignStats]:
         if not self._readable(source.campaignTable) or not self._readable(source.campaignStatsTable):
             return []
@@ -314,8 +444,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             definition = definitions.get(campaign_id)
             if not definition or not cost:
                 continue
+            if posthog_by_campaign is not None:
+                conversions = posthog_by_campaign.get(campaign_id, 0.0)
             # Performance Max search terms count primary actions, and its brand leak subtracts them from the campaign.
-            if selected is not None and not (definition[2] == "PERFORMANCE_MAX" and performance_max_terms):
+            elif selected is not None and not (definition[2] == "PERFORMANCE_MAX" and performance_max_terms):
                 conversions = selected.get(campaign_id, 0.0)
             share = shares.get(campaign_id, (None, None, None))
             campaigns.append(
@@ -334,9 +466,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     lost_to_budget=share[1],
                     lost_to_rank=share[2],
                     budget_id=definition[7] or None,
-                    # Google Ads bids to the target with primary actions, so it is no benchmark for selected ones.
-                    target_cpa=(definition[9] or None) if selected is None else None,
+                    # Google Ads bids to the target with primary actions, so it is no benchmark for other conversions.
+                    target_cpa=(definition[9] or None) if selected is None and posthog_by_campaign is None else None,
                     tracking_url_template=definition[10] or None,
+                    # With conversions that match no campaign, a campaign without any may own some of them.
+                    conversions_measured=not (has_unmatched_conversions and not conversions),
                 )
             )
         return campaigns
@@ -829,6 +963,25 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if rows and rows[0][0]:
                 return rows[0][0]
         return None
+
+
+def _posthog_gaps(posthog: PostHogConversions) -> list[MarketingAnalyticsRecommendationsDataGap]:
+    gaps = []
+    if posthog.gap and posthog.gap_message:
+        gaps.append(MarketingAnalyticsRecommendationsDataGap(kind=posthog.gap, message=posthog.gap_message))
+    if posthog.unmatched_campaigns:
+        shown = ", ".join(f'"{campaign}"' for campaign in posthog.unmatched_campaigns[:UNMATCHED_CAMPAIGNS_SHOWN])
+        more = len(posthog.unmatched_campaigns) - UNMATCHED_CAMPAIGNS_SHOWN
+        gaps.append(
+            MarketingAnalyticsRecommendationsDataGap(
+                kind=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CAMPAIGNS_UNMATCHED,
+                message=f"PostHog conversions with utm_campaign {shown}"
+                + (f" and {more} more" if more > 0 else "")
+                + " match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. "
+                "Map these values to their campaigns in campaign name mappings.",
+            )
+        )
+    return gaps
 
 
 def _recommendation_source(source_type: str, tables: dict[str, str]) -> MarketingAnalyticsRecommendationsSource | None:
