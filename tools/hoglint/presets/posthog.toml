@@ -589,6 +589,15 @@ module    = "products/{product}/backend/facade/today_highlights.py"
 attribute = "HIGHLIGHT_SOURCES"
 lifecycle = "on-demand"
 
+# activity_log.py merges each product's activity-log tuning when Django sets up. The loader reads
+# four optional dicts, and a registry names one: a file that lacks it still matches the registry,
+# and the file glob alone puts it in the watched set.
+[registries.activity_log_config]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/activity_log_config.py"
+attribute = "FIELD_EXCLUSIONS"
+lifecycle = "setup"
+
 # The admin console imports each installed app's `console` module by name when it first lists its
 # pages; the module registers its panels and tools on the `console` registry it imports.
 [registries.admin_console]
