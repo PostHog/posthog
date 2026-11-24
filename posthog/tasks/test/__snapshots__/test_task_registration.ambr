@@ -117,6 +117,8 @@
     'posthog.tasks.proxy.reconcile_proxy_root_redirect',
     'posthog.tasks.push_notifications.send_user_push',
     'posthog.tasks.query_scan.analyze_query_scan',
+    'posthog.tasks.quota_migration.compare_quota_redis',
+    'posthog.tasks.quota_migration.schedule_quota_redis_comparison',
     'posthog.tasks.remote_config.cleanup_stale_remote_config_expiry_tracking_task',
     'posthog.tasks.remote_config.refresh_expiring_remote_config_cache_entries',
     'posthog.tasks.remote_config.sync_all_remote_configs',

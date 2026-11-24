@@ -24,18 +24,15 @@ and the `cli-*`, `exec-*`, `basic-functionality`, `compact-instructions`, `skill
 - Stamphog does not approve a core change from an author outside the team, so a human must approve it. Request [`PostHog/team-context-and-mcp`](https://github.com/orgs/PostHog/teams/team-context-and-mcp) as reviewers.
 - In the PR description, include a short **MCP core** note. Say what changes for every agent, and who agreed it, or that the author continued without agreement.
 
-## Unsolicited elicitation: high risk
+## Unsolicited elicitation
 
-> [!CAUTION]
-> **Elicitation can spam users and damage trust in the MCP.**
-> It can interrupt an agent mid-task and put advertising or research questions directly in front of the user.
-> The interview recruitment flow is a narrow exception. It does not establish permission to add more prompts.
+Unsolicited elicitation interrupts an agent mid-task and puts a question in front of the user.
+Used carelessly, it becomes spam and damages trust in the MCP.
 
-- **New unsolicited elicitation requires explicit approval from a human MCP owner before implementation.** `[review]` This includes surveys, recruitment, upsells, promotional questions, and reusing the interview flow for another purpose. A general request to improve the MCP does not authorize these interruptions.
-- **Expanding an existing prompt's reach or frequency, or weakening its opt-out behavior, requires the same approval.** `[review]` Review must justify the interruption's user value, audience, timing, frequency, reliable suppression, and measurement. A feature flag or client capability alone does not justify showing a prompt.
-- Read the [interview recruitment guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md#interview-recruitment-with-url-elicitation) before changing unsolicited elicitation. It documents the existing flow's capability checks, exclusions, warmup, suppression, and analytics. Preserve those protections when fixing or maintaining it.
+- Interview recruitment is the existing path for research invitations. Read the [interview recruitment guide](INTERVIEW_RECRUITMENT.md) before you add a study or change the flow. It documents the capability checks, exclusions, warmup, suppression, and analytics.
+- Check in with the MCP team before you add a new kind of unsolicited prompt (surveys, upsells, promotional questions), or before you widen reach or frequency or weaken suppression or opt-out behavior. `[review]`
 
-This policy covers unsolicited interruptions. Elicitation needed to complete the user's requested task, such as a necessary clarification or confirmation, remains a separate use case.
+Elicitation that the user's requested task needs, such as a clarification or confirmation, is a separate use case.
 
 ## MCP Analytics
 

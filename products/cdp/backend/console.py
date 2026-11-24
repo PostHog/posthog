@@ -109,6 +109,9 @@ def _result_summary(result: dict[str, Any]) -> str:
 
 
 class ReplayFiltersForm(forms.Form):
+    # Only the rendered form sends this. A link written by hand leaves it out, and then a field it does not
+    # name keeps its default, so a missing safety check stays on instead of reading as an unticked box.
+    filters_submitted = forms.CharField(widget=forms.HiddenInput, required=False, initial="1")
     window_start = forms.DateTimeField(help_text="UTC, inclusive. For example 2026-10-22 11:30:00.")
     window_end = forms.DateTimeField(
         help_text=f"UTC, exclusive. At most {RERUN_MAX_WINDOW_DAYS} days after the start, because older runs are deleted."
@@ -168,6 +171,17 @@ class ReplayFiltersForm(forms.Form):
         label="Skip functions that already failed this way before the window",
         help_text="Looks at the day before the window. Those failures have a cause of their own, like a revoked key.",
     )
+
+    @classmethod
+    def from_query(cls, query: QueryDict) -> "ReplayFiltersForm":
+        if query.get("filters_submitted"):
+            return cls(query)
+        data = query.copy()
+        for name, field in cls.base_fields.items():
+            if name in data or field.initial in (None, "", False):
+                continue
+            data[name] = "on" if field.initial is True else field.initial
+        return cls(data)
 
     def clean_team_ids(self) -> list[int]:
         try:
@@ -473,7 +487,7 @@ class ReplayFailedRunsTool(ConsoleTool):
     def _filters_form(self, request: HttpRequest) -> ReplayFiltersForm | None:
         if "window_start" not in request.GET:
             return None
-        return ReplayFiltersForm(request.GET)
+        return ReplayFiltersForm.from_query(request.GET)
 
     def _send(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
         assert form is not None

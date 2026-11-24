@@ -73,7 +73,7 @@ describe('ScoutConfigForm', () => {
     })
     afterEach(cleanup)
 
-    const emitSwitchLabel = 'signals-scout-general write signals to the inbox'
+    const emitSwitchLabel = 'General write signals to the inbox'
 
     it.each([
         ['live', true, false],
@@ -94,8 +94,8 @@ describe('ScoutConfigForm', () => {
     // the first run out, and the lock decides who may resume a paused scout.
     it.each([
         ['dry-run', emitSwitchLabel],
-        ['owner lock', 'signals-scout-general only the owner can pause or delete'],
-        ['show in inbox', 'signals-scout-general show in inbox'],
+        ['owner lock', 'General only the owner can pause or delete'],
+        ['show in inbox', 'General show in inbox'],
     ])('leaves the %s switch editable while the scout is disabled', (_name, label) => {
         const onUpdate = jest.fn()
         const { getByLabelText } = render(
@@ -134,7 +134,7 @@ describe('ScoutConfigForm', () => {
 
         expect(container.querySelector<HTMLInputElement>('input[type="time"]')?.value).toBe('08:30')
 
-        fireEvent.click(getByLabelText('signals-scout-general run day'))
+        fireEvent.click(getByLabelText('General run day'))
         fireEvent.click(getByText('Thursday'))
         expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '30 8 * * 4' })
         unmount()
@@ -173,7 +173,7 @@ describe('ScoutConfigForm', () => {
 
         fireEvent.click(getByText('Daily'))
         fireEvent.click(getByText('Custom cron'))
-        expect(getByLabelText('signals-scout-general cron expression')).toBeTruthy()
+        expect(getByLabelText('General cron expression')).toBeTruthy()
         expect(onUpdate).not.toHaveBeenCalled()
         unmount()
     })
@@ -183,7 +183,7 @@ describe('ScoutConfigForm', () => {
         const { getByLabelText, getByText, unmount } = render(
             <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 1 2 *' }} onUpdate={onUpdate} />
         )
-        const input = getByLabelText('signals-scout-general cron expression')
+        const input = getByLabelText('General cron expression')
 
         fireEvent.change(input, { target: { value: '0,15 9 * * *' } })
         fireEvent.blur(input)
@@ -205,7 +205,7 @@ describe('ScoutConfigForm', () => {
         const { getByLabelText, rerender, unmount } = render(
             <ScoutConfigForm config={customConfig} onUpdate={onUpdate} />
         )
-        const input = getByLabelText('signals-scout-general cron expression')
+        const input = getByLabelText('General cron expression')
 
         expect(input).toHaveValue('0 9 1 2 *')
 
@@ -234,7 +234,7 @@ describe('ScoutConfigForm', () => {
             [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
         })
         const onUpdate = jest.fn()
-        const modelSelectLabel = 'signals-scout-general model'
+        const modelSelectLabel = 'General model'
         const { getByLabelText, getByText, rerender, unmount } = render(
             <ScoutConfigForm config={config} onUpdate={onUpdate} />
         )
@@ -259,7 +259,7 @@ describe('ScoutConfigForm', () => {
             <ScoutConfigForm config={{ ...config, model: 'claude-opus-5' }} onUpdate={jest.fn()} />
         )
 
-        const select = getByLabelText('signals-scout-general model')
+        const select = getByLabelText('General model')
         expect(select).toHaveTextContent('claude-opus-5')
         expect(select).not.toHaveTextContent('Default')
         unmount()
@@ -280,7 +280,7 @@ describe('ScoutConfigForm', () => {
         const { getByLabelText, unmount } = render(
             <ScoutConfigForm config={{ ...config, output_destinations: outputDestinations }} onUpdate={onUpdate} />
         )
-        const inboxSwitch = getByLabelText(`${config.skill_name} show in inbox`)
+        const inboxSwitch = getByLabelText(`General show in inbox`)
         expect(inboxSwitch).toHaveAttribute('aria-checked', String(inbox))
 
         fireEvent.click(inboxSwitch)
@@ -296,7 +296,7 @@ describe('ScoutConfigForm', () => {
         const { getByLabelText, unmount } = render(
             <ScoutConfigForm config={{ ...config, tags: ['on-call'] }} onUpdate={onUpdate} />
         )
-        const input = getByLabelText(`${config.skill_name} tags`)
+        const input = getByLabelText(`General tags`)
 
         fireEvent.change(input, { target: { value: 'Revenue' } })
         fireEvent.keyDown(input, { key: 'Enter' })
@@ -314,7 +314,7 @@ describe('ScoutConfigForm', () => {
             <ScoutConfigForm config={config} onUpdate={onUpdate} />
         )
         fireEvent.click(getByText('Structured output'))
-        fireEvent.change(getByLabelText(`${config.skill_name} record schema`), { target: { value: draft } })
+        fireEvent.change(getByLabelText(`General record schema`), { target: { value: draft } })
 
         rerender(
             <ScoutConfigForm

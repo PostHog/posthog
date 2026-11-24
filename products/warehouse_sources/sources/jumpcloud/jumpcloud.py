@@ -171,9 +171,12 @@ def _fetch_rest_page(
     skip: int,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"limit": _page_size(config), "skip": skip}
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params = {"limit": _page_size(config), config.offset_param: skip}
     if config.sort:
         params["sort"] = config.sort
+    params.update(config.params)
     url = f"{base_url}{path}?{urlencode(params)}"
 
     response = _request(session, "GET", url, logger)
@@ -213,7 +216,7 @@ def _get_rest_rows(
         yield rows
 
         # A short page means we've reached the end of the resource.
-        if len(rows) < _page_size(config):
+        if not config.paginated or len(rows) < _page_size(config):
             break
 
         skip += len(rows)
@@ -246,7 +249,7 @@ def _get_child_rows(
 
         yield rows
 
-        if len(rows) < _page_size(config):
+        if not config.paginated or len(rows) < _page_size(config):
             return
         skip += len(rows)
 

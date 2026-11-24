@@ -34,6 +34,13 @@ KAFKA_EMAIL_STATUS_EVENTS_TABLE = f"kafka_{EMAIL_STATUS_EVENTS_TABLE}"
 # Rows that record what the recipient did with the email. They never change its delivery status.
 EMAIL_ENGAGEMENT_STATUSES = ("opened", "clicked")
 
+# The email worker marks a `sent` row with this reason when the email went out with open and click tracking off,
+# so it can never record an open or a click.
+EMAIL_UNTRACKED_REASON = "untracked"
+# The reason a reader shows for a status row. The untracked marker is no failure, so the email log and the status API
+# hide it, and they still show any other reason a `sent` row carries.
+EMAIL_STATUS_SHOWN_REASON = f"if(status = 'sent' AND reason = '{EMAIL_UNTRACKED_REASON}', '', reason)"
+
 
 EMAIL_STATUS_KAFKA_COLUMNS = """
     team_id Int64,

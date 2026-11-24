@@ -48,6 +48,11 @@ class AppLovinEndpointConfig:
     # upstream doesn't fork a row into two.
     primary_keys: list[str]
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Column pinned with `sort_<column>=ASC` so limit/offset paging can't reshuffle rows.
+    sort_column: str = "day"
+    # False for reports that have no `day` column. They are requested one day at a time, and
+    # each row gets the day it was requested for.
+    has_day_column: bool = True
 
     @property
     def columns(self) -> list[str]:
@@ -210,6 +215,72 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
             *cohort_metrics(("user_count", "retention", "session_count", "daily_usage", "session_length")),
         ],
         primary_keys=list(COHORT_PRIMARY_KEYS),
+    ),
+    # `/assetAnalyticsReport` takes `start`/`end` but has no `day` column, so a multi-day request
+    # sums the whole range. `/assetReport` only takes fixed ranges (yesterday, last_7d, last_month).
+    "asset_report": AppLovinEndpointConfig(
+        name="asset_report",
+        path="/assetAnalyticsReport",
+        dimensions=[
+            "campaign",
+            "campaign_id",
+            "campaign_package_name",
+            "creative_set",
+            "creative_set_id",
+            "asset_id",
+            "asset_name",
+            "asset_url",
+        ],
+        metrics=["impressions", "clicks", "ctr", "cost"],
+        primary_keys=["day", "campaign_id", "creative_set_id", "asset_id"],
+        sort_column="asset_id",
+        has_day_column=False,
+    ),
+    # `device_model` and `os_version` are left out: each multiplies the row count many times.
+    "playable_metrics": AppLovinEndpointConfig(
+        name="playable_metrics",
+        path="/playableMetrics",
+        dimensions=["day", "asset_id", "html_name", "original_url", "platform", "country"],
+        metrics=[
+            "impressions",
+            "spend",
+            "average_duration",
+            "total_interactions",
+            "unique_interactions",
+            "unique_interactions_rate",
+            "unique_redirects",
+            "unique_redirects_rate",
+            "html_loading",
+            "html_loaded",
+            "html_displayed",
+            "html_completed",
+            "html_completion_rate",
+            "challenge_started",
+            "challenge_failed",
+            "challenge_failed_rate",
+            "challenge_retry",
+            "challenge_retry_rate",
+            "challenge_solved",
+            "challenge_solved_rate",
+            "challenge_pass_25",
+            "challenge_pass_25_rate",
+            "challenge_pass_50",
+            "challenge_pass_50_rate",
+            "challenge_pass_75",
+            "challenge_pass_75_rate",
+            "cta_clicked",
+            "cta_click_rate",
+            "endcard_shown",
+            "redirect_count",
+            "redirect_rate",
+            "black_view_error",
+            "black_view_error_rate",
+            "rendering_error",
+            "rendering_error_rate",
+            "runtime_error",
+            "runtime_error_rate",
+        ],
+        primary_keys=["day", "asset_id", "platform", "country"],
     ),
 }
 

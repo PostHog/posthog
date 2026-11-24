@@ -227,6 +227,83 @@ class TestTimeOffRequestsEndpoint:
         assert [request.json().get("page") for request in result.requests[1:]] == [1, 2]
 
 
+class TestTwoLevelFanOutTimeOffBalances:
+    @parameterized.expand(
+        [
+            (
+                "balances_in_envelope",
+                {"count": 1, "balances": [{"id": "B1", "policyId": "PO1", "balance": 12.5}]},
+                [{"id": "B1", "policyId": "PO1", "balance": 12.5, "workspace_id": "W1", "user_id": "U1"}],
+            ),
+            ("null_balances", {"count": 0, "balances": None}, []),
+            ("empty_balances", {"count": 0, "balances": []}, []),
+        ]
+    )
+    def test_reads_balances_per_user(self, _name: str, body: Any, expected_rows: list[dict[str, Any]]) -> None:
+        result = _driver().run(
+            "time_off_balances",
+            [_response([{"id": "W1"}]), _response([{"id": "U1"}]), _response(body)],
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == [
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/W1/users",
+            "/api/v1/workspaces/W1/time-off/balance/user/U1",
+        ]
+        assert result.requests[-1].param("page-size") == "200"
+
+    def test_walks_pages_until_a_short_page(self) -> None:
+        full_page = {"count": 201, "balances": [{"id": f"B{i}"} for i in range(200)]}
+        result = _driver().run(
+            "time_off_balances",
+            [
+                _response([{"id": "W1"}]),
+                _response([{"id": "U1"}]),
+                _response(full_page),
+                _response({"count": 201, "balances": [{"id": "B200"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 201
+        assert [request.param("page") for request in result.requests[2:]] == ["1", "2"]
+
+
+class TestTimeOffPoliciesEndpoint:
+    def test_walks_pages_and_includes_archived_policies(self) -> None:
+        full_page = [{"id": f"PO{i}"} for i in range(200)]
+        result = _driver().run(
+            "time_off_policies",
+            [_response([{"id": "W1"}]), _response(full_page), _response([{"id": "PO200", "archived": True}])],
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == 201
+        assert result.rows[-1] == {"id": "PO200", "archived": True, "workspace_id": "W1"}
+        policy_requests = result.requests[1:]
+        assert [request.param("page") for request in policy_requests] == ["1", "2"]
+        assert {request.param("status") for request in policy_requests} == {"ALL"}
+        assert {request.param("page-size") for request in policy_requests} == {"200"}
+
+
+class TestHolidaysEndpoint:
+    def test_reads_every_holiday_in_one_unpaged_request(self) -> None:
+        holiday = {
+            "id": "H1",
+            "name": "Founders Day",
+            "datePeriod": {"startDate": "2026-05-01", "endDate": "2026-05-01"},
+        }
+        result = _driver().run("holidays", [_response([{"id": "W1"}]), _response([holiday])])
+
+        assert result.raised is None
+        assert result.rows == [{**holiday, "workspace_id": "W1"}]
+        assert result.paths[-1] == "/api/v1/workspaces/W1/holidays"
+        assert result.requests[-1].param("page") is None
+        assert result.requests[-1].param("page-size") is None
+
+
 class TestApprovalRequestsEndpoint:
     def test_row_without_an_approval_request_is_dropped(self) -> None:
         # Clockify documents the nested request as nullable; such a row has no id, and writing it

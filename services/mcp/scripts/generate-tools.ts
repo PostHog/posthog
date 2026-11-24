@@ -758,9 +758,16 @@ function composeToolSchema(
                 }
             } else if (override.schema_ref) {
                 const excludeProps = override.exclude_properties ?? []
-                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                // A write stores this value, so its objects keep undeclared keys (see SchemaRefOptions).
+                const schemaRefOptions = { keepUnknownKeys: isWriteOp }
+                const zodCode = generateZodFromSchemaRef(
+                    getQuerySchema(),
+                    override.schema_ref,
+                    excludeProps,
+                    schemaRefOptions
+                )
                 schemaRefBlocks.push(zodCode)
-                const varName = getEntryVarName(override.schema_ref)
+                const varName = getEntryVarName(override.schema_ref, schemaRefOptions)
                 schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
@@ -1457,7 +1464,7 @@ function generateToolCode(
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
     if (needsWithAgentNote) {
-        resultType = `WithAgentNote<${resultType}>`
+        resultType = `WithAgentNote<${resultType}${config.hooks ? ', false' : ''}>`
     }
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
@@ -1858,7 +1865,9 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    let customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    let customResultType = needsWithAgentNote
+        ? `WithAgentNote<${responseType}${config.hooks ? ', false' : ''}>`
+        : (responseType ?? 'unknown')
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
         customResultType = `WithInformationalResponse<${customResultType}>`

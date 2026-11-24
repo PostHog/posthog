@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
@@ -20,6 +20,9 @@ from products.subscriptions.backend.temporal.workflows import (
     ScheduleAllSubscriptionsWorkflow,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     ScheduleAllSubscriptionsWorkflow,
     HandleSubscriptionValueChangeWorkflow,
@@ -27,7 +30,7 @@ WORKFLOWS = [
     ProcessAISubscriptionWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     fetch_due_subscriptions_activity,
     validate_subscription_for_delivery,
     create_export_assets,

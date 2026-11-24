@@ -18,7 +18,23 @@ function withTimeout(promise, timeoutMs, message) {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId))
 }
 
+function storyName(test) {
+    return `${test.parent.parent.name} › ${test.parent.name} › ${test.name}`
+}
+
+// jest indents console output, and GitHub only reads a workflow command that starts its own line, so
+// the annotation goes straight to stdout. It shows in the run summary and in the check run annotations.
+function writeWarningAnnotation(title, message) {
+    if (!process.env.GITHUB_ACTIONS) {
+        return
+    }
+    const escape = (text) => text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+    process.stdout.write(`\n::warning title=${title}::${escape(message)}\n`)
+}
+
 const CPU_SAMPLE_MS = 1000
+const STACK_CAPTURE_TIMEOUT_MS = 3000
+const STACK_FRAME_LIMIT = 8
 
 class CustomEnvironment extends BaseEnvironment {
     async setup() {
@@ -26,29 +42,54 @@ class CustomEnvironment extends BaseEnvironment {
         await this.attachPageSession()
     }
 
-    // A frozen renderer accepts no new DevTools session, so the session that diagnoses a freeze must
-    // exist before it. WebKit and Firefox have no DevTools protocol, so they skip the diagnosis.
+    // A frozen renderer accepts no new DevTools session, and its debugger cannot be enabled, so both must
+    // exist before the freeze for the diagnosis to pause the page and read its stack. WebKit and Firefox
+    // have no DevTools protocol, so they skip the diagnosis.
     async attachPageSession() {
-        this.pageSession = await this.global.context.newCDPSession(this.global.page).catch(() => null)
+        try {
+            this.pageSession = await this.global.context.newCDPSession(this.global.page)
+            // Paused call frames carry only a script id, so keep each script's file name to print the stack.
+            this.scriptFiles = new Map()
+            this.pageSession.on('Debugger.scriptParsed', ({ scriptId, url }) => {
+                this.scriptFiles.set(scriptId, url ? url.split('?')[0].split('/').pop() : 'inline')
+            })
+            await this.pageSession.send('Debugger.enable')
+            // With breakpoints active, a `debugger` statement in story or dependency code pauses the page and
+            // nothing resumes it. Debugger.pause still pauses the page when breakpoints are inactive.
+            await this.pageSession.send('Debugger.setBreakpointsActive', { active: false })
+        } catch {
+            this.pageSession = null
+        }
     }
 
     async handleTestEvent(event) {
         if (event.name === 'test_done' && event.test.errors.length > 0) {
-            if (await this.pageResponds()) {
-                await this.takeFailureScreenshot(event.test)
-            } else {
+            if (!(await this.pageResponds())) {
                 await this.replaceUnresponsivePage(event.test)
+            } else if (!(await this.pagePaints())) {
+                await this.replacePageThatStoppedPainting(event.test)
+            } else {
+                await this.takeFailureScreenshot(event.test)
             }
         }
         await super.handleTestEvent(event)
     }
 
     async pageResponds() {
-        return withTimeout(
-            this.global.page.evaluate(() => true),
-            PAGE_LIVENESS_TIMEOUT_MS,
-            'page did not respond'
+        return this.pageAnswers(() => true, 'page did not respond')
+    }
+
+    // Playwright's element screenshot and the runner's resize both wait for animation frames, so every retry
+    // fails on a page that answers script but paints no frame, and `pageResponds` alone would keep that page.
+    async pagePaints() {
+        return this.pageAnswers(
+            () => new Promise((resolve) => requestAnimationFrame(() => resolve(true))),
+            'page painted no frame'
         )
+    }
+
+    async pageAnswers(pageFunction, message) {
+        return withTimeout(this.global.page.evaluate(pageFunction), PAGE_LIVENESS_TIMEOUT_MS, message)
             .then(() => true)
             .catch(() => false)
     }
@@ -67,16 +108,23 @@ class CustomEnvironment extends BaseEnvironment {
             .catch(() => undefined)
     }
 
-    // A script that never yields keeps the renderer near 100% CPU and stops when the session terminates
-    // it. A renderer that waits on another process, such as the GPU process, uses no CPU and stays frozen.
+    // A script that never yields keeps the renderer near 100% CPU, has a JavaScript stack, and stops when
+    // the session terminates it. A renderer that waits on another process, such as the GPU process, uses
+    // no CPU and stays frozen.
     async diagnoseFreeze() {
         if (!this.pageSession) {
             return 'No diagnosis in this browser.'
         }
-        const cpu = await withTimeout(this.sampleRendererCpu(), PAGE_LIVENESS_TIMEOUT_MS, 'CPU sample timed out').catch(
-            (error) => error.message
-        )
-        // Chromium stops a script through a V8 interrupt, so a page blocked outside script never answers.
+        const cpu = await this.describeProcessCpu()
+        const stack = await this.captureStack()
+        // Chromium serves these commands from the page's main thread or through a V8 interrupt, so a page
+        // blocked outside script never answers them.
+        // Disabling the debugger also resumes the paused page, which terminateExecution needs to take effect.
+        await withTimeout(
+            this.pageSession.send('Debugger.disable'),
+            PAGE_LIVENESS_TIMEOUT_MS,
+            'Debugger.disable timed out'
+        ).catch(() => undefined)
         await withTimeout(
             this.pageSession.send('Runtime.terminateExecution'),
             PAGE_LIVENESS_TIMEOUT_MS,
@@ -85,38 +133,73 @@ class CustomEnvironment extends BaseEnvironment {
         const outcome = (await this.pageResponds())
             ? 'The page recovered when its script was stopped, so a script was running without end.'
             : 'The page stayed frozen after its script was stopped, so no script loop holds it.'
-        return `Renderer CPU: ${cpu}. ${outcome}`
+        return `CPU: ${cpu}. Stack: ${stack}. ${outcome}`
     }
 
-    async sampleRendererCpu() {
-        const browserSession = await this.global.browser.newBrowserCDPSession()
-        const read = async () => {
-            const { processInfo } = await browserSession.send('SystemInfo.getProcessInfo')
-            return new Map(
-                processInfo.filter(({ type }) => type === 'renderer').map(({ id, cpuTime }) => [id, cpuTime])
-            )
-        }
+    async captureStack() {
+        const paused = new Promise((resolve) => this.pageSession.once('Debugger.paused', resolve))
         try {
-            const before = await read()
+            await withTimeout(this.pageSession.send('Debugger.pause'), STACK_CAPTURE_TIMEOUT_MS, 'pause timed out')
+            const { callFrames } = await withTimeout(paused, STACK_CAPTURE_TIMEOUT_MS, 'no paused event')
+            if (!callFrames.length) {
+                return 'none'
+            }
+            return callFrames
+                .slice(0, STACK_FRAME_LIMIT)
+                .map(({ functionName, location }) => {
+                    const file = this.scriptFiles.get(location.scriptId) ?? 'unknown'
+                    return `${functionName || '(anonymous)'} ${file}:${location.lineNumber + 1}:${location.columnNumber + 1}`
+                })
+                .join(' < ')
+        } catch (error) {
+            return `unavailable (${error.message})`
+        }
+    }
+
+    async describeProcessCpu() {
+        return withTimeout(this.sampleProcessCpu(), PAGE_LIVENESS_TIMEOUT_MS, 'CPU sample timed out').catch(
+            (error) => error.message
+        )
+    }
+
+    async sampleProcessCpu() {
+        const browserSession = await this.global.browser.newBrowserCDPSession()
+        const read = async () => (await browserSession.send('SystemInfo.getProcessInfo')).processInfo
+        try {
+            const before = new Map((await read()).map(({ id, cpuTime }) => [id, cpuTime]))
             await new Promise((resolve) => setTimeout(resolve, CPU_SAMPLE_MS))
-            const after = await read()
-            return [...after]
-                .map(([id, cpuTime]) => `${Math.round(((cpuTime - (before.get(id) ?? 0)) * 100000) / CPU_SAMPLE_MS)}%`)
+            return (await read())
+                .filter(({ type }) => ['renderer', 'GPU', 'browser'].includes(type))
+                .map(({ type, id, cpuTime }) => {
+                    const percent = Math.round(((cpuTime - (before.get(id) ?? 0)) * 100000) / CPU_SAMPLE_MS)
+                    return `${type} ${percent}%`
+                })
                 .join(', ')
         } finally {
             await browserSession.detach().catch(() => undefined)
         }
     }
 
-    // One page serves every story in a file. When its main thread stops answering, every later
-    // page.evaluate waits forever, so each remaining story and retry in the file runs into the jest
-    // timeout. A new browser context gets a new renderer process, which lets the retry and the
-    // remaining stories run.
     async replaceUnresponsivePage(test) {
+        const message = `Page stopped responding during "${storyName(test)}". ${await this.diagnoseFreeze()} Replacing it.`
+        await this.replacePage('Storybook page froze', message)
+    }
+
+    async replacePageThatStoppedPainting(test) {
+        const message =
+            `Page stopped painting frames during "${storyName(test)}" but still answers script. ` +
+            `CPU: ${await this.describeProcessCpu()}. Replacing it.`
+        await this.replacePage('Storybook page stopped painting', message)
+    }
+
+    // One page serves every story in a file. When its main thread stops answering, every later
+    // page.evaluate waits forever, and when it stops painting, every later screenshot and frame wait
+    // times out, so each remaining story and retry in the file fails. A new browser context gets a new
+    // renderer process, which lets the retry and the remaining stories run.
+    async replacePage(title, message) {
         // eslint-disable-next-line no-console
-        console.warn(
-            `[test-runner] Page stopped responding during "${test.name}". ${await this.diagnoseFreeze()} Replacing it.`
-        )
+        console.warn(`[test-runner] ${message}`)
+        writeWarningAnnotation(title, message)
         const replacement = (async () => {
             await this.global.jestPlaywright.resetContext()
             await setupPage(this.global.page, this.global.context)

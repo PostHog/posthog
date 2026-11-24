@@ -31,6 +31,11 @@
         z-index: var(--z-raised);
     }
 
+    // Anywhere on the card, so the link is at hand while reading the chart.
+    &:hover .CardMeta__copy-link {
+        opacity: 1;
+    }
+
     .ErrorBoundary {
         width: 100%;
         height: 100%;

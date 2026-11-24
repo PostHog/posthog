@@ -147,6 +147,31 @@ export type analyticsPinnedLogicType = MakeLogicType<
     analyticsPinnedLogicMeta
 >
 
+/** The analytics items and collections among the sidebar pins. */
+export function pinnedAnalyticsFromShortcuts(shortcutData: FileSystemEntry[]): PinnedAnalytics[] {
+    return shortcutData.flatMap((shortcut): PinnedAnalytics[] => {
+        if (!shortcut.id || !shortcut.ref) {
+            return []
+        }
+        // A folder shortcut's `path` is its display name; `ref` holds the folder it points at.
+        if (shortcut.type === 'folder') {
+            return isSpacePath(shortcut.ref)
+                ? [
+                      {
+                          kind: 'collection',
+                          key: pinKey('folder', shortcut.ref),
+                          shortcutId: shortcut.id,
+                          path: shortcut.ref,
+                          name: fileSystemEntryName({ path: shortcut.ref }),
+                      },
+                  ]
+                : []
+        }
+        const item = fileSystemEntryToAnalytics(shortcut)
+        return item ? [{ kind: 'item', key: pinKey(item.type, item.id), shortcutId: shortcut.id, item }] : []
+    })
+}
+
 /** The analytics items and collections among the sidebar pins, for the Analytics pane's Pinned section. */
 export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
     path(['scenes', 'analytics', 'analyticsPinnedLogic']),
@@ -205,30 +230,7 @@ export const analyticsPinnedLogic = kea<analyticsPinnedLogicType>([
         ],
         pinnedAnalytics: [
             (s) => [s.shortcutData],
-            (shortcutData: FileSystemEntry[]): PinnedAnalytics[] =>
-                shortcutData.flatMap((shortcut): PinnedAnalytics[] => {
-                    if (!shortcut.id || !shortcut.ref) {
-                        return []
-                    }
-                    // A folder shortcut's `path` is its display name; `ref` holds the folder it points at.
-                    if (shortcut.type === 'folder') {
-                        return isSpacePath(shortcut.ref)
-                            ? [
-                                  {
-                                      kind: 'collection',
-                                      key: pinKey('folder', shortcut.ref),
-                                      shortcutId: shortcut.id,
-                                      path: shortcut.ref,
-                                      name: fileSystemEntryName({ path: shortcut.ref }),
-                                  },
-                              ]
-                            : []
-                    }
-                    const item = fileSystemEntryToAnalytics(shortcut)
-                    return item
-                        ? [{ kind: 'item', key: pinKey(item.type, item.id), shortcutId: shortcut.id, item }]
-                        : []
-                }),
+            (shortcutData: FileSystemEntry[]): PinnedAnalytics[] => pinnedAnalyticsFromShortcuts(shortcutData),
         ],
         pinnedCollectionPaths: [
             (s) => [s.pinnedAnalytics],

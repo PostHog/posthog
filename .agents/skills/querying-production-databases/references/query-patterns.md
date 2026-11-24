@@ -8,9 +8,11 @@ Cross-team queries return metadata only. To read the `query` text of a row, run 
 
 ## ClickHouse: the query log
 
-`posthog.query_log_archive` holds the query log of every node, with about three weeks of retention.
+`posthog.query_log_archive` holds the query log of every node.
+Its rows have no TTL, but the query text columns expire after three months and `log_comment` after one month.
 Prefer it over `system.query_log`, which on the ops connection covers one node only.
-The archive has typed columns in place of `log_comment`: `team_id`, `lc_workload`, `lc_kind`, `lc_access_method`, `lc_query_type`, `lc_product`, and more.
+The archive has typed columns for the common `log_comment` keys: `team_id`, `lc_workload`, `lc_kind`, `lc_access_method`, `lc_query_type`, `lc_product`, and more.
+Its `log_comment` column keeps the initial query's log_comment, without `timings` and `query`, for one month.
 Read the full list with `SELECT name, type FROM system.columns WHERE database = 'posthog' AND table = 'query_log_archive'`.
 Filter `event_date` as well as `event_time`, because the table is partitioned by date.
 For a full slow-query report, use the patterns in [`generating-clickhouse-query-performance-reports`](../../generating-clickhouse-query-performance-reports/references/query-patterns.md). They run here, but their query text and property columns are customer content: drop those columns from cross-team queries, or run the opt-out check for each team first.

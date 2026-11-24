@@ -27,6 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
+from posthog.tasks.quota_migration import schedule_quota_redis_comparison
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -134,6 +135,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -297,6 +299,14 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if settings.QUOTA_LIMITING_REDIS_URL:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            schedule_quota_redis_comparison.s(),
+            name="compare-quota-redis",
+            expires_seconds=300,
+        )
     add_periodic_task_with_expiry(
         sender, crontab(minute="11"), delete_orphaned_fragments.s(), name="delete-orphaned-ui-customization"
     )
@@ -465,6 +475,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="45"),
         prune_expired_scratchpad_entries_task.s(),
         name="prune expired signals scratchpad entries",
+    )
+
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
     )
 
     add_periodic_task_with_expiry(

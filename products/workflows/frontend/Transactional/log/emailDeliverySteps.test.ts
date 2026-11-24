@@ -67,19 +67,9 @@ describe('buildDeliverySteps', () => {
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
         ],
         [
-            'sensitive, so a click can never be recorded',
+            'sensitive, still waiting for a click',
             email('delivered', ['queued', 'sent', 'delivered', 'opened'], true),
-            ['sent:done', 'delivered:done', 'opened:done', 'clicked:untracked'],
-        ],
-        [
-            'sensitive with a click recorded anyway',
-            email('delivered', ['queued', 'sent', 'delivered', 'clicked'], true),
-            ['sent:done', 'delivered:done', 'opened:pending', 'clicked:done'],
-        ],
-        [
-            'sensitive and bounced',
-            email('bounced', ['queued', 'sent', 'bounced'], true),
-            ['sent:done', 'bounced:failed'],
+            ['sent:done', 'delivered:done', 'opened:done', 'clicked:pending'],
         ],
     ])('%s', (_, input, expected) => {
         expect(buildDeliverySteps(input).map((step) => `${step.key}:${step.state}`)).toEqual(expected)

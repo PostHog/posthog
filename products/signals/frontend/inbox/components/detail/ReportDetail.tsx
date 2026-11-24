@@ -18,7 +18,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic, peekFeatureFlag, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -32,10 +31,10 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
-import { parseReportSummary } from '../../utils/reportSummary'
 import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
@@ -233,11 +232,7 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride
-        ? backOverride.startsWith(urls.inboxTriage())
-            ? 'Triage'
-            : 'Back'
-        : 'Self-driving inbox'
+    const backLabel = backOverride ? inboxReportBackLabel(backOverride) : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -302,24 +297,10 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const summaryHasSolution = parseReportSummary(report.summary).sections.some(
-        (section) => section.kind === 'solution'
-    )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
     const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
-    if (
-        hasImplementButton &&
-        summaryHasSolution &&
-        (implementButtonVariant === 'control' || implementButtonVariant === 'test')
-    ) {
-        reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    }
-    const implementButtonInHeader = !summaryHasSolution || implementButtonVariant === 'test'
     const implementButton = hasImplementButton ? (
         <ImplementButton
             report={report}
-            position={implementButtonInHeader ? 'header' : 'body'}
             reportTaskToOpen={reportTaskToOpen}
             implementationDisabledReason={implementationDisabledReason}
             openChoicesFromLink={linkImplementReportId === report.id}
@@ -422,7 +403,6 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButtonInHeader ? null : implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -663,7 +643,7 @@ export function InboxDetailFrame({
                 </div>
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
-                    {implementButtonInHeader && implementButton}
+                    {implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

@@ -49,6 +49,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import type { TaxonomicFilterGroupValueMap } from 'lib/components/TaxonomicFilter/types'
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
@@ -550,12 +551,12 @@ export interface infiniteListLogicActions {
     updateRemoteItemSuccess: (
         remoteItems: {
             count: number
-            expandedCount?: number | undefined
-            first?: boolean | undefined
-            loadDurationMs?: number | undefined
-            queryChanged?: boolean | undefined
+            expandedCount?: number
+            first?: boolean
+            loadDurationMs?: number
+            queryChanged?: boolean
             results: TaxonomicDefinitionTypes[]
-            searchQuery?: string | undefined
+            searchQuery?: string
         },
         payload?: {
             item: TaxonomicDefinitionTypes
@@ -563,12 +564,12 @@ export interface infiniteListLogicActions {
     ) => {
         remoteItems: {
             count: number
-            expandedCount?: number | undefined
-            first?: boolean | undefined
-            loadDurationMs?: number | undefined
-            queryChanged?: boolean | undefined
+            expandedCount?: number
+            first?: boolean
+            loadDurationMs?: number
+            queryChanged?: boolean
             results: TaxonomicDefinitionTypes[]
-            searchQuery?: string | undefined
+            searchQuery?: string
         }
         payload?: {
             item: TaxonomicDefinitionTypes
@@ -590,7 +591,7 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType
         ) => boolean
         excludedPropertiesWithHiddenEvents: (
-            arg: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap | undefined,
+            arg: TaxonomicFilterGroupValueMap | undefined,
             currentTeam: TeamPublicType | TeamType | null,
             arg2: boolean | undefined
         ) => ExcludedProperties | undefined
@@ -599,16 +600,12 @@ export interface infiniteListLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             excludedOperators: ExcludedOperators | undefined,
             arg: SelectingKeyOnly | undefined,
-            excludedPropertiesWithHiddenEvents:
-                | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                | undefined
+            excludedPropertiesWithHiddenEvents: TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         contextFilteredPinnedItems: (
             pinnedFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            excludedPropertiesWithHiddenEvents:
-                | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                | undefined
+            excludedPropertiesWithHiddenEvents: TaxonomicFilterGroupValueMap | undefined
         ) => TaxonomicDefinitionTypes[]
         isSoleSubstantiveGroup: (
             listGroupType: TaxonomicFilterGroupType,

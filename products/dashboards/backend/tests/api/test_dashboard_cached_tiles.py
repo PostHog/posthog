@@ -146,6 +146,7 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.assertEqual(warm["status"], "hit")
         self.assertEqual(warm["insight"]["result"], per_tile["result"])
         self.assertEqual(warm["insight"]["last_refresh"], per_tile["last_refresh"])
+        self.assertEqual(warm["insight"]["query_scan"], per_tile["query_scan"])
         self.assertNotIn("hogql", warm["insight"])
 
     @parameterized.expand([("blocking",), ("force_cache",)])
@@ -321,4 +322,59 @@ class TestDashboardCachedTiles(APIBaseTest):
                 for redis in (one_tile_redis, four_tile_redis)
             ],
             [(1, 1), (1, 1)],
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on_with_param_omits_results", True, {"omit_tile_results": "true"}, False),
+            ("flag_on_without_param_keeps_results", True, {}, True),
+            ("flag_off_ignores_param", False, {"omit_tile_results": "true"}, True),
+        ]
+    )
+    def test_dashboard_get_omits_tile_results_only_when_asked_under_the_flag(
+        self, _name: str, flag_on: bool, params: dict[str, str], expect_result: bool
+    ) -> None:
+        insight_id, tile_id = self._add_insight_tile("$pageview")
+        cached = self._per_tile(insight_id, "blocking")
+        if not flag_on:
+            self.flag_on_for_project = self.team.pk + 1
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "filters_override": '{"date_from": "-14d"}', **params},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(tile["id"], tile_id)
+        self.assertEqual(tile["insight"]["name"], "$pageview")
+        self.assertEqual(tile["insight"]["query"], cached["query"])
+        self.assertEqual(tile["insight"]["result"] is not None, expect_result)
+        self.assertEqual(tile["insight"]["is_cached"], expect_result)
+        self.assertEqual(tile["insight"]["last_refresh"] is not None, expect_result)
+        if flag_on:
+            self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
+
+    def test_dashboard_get_without_results_still_masks_restricted_insights(self) -> None:
+        insight_id, _ = self._add_insight_tile("$pageview")
+        self._per_tile(insight_id, "blocking")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(insight_id), access_level="none"
+        )
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/",
+            {"refresh": "force_cache", "omit_tile_results": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        (tile,) = response.json()["tiles"]
+        self.assertEqual(
+            tile["insight"], {"id": insight_id, "short_id": tile["insight"]["short_id"], "user_access_level": "none"}
         )

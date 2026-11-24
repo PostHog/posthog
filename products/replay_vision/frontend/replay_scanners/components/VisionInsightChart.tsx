@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -40,17 +41,19 @@ export type ChartOverlayState = 'none' | 'loading' | 'error'
 
 /**
  * `insightData` is always a truthy object, but `insightData.result` is `undefined` until a query resolves (an empty
- * result is `[]`), so it — not the object — is the real "is there anything to render" signal. No data while loading is
- * a spinner; no data once settled is a failed/cancelled query we surface as a retry rather than a blank box.
+ * result is `[]`), so it, not the object, is the real "is there anything to render" signal. No data while loading, or
+ * before the lazily loaded renderer has started a query, is a spinner; no data once a query settled is a
+ * failed/cancelled query we surface as a retry rather than a blank box.
  */
 export function chartOverlayState(
     insightData: { result?: unknown } | null | undefined,
-    loading: boolean
+    loading: boolean,
+    queryStarted: boolean
 ): ChartOverlayState {
     if (insightData?.result != null) {
         return 'none'
     }
-    return loading ? 'loading' : 'error'
+    return loading || !queryStarted ? 'loading' : 'error'
 }
 
 /**
@@ -72,9 +75,10 @@ export function VisionInsightChart({
     )
     const logic = insightVizDataLogic(chartProps)
     const { insightData, insightDataLoading } = useValues(logic)
+    const { queryId } = useValues(insightDataLogic(chartProps))
     const { loadData } = useActions(logic)
 
-    const overlay = chartOverlayState(insightData, insightDataLoading)
+    const overlay = chartOverlayState(insightData, insightDataLoading, queryId != null)
 
     return (
         <div className={clsx('relative', className)}>

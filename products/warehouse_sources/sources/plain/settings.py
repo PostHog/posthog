@@ -93,6 +93,20 @@ PLAIN_ENDPOINTS: dict[str, PlainEndpointConfig] = {
         partition_format=None,
         partition_keys=None,
     ),
+    # None of these list queries accepts an updatedAt filter. knowledgeGaps only filters on lastSeenAt,
+    # which a status change does not move, so all four stay full refresh.
+    "tiers": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    "tasks": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    "thread_field_schemas": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
+    "knowledge_gaps": PlainEndpointConfig(
+        incremental_fields=[],
+    ),
 }
 
 ENDPOINTS = tuple(PLAIN_ENDPOINTS.keys())

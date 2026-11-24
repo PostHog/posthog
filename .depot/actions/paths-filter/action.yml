@@ -49,9 +49,9 @@ inputs:
         default: '100'
     reuse-checks:
         description: |
-            Check run names, one per line, that must all have passed on the previous head of the pull request,
-            and on every head back to the last one where the suite ran.
-            When set, a push that changes no file the scoped filters match reports those filters as unchanged,
+            Check run names, one per line, that must all have passed on an earlier head of the branch
+            that has the same inputs as this one, with none of them failing on a newer head with those inputs.
+            When set, a push whose scoped files match that head reports those filters as unchanged,
             so the jobs they gate are skipped and the earlier result stands. Leave empty to turn reuse off.
         required: false
     reuse-proof-checks:

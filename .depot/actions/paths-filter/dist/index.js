@@ -43028,7 +43028,8 @@ const file_1 = __nccwpck_require__(3765);
 const BUDGET_MS = 20000;
 const CAPTURE_TIMEOUT_MS = 2000;
 const COMPARE_FILE_CAP = 300;
-const MAX_HEADS_WALKED = 20;
+const MAX_EARLIER_HEADS = 30;
+const FINGERPRINT_PATHS = 5;
 const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
 const DETAIL_SAMPLE = 5;
 const NULL_SHA = '0000000000000000000000000000000000000000';
@@ -43036,8 +43037,10 @@ const POSTHOG_HOST = 'https://us.i.posthog.com';
 const EVENT_NAME = 'posthog-ci-reuse-decision';
 const MERGE_QUEUE_BRANCH_PREFIX = 'trunk-merge/';
 const PASSING_CONCLUSIONS = ['success', 'skipped'];
+const INCONCLUSIVE_CONCLUSIONS = ['cancelled', 'stale'];
 const DEFAULT_CHECK_APPS = ['github-actions'];
 const TREES_PER_QUERY = 100;
+const NEWER_HEADS_PER_BATCH = 5;
 class BudgetExceeded extends Error {
 }
 function listInput(name) {
@@ -43105,10 +43108,10 @@ function differingFiles(current, previous) {
 function isSha(value) {
     return value !== undefined && /^[0-9a-f]{40}$/.test(value) && value !== NULL_SHA;
 }
-function miss(reason, detail = null) {
-    return { reuse: false, reason, detail, previousSha: null };
+function miss(reason, detail = null, earlierHeads = null) {
+    return { reuse: false, reason, detail, previousSha: null, earlierHeads, headsBehind: null };
 }
-async function compareInputs(input, api, current, sha) {
+async function differingFrom(input, api, current, sha) {
     const previousFiles = await api.filesAt(input.pr.base.sha, sha);
     if (previousFiles === null) {
         return miss('file-list-truncated', sha);
@@ -43117,19 +43120,39 @@ async function compareInputs(input, api, current, sha) {
     if (previous === null) {
         return miss('error', `a file at ${sha} has no blob sha`);
     }
-    const differing = differingFiles(current, previous);
-    if (differing.length > 0) {
-        return miss('inputs-changed', differing.slice(0, DETAIL_SAMPLE).join(', '));
-    }
-    return null;
+    return differingFiles(current, previous);
 }
-async function headsToWalk(input, api) {
-    const commits = await api.pullCommits(input.pr.number);
-    const index = commits.lastIndexOf(input.before);
-    if (index < 0) {
-        return [input.before];
+async function earlierHeads(input, api, before) {
+    const { head } = input.pr;
+    let listed = null;
+    try {
+        listed = await api.branchHeads(head.ref);
     }
-    return commits.slice(Math.max(0, index - MAX_HEADS_WALKED + 1), index + 1).reverse();
+    catch (error) {
+        core.info(`reuse: branch activity unavailable (${error instanceof Error ? error.message : String(error)})`);
+    }
+    const older = (listed !== null && listed !== void 0 ? listed : []).slice((listed !== null && listed !== void 0 ? listed : []).indexOf(head.sha) + 1);
+    const shas = [...new Set([before, ...older])].filter(sha => isSha(sha) && sha !== head.sha);
+    return { shas: shas.slice(0, MAX_EARLIER_HEADS), listed: listed === null ? null : shas.length };
+}
+async function headsWithSameContent(input, api, heads, before, differingFromBefore, current) {
+    const others = heads.filter(sha => sha !== before);
+    const beforeMatches = differingFromBefore.length === 0;
+    if (others.length === 0) {
+        return beforeMatches ? [before] : [];
+    }
+    const paths = [...new Set([...differingFromBefore, ...current.keys()])].slice(0, FINGERPRINT_PATHS);
+    let blobs;
+    try {
+        blobs = await api.blobs([input.pr.head.sha, ...others], paths);
+    }
+    catch (error) {
+        core.info(`reuse: earlier head contents unavailable (${error instanceof Error ? error.message : String(error)})`);
+        return beforeMatches ? [before] : [];
+    }
+    const now = JSON.stringify(blobs.get(input.pr.head.sha));
+    const matching = new Set(others.filter(sha => JSON.stringify(blobs.get(sha)) === now));
+    return heads.filter(sha => (sha === before ? beforeMatches : matching.has(sha)));
 }
 async function checkRunsFrom(input, api, sha, names) {
     const lists = await Promise.all(names.map(async (name) => api.checkRuns(sha, name)));
@@ -43139,34 +43162,82 @@ function earliestSuite(runs) {
     const created = runs.flatMap(run => (run.suiteCreatedAt ? [run.suiteCreatedAt] : [])).sort();
     return created.length === runs.length ? created[0] : null;
 }
-async function proveRun(input, api) {
+function isPassing(run) {
     var _a;
+    return PASSING_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : '');
+}
+function isFailure(run) {
+    var _a;
+    return run.status === 'completed' && !isPassing(run) && !INCONCLUSIVE_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : '');
+}
+function firstFailure(config, shas, gatesByHead) {
+    for (const [index, gates] of gatesByHead.entries()) {
+        const failedGate = gates.findIndex(runs => runs.some(isFailure));
+        if (failedGate >= 0) {
+            const failed = gates[failedGate].find(isFailure);
+            return `${shas[index]} ${config.checks[failedGate]}: ${failed === null || failed === void 0 ? void 0 : failed.conclusion}`;
+        }
+    }
+    return null;
+}
+async function firstFailedNewerHead(input, api, shas) {
+    for (let start = 0; start < shas.length; start += NEWER_HEADS_PER_BATCH) {
+        const batch = shas.slice(start, start + NEWER_HEADS_PER_BATCH);
+        const gatesByHead = await Promise.all(batch.map(async (sha) => checkRunsFrom(input, api, sha, input.config.checks)));
+        const failure = firstFailure(input.config, batch, gatesByHead);
+        if (failure) {
+            return failure;
+        }
+    }
+    return null;
+}
+async function proveRun(input, api, current, before) {
     const { config } = input;
-    for (const sha of await headsToWalk(input, api)) {
+    const differingFromBefore = await differingFrom(input, api, current, before);
+    if (!Array.isArray(differingFromBefore)) {
+        return differingFromBefore;
+    }
+    const heads = await earlierHeads(input, api, before);
+    const candidates = await headsWithSameContent(input, api, heads.shas, before, differingFromBefore, current);
+    let unchecked = 0;
+    for (const sha of candidates) {
+        if (sha !== before) {
+            const differing = await differingFrom(input, api, current, sha);
+            if (!Array.isArray(differing)) {
+                return { ...differing, earlierHeads: heads.listed };
+            }
+            if (differing.length > 0) {
+                continue;
+            }
+        }
+        const position = heads.shas.indexOf(sha);
+        const newer = heads.shas.slice(unchecked, position);
+        unchecked = position + 1;
+        const newerFailure = await firstFailedNewerHead(input, api, newer);
+        if (newerFailure) {
+            return miss('previous-not-green', newerFailure, heads.listed);
+        }
         const [gates, proofs] = await Promise.all([
             checkRunsFrom(input, api, sha, config.checks),
             checkRunsFrom(input, api, sha, config.proofChecks)
         ]);
-        const missing = gates.filter(runs => runs.length === 0).length;
-        for (const [index, runs] of gates.entries()) {
-            const notGreen = runs.find(run => { var _a; return !PASSING_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : ''); });
-            if (notGreen) {
-                return miss('previous-not-green', `${sha} ${config.checks[index]}: ${(_a = notGreen.conclusion) !== null && _a !== void 0 ? _a : notGreen.status}`);
-            }
+        const failure = firstFailure(config, [sha], [gates]);
+        if (failure) {
+            return miss('previous-not-green', failure, heads.listed);
         }
-        if (missing === config.checks.length && sha !== input.before) {
+        const allGatesPassed = gates.every(runs => runs.length > 0 && runs.every(isPassing));
+        const proof = allGatesPassed ? proofs.flat().find(run => run.conclusion === 'success') : undefined;
+        if (!proof) {
             continue;
         }
-        if (missing > 0) {
-            return miss('previous-not-green', `${sha}: no check run for ${missing} of ${config.checks.length} checks`);
-        }
-        const proof = proofs.flat().find(run => run.conclusion === 'success');
-        if (proof) {
-            const startedAt = earliestSuite([...gates.flat(), proof]);
-            return startedAt ? { sha, startedAt } : miss('error', `${sha}: a check run has no check suite time`);
-        }
+        const startedAt = earliestSuite([...gates.flat(), proof]);
+        return startedAt
+            ? { sha, startedAt, earlierHeads: heads.listed, headsBehind: position }
+            : miss('error', `${sha}: a check run has no check suite time`, heads.listed);
     }
-    return miss('no-proven-run');
+    return differingFromBefore.length > 0
+        ? miss('inputs-changed', differingFromBefore.slice(0, DETAIL_SAMPLE).join(', '), heads.listed)
+        : miss('no-proven-run', null, heads.listed);
 }
 async function changedModes(input, api, current, sha) {
     const paths = [...current].filter(([, identity]) => identity !== file_1.ChangeStatus.Deleted).map(([path]) => path);
@@ -43215,45 +43286,46 @@ async function decide(input, api) {
     if (current.size === 0) {
         return miss('no-inputs');
     }
-    const againstPrevious = await compareInputs(input, api, current, before);
-    if (againstPrevious) {
-        return againstPrevious;
-    }
-    const proven = await proveRun({ ...input, before }, api);
+    const proven = await proveRun(input, api, current, before);
     if ('reason' in proven) {
         return proven;
     }
-    if (proven.sha !== before) {
-        const againstProven = await compareInputs(input, api, current, proven.sha);
-        if (againstProven) {
-            return againstProven;
-        }
+    const missed = (reason, detail) => miss(reason, detail, proven.earlierHeads);
+    if (proven.startedAt < pr.created_at) {
+        return missed('shared-head', `${proven.sha} ran before #${pr.number} was opened`);
     }
     const otherPulls = (await api.pullsWithCommit(proven.sha)).filter(number => number !== pr.number);
     if (otherPulls.length > 0) {
-        return miss('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`);
+        return missed('shared-head', `${proven.sha} is also in ${otherPulls.map(number => `#${number}`).join(', ')}`);
     }
     const modeChanges = await changedModes(input, api, current, proven.sha);
     if (modeChanges.length > 0) {
-        return miss('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`);
+        return missed('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`);
     }
     if (Date.parse(proven.startedAt) > input.now) {
-        return miss('error', `${proven.sha} started in the future, at ${proven.startedAt}`);
+        return missed('error', `${proven.sha} started in the future, at ${proven.startedAt}`);
     }
     if (input.now - Date.parse(proven.startedAt) > MAX_SOURCE_AGE_MS) {
-        return miss('previous-too-old', `${proven.sha} started ${proven.startedAt}`);
+        return missed('previous-too-old', `${proven.sha} started ${proven.startedAt}`);
     }
     const timeline = await api.timeline(pr.number);
     if (!pr.draft && timeline.readyForReviewAt !== null && proven.startedAt < timeline.readyForReviewAt) {
-        return miss('previous-ran-as-draft', proven.sha);
+        return missed('previous-ran-as-draft', proven.sha);
     }
     if (timeline.baseChangedAt !== null && timeline.baseChangedAt > proven.startedAt) {
-        return miss('base-changed', timeline.baseChangedAt);
+        return missed('base-changed', timeline.baseChangedAt);
     }
     if (await api.changedOnBranchSince(pr.base.ref, config.filterSource, proven.startedAt)) {
-        return miss('filter-changed', config.filterSource);
+        return missed('filter-changed', config.filterSource);
     }
-    return { reuse: true, reason: 'reused', detail: null, previousSha: proven.sha };
+    return {
+        reuse: true,
+        reason: 'reused',
+        detail: null,
+        previousSha: proven.sha,
+        earlierHeads: proven.earlierHeads,
+        headsBehind: proven.headsBehind
+    };
 }
 async function evaluate(input, apiFor) {
     const startedAt = Date.now();
@@ -43392,15 +43464,28 @@ function githubApi(token, signal) {
                 ];
             }));
         },
-        async pullCommits(pullNumber) {
-            const commits = await client.paginate(client.rest.pulls.listCommits, {
+        async branchHeads(branch) {
+            const response = await client.rest.repos.listActivities({
                 owner,
                 repo,
-                pull_number: pullNumber,
+                ref: `refs/heads/${branch}`,
+                time_period: 'day',
                 per_page: 100,
                 request
             });
-            return commits.map(commit => commit.sha);
+            return response.data.map(activity => activity.after);
+        },
+        async blobs(shas, paths) {
+            const variables = { owner, name: repo, request };
+            const names = [];
+            const fields = shas.flatMap((sha, s) => paths.map((path, p) => {
+                names.push(`e${s}_${p}`);
+                variables[`e${s}_${p}`] = `${sha}:${path}`;
+                return `b${s}_${p}: object(expression: $e${s}_${p}) { oid }`;
+            }));
+            const declarations = names.map(name => `$${name}: String!`).join(', ');
+            const response = await client.graphql(`query ($owner: String!, $name: String!, ${declarations}) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`, variables);
+            return new Map(shas.map((sha, s) => [sha, paths.map((_, p) => { var _a, _b; return (_b = (_a = response.repository[`b${s}_${p}`]) === null || _a === void 0 ? void 0 : _a.oid) !== null && _b !== void 0 ? _b : null; })]));
         },
         async pullsWithCommit(sha) {
             const response = await client.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -43456,6 +43541,8 @@ async function capture(apiKey, decision) {
                 detail: decision.detail,
                 filters: decision.keys,
                 previous_sha: decision.previousSha,
+                earlier_heads: decision.earlierHeads,
+                heads_behind: decision.headsBehind,
                 pr_number: pr.number,
                 head_sha: pr.head.sha,
                 head_ref: pr.head.ref,

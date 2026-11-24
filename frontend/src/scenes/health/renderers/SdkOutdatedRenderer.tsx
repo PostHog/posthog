@@ -70,6 +70,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
     const reason = issue.payload.reason as string | undefined
     const usage = issue.payload.usage as UsageEntry[] | undefined
     const migrationRequired = typeof issue.payload.migration_target === 'string'
+    const migrationGuideUrl = issue.payload.migration_guide_url as string | null | undefined
 
     if (!sdkName) {
         return <></>
@@ -86,6 +87,11 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                 </span>
                 {links && (
                     <div className="flex gap-2">
+                        {migrationGuideUrl && (
+                            <Link to={migrationGuideUrl} target="_blank" targetBlankIcon className="text-xs">
+                                Migration guide
+                            </Link>
+                        )}
                         <Link to={links.releases} target="_blank" targetBlankIcon className="text-xs">
                             Releases
                         </Link>

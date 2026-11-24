@@ -82,8 +82,7 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
-        posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
-        posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.enable_full_ai_capture = True  # ty: ignore[invalid-assignment]
         # Retained trial data still needs privacy when new launches are disabled.
         before_send = default_before_send(
             private_scout_capture=settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE,

@@ -309,7 +309,7 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
   When the code under test branches on a mode, set the mode in the test, with one `@parameterized` case for each mode that matters.
 - **A test you added that fails in CI blocks the merge, even when the job is green.**
   Trunk can quarantine a repeated failure, and a quarantined failure does not fail the job.
-  The E2E Playwright job is the exception: it reruns each quarantined failure with two retries and reds the job when the test still fails, so only a flake that passes on rerun stays green.
+  The E2E Playwright job and the backend Core, Temporal, and product test jobs are the exception: they rerun each quarantined failure with two retries and red the job when the test still fails, so only a flake that passes on rerun stays green.
 - **Every `@skip`, `xfail`, or `.skip` carries a one-line reason and a linked issue.**
   A permanently skipped test is dead weight: delete it or fix it.
 - **Never commit `.only`** (`it.only`, `describe.only`).

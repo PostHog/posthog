@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.rate_limiting.denial_event import DENIAL_EVENT_NAME, PosthogDenialCapturer
@@ -270,6 +271,22 @@ class TestPosthogDenialCapturer:
             # Must not raise.
             capturer._capture_sync(distinct_id="d", event=DENIAL_EVENT_NAME, properties={})
         broken_client.shutdown.assert_called_once()
+
+    def test_a_failed_capture_is_retried_once(self, capturer: PosthogDenialCapturer) -> None:
+        response = requests.Response()
+        response.status_code = 503
+        response._content = b'{"error": "unavailable"}'
+
+        with (
+            patch.object(requests.Session, "post", return_value=response) as post,
+            patch("posthoganalytics.capture_send.time.sleep"),
+        ):
+            capturer._capture_sync(distinct_id="user-1", event=DENIAL_EVENT_NAME, properties={"scope": "user"})
+
+        assert [call.args[0] for call in post.call_args_list] == [
+            "https://us.i.posthog.com/i/v1/analytics/events",
+            "https://us.i.posthog.com/i/v1/analytics/events",
+        ]
 
     def test_capture_sync_swallows_posthog_constructor_failures(self, capturer: PosthogDenialCapturer) -> None:
         with patch("llm_gateway.rate_limiting.denial_event.Posthog", side_effect=RuntimeError("bad host")):

@@ -70,6 +70,7 @@ export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
     useSingleExec: boolean
+    splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
@@ -87,6 +88,7 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    suppliedHandleHadNoSavedSelection?: boolean
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
@@ -263,10 +265,7 @@ export class RequestStateResolver {
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
-        const [oauthClientName, oauthClientId] = await Promise.all([
-            reqCtx.tokenCache.get('clientName'),
-            reqCtx.tokenCache.get('oauthClientId'),
-        ])
+        const oauthClientId = await reqCtx.tokenCache.get('oauthClientId')
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
         const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         const source = resolveEventSource({
@@ -330,9 +329,7 @@ export class RequestStateResolver {
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
-            clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
@@ -348,6 +345,9 @@ export class RequestStateResolver {
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
+        // Wrappers gate writes on the `exec` name, so they never get `exec-write`.
+        const splitWrites =
+            useSingleExec && props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
@@ -359,6 +359,8 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            // The API refuses to create an organization for a key scoped to specific organizations.
+            ...(_apiKey?.scoped_organizations?.length ? ['organization-create'] : []),
             ...(props.excludeTools ?? []),
         ]
 
@@ -411,6 +413,7 @@ export class RequestStateResolver {
             reqCtx,
             context,
             useSingleExec,
+            splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
             interviewRecruitmentConfig,
@@ -426,6 +429,7 @@ export class RequestStateResolver {
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
+            suppliedHandleHadNoSavedSelection: pinned?.hasSavedSelection === false,
             sessionContext,
             allTools,
             scopeGatedTools,
@@ -454,7 +458,7 @@ export class RequestStateResolver {
     private async resolvePinnedContext(
         reqCtx: RequestContext,
         pin: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<PinnedActiveContext | undefined> {
+    ): Promise<(PinnedActiveContext & { hasSavedSelection?: boolean }) | undefined> {
         const { organizationId, projectId } = pin
         const hasPin = Boolean(organizationId || projectId)
 
@@ -503,6 +507,7 @@ export class RequestStateResolver {
             return {
                 pin: { organizationId: appliedPinOrg, projectId: appliedPinProject },
                 sessionScoped: true,
+                hasSavedSelection: hasSessionState,
                 orgId:
                     activeOrg !== undefined
                         ? (activeOrg ?? undefined)
@@ -536,6 +541,7 @@ export class RequestStateResolver {
         return {
             pin,
             sessionScoped: true,
+            hasSavedSelection: hasSessionState,
             orgId: overrideOrg !== undefined ? (overrideOrg ?? undefined) : organizationId,
             projectId: overrideProject !== undefined ? (overrideProject ?? undefined) : projectId,
         }

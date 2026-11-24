@@ -6,7 +6,7 @@ import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 import type { ResidentBacklog, ResidentRows } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
-import type { FollowUpAnswer, InvariantResult, JournalEntry } from './judge'
+import type { FollowUpAnswer, IntakeAnswer, InvariantResult, JournalEntry } from './judge'
 
 export type JudgeEvidence = {
     journal: readonly JournalEntry[]
@@ -21,6 +21,28 @@ export type InvariantDefinition = Definition & {
 }
 
 const EVIDENCE_UNIT_IDS = 5
+
+export function crossedByOf(
+    journal: readonly JournalEntry[],
+    violations: readonly { unitId: string; count?: number }[],
+    allowed: number
+): string | undefined {
+    const offers = new Map(journal.map(({ unitId, offeredAt, step }) => [unitId, { offeredAt, step: step ?? 0 }]))
+    const offerOf = (unitId: string): { offeredAt: number; step: number } =>
+        offers.get(unitId) ?? { offeredAt: Infinity, step: Infinity }
+    const earlier = (a: string, b: string): number =>
+        offerOf(a).offeredAt - offerOf(b).offeredAt || offerOf(a).step - offerOf(b).step
+    let seen = 0
+    for (const { unitId, count = 1 } of [...violations].sort((a, b) => earlier(a.unitId, b.unitId))) {
+        seen += count
+        if (seen > allowed) {
+            return unitId
+        }
+    }
+    return undefined
+}
+
+const crossing = (crossedBy: string | undefined): { crossedBy?: string } => (crossedBy ? { crossedBy } : {})
 
 export const deliveryKey = (unitId: string, actionId: string): string => `${unitId}/${actionId}`
 
@@ -52,24 +74,38 @@ const isDeliveryRecord = (record: TruthRecord): record is DeliveryRecord =>
 const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, DeliveryRecord[]> =>
     Map.groupBy(truth.filter(isDeliveryRecord), ({ unitId, actionId }) => deliveryKey(unitId, actionId))
 
+export type DeliveryEvidence = Pick<JudgeEvidence, 'journal' | 'truth' | 'fetchRetries'>
+
+export const missedDeliveriesOf = ({
+    journal,
+    truth,
+    fetchRetries,
+}: DeliveryEvidence): { unitId: string; actionId: string; records: DeliveryRecord[] }[] => {
+    const byDelivery = recordsByDelivery(truth)
+    return journal
+        .filter(({ answer }) => answer.accepted)
+        .flatMap(({ unitId, expect }) =>
+            expect.deliveries.map((actionId) => ({
+                unitId,
+                actionId,
+                records: byDelivery.get(deliveryKey(unitId, actionId)) ?? [],
+            }))
+        )
+        .filter(
+            ({ records }) => !records.some(({ status }) => isAccepted(status)) && !endedByFault(records, fetchRetries)
+        )
+}
+
+export const acceptedDeliveriesOf = (truth: readonly TruthRecord[]): { record: DeliveryRecord; accepted: number }[] =>
+    [...recordsByDelivery(truth).values()]
+        .map((records) => ({ record: records[0], accepted: records.filter(({ status }) => isAccepted(status)).length }))
+        .filter(({ accepted }) => accepted > 0)
+
 export const atLeastOnce: InvariantDefinition = {
     name: 'at_least_once',
     params: z.object({}).strict(),
-    check: ({ journal, truth, fetchRetries }) => {
-        const byDelivery = recordsByDelivery(truth)
-        const missed = journal
-            .filter(({ answer }) => answer.accepted)
-            .flatMap(({ unitId, expect }) =>
-                expect.deliveries.map((actionId) => ({
-                    unitId,
-                    actionId,
-                    records: byDelivery.get(deliveryKey(unitId, actionId)) ?? [],
-                }))
-            )
-            .filter(
-                ({ records }) =>
-                    !records.some(({ status }) => isAccepted(status)) && !endedByFault(records, fetchRetries)
-            )
+    check: (evidence) => {
+        const missed = missedDeliveriesOf(evidence)
         const [first] = missed
         return {
             passed: missed.length === 0,
@@ -82,6 +118,7 @@ export const atLeastOnce: InvariantDefinition = {
                         : `the last of ${first.records.length} attempts was answered ${first.records.at(-1)!.status}`
                 }`,
             unitIds: [...new Set(missed.map(({ unitId }) => unitId))].slice(0, EVIDENCE_UNIT_IDS),
+            ...crossing(crossedByOf(evidence.journal, missed, 0)),
         }
     },
 }
@@ -95,12 +132,9 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth, janitorResets }, gate) => {
-        const duplicated = [...recordsByDelivery(truth).values()]
-            .map((records) => ({
-                record: records[0],
-                extra: records.filter(({ status }) => isAccepted(status)).length - 1,
-            }))
+    check: ({ journal, truth, janitorResets }, gate) => {
+        const duplicated = acceptedDeliveriesOf(truth)
+            .map(({ record, accepted }) => ({ record, extra: accepted - 1 }))
             .filter(({ extra }) => extra > 0)
         const observed = duplicated.reduce((sum, { extra }) => sum + extra, 0)
         const [first] = duplicated
@@ -112,17 +146,27 @@ export const duplicateSends: InvariantDefinition = {
             violation:
                 first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times; ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
+            ...crossing(
+                crossedByOf(
+                    journal,
+                    duplicated.map(({ record, extra }) => ({ unitId: record.unitId, count: extra })),
+                    janitorResets + (gate ?? 0)
+                )
+            ),
         }
     },
 }
+
+type Refusal = JournalEntry & { answer: Extract<IntakeAnswer, { accepted: false }> }
+
+export const refusalsOf = (journal: readonly JournalEntry[]): Refusal[] =>
+    journal.flatMap((entry) => (entry.answer.accepted || entry.kind === 'event' ? [] : [entry as Refusal]))
 
 export const refusedAtIntake: InvariantDefinition = {
     name: 'refused_at_intake',
     params: z.object({}).strict(),
     check: ({ journal }, gate) => {
-        const refused = journal.flatMap(({ unitId, kind, answer }) =>
-            answer.accepted || kind === 'event' ? [] : [{ unitId, answer }]
-        )
+        const refused = refusalsOf(journal)
         const [first] = refused
         const reason = (answer: (typeof refused)[number]['answer']): string =>
             'transportError' in answer
@@ -133,6 +177,7 @@ export const refusedAtIntake: InvariantDefinition = {
             observed: refused.length,
             violation: first && `${first.unitId}: ${reason(first.answer)}`,
             unitIds: firstUnitIds(refused.map(({ unitId }) => unitId)),
+            ...crossing(crossedByOf(journal, refused, gate ?? 0)),
         }
     },
 }
