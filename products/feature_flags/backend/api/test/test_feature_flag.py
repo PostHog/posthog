@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import pytest
 import time_machine
@@ -9736,7 +9736,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
     def _create_two_group_types(self, properties_by_index: dict[int, dict], group_key: str = "acme") -> None:
-        for index, name in [(0, "organization"), (1, "company")]:
+        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
+        for index, name in group_types:
             create_group_type_mapping(
                 team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
             )
