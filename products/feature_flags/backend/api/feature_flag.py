@@ -106,7 +106,7 @@ from products.access_control.backend.facade.api import (
     redact_restricted_properties,
     split_restricted_property_names,
 )
-from products.access_control.backend.facade.contracts import RestrictedPropertyNames
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames, UserNotOrganizationMemberError
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -772,18 +772,28 @@ def _filter_person_properties_for_flag(
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
 
 
+def _group_filter_type_index(
+    prop: Mapping[str, Any], condition: Mapping[str, Any], flag_aggregation: int | None
+) -> int | None:
+    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
+    # aggregation, else the flag's.
+    group_type_index = prop.get("group_type_index")
+    if group_type_index is None:
+        return flag_filters.condition_aggregation(condition, flag_aggregation)
+    return group_type_index
+
+
 def _group_type_indexes_for_condition_property(
     filters: dict[str, Any], condition_index: Any, key: str
 ) -> set[int | None]:
-    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
-    # aggregation, else the flag's. {None} (any group type) when the filter cannot be located.
+    # {None} (any group type) when the filter cannot be located.
     groups = filters.get("groups") or []
     if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
         return {None}
     condition = groups[condition_index] or {}
-    aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
+    flag_aggregation = filters.get("aggregation_group_type_index")
     indexes: set[int | None] = {
-        aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
+        _group_filter_type_index(prop, condition, flag_aggregation)
         for prop in condition.get("properties") or []
         if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
     }
@@ -818,6 +828,80 @@ def _redact_restricted_actual_values(
                 properties.append(prop)
         redacted.append({**condition, "properties": properties})
     return redacted
+
+
+def _request_user(request: Any) -> User | None:
+    """The member a request acts for, or None when it carries no authenticated user."""
+    user = getattr(request, "user", None)
+    return cast(User, user) if user is not None and user.is_authenticated else None
+
+
+_TARGETING_CONDITION_KEYS = ("groups", "super_groups", "holdout_groups")
+
+
+def _targeting_conditions(filters: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
+    """Each condition in ``filters`` that holds property filters, for v1 filters and v2 documents."""
+    if detect_config_format(filters).kind == "v2":
+        rules = filters.get("rules")
+        candidates = (
+            [rule.get("targeting") for rule in rules if isinstance(rule, Mapping)] if isinstance(rules, list) else []
+        )
+    else:
+        candidates = [
+            condition
+            for key in _TARGETING_CONDITION_KEYS
+            if isinstance(filters.get(key), list)
+            for condition in filters[key]
+        ]
+    for condition in candidates:
+        if isinstance(condition, Mapping) and isinstance(condition.get("properties"), list):
+            yield condition
+
+
+def _targeting_property_filters(filters: Mapping[str, Any]) -> Iterator[tuple[str, int | None, bool]]:
+    """Each person or group property filter in the targeting of ``filters``, as (key, group type index, is group)."""
+    flag_aggregation = filters.get("aggregation_group_type_index")
+    for condition in _targeting_conditions(filters):
+        for prop in condition["properties"]:
+            if not isinstance(prop, Mapping) or not isinstance(prop.get("key"), str):
+                continue
+            prop_type = prop.get("type")
+            if prop_type == "group":
+                yield prop["key"], _group_filter_type_index(prop, condition, flag_aggregation), True
+            elif prop_type in (None, "person"):
+                yield prop["key"], None, False
+            # Cohort and flag filters hold an id in their key, not a property name.
+
+
+def _unreadable_targeting_keys(filters: Mapping[str, Any], restricted: RestrictedPropertyNames) -> set[str]:
+    return {
+        key
+        for key, group_type_index, is_group in _targeting_property_filters(filters)
+        if property_key_overlaps_restriction(
+            key, restricted.group_property_names(group_type_index) if is_group else restricted.person
+        )
+    }
+
+
+_NON_TARGETING_FILTER_KEYS = frozenset(
+    {"payloads", "description", "metadata", "sort_key", "label", "name", "cohort_name", "group_key_names"}
+)
+
+
+def _targeting_part(value: Any) -> Any:
+    """``value`` without the keys in ``_NON_TARGETING_FILTER_KEYS`` and without null values, at every depth.
+
+    Every other key counts, so a field the flags service starts reading later counts as targeting too.
+    """
+    if isinstance(value, Mapping):
+        return {
+            key: _targeting_part(item)
+            for key, item in value.items()
+            if key not in _NON_TARGETING_FILTER_KEYS and item is not None
+        }
+    if isinstance(value, list):
+        return [_targeting_part(item) for item in value]
+    return value
 
 
 def check_flag_limits_for_team(
@@ -2332,6 +2416,7 @@ class FeatureFlagSerializer(
                 f"cannot be written to it. {hint} to change other fields.",
                 code="v1_filters_on_v2_flag",
             )
+        self._reject_unreadable_targeting(filters, stored_filters)
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a
             # create resolves and validates it in validate(), an update in update() under the lock.
@@ -2635,6 +2720,56 @@ class FeatureFlagSerializer(
         self._reject_oversized_filters(merged)
 
         return merged
+
+    def _reject_unreadable_targeting(self, filters: Mapping[str, Any], stored: Mapping[str, Any]) -> None:
+        """Refuse targeting that uses a person or group property the requesting member cannot read.
+
+        A member who can't read a property could otherwise learn its values from whether the flag
+        matches a person. A flag that already targets such a property can still be saved by that
+        member when its targeting is unchanged, so edits to its name or payloads keep working, or
+        when the change removes every such property. Any other targeting change is refused,
+        because changing the conditions around a stored restricted condition can make the flag's
+        answer for one person depend on that property alone.
+        """
+        if self.context.get("approval_apply"):
+            # The requester's write ran this check before the gate turned it into a change request.
+            return
+        request = self.context.get("request")
+        if getattr(request, "is_system", False):
+            return
+        if detect_config_format(filters).kind == "v2" or detect_config_format(stored).kind == "v2":
+            candidate = filters or stored
+        else:
+            candidate = {**stored, **filters}
+        if _targeting_part(candidate) == _targeting_part(stored) or not any(_targeting_property_filters(candidate)):
+            return
+
+        team_id = self.instance.team_id if self.instance is not None else self.context.get("team_id")
+        if team_id is None:
+            # Only a serializer built for validation alone lacks a team, and it can't save a flag.
+            return
+        user = _request_user(request)
+        try:
+            restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        except UserNotOrganizationMemberError:
+            # A scheduled change fires as its creator, who may have left the organization since.
+            restrictions = get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+        restricted = split_restricted_property_names(restrictions)
+        candidate_keys = _unreadable_targeting_keys(candidate, restricted)
+        if not candidate_keys:
+            return
+        keys = ", ".join(sorted(candidate_keys))
+        if _unreadable_targeting_keys(stored, restricted):
+            raise serializers.ValidationError(
+                f"This flag's release conditions use properties you don't have access to ({keys}). "
+                "Ask someone with access to change its targeting.",
+                code="restricted_property",
+            )
+        raise serializers.ValidationError(
+            f"You don't have access to these properties, so release conditions can't use them: {keys}. "
+            "Remove them, or ask someone with access to add them.",
+            code="restricted_property",
+        )
 
     def _reject_oversized_filters(self, filters: Any) -> None:
         filter_size = calculate_filter_size_bytes(filters)
