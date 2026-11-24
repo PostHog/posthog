@@ -7153,13 +7153,17 @@ class TestExternalDataSource(APIBaseTest):
             pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
-        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.Database.create_for"
+        ) as database:
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
 
         data = response.json()
 
         assert response.status_code == status.HTTP_200_OK
+        database.assert_not_called()
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
