@@ -119,6 +119,14 @@ describe('renderEmailHtml', () => {
         ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
     })
 
+    it('draws the divider on the canvas with the color and thickness the email uses', () => {
+        const style = { lineWidth: 10, borderColor: '#ff0000', width: 50 }
+        const html = renderEmailHtml(doc({ type: 'horizontalRule', attrs: { emailStyle: style } }, paragraph('x')))
+
+        expect(html).toContain('border-top:10px solid #ff0000')
+        expect(blockStyleToCanvasCss(style, 'horizontalRule')).toContain('border-top:10px solid #ff0000')
+    })
+
     it('cleans every style a saved document carries before the canvas shows it', () => {
         const saved = doc(
             {

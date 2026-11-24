@@ -34,6 +34,18 @@ function sidesCss(sides: EmailBlockStyle['padding']): string | undefined {
     return sides ? `${sides.top}px ${sides.right}px ${sides.bottom}px ${sides.left}px` : undefined
 }
 
+/** The divider as the email draws it: a line centered in the width left by the block's padding. */
+function dividerCanvasCss(style: EmailBlockStyle): string {
+    const { top, right, bottom, left } = style.padding ?? { top: 8, right: 0, bottom: 8, left: 0 }
+    const length = Math.min(style.width || 100, 100) / 100
+    const before = style.textAlign === 'left' ? 0 : style.textAlign === 'right' ? 1 : 0.5
+    const gap = (share: number): string => `(100% - ${left + right}px) * ${(1 - length) * share}`
+    return [
+        `border-top:${style.lineWidth || 1}px solid ${style.borderColor ?? '#dddddd'}`,
+        `margin:${top}px calc(${right}px + ${gap(1 - before)}) ${bottom}px calc(${left}px + ${gap(before)})`,
+    ].join(';')
+}
+
 /** How a block's style looks on the canvas. The email itself comes from `renderEmailHtml`. */
 export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefined, typeName: string): string {
     const style = safeEmailStyle(rawStyle)
@@ -42,7 +54,9 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
     }
     const isButton = typeName === 'emailButton'
     const isImage = typeName === 'emailImage'
-    const isDivider = typeName === 'horizontalRule'
+    if (typeName === 'horizontalRule') {
+        return dividerCanvasCss(style)
+    }
     const isList = typeName === 'bulletList' || typeName === 'orderedList'
     const properties: Record<string, string | undefined> = {
         color: isButton ? undefined : style.color,
@@ -62,7 +76,7 @@ export function blockStyleToCanvasCss(rawStyle: EmailBlockStyle | null | undefin
         '--email-link-decoration': style.linkUnderline === false ? 'none' : undefined,
         'border-radius': !isButton && !isImage && style.borderRadius ? `${style.borderRadius}px` : undefined,
         border:
-            !isButton && !isImage && !isDivider && style.borderWidth
+            !isButton && !isImage && style.borderWidth
                 ? `${style.borderWidth}px solid ${style.borderColor ?? '#e5e5e5'}`
                 : undefined,
     }
@@ -556,6 +570,9 @@ export function buildEmailExtensions(placeholder: string): any[] {
         ...emailSchemaExtensions,
         Placeholder.configure({
             placeholder: ({ editor, node, pos }) => {
+                if (node.type.name === 'heading') {
+                    return `Heading ${node.attrs.level}`
+                }
                 if (node.type.name !== 'paragraph') {
                     return ''
                 }

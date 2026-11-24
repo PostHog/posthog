@@ -50,16 +50,16 @@ export function EmailSelectionToolbar({
     const top = start.top - parent.top + container.scrollTop - 38
     const left = Math.max(4, start.left - parent.left + container.scrollLeft)
 
+    const value = href.trim()
+    const safeLink = safeEmailLink(value)
     const applyLink = (): void => {
-        const value = href.trim()
         if (!value) {
             editor.chain().focus().extendMarkRange('link').unsetLink().run()
         } else {
-            const safe = safeEmailLink(value)
-            if (!safe) {
+            if (!safeLink) {
                 return
             }
-            editor.chain().focus().extendMarkRange('link').setLink({ href: safe }).run()
+            editor.chain().focus().extendMarkRange('link').setLink({ href: safeLink }).run()
         }
         setLinkOpen(false)
     }
@@ -101,9 +101,17 @@ export function EmailSelectionToolbar({
                             type="primary"
                             onClick={applyLink}
                             data-attr="email-editor-link-apply"
-                            disabledReason={!href.trim() && !editor.isActive('link') ? 'Enter a link' : undefined}
+                            disabledReason={
+                                value
+                                    ? safeLink
+                                        ? undefined
+                                        : 'Enter a full link, such as https://example.com'
+                                    : editor.isActive('link')
+                                      ? undefined
+                                      : 'Enter a link'
+                            }
                         >
-                            {href.trim() || !editor.isActive('link') ? 'Apply' : 'Remove'}
+                            {value || !editor.isActive('link') ? 'Apply' : 'Remove'}
                         </LemonButton>
                     </div>
                 }

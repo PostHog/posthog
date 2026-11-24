@@ -8,6 +8,10 @@ import { EmailFieldRow } from './EmailFieldRow'
 
 const HEX = /^#[0-9a-f]{6}$/i
 
+function isNamedColor(text: string): boolean {
+    return /^[a-z]+$/i.test(text) && CSS.supports('color', text)
+}
+
 export function EmailColorField({
     label,
     value,
@@ -35,7 +39,7 @@ export function EmailColorField({
             >
                 <input
                     type="color"
-                    aria-label={`${label} color`}
+                    aria-label={`${label} picker`}
                     className="absolute inset-0 w-full h-full p-0 border-0 opacity-0 cursor-pointer"
                     value={HEX.test(shown) ? shown : '#ffffff'}
                     onChange={(event) => onChange(event.target.value)}
@@ -46,15 +50,17 @@ export function EmailColorField({
                 size="small"
                 fullWidth
                 value={text}
+                aria-label={label}
                 placeholder={placeholder || 'None'}
                 onChange={(next) => {
                     setText(next)
                     if (next === '') {
                         onChange(undefined)
-                    } else if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(next) || /^[a-z]+$/i.test(next)) {
+                    } else if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(next) || isNamedColor(next)) {
                         onChange(next)
                     }
                 }}
+                onBlur={() => setText(value ?? '')}
                 data-attr={attr}
             />
             {value !== undefined && placeholder !== undefined ? (

@@ -174,7 +174,7 @@ export function EmailTextFields({
                 onChange={(linkColor) => set({ linkColor })}
                 attr="email-editor-block-link-color"
             />
-            <EmailFieldRow label="Link underline">
+            <EmailFieldRow label="Link underline" group>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
