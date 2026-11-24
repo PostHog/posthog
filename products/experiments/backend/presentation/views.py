@@ -1127,6 +1127,8 @@ class EnterpriseExperimentsViewSet(
         every primary metric, because no user can count for those metrics until a window passes.
         """
         experiment: Experiment = self.get_object()
+        # The checks read the stored results and the exposure counts, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
