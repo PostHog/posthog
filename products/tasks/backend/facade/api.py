@@ -190,6 +190,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
@@ -259,6 +260,7 @@ from products.tasks.backend.stale_runs import (
     WorkflowLiveness,
     collect_stale_live_runs,
     quiet_since_q,
+    reopen_swept_runs,
     runs_to_sweep,
 )
 from products.tasks.backend.storage import (
@@ -2160,6 +2162,7 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
                     "This run stopped responding, so it was ended.",
                     error_type="stale_heartbeat",
                     quiet_since=run.quiet_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
                 )
             else:
                 claimed = claim_and_fail_stale_run(
@@ -2167,6 +2170,7 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
                     "This run made no progress for a day, so it was ended.",
                     error_type="stale_live_run",
                     not_updated_since=run.not_written_since,
+                    state_updates={ENDED_BY_STALE_SWEEP_STATE_KEY: run.rule.value},
                 )
         except Exception as error:
             logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
@@ -2175,6 +2179,22 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
         if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def reopen_swept_task_runs(
+    *,
+    profile: str,
+    hours: int = 24,
+    team_id: int | None = None,
+    check_workflows: bool = True,
+    dry_run: bool = False,
+) -> list[contracts.ReopenedSweptRunsRow]:
+    outcomes = Counter(
+        reopen_swept_runs(
+            profile=profile, hours=hours, team_id=team_id, check_workflows=check_workflows, dry_run=dry_run
+        )
+    )
+    return [contracts.ReopenedSweptRunsRow(outcome=outcome.value, count=count) for outcome, count in outcomes.items()]
 
 
 def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
@@ -2803,6 +2823,7 @@ def claim_and_fail_stale_run(
     *,
     not_updated_since: datetime | None = None,
     quiet_since: datetime | None = None,
+    state_updates: dict[str, Any] | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2821,7 +2842,10 @@ def claim_and_fail_stale_run(
         claimable = claimable.filter(updated_at__lt=not_updated_since)
     if quiet_since is not None:
         claimable = claimable.filter(quiet_since_q(quiet_since))
-    claimed = claimable.update(status=TaskRun.Status.FAILED)
+    with transaction.atomic():
+        claimed = claimable.update(status=TaskRun.Status.FAILED, completed_at=django_timezone.now())
+        if claimed and state_updates:
+            TaskRun.update_state_atomic(run_id, updates=state_updates)
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
@@ -3405,6 +3429,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "resume_from_run_id",
         # Once another member drove the sandbox, nothing inside it may unlock the creator's memory.
         "agent_memory_locked",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
