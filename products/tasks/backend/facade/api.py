@@ -255,10 +255,12 @@ from products.tasks.backend.run_options import (
 )
 from products.tasks.backend.run_token_fencing import fence_ended_runs
 from products.tasks.backend.stale_runs import (
+    SWEEP_ERROR_MESSAGES,
     StaleRule,
     WorkflowLiveness,
     collect_stale_live_runs,
     quiet_since_q,
+    reopen_swept_runs,
     runs_to_sweep,
 )
 from products.tasks.backend.storage import (
@@ -2157,14 +2159,14 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
                     continue
                 claimed = claim_and_fail_stale_run(
                     run.run_id,
-                    "This run stopped responding, so it was ended.",
+                    SWEEP_ERROR_MESSAGES[StaleRule.HEARTBEAT],
                     error_type="stale_heartbeat",
                     quiet_since=run.quiet_since,
                 )
             else:
                 claimed = claim_and_fail_stale_run(
                     run.run_id,
-                    "This run made no progress for a day, so it was ended.",
+                    SWEEP_ERROR_MESSAGES[StaleRule.NO_WRITES_24H],
                     error_type="stale_live_run",
                     not_updated_since=run.not_written_since,
                 )
@@ -2175,6 +2177,22 @@ def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
         if claimed:
             swept[run.profile] += 1
     return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def reopen_swept_task_runs(
+    *,
+    profile: str,
+    hours: int = 24,
+    team_id: int | None = None,
+    check_workflows: bool = True,
+    dry_run: bool = False,
+) -> list[contracts.ReopenedSweptRunsRow]:
+    outcomes = Counter(
+        reopen_swept_runs(
+            profile=profile, hours=hours, team_id=team_id, check_workflows=check_workflows, dry_run=dry_run
+        )
+    )
+    return [contracts.ReopenedSweptRunsRow(outcome=outcome.value, count=count) for outcome, count in outcomes.items()]
 
 
 def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
