@@ -21,6 +21,7 @@
     align-items: center;
     height: 44px;
     padding-block: 0;
+    border-bottom: 0;
 
     > .quill-card__action {
         place-self: center end;
@@ -50,13 +51,9 @@
     border-radius: var(--radius);
 }
 
-/* Without its outline and header rule, a section reads as a heading over its tiles. */
+/* Without its outline, a section reads as a heading over its tiles. */
 .SectionTile--no-border {
     box-shadow: none;
-
-    > .SectionTile__header {
-        border-bottom: 0;
-    }
 
     /* Without an outline the section is hard to find while editing, so it shows one on hover, as a tile does. */
     .TileGrid--editable .TileGrid__tile:hover > &,

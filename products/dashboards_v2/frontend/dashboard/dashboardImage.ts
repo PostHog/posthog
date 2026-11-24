@@ -49,6 +49,7 @@ export function downloadImageAction(
         key: 'download-image',
         label,
         dataAttr,
+        group: 'view',
         disabledReason: busy,
         submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
             key: format,

@@ -108,10 +108,12 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     )
 }
 
-/** Actions first, then how the target looks, then destructive actions on their own. Empty groups are left out. */
+/** Empty groups are left out. */
 function menuGroups(actions: MenuAction[]): { key: string; label?: string; actions: MenuAction[] }[] {
     const groups = [
         { key: 'actions', label: 'Actions', actions: actions.filter((action) => !action.group && !action.destructive) },
+        { key: 'dashboard', label: 'Dashboard', actions: actions.filter((action) => action.group === 'dashboard') },
+        { key: 'view', label: 'View & share', actions: actions.filter((action) => action.group === 'view') },
         { key: 'display', label: 'Display', actions: actions.filter((action) => action.group === 'display') },
         { key: 'destructive', actions: actions.filter((action) => action.destructive) },
     ]

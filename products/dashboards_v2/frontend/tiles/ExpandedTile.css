@@ -1,7 +1,0 @@
-/* Quill sits a dialog 10vh down; an expanded tile uses the window evenly instead. */
-.ExpandedTile {
-    --quill-dialog-top-gap: 1.5rem;
-
-    height: calc(100vh - 3rem);
-    padding: 0;
-}
