@@ -2,6 +2,7 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -16,6 +17,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.event_definitions.backend.models import EventDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset
+
+TOOLBAR_RESOURCE_SCOPES = [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if ":" in scope]
 
 
 class TestObjectMediaPreviewAPI(APIBaseTest):
@@ -40,6 +43,12 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         return [result["id"] for result in response.json()["results"]]
+
+    def _scoped_key(self, scopes: list[str]) -> str:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+        return key
 
     def test_pagination_returns_every_preview_once_when_update_times_are_tied(self):
         event_definition, previews = self._create_previews(6)
@@ -180,9 +189,7 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
         asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=self.user)
         ObjectMediaPreview.objects.create(team=self.team, event_definition=event_definition, exported_asset=asset)
-        key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(user=self.user, label="test", secure_value=hash_key_value(key), scopes=scopes)
-        self.client.logout()
+        key = self._scoped_key(scopes)
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/object_media_previews/?event_definition={event_definition.pk}",
@@ -191,3 +198,37 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == expected_links
+
+    @parameterized.expand(
+        [
+            ("toolbar_scopes", TOOLBAR_RESOURCE_SCOPES, status.HTTP_201_CREATED),
+            ("event_definition_write", ["event_definition:write"], status.HTTP_201_CREATED),
+            ("uploaded_media_write_only", ["uploaded_media:write"], status.HTTP_403_FORBIDDEN),
+            ("event_definition_read_only", ["event_definition:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_scoped_key_creates_a_preview(self, _name, scopes, expected_status):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        media = UploadedMedia.objects.create(team=self.team, file_name="screenshot.png", content_type="image/png")
+        key = self._scoped_key(scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/object_media_previews/",
+            {"event_definition_id": str(event_definition.pk), "uploaded_media_id": str(media.pk)},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_toolbar_scopes_cannot_delete_an_event_definition(self):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        key = self._scoped_key(TOOLBAR_RESOURCE_SCOPES)
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.pk}/event_definitions/{event_definition.pk}/",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert EventDefinition.objects.filter(pk=event_definition.pk).exists()

@@ -33,7 +33,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 
 TOOLBAR_RESOURCE_SCOPES = [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if ":" in scope]
-SCREENSHOT_FOR_EVENT_SCOPES = {"event_definition:read", "event_definition:write"}
+SCREENSHOT_FOR_EVENT_SCOPES = {"event_definition:read", "uploaded_media:write"}
 PKCE_CODE_VERIFIER = "toolbar-test-code-verifier-" + "x" * 40
 PKCE_CODE_CHALLENGE = (
     base64.urlsafe_b64encode(hashlib.sha256(PKCE_CODE_VERIFIER.encode()).digest()).rstrip(b"=").decode()

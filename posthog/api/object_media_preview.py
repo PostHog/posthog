@@ -21,6 +21,9 @@ from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 from products.event_definitions.backend.models import EventDefinition
 from products.exports.backend.facade.auth import viewable_exported_asset_ids
 
+EVENT_DEFINITION_WRITE_SCOPE = "event_definition:write"
+PREVIEW_CREATE_SCOPES = ["uploaded_media:write", "event_definition:read"]
+
 
 def with_preview_media(queryset: QuerySet[ObjectMediaPreview]) -> QuerySet[ObjectMediaPreview]:
     # An export's content column can hold the whole file when object storage is off, and no preview path reads it
@@ -163,6 +166,15 @@ class ObjectMediaPreviewViewSet(
     scope_object = "event_definition"
     serializer_class = ObjectMediaPreviewSerializer
     queryset = ObjectMediaPreview.objects.all()
+
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        # Creating a preview attaches uploaded media to an event definition and leaves the definition
+        # unchanged. A token can do it without `event_definition:write`, which would also let it
+        # delete and rewrite the project's event definitions. A token that holds
+        # `event_definition:write` keeps the default requirement, so it can still create previews.
+        if self.action == "create" and scopes_caller_lacks(request, [EVENT_DEFINITION_WRITE_SCOPE]):
+            return PREVIEW_CREATE_SCOPES
+        return None
 
     def check_permissions(self, request: Request) -> None:
         super().check_permissions(request)
