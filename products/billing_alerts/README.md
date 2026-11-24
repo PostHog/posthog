@@ -2,7 +2,7 @@
 
 Billing alerts are organization-scoped and use `execution_team_id` only as the Team that owns HogFunction execution.
 
-`backend:contract-check` is intentionally off for now. Core still imports the product's Temporal registration surface for worker and schedule setup. Enable the contract check once Temporal registration moves behind a fully isolated product boundary.
+The product does not pass hoglint's Isolated level yet. Core still imports the product's Temporal registration surface for worker and schedule setup, so every change runs the full backend suite until Temporal registration moves behind a fully isolated product boundary.
 
 Scheduled evaluation follows the shared alert delivery barrier: evaluate and produce every alert in the activity batch, flush once, acknowledge each producer result, then persist each lifecycle outcome in a short transaction.
 

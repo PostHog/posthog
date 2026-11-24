@@ -196,9 +196,9 @@ def _hoglint_command() -> str | None:
 
 
 def _record_isolated_level(name: str) -> None:
-    # The scaffold's turbo.json narrows the contract-check inputs, so the product claims hoglint's
-    # Isolated level. The ledger records each group that passes a level, and `hoglint compare`
-    # fails a pull request whose ledger lacks the new product's line.
+    # hoglint judges the Isolated level for every product, and the scaffold emits one that passes.
+    # The ledger records each group that passes a level, and `hoglint compare` fails a pull request
+    # whose ledger lacks the new product's line.
     ledger_step = (
         "Commit hoglint.ledger in a commit of its own, after the product, "
         "so that a reviewer sees the ledger change apart from the code."

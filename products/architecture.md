@@ -53,8 +53,8 @@ We will begin by wiring up **one product** to:
 
 Focus:
 
-- One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
-- Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
+- One product = one Turbo package with `backend:test`
+- hoglint judges its Isolated level for every product; `turbo-discover` reads the verdict and the product's watched set from `hoglint watched`, and skips the full Django test suite for a change that leaves the watched set alone
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) sits above the facade, outside the contract surface — but a product is only soundly skippable once that presentation is thin and reaches internals exclusively through the facade (see [What makes the skip sound](#what-makes-the-skip-sound)); an unsealed presentation that still holds business logic is not
@@ -70,7 +70,7 @@ But this document is about foundational structure, not full rollout.
 
 Skipping the full suite for an isolated product is a claim that _a change inside the product can only break the product's own tests._
 hoglint proves the import half of that claim.
-Its Isolated level fails when code outside the product reaches a product file that the `backend:contract-check` inputs do not watch (`reached-watched`).
+Every product file that code outside the product reaches is in the product's watched set (`reached-watched`), which hoglint derives from the tree.
 It cannot prove the other half.
 A product's HTTP API is exercised **in-process** by tests (the Django test client dispatches into the view stack in the same process, not over a real socket), and cross-cutting tests — permissions, schema, activity-log, "every viewset does X" — reach a product's endpoints by URL.
 That couples them to the product's live behavior with **zero imports**, so it is invisible to hoglint and to any import-graph audit.
@@ -80,11 +80,10 @@ Because this channel can't be enumerated, it is closed by construction rather th
 
 1. Keep the presentation layer thin and reaching internals only through the facade, so every observable behavior lives either in the facade (tested in-product, inside the boundary) or in the serializer shape (the OpenAPI schema, whose changes already force the full suite).
 2. Keep behavior tests in-product.
-3. Keep the model surface — `backend/models/` (or `backend/models.py`) and `backend/migrations/` — in the `backend:contract-check` inputs.
+3. The model surface — `backend/models/` (or `backend/models.py`) and `backend/migrations/` — is in the watched set.
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    An import graph cannot see that, so a model or migration change always re-runs the full suite.
-   hoglint's `wiring-watched` rule fails the Isolated level when a narrowing leaves the surface out.
-4. Keep in the inputs every module that outside suites run without an import:
+4. So is every module that outside suites run without an import:
    - a module with a signal receiver on a sender of core or another product;
    - a module that a test outside the product names by dotted path, as a patch target does;
    - a module that core loads by name through `load_product_modules`;
@@ -94,17 +93,17 @@ Because this channel can't be enumerated, it is closed by construction rather th
    - a module that core settings name by dotted path, such as a middleware;
    - a module that core's request pipeline imports (see below).
 
-   hoglint's `wiring-watched` rule finds each of them, and the Isolated level fails until each module is in the inputs.
+   hoglint's `wiring-watched` rule finds each of them and puts it in the watched set; a module it cannot place makes the level fail.
    It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
-The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
+The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — it fails the Isolated level and still pays the full suite — which is an accept-the-cost choice, not "isolated without a facade".
 
 A product with a thin presentation can still be unsafe to skip when its facade returns decisions that core enforces on every request, such as access checks, and the tests for those decisions live outside the product.
 A change behind its facade changes what core does, and only the full suite tests that.
 hoglint's `request-path` rule lists every product module that core's request pipeline imports: the modules that settings name for the per-request pipeline, the view base class, and the product code they import.
-`wiring-watched` asks for each of those modules in the `backend:contract-check` inputs, so a product that does not watch them fails the Isolated level.
+`wiring-watched` puts each of those modules in the watched set, so a change to one runs the full suite.
 
 ### Wiring couplings
 
@@ -118,11 +117,11 @@ These cross the boundary as classes — allowed only under all three rules:
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; hoglint's `facade-no-drf` rule enforces both, and `hoglint.ledger` holds the existing violations) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
    The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies).
-   An isolated product keeps a wiring location in its `backend:contract-check` inputs while a test outside the product can execute what lives there, so such a change still re-runs the full suite.
+   A wiring location is in an isolated product's watched set while a test outside the product can execute what lives there, so such a change still re-runs the full suite.
    The full suite matters only while such a test exists.
    For `backend/hogql_queries/` that is measured.
    Core dispatches runners by query kind, so hoglint's `drives` rule reads the dispatch and records every outside test that runs one of the product's kinds.
-   `wiring-watched` then asks for every file such a test drives, and for the location's entry, in the inputs.
+   `wiring-watched` then puts every file such a test drives, and the location's entry, in the watched set.
    Nothing is declared. Move the driving tests into the product, and the inputs may let those files go.
    A location with several subtrees may be watched one subtree at a time.
    `product_analytics` watches the whole `backend/hogql_queries/trends/` subtree, because trends is the only subtree an outside test still drives.
@@ -139,7 +138,7 @@ These cross the boundary as classes — allowed only under all three rules:
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
 Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
-There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
+There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module stays in the product's watched set.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
 Four products hold entries.
@@ -232,7 +231,7 @@ All three are a declared residual, not permission to add more.
 
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
-A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+A product whose facade hands out unapproved behavior is not soundly isolated: it fails the Isolated level and pays the full suite until fixed.
 The one exception is a rule that DevEx introduces: findings that already exist at that moment are recorded in `hoglint.ledger` instead, and those lines may only go away.
 
 **Inbound webhook consumers are a designated location of the same kind.**
@@ -287,8 +286,8 @@ Core's Temporal tests use their own fixture workflows, not product workflows.
 A helper that other products' tests need goes in `facade/testing.py`.
 
 **Watching.**
-An Isolated product keeps `backend/temporal/` in its `backend:contract-check` inputs.
-A file that another boundary executes through a facade hand-out stays in the inputs.
+`wiring-watched` puts the entry of `backend/temporal/` and what the product's `TEMPORAL` declaration registers in an isolated product's watched set.
+A file that another boundary executes through a facade hand-out is in the set too.
 
 # 3. Folder Structure
 
@@ -345,7 +344,7 @@ myproduct/
 ### Which locations are fixed, and which are yours
 
 Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, `webhook_consumers.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
-They are the narrowed `backend:contract-check` inputs, and hoglint's `presentation-uses-facade` rule holds the HTTP surface inside them by shape: `routes.py` and `presentation/` reach product code only through `facade/` or their own product's `presentation/`.
+hoglint's watched set holds them, and its `presentation-uses-facade` rule holds the HTTP surface inside them by shape: `routes.py` and `presentation/` reach product code only through `facade/` or their own product's `presentation/`.
 Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
 
 Everything else under `backend/` is internal implementation.
@@ -667,8 +666,8 @@ The other rules block. Their existing violations are debt in `hoglint.ledger`.
 The pre-commit hook runs `hoglint check --index` on the lines a commit changes, and CI runs `hoglint compare` against the parent commit, so a change cannot add new debt.
 Run `hoglint check` locally.
 
-A product that narrows its `backend:contract-check` inputs in its own `turbo.json` claims hoglint's Isolated level, and `hoglint check` fails when the product does not meet it.
-The level fails on an unwatched file that code outside the product reaches (`reached-watched`), unwatched wiring (`wiring-watched`), presentation past its facade (`presentation-uses-facade`), and a missing facade (`has-facade`).
+hoglint judges its Isolated level for every product, and a product that passes it gets the test skip: `hoglint.ledger` records it as a `level:isolated <product>` line, and `hoglint watched --level isolated` prints its watched files.
+The level fails on what hoglint cannot place for the watched set (`reached-watched`, `wiring-watched`), presentation past its facade (`presentation-uses-facade`), and a missing facade (`has-facade`).
 
 > [!TIP]
 > Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
@@ -695,22 +694,23 @@ hoglint's `reverse-accessor` rule enforces this: `hoglint.ledger` holds every ex
 # 9. Turbo Tasks & Contract-Based Testing
 
 Each product is a Turborepo package with tasks defined in its `package.json`.
+`backend:test` runs the product's own suite; Turbo's affected query decides which products changed.
 
-## Contract files vs. implementation files
+## Watched files vs. implementation files
 
-Turbo uses file-based inputs to determine cache validity. The key distinction:
+**Watched files** decide whether the full Django suite and the products that depend on this one run.
+hoglint derives them for every product that passes its Isolated level, and `hoglint watched --level isolated` prints them:
 
-**Contract inputs** (used by `backend:contract-check`):
-
-- `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
-- `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
-- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings)); `backend/hogql_queries/` may leave the list once hoglint's `drives` rule records no outside test driving it; core runs the others by name, so `wiring-watched` asks for at least one watched file in each
+- every file of `backend/facade/`, `backend/presentation/` and `backend/migrations/`, and `backend/routes.py`
+- every product file that code outside the product reaches past the facade (`reached-watched`)
+- every module that core or another product runs without an import, such as models, receivers, settings-named modules and wiring locations (`wiring-watched`)
+- the package `__init__.py` files above those files
 
 **Implementation inputs** (used by `backend:test`):
 
 - All `backend/**/*.py` files
 
-Other products depend on a product's **contract files only**. When contract files haven't changed, downstream products don't need retesting.
+Other products depend on a product's **watched files only**. When none of them changed, downstream products don't need retesting.
 
 **Import boundaries** are reported by hoglint's `public-surface` rule (see [What hoglint enforces](#what-hoglint-enforces)). This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
 
@@ -726,16 +726,15 @@ Other products depend on a product's **contract files only**. When contract file
 ```text
 other_product tests
        | depends on
-visual_review contracts  (facade/contracts.py, facade/enums.py)
+visual_review watched files  (facade/, presentation/, migrations/, ...)
        | does NOT depend on
-visual_review impl       (logic.py, models.py)
+visual_review impl           (logic.py, ...)
 ```
 
 **Scenario: Change `visual_review/logic.py`**
 
 - `visual_review backend:test` → reruns (impl files changed)
-- `visual_review backend:contract-check` → cache hit (contract files unchanged)
-- `other_product backend:test` → skipped (depends only on contracts, which didn't change)
+- no watched file of `visual_review` changed → the full Django suite and the dependent products are skipped
 
 ## CI commands
 
@@ -746,8 +745,8 @@ pnpm turbo run backend:test
 # Run specific product tests
 pnpm turbo run backend:test --filter=@posthog/products-visual_review
 
-# Run contract checks
-pnpm turbo run backend:contract-check
+# Print each product's Isolated verdict and watched files
+hoglint watched --level isolated
 ```
 
 # 10. Summary

@@ -6,7 +6,7 @@ Scores each product across two actionable dimensions:
   2. Codegen    — schema annotations, generated TS client adoption
 
 The boundaries between products are hoglint's: `hoglint check` reports them. The report also
-shows, without a score, whether a product claims and passes hoglint's Isolated level, and the
+shows, without a score, whether a product passes hoglint's Isolated level, and the
 debt hoglint attributes to it.
 
 Run from repo root:
@@ -273,7 +273,7 @@ def score_product(
         product=name,
         display_name=meta.get("name", "") if isinstance(meta.get("name"), str) else "",
         owners=owners,
-        isolated=IsolatedLevel.of(name, product_dir, isolated_passes),
+        isolated=IsolatedLevel.of(name, isolated_passes),
         debt=None if hoglint_debt.unavailable else hoglint_debt.of(name),
         debt_unavailable=hoglint_debt.unavailable,
     )
@@ -382,7 +382,7 @@ def generate_report(scores: list[ProductScore]) -> str:
     lines.append("Product Maturity Report")
     lines.append("")
     lines.append("Dimensions: models, codegen")
-    lines.append("Not scored: isolated (yes, FAIL = claims and fails, free = passes without claiming), debt")
+    lines.append("Not scored: isolated (yes = passes the level, per hoglint.ledger), debt")
     unavailable = next((ps.debt_unavailable for ps in scores if ps.debt_unavailable), "")
     if unavailable:
         lines.append(f"hoglint debt unavailable: {unavailable}")
