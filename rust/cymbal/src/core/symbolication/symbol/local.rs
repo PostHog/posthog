@@ -210,7 +210,6 @@ impl LocalSymbolResolver {
             metrics::counter!(FRAME_CACHE_MISSES).increment(1);
         } else {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
-            self.miss_breaker.record(team_id, false, Instant::now());
         }
 
         Ok(cached.records.into_iter().map(|f| f.contents).collect())
@@ -224,7 +223,14 @@ impl LocalSymbolResolver {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let stored =
-            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await?;
+            match ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, ttl_policy).await {
+                Ok(stored) => stored,
+                Err(error) => {
+                    self.miss_breaker
+                        .record(raw_id.team_id, true, Instant::now());
+                    return Err(error);
+                }
+            };
         self.miss_breaker
             .record(raw_id.team_id, !stored.fresh, Instant::now());
         if stored.fresh {
@@ -1017,6 +1023,12 @@ mod test {
         let (flood_team, normal_team) = (1, 2);
 
         for column in 0..10 {
+            // A repeated frame between the new ones hits the in-memory cache, which must not
+            // hide the flood.
+            resolver
+                .resolve_raw_frame(flood_team, &frame(0), &[])
+                .await
+                .unwrap();
             let resolved = resolver
                 .resolve_raw_frame(flood_team, &frame(column), &[])
                 .await

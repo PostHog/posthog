@@ -117,8 +117,15 @@ impl MissWindow {
 
 enum BreakerState {
     Closed,
-    Open { until: Instant },
-    HalfOpen { lookups: u64, misses: u64 },
+    Open {
+        until: Instant,
+    },
+    HalfOpen {
+        deadline: Instant,
+        admitted: u64,
+        lookups: u64,
+        misses: u64,
+    },
 }
 
 struct TeamBreaker {
@@ -126,10 +133,13 @@ struct TeamBreaker {
     state: BreakerState,
 }
 
-// Per-team breaker on the share of lookups that find no fresh frame in Postgres, each of
-// which costs a resolve and an INSERT. While open in `enforce`, cache misses skip Postgres.
-// After the cooldown, `probe_lookups` lookups decide whether it closes or opens again.
-// An in-memory cache miss alone does not count, because every pod starts cold after a deploy.
+// Per-team breaker on the share of Postgres frame lookups that find no fresh frame. Each
+// such lookup costs a resolve and an INSERT, and a failed lookup counts as one. In-memory
+// cache hits do not count, so repeated frames cannot dilute a flood, and frames cached
+// while the breaker was open cannot close it. While open in `enforce`, cache misses skip
+// the frame store. After the cooldown, at most `probe_lookups` misses reach Postgres. Their
+// results close the breaker or open it again, and a probe with no result by the next
+// cooldown counts as failed.
 #[derive(Clone)]
 pub struct FrameMissBreaker {
     config: FrameMissBreakerConfig,
@@ -145,7 +155,7 @@ impl FrameMissBreaker {
         Self { config, teams }
     }
 
-    // Whether a frame cache miss for this team may read and write Postgres.
+    // Whether a frame cache miss for this team may read and write stored frames.
     pub fn admits(&self, team_id: TeamId, now: Instant) -> bool {
         if self.config.mode == FrameMissBreakerMode::Off {
             return true;
@@ -153,15 +163,33 @@ impl FrameMissBreaker {
         let breaker = self.team(team_id, now);
         let mut breaker = breaker.lock().unwrap_or_else(|e| e.into_inner());
         let open = match breaker.state {
+            BreakerState::Closed => false,
             BreakerState::Open { until } if now < until => true,
             BreakerState::Open { .. } => {
                 breaker.state = BreakerState::HalfOpen {
+                    deadline: now + self.config.cooldown,
+                    admitted: 1,
                     lookups: 0,
                     misses: 0,
                 };
                 false
             }
-            BreakerState::Closed | BreakerState::HalfOpen { .. } => false,
+            BreakerState::HalfOpen {
+                deadline,
+                lookups,
+                misses,
+                ..
+            } if now >= deadline => {
+                self.open(team_id, &mut breaker, now, lookups, misses);
+                true
+            }
+            BreakerState::HalfOpen {
+                ref mut admitted, ..
+            } if *admitted < self.config.probe_lookups => {
+                *admitted += 1;
+                false
+            }
+            BreakerState::HalfOpen { .. } => true,
         };
         if open {
             metrics::counter!(FRAME_MISS_BREAKER_SKIPPED, "mode" => self.config.mode.as_str())
@@ -170,7 +198,8 @@ impl FrameMissBreaker {
         !(open && self.config.mode == FrameMissBreakerMode::Enforce)
     }
 
-    // `miss` means Postgres held no fresh frame. Lookups while open do not count.
+    // Records one Postgres lookup. `miss` means it found no fresh frame or failed. Lookups
+    // while open do not count.
     pub fn record(&self, team_id: TeamId, miss: bool, now: Instant) {
         if self.config.mode == FrameMissBreakerMode::Off {
             return;
@@ -186,11 +215,21 @@ impl FrameMissBreaker {
                 }
             }
             BreakerState::Open { .. } => {}
-            BreakerState::HalfOpen { lookups, misses } => {
+            BreakerState::HalfOpen {
+                deadline,
+                admitted,
+                lookups,
+                misses,
+            } => {
                 let lookups = lookups + 1;
                 let misses = misses + u64::from(miss);
                 if lookups < self.config.probe_lookups {
-                    breaker.state = BreakerState::HalfOpen { lookups, misses };
+                    breaker.state = BreakerState::HalfOpen {
+                        deadline,
+                        admitted,
+                        lookups,
+                        misses,
+                    };
                 } else if self.over_threshold(lookups, misses) {
                     self.open(team_id, &mut breaker, now, lookups, misses);
                 } else {
@@ -332,6 +371,33 @@ mod test {
                 "{probe_misses} probe misses"
             );
         }
+    }
+
+    #[test]
+    fn half_open_admits_at_most_the_probe_size() {
+        let breaker = breaker(FrameMissBreakerMode::Enforce);
+        let start = Instant::now();
+        record(&breaker, FLOOD_TEAM, 10, 0, start);
+
+        let probe_at = start + COOLDOWN;
+        let admitted: Vec<bool> = (0..6)
+            .map(|_| breaker.admits(FLOOD_TEAM, probe_at))
+            .collect();
+
+        assert_eq!(admitted, [true, true, true, true, true, false]);
+    }
+
+    #[test]
+    fn a_probe_without_results_by_the_next_cooldown_reopens() {
+        let breaker = breaker(FrameMissBreakerMode::Enforce);
+        let start = Instant::now();
+        record(&breaker, FLOOD_TEAM, 10, 0, start);
+
+        let probe_at = start + COOLDOWN;
+        breaker.admits(FLOOD_TEAM, probe_at);
+        record(&breaker, FLOOD_TEAM, 0, 2, probe_at);
+
+        assert!(!breaker.admits(FLOOD_TEAM, probe_at + COOLDOWN));
     }
 
     #[test]
