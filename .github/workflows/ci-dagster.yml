@@ -795,11 +795,8 @@ jobs:
 
             - name: Build ClickHouse schema snapshot
               # Fails only when the schema had to be rebuilt and that rebuild failed.
-              if: >-
-                  steps.ch-fingerprint.outputs.digest != '' && steps.ch-load.outputs.restored != 'true'
-                  && steps.ch-cache.outputs.cache-hit != 'true' && matrix.group == 1
-                  && (github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name == github.repository)
-                  && steps.ch-before.outcome == 'success'
+              # Runs exactly when the before-snapshot ran and succeeded; that step carries the conditions.
+              if: steps.ch-before.outcome == 'success'
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |

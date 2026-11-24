@@ -27,8 +27,10 @@ from pathlib import Path
 UUID_SQL = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 UUID = re.compile(UUID_SQL)
 MIGRATIONS_PACKAGE = "posthog.clickhouse.migrations"
-# Files that change how every migration is applied, rather than what one migration says.
+# Files that change how every migration is applied, rather than what one migration says. This
+# script is one: it defines what a snapshot holds and how a restore is checked.
 SHARED_INPUTS = (
+    ".github/scripts/clickhouse_schema_cache.py",
     "posthog/management/commands/migrate_clickhouse.py",
     "posthog/clickhouse/client/migration_tools.py",
     "posthog/clickhouse/cluster.py",
