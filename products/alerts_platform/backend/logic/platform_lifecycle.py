@@ -491,14 +491,14 @@ def control_change_row(
 
 # A request waits for this insert after its change commits, so a stalled ClickHouse costs it this
 # long at most, and the row is dropped as any failed insert is.
-_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS: Final = 5
+REQUEST_INSERT_TIMEOUT_SECONDS: Final = 5
 
 
 def record_history_after_commit(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     """Records rows once the change they describe commits, so a rolled-back change leaves none."""
     if rows:
         transaction.on_commit(
-            lambda: record_history(team_id, rows, send_receive_timeout=_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS),
+            lambda: record_history(team_id, rows, send_receive_timeout=REQUEST_INSERT_TIMEOUT_SECONDS),
             robust=True,
         )
 
@@ -1003,12 +1003,19 @@ def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: date
     return firing
 
 
-def end_instance(configuration: PlatformAlertConfiguration, alert: PlatformAlert, *, now: datetime) -> None:
+def end_instance(
+    configuration: PlatformAlertConfiguration, alert: PlatformAlert, *, notified: bool, now: datetime
+) -> None:
     """Moves one instance of a configuration locked by the caller to not firing, behind the same
-    fence as `end_firing_instances`, so a check already running cannot write back the state it read."""
+    fence as `end_firing_instances`, so a check already running cannot write back the state it read.
+
+    `notified` marks a resolve that sends a message, which restarts the cooldown as a check's resolve
+    does, so the next breach does not announce at once."""
     alert.state = PlatformAlertState.NOT_FIRING.value
     alert.firing_started_at = None
-    alert.save(update_fields=["state", "firing_started_at"])
+    if notified:
+        alert.last_notified_at = now
+    alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     _fence_running_check(configuration, now=now)
 
 

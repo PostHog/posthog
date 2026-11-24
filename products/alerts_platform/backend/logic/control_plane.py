@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow
 from products.alerts_platform.backend.logic.platform_lifecycle import (
+    REQUEST_INSERT_TIMEOUT_SECONDS,
     composed_instance,
     end_firing_instances,
     end_instance,
@@ -148,7 +149,7 @@ def resolve_instance(
     was_firing = alert.state == PlatformAlertState.FIRING or episode_started_at is not None
     muted = found.snooze_until is not None and found.snooze_until > now
     announces = was_firing and not muted
-    end_instance(configuration, alert, now=now)
+    end_instance(configuration, alert, notified=announces, now=now)
     row = event_row(
         configuration,
         alert=alert,
@@ -190,8 +191,9 @@ def announce_now(pending: PendingClose | None) -> None:
 
 
 def _announce(pending: PendingClose, *, inline: bool) -> None:
-    # A delivery reads its rows back from history, so the rows go first.
-    record_history(pending.team_id, pending.rows)
+    # A delivery reads its rows back from history, so the rows go first. Every caller is a request,
+    # so a stalled ClickHouse costs it the timeout at most.
+    record_history(pending.team_id, pending.rows, send_receive_timeout=REQUEST_INSERT_TIMEOUT_SECONDS)
     delivery = _resolve_delivery(pending)
     if delivery is None:
         return

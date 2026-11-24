@@ -1008,7 +1008,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             scope="PlatformAlertConfiguration",
             activity="resolved_group",
             detail=Detail(
-                name=f"{current.name} ({grouping_key})" if grouping_key else current.name,
+                # The key comes from ingested data that only the source's readers may see, and the
+                # activity log has no source filter, so the entry names the alert alone.
+                name=current.name,
                 changes=[
                     Change(
                         type="PlatformAlertConfiguration",

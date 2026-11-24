@@ -228,6 +228,8 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
         ]
         with team_scope(self.team.id):
             assert platform_testing.count_still_due([configuration_id], at=django_timezone.now()) == 0
+            notified_at = PlatformAlert.objects.get(configuration_id=configuration_id).last_notified_at
+        assert (notified_at is not None) == (not muted)
 
     @parameterized.expand(
         [
