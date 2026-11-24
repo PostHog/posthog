@@ -31,6 +31,12 @@ pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 // Labelled by `commit` (`async` / `sync`), pool wait included.
 pub const FRAME_SAVE_TIME: &str = "cymbal_frame_save_ms";
+// Frame miss breaker opens, labelled by `mode` and `team_id`. Opens are rare, so the
+// team label stays low-cardinality.
+pub const FRAME_MISS_BREAKER_OPENED: &str = "cymbal_frame_miss_breaker_opened";
+// Frame cache misses while a team's breaker is open, labelled by `mode`. In `log` mode
+// these misses still use Postgres, so the counter shows what `enforce` would skip.
+pub const FRAME_MISS_BREAKER_SKIPPED: &str = "cymbal_frame_miss_breaker_skipped";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
 pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
