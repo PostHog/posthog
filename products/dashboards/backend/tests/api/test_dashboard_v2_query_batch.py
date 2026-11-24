@@ -3,9 +3,10 @@ import json
 import asyncio
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
-from contextlib import aclosing
+from contextlib import aclosing, contextmanager
 from threading import Event
 from typing import Any, cast
+from urllib.parse import parse_qsl
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -17,6 +18,7 @@ from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
+import httpx
 import requests
 from parameterized import parameterized
 from rest_framework import status
@@ -27,12 +29,14 @@ from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.waiting import wait_until
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
+from products.dashboards.backend.v2 import query_batch as query_batch_module
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
@@ -357,6 +361,24 @@ def _snuffle(status_code: int, payload: dict) -> MagicMock:
     return response
 
 
+@contextmanager
+def _snuffle_requests(status_code: int = 200, payload: dict | None = None) -> Iterator[MagicMock]:
+    payload = payload if payload is not None else _matrix(0)
+    with patch(
+        "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(status_code, payload)
+    ) as sent:
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            sent(request.method, str(request.url), data=dict(parse_qsl(request.content.decode())))
+            return httpx.Response(status_code, json=payload)
+
+        with patch(
+            "posthog.api.snuffle_proxy.internal_httpx_async_client",
+            side_effect=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(handle), **kwargs),
+        ):
+            yield sent
+
+
 def _matrix(start: int) -> dict:
     return {
         "status": "success",
@@ -383,10 +405,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
             _telemetry("promql", "sum(rate(http_requests_total[5m]))"),
             _telemetry("logql", 'sum(count_over_time({service_name="api"}[1m]))'),
         ]
-        with patch(
-            "posthog.api.snuffle_proxy.internal_requests.request",
-            return_value=_snuffle(200, _matrix(int(_NOW.timestamp()) - 3600)),
-        ) as request:
+        with _snuffle_requests(200, _matrix(int(_NOW.timestamp()) - 3600)) as request:
             promql, logql = self._lines(queries)
             sent = self._snuffle_calls(request)
             request.reset_mock()
@@ -405,8 +424,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
     def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:
-        rejected = _snuffle(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"})
-        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=rejected):
+        with _snuffle_requests(400, {"status": "error", "errorType": "bad_data", "error": "parse error at char 5"}):
             lines = self._lines([_telemetry(language, query)])
 
         self.assertEqual(lines, [{"i": 0, "error": "parse error at char 5"}])
@@ -416,9 +434,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         for moment in (_NOW, _NOW + dt.timedelta(minutes=5)):
             with (
                 time_machine.travel(moment, tick=False),
-                patch(
-                    "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))
-                ) as request,
+                _snuffle_requests() as request,
             ):
                 self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
             sent_ends.append(float(request.call_args.kwargs["data"]["end"]))
@@ -428,20 +444,122 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
     def test_an_oversized_logql_response_is_an_error_line_not_a_buffered_body(self) -> None:
         with (
             patch("products.dashboards.backend.v2.telemetry.MAX_LOGQL_RESPONSE_BYTES", 10),
-            patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))),
+            _snuffle_requests(),
         ):
             lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
 
         self.assertIn("too much data", lines[0]["error"])
 
     def test_a_logql_body_that_outlasts_the_timeout_is_an_error_line(self) -> None:
+        class StalledBody(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield b"{"
+                await asyncio.Event().wait()
+
+        response = httpx.Response(200, stream=StalledBody())
         with (
-            override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=-1),
-            patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle(200, _matrix(0))),
+            override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=0.01),
+            patch(
+                "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                side_effect=lambda **kwargs: httpx.AsyncClient(
+                    transport=httpx.MockTransport(lambda _request: response), **kwargs
+                ),
+            ),
         ):
             lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
 
         self.assertEqual(lines, [{"i": 0, "error": "The LogQL query timed out. Try a shorter date range."}])
+        self.assertTrue(response.is_closed)
+
+    @parameterized.expand([("headers", False), ("body", True)])
+    def test_disconnecting_logql_batches_closes_upstream_and_releases_admission(
+        self, _name: str, send_headers: bool
+    ) -> None:
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="logs", language=QueryBatchLanguage.LOGQL, query='{service_name="api"}'),
+                date_from="now-1h",
+                date_to="now",
+            )
+        ]
+        batches = [
+            QueryBatch(
+                team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id=f"disconnect-{index}"
+            )
+            for index in range(4)
+        ]
+
+        async def exercise() -> list[dict]:
+            started: asyncio.Queue[None] = asyncio.Queue()
+            disconnected: asyncio.Queue[None] = asyncio.Queue()
+            request_count = 0
+            loop = asyncio.get_running_loop()
+
+            class StalledBody(httpx.AsyncByteStream):
+                async def __aiter__(self) -> AsyncIterator[bytes]:
+                    loop.call_soon_threadsafe(started.put_nowait, None)
+                    yield b"{"
+                    await asyncio.Event().wait()
+
+                async def aclose(self) -> None:
+                    loop.call_soon_threadsafe(disconnected.put_nowait, None)
+
+            async def upstream(request: httpx.Request) -> httpx.Response:
+                nonlocal request_count
+                request_count += 1
+                self.assertEqual(request.headers["X-Team-ID"], str(self.team.pk))
+                if request_count <= 3:
+                    if send_headers:
+                        return httpx.Response(200, stream=StalledBody())
+                    loop.call_soon_threadsafe(started.put_nowait, None)
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        loop.call_soon_threadsafe(disconnected.put_nowait, None)
+                return httpx.Response(200, json=_matrix(0))
+
+            async def consume(batch: QueryBatch) -> list[dict]:
+                async with aclosing(cast(Any, batch.astream())) as stream:
+                    return [json.loads(chunk) async for chunk in stream if chunk.strip()]
+
+            readers: list[asyncio.Task[list[dict]]] = []
+            try:
+                with (
+                    override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=60),
+                    patch(
+                        "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                        side_effect=lambda **kwargs: httpx.AsyncClient(
+                            transport=httpx.MockTransport(upstream), **kwargs
+                        ),
+                    ),
+                ):
+                    readers = [asyncio.create_task(consume(batch)) for batch in batches[:3]]
+                    for _ in readers:
+                        await asyncio.wait_for(started.get(), timeout=10)
+                    for reader in readers:
+                        reader.cancel()
+                    await asyncio.gather(*readers, return_exceptions=True)
+                    for _ in readers:
+                        await asyncio.wait_for(disconnected.get(), timeout=5)
+                    await asyncio.to_thread(
+                        wait_until,
+                        lambda: query_batch_module._org_batches.get(self.team.organization_id, 0) == 0,
+                    )
+                    return await asyncio.wait_for(consume(batches[3]), timeout=10)
+            finally:
+                for reader in readers:
+                    reader.cancel()
+                await asyncio.gather(*readers, return_exceptions=True)
+
+        try:
+            lines = asyncio.run(exercise())
+        finally:
+            for batch in batches:
+                batch._close(complete=False)
+                batch._watchdog.cancel()
+                batch._open.release()
+
+        self.assertEqual(lines[0]["result"]["result"]["results"], _matrix(0)["data"])
 
     @patch("products.dashboards.backend.v2.telemetry.budget_enabled", return_value=True)
     @patch("products.dashboards.backend.v2.telemetry.api_queries_budget_enforcement_enabled", return_value=True)
@@ -451,7 +569,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self, events_last_year: MagicMock, *_mocks: MagicMock
     ) -> None:
         logql = _telemetry("logql", 'sum(rate({service_name="api"}[1m]))')
-        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+        with _snuffle_requests() as request:
             lines = self._lines([logql, {**logql, "target": {**logql["target"], "refId": "b"}}])
 
         refused = "This project has used its query budget for now. Try again later."
@@ -468,7 +586,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
     @parameterized.expand([("promql", "up"), ("logql", '{service_name="api"}')])
     def test_flag_off_runs_nothing(self, language: str, query: str) -> None:
         self.flag_on_for_project = self.team.pk + 1
-        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+        with _snuffle_requests() as request:
             response = self._batch([_telemetry(language, query)])
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
