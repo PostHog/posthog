@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use common_metrics::{serve, setup_metrics_routes_with_overrides, Matcher};
+use common_metrics::{serve, setup_metrics_routes_with_extra_render, Matcher};
 use tracing::info;
 
 use crate::{
@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) -> () {
+    let team_issues_created = context.team_issues_created.clone();
     let router = get_router(context);
     let bucket_overrides: &[(Matcher, &[f64])] = &[
         (
@@ -39,7 +40,14 @@ pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) ->
             BYTE_HISTOGRAM_BUCKETS,
         ),
     ];
-    let router = setup_metrics_routes_with_overrides(router, bucket_overrides);
+    let router = setup_metrics_routes_with_extra_render(
+        router,
+        None,
+        bucket_overrides,
+        Arc::new(move |out: &mut String, labels: &[(&str, &str)]| {
+            team_issues_created.render(out, labels)
+        }),
+    );
     let bind = format!("{}:{}", config.host, config.port);
     info!("Server started and listening on {}", bind);
     serve(router, &bind)

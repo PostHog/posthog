@@ -11,8 +11,9 @@ use uuid::Uuid;
 
 use crate::modes::processing::redis_heal::HealGate;
 use crate::{
-    core::config::build_pg_pool,
+    core::{config::build_pg_pool, team_window::TeamWindowCounter},
     error::UnhandledError,
+    metric_consts::TEAM_ISSUES_CREATED_LAST_WINDOW,
     modes::processing::config::{init_global_state, ProcessingConfig},
     stages::adaptive_ingestion::AdaptiveIngestionRuntime,
     stages::rate_limiting::RedisRateLimiter,
@@ -64,6 +65,7 @@ pub struct AppContext {
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
     pub release_cache: ReleaseCache,
+    pub team_issues_created: Arc<TeamWindowCounter>,
 }
 
 impl Drop for AppContext {
@@ -180,6 +182,15 @@ impl AppContext {
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
+        let team_metrics = &config.resolver.team_metrics;
+        let team_issues_created = Arc::new(TeamWindowCounter::new(
+            TEAM_ISSUES_CREATED_LAST_WINDOW,
+            "New issues for one team on this pod in the last full window, for teams at or over the floor.",
+            team_metrics.window(),
+            team_metrics.team_metrics_issue_created_floor,
+            team_metrics.team_metrics_max_teams,
+        ));
+
         let rate_limiter = build_rate_limiter(config).await?;
         let adaptive_ingestion = AdaptiveIngestionRuntime::from_config(config).await?;
         let rate_limiter_enabled_team_ids =
@@ -207,6 +218,7 @@ impl AppContext {
             release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
+            team_issues_created,
         })
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs, num::NonZeroU64, sync::Arc, time::Instant};
 
 use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
@@ -457,6 +457,56 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
             .await
             .expect("Issue should keep severity");
     assert_eq!(severity.as_deref(), Some("low"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn team_issue_gauge_counts_each_new_issue_once(db: PgPool) {
+    let event_for = |fingerprint| {
+        make_event_with_options(
+            vec![make_exception("TypeError", fingerprint)],
+            Some(fingerprint),
+            Some(false),
+        )
+    };
+    let (status, _): (_, SuccessResponse) = TestHarness::new(db.clone())
+        .post_event(&event_for("gauge-a"))
+        .await;
+    assert!(status.is_success());
+
+    let events: Vec<AnyEvent> = ["gauge-a", "gauge-b", "gauge-b"]
+        .into_iter()
+        .map(event_for)
+        .collect();
+    let (status, _, ctx): (_, SuccessResponse, _) = utils::get_response_and_context_with_config(
+        db,
+        STORAGE_BUCKET.to_string(),
+        || {
+            Request::builder()
+                .method("POST")
+                .header("content-type", "application/json")
+                .uri("/process")
+                .body(Body::from(serde_json::to_vec(&events).unwrap()))
+                .unwrap()
+        },
+        Arc::new(TestHarness::create_s3_mock()),
+        |config| {
+            config
+                .resolver
+                .team_metrics
+                .team_metrics_issue_created_floor = NonZeroU64::MIN
+        },
+    )
+    .await;
+    assert!(status.is_success());
+
+    let mut rendered = String::new();
+    let window_ended = Instant::now() + ctx.config.resolver.team_metrics.window();
+    ctx.team_issues_created
+        .render_at(&mut rendered, &[], window_ended);
+    assert!(
+        rendered.ends_with("\ncymbal_team_issues_created_last_window{team_id=\"1\"} 1\n"),
+        "{rendered}"
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

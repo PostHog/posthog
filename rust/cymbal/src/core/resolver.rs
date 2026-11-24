@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::core::config::{build_pg_pool, get_aws_config, ResolverConfig};
 use crate::core::error::UnhandledError;
-use crate::core::symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver};
+use crate::core::symbolication::symbol::local::LocalSymbolResolver;
 use crate::core::symbolication::symbol_store::{
     apple::AppleProvider,
     caching::{Caching, ParseLimiter, SymbolSetCache},
@@ -21,7 +21,7 @@ use crate::core::symbolication::symbol_store::{
 
 /// Build just the symbol-resolution stack from config: connects to Postgres,
 /// builds the S3 client, and returns a fully-wired
-/// `SymbolResolver`. **Does not** start Kafka producers, Redis clients,
+/// `LocalSymbolResolver`. **Does not** start Kafka producers, Redis clients,
 /// signals, the issue cache, or the remote-resolution pool — those belong to
 /// the processing pipeline (`crate::app_context::AppContext`).
 ///
@@ -30,7 +30,7 @@ use crate::core::symbolication::symbol_store::{
 /// depending on the processing app context.
 pub async fn build_symbol_resolver(
     config: &ResolverConfig,
-) -> Result<Arc<dyn SymbolResolver>, UnhandledError> {
+) -> Result<LocalSymbolResolver, UnhandledError> {
     let posthog_pool = build_pg_pool(
         &config.database_url,
         config.max_pg_connections,
@@ -40,11 +40,7 @@ pub async fn build_symbol_resolver(
     let s3_client: Arc<dyn BlobClient> = Arc::new(S3Client::new(s3));
     s3_client.ping_bucket(&config.object_storage_bucket).await?;
     let catalog = build_catalog(config, s3_client, posthog_pool.clone());
-    Ok(Arc::new(LocalSymbolResolver::new(
-        config,
-        catalog,
-        posthog_pool,
-    )))
+    Ok(LocalSymbolResolver::new(config, catalog, posthog_pool))
 }
 
 /// Build the symbol-store [`Catalog`] from already-constructed S3 and PG

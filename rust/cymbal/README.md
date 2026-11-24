@@ -77,6 +77,40 @@ Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so on
 When the counters fail, the exception is kept and gets no property.
 `cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
 
+## Per-team gauges (processing and resolution modes)
+
+Two gauges name the team behind a spike of new Postgres rows.
+Each one counts per team over a fixed window on one pod.
+
+| Gauge | Mode | Counts |
+| --- | --- | --- |
+| `cymbal_team_issues_created_last_window` | processing | issues that Cymbal created |
+| `cymbal_team_frame_cache_misses_last_window` | resolution | frame-cache misses, also the misses that failed |
+
+The value is the team's count in the last full window.
+A team has a series only while that count is at or over the floor.
+At most `TEAM_METRICS_MAX_TEAMS` teams have a series, highest count first.
+When a team drops under the floor, its series is gone after the next window ends.
+Thus each pod exports at most `TEAM_METRICS_MAX_TEAMS` series per gauge.
+
+The `metrics` recorder keeps every series until the process exits, so these gauges do not go through it.
+`core::team_window` writes their lines into `/metrics`, after the recorder output.
+
+To alert, sum a gauge across pods by `team_id`.
+A flood with a new `distinct_id` on every event goes to every processing pod.
+Resolution routes an exception by its team and its first symbol set, and moves work off a busy pod.
+Thus the frame-cache misses of a team with one symbol set start on a few pods, and spread as those pods get busy.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `TEAM_METRICS_WINDOW_SECS` | `60` | The window, in seconds. |
+| `TEAM_METRICS_MAX_TEAMS` | `10` | The most teams per gauge per pod. `0` turns both gauges off. |
+| `TEAM_METRICS_ISSUE_CREATED_FLOOR` | `50` | The new issues a team needs in one window on one pod to get a series. |
+| `TEAM_METRICS_FRAME_CACHE_MISS_FLOOR` | `500` | The frame-cache misses a team needs in one window on one pod to get a series. |
+
+Keep a floor at or under the alert threshold divided by the pod count.
+Otherwise a team over the threshold, spread evenly, can stay under the floor on every pod and have no series.
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token

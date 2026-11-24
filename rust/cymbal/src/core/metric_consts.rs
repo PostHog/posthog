@@ -83,6 +83,8 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     1_073_741_824.0, // 1 GiB
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
+pub const TEAM_ISSUES_CREATED_LAST_WINDOW: &str = "cymbal_team_issues_created_last_window";
+pub const TEAM_FRAME_CACHE_MISSES_LAST_WINDOW: &str = "cymbal_team_frame_cache_misses_last_window";
 pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =
     "cymbal_issue_created_event_properties_stored";
 pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED: &str =

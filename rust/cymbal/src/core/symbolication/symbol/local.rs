@@ -16,6 +16,7 @@ use sqlx::PgPool;
 
 use crate::{
     core::config::ResolverConfig,
+    core::team_window::TeamWindowCounter,
     core::write_attribution::{record_frame_write, FrameWriteOutcome},
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{releases::ReleaseRecord, Frame, RawFrame},
@@ -23,6 +24,7 @@ use crate::{
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         RELEASE_ID_CACHE_HITS, RELEASE_ID_CACHE_MISSES, SUSPICIOUS_FRAMES_DETECTED,
+        TEAM_FRAME_CACHE_MISSES_LAST_WINDOW,
     },
     symbolication::resolve::Resolve,
     symbolication::symbol::records::{
@@ -58,6 +60,7 @@ pub struct LocalSymbolResolver {
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
     skip_unchanged_rewrites: bool,
+    team_frame_cache_misses: Arc<TeamWindowCounter>,
 }
 
 // Each entry carries the per-frame policy that judged its Postgres freshness, so the
@@ -124,6 +127,14 @@ impl LocalSymbolResolver {
             .time_to_live(Duration::from_secs(config.release_id_cache_ttl_seconds))
             .build();
 
+        let team_frame_cache_misses = Arc::new(TeamWindowCounter::new(
+            TEAM_FRAME_CACHE_MISSES_LAST_WINDOW,
+            "Frame-cache misses for one team on this pod in the last full window, for teams at or over the floor.",
+            config.team_metrics.window(),
+            config.team_metrics.team_metrics_frame_cache_miss_floor,
+            config.team_metrics.team_metrics_max_teams,
+        ));
+
         Self {
             catalog,
             pool,
@@ -132,7 +143,12 @@ impl LocalSymbolResolver {
             base_ttl_policy,
             context_lines: config.context_line_count,
             skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
+            team_frame_cache_misses,
         }
+    }
+
+    pub fn team_frame_cache_misses(&self) -> Arc<TeamWindowCounter> {
+        self.team_frame_cache_misses.clone()
     }
 
     pub async fn resolve(
@@ -151,6 +167,9 @@ impl LocalSymbolResolver {
             .cache
             .try_get_with(raw_id.clone(), async {
                 cache_miss = true;
+                // Counted before the load, so a miss counts when its load fails or is cancelled.
+                // A flood that exhausts the Postgres pool fails or times out most of its misses.
+                self.team_frame_cache_misses.record(team_id);
                 let records = self
                     .resolve_impl(frame, raw_id.clone(), debug_images, ttl_policy)
                     .await?;
@@ -392,7 +411,7 @@ impl SymbolResolver for LocalSymbolResolver {
 #[cfg(test)]
 mod test {
 
-    use std::sync::Arc;
+    use std::{num::NonZeroU64, sync::Arc, time::Instant};
 
     use bytes::Bytes;
     use common_types::ClickHouseEvent;
@@ -587,8 +606,9 @@ mod test {
         // one frame, twice. Note that we're not using a caching symbol set provider, so if
         // the frame is resolved twice, unless the resolver is doing the right thing and fetching the stored
         // result from PG, it would have to fetch the sourcemap twice to resolve the frame
-        let (config, catalog, server) =
+        let (mut config, catalog, server) =
             setup_test_context(pool.clone(), |c, cl| expect_puts_and_gets(c, cl, 1, 0)).await;
+        config.team_metrics.team_metrics_frame_cache_miss_floor = NonZeroU64::MIN;
         let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
         let frame = get_test_frame(&server);
         let resolved_1 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
@@ -637,6 +657,22 @@ mod test {
 
         assert_eq!(resolved_1, resolved_2);
         assert_eq!(resolved_2, resolved_3);
+
+        resolver.cache.invalidate_all();
+        resolver.cache.run_pending_tasks().await;
+        pool.close().await;
+        assert!(resolver.resolve_raw_frame(0, &frame, &[]).await.is_err());
+
+        let mut rendered = String::new();
+        resolver.team_frame_cache_misses().render_at(
+            &mut rendered,
+            &[],
+            Instant::now() + config.team_metrics.window(),
+        );
+        assert!(
+            rendered.ends_with("\ncymbal_team_frame_cache_misses_last_window{team_id=\"0\"} 3\n"),
+            "{rendered}"
+        );
     }
 
     // With the flag on, a re-resolution that produces an identical snapshot must keep

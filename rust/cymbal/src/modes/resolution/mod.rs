@@ -21,7 +21,9 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Server;
 use tracing::{info, warn};
 
-use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
+use crate::core::{
+    config::ResolverConfig, shutdown::wait_for_shutdown, team_window::TeamWindowCounter,
+};
 use crate::metric_consts::{
     BYTE_HISTOGRAM_BUCKETS, SYMBOL_SET_DECOMPRESSED_BYTES, SYMBOL_SET_PARSE_INPUT_BYTES,
 };
@@ -64,8 +66,12 @@ pub async fn serve(
         app_context.load_monitor.clone(),
         drain_notice,
     );
-    let metrics_handle =
-        spawn_metrics_server(res.metrics_port, shutdown_rx.clone(), draining.clone());
+    let metrics_handle = spawn_metrics_server(
+        res.metrics_port,
+        shutdown_rx.clone(),
+        draining.clone(),
+        app_context.team_frame_cache_misses.clone(),
+    );
 
     let service_config = ServiceConfig::from(res);
     let service = CymbalResolutionService::new(
@@ -120,6 +126,7 @@ fn spawn_metrics_server(
     port: u16,
     shutdown_rx: watch::Receiver<bool>,
     draining: Arc<AtomicBool>,
+    team_frame_cache_misses: Arc<TeamWindowCounter>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let readiness_draining = draining.clone();
@@ -129,9 +136,9 @@ fn spawn_metrics_server(
                 "/_readiness",
                 get(move || readiness(readiness_draining.clone())),
             );
-        let router = common_metrics::setup_metrics_routes_for_product_with_overrides(
+        let router = common_metrics::setup_metrics_routes_with_extra_render(
             router,
-            "cymbal-resolution",
+            Some("cymbal-resolution".to_string()),
             &[
                 (
                     Matcher::Full(SYMBOL_SET_DECOMPRESSED_BYTES.into()),
@@ -142,6 +149,9 @@ fn spawn_metrics_server(
                     BYTE_HISTOGRAM_BUCKETS,
                 ),
             ],
+            Arc::new(move |out: &mut String, labels: &[(&str, &str)]| {
+                team_frame_cache_misses.render(out, labels)
+            }),
         );
 
         let bind = format!("0.0.0.0:{port}");

@@ -5,8 +5,8 @@ use axum::{
     routing::get, Router,
 };
 pub use metrics_exporter_prometheus::Matcher;
-use metrics_exporter_prometheus::PrometheusBuilder;
-use std::sync::OnceLock;
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use std::sync::{Arc, OnceLock};
 
 type LabelFilterFn =
     Box<dyn Fn(&[(String, String)]) -> Vec<(String, String)> + Send + Sync + 'static>;
@@ -37,7 +37,7 @@ pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
 /// Use [`setup_metrics_routes_for_product`] when you want a `product` global
 /// label for cost attribution.
 pub fn setup_metrics_routes(router: Router) -> Router {
-    install_metrics_routes(router, None, &[])
+    install_metrics_routes(router, None, &[], None)
 }
 
 /// Like [`setup_metrics_routes`], but emits a static `product="<value>"` global
@@ -48,7 +48,7 @@ pub fn setup_metrics_routes(router: Router) -> Router {
 /// the Python `posthog.clickhouse.query_tagging.Product` enum values — e.g.
 /// `feature_flags`, `experiments`, `product_analytics`.
 pub fn setup_metrics_routes_for_product(router: Router, product: impl Into<String>) -> Router {
-    install_metrics_routes(router, Some(product.into()), &[])
+    install_metrics_routes(router, Some(product.into()), &[], None)
 }
 
 /// Like [`setup_metrics_routes`], but applies per-metric histogram bucket
@@ -60,7 +60,7 @@ pub fn setup_metrics_routes_with_overrides(
     router: Router,
     overrides: &[(Matcher, &[f64])],
 ) -> Router {
-    install_metrics_routes(router, None, overrides)
+    install_metrics_routes(router, None, overrides, None)
 }
 
 /// Like [`setup_metrics_routes_for_product`], but applies per-metric histogram
@@ -75,14 +75,30 @@ pub fn setup_metrics_routes_for_product_with_overrides(
     product: impl Into<String>,
     overrides: &[(Matcher, &[f64])],
 ) -> Router {
-    install_metrics_routes(router, Some(product.into()), overrides)
+    install_metrics_routes(router, Some(product.into()), overrides, None)
+}
+
+/// For a series that must disappear, because the recorder keeps every series until the process
+/// exits. The slice holds the recorder's global labels, which the appended lines must carry too.
+pub type ExtraRender = Arc<dyn Fn(&mut String, &[(&str, &str)]) + Send + Sync>;
+
+/// Like [`setup_metrics_routes_for_product_with_overrides`], plus `extra_render` on every scrape.
+pub fn setup_metrics_routes_with_extra_render(
+    router: Router,
+    product: Option<String>,
+    overrides: &[(Matcher, &[f64])],
+    extra_render: ExtraRender,
+) -> Router {
+    install_metrics_routes(router, product, overrides, Some(extra_render))
 }
 
 fn install_metrics_routes(
     router: Router,
     product: Option<String>,
     overrides: &[(Matcher, &[f64])],
+    extra_render: Option<ExtraRender>,
 ) -> Router {
+    let product_label = product.clone();
     let mut builder = build_prometheus_builder(product);
     for (matcher, buckets) in overrides {
         builder = builder
@@ -94,9 +110,30 @@ fn install_metrics_routes(
     router
         .route(
             "/metrics",
-            get(move || std::future::ready(recorder_handle.render())),
+            get(move || {
+                std::future::ready(render_metrics(
+                    &recorder_handle,
+                    extra_render.as_ref(),
+                    product_label.as_deref(),
+                ))
+            }),
         )
         .layer(axum::middleware::from_fn(track_metrics))
+}
+
+fn render_metrics(
+    recorder_handle: &PrometheusHandle,
+    extra_render: Option<&ExtraRender>,
+    product: Option<&str>,
+) -> String {
+    let mut body = recorder_handle.render();
+    if let Some(extra_render) = extra_render {
+        match product {
+            Some(product) => extra_render(&mut body, &[("product", product)]),
+            None => extra_render(&mut body, &[]),
+        }
+    }
+    body
 }
 
 /// Buckets for etcd payload sizes, straddling the server's
@@ -342,8 +379,11 @@ impl Drop for TimingGuardHighPrecision<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
-        build_prometheus_builder, normalize_unmatched_path, timing_guard_high_precision, Matcher,
+        build_prometheus_builder, normalize_unmatched_path, render_metrics,
+        timing_guard_high_precision, ExtraRender, Matcher,
     };
 
     #[test]
@@ -374,6 +414,29 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn test_extra_render_follows_recorder_output_with_its_labels() {
+        let recorder = build_prometheus_builder(Some("feature_flags".to_string())).build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            metrics::counter!("test_counter_before_extra").increment(1);
+        });
+        let extra_render: ExtraRender = Arc::new(|out: &mut String, labels: &[(&str, &str)]| {
+            let (key, value) = labels[0];
+            out.push_str(&format!(
+                "extra_gauge{{{key}=\"{value}\",team_id=\"1\"}} 5\n"
+            ));
+        });
+
+        let body = render_metrics(&handle, Some(&extra_render), Some("feature_flags"));
+
+        let counter_at = body.find("test_counter_before_extra").expect(&body);
+        let extra_at = body
+            .find("\nextra_gauge{product=\"feature_flags\",team_id=\"1\"} 5\n")
+            .expect(&body);
+        assert!(counter_at < extra_at, "{body}");
     }
 
     #[test]
