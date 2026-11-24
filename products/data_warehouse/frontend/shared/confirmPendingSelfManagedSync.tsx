@@ -56,7 +56,7 @@ export function confirmPendingSelfManagedReload(
 ): void {
     LemonDialog.open({
         title: 'Import this table into PostHog?',
-        description: `${BUCKET_READ_NOTE} When you sync it, PostHog imports the data into PostHog. ${BILLING_NOTE}${singleTableFullRefreshNote(syncType)}`,
+        description: `${BUCKET_READ_NOTE} When you sync it, PostHog imports the data into PostHog. After that, the table reads the copy in PostHog instead of your bucket. The copy updates only when you sync it again or turn on syncing. ${BILLING_NOTE}${singleTableFullRefreshNote(syncType)}`,
         primaryButton: { children: 'Sync now', type: 'primary', onClick: onConfirm },
         secondaryButton: { children: 'Cancel', type: 'tertiary' },
     })
