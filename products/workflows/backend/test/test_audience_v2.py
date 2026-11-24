@@ -428,6 +428,15 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
 
         self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
 
+    def test_audience_size_refuses_a_precalculated_cohort(self):
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": [EMAIL_FILTER]}])
+
+        with pytest.raises(ValidationError):
+            self._size(
+                self.restricted_member,
+                {"properties": [{"key": "id", "type": "precalculated-cohort", "value": cohort.pk}]},
+            )
+
     def test_refusal_lifts_once_the_rule_is_removed(self):
         filters = {"properties": [EMAIL_FILTER]}
         assert self._size(self.other_member, filters) == 1
