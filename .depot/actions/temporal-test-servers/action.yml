@@ -1,0 +1,67 @@
+# The Temporal SDK downloads its test server and dev server binaries from temporal.download into the
+# temp directory, and reuses a binary only when it is already there. The root conftest fetches both in
+# every pytest run that imports temporalio, and every CI job starts with an empty temp directory, so
+# without this restore each test job downloads both binaries again.
+name: Restore Temporal test servers
+description: |
+    Restores the Temporal test server and dev server binaries for the locked temporalio version and
+    links them into the temp directory, where the SDK looks for them before it downloads.
+    A miss leaves the SDK to download as usual. The caller saves the cache after its tests.
+
+outputs:
+    cache-hit:
+        description: "'true' when both binaries came from the cache"
+        value: ${{ steps.restore.outputs.cache-hit }}
+    key:
+        description: Cache key for the locked temporalio version, empty when uv.lock pins no temporalio
+        value: ${{ steps.version.outputs.key }}
+    dir:
+        description: Directory the cache restores into and saves from
+        value: ${{ steps.version.outputs.dir }}
+    version:
+        description: Locked temporalio version
+        value: ${{ steps.version.outputs.version }}
+
+runs:
+    using: composite
+    steps:
+        - name: Read the locked temporalio version
+          id: version
+          shell: bash
+          env:
+              RUNNER_OS_NAME: ${{ runner.os }}
+              RUNNER_ARCH_NAME: ${{ runner.arch }}
+          run: |
+              version=$(awk '/^name = "temporalio"$/ { getline; gsub(/"/, "", $3); print $3; exit }' uv.lock)
+              echo "version=$version" >> "$GITHUB_OUTPUT"
+              echo "dir=$HOME/.cache/temporal-test-servers" >> "$GITHUB_OUTPUT"
+              if [ -n "$version" ]; then
+                  echo "key=temporal-test-servers-$RUNNER_OS_NAME-$RUNNER_ARCH_NAME-$version" >> "$GITHUB_OUTPUT"
+              fi
+
+        - name: Restore Temporal test servers from cache
+          id: restore
+          if: steps.version.outputs.key != ''
+          timeout-minutes: 4
+          continue-on-error: true
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              # The cache version hashes this path string, so it stays a literal that every job spells the same way.
+              path: ~/.cache/temporal-test-servers
+              key: ${{ steps.version.outputs.key }}
+
+        - name: Link Temporal test servers into the temp directory
+          if: steps.restore.outputs.cache-hit == 'true'
+          shell: bash
+          env:
+              CACHE_DIR: ${{ steps.version.outputs.dir }}
+          run: |
+              shopt -s nullglob
+              # Product tests run pytest under turbo, which strips undeclared env vars. If it strips
+              # TMPDIR, the SDK there resolves /tmp even when the runner sets TMPDIR elsewhere.
+              for temp_dir in "${TMPDIR:-/tmp}" /tmp; do
+                  for binary in "$CACHE_DIR"/*; do
+                      ln -sf "$binary" "$temp_dir/$(basename "$binary")"
+                  done
+              done
+              ls -l "$CACHE_DIR"
