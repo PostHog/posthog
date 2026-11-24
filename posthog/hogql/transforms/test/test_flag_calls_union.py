@@ -1338,8 +1338,18 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ),
             (
                 "lower_memory_limit",
-                HogQLGlobalSettings(max_memory_usage=1024**3),
-                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=0"],
+                HogQLGlobalSettings(max_memory_usage=1024**3, max_bytes_before_external_group_by=2 * 1024**3),
+                ["max_memory_usage=1073741824", "max_bytes_before_external_group_by=536870912"],
+            ),
+            (
+                "default_settings",
+                HogQLGlobalSettings(),
+                [
+                    UNKEYED_READ_MEMORY_CAP,
+                    "max_bytes_before_external_sort=4294967296",
+                    "max_bytes_ratio_before_external_sort=0",
+                    "max_bytes_before_external_group_by=0",
+                ],
             ),
         ]
     )

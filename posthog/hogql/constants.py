@@ -1,7 +1,7 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional, cast
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -210,14 +210,23 @@ def cap_flag_call_max_memory_usage(max_memory_usage: int | None) -> int:
     )
 
 
-def cap_flag_call_memory_settings(settings: dict[str, object]) -> None:
+def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
     """Cap `max_memory_usage` in printed top-level settings, and lower each spill threshold to half the cap."""
-    max_memory_usage = cap_flag_call_max_memory_usage(cast(int | None, settings.get("max_memory_usage")))
+    max_memory_usage = cap_flag_call_max_memory_usage(settings.get("max_memory_usage"))
     settings["max_memory_usage"] = max_memory_usage
+    spill_after_bytes = max_memory_usage // 2
     # A spill threshold above the memory limit never fires, so the query fails before it spills to disk.
-    for key in ("max_bytes_before_external_sort", "max_bytes_before_external_group_by"):
-        if cast(int, settings.get(key) or 0) > max_memory_usage // 2:
-            settings[key] = max_memory_usage // 2
+    # A missing threshold takes the user profile's value, which can sit above the cap. A threshold of 0 stays disabled.
+    for threshold_key, ratio_key in (
+        ("max_bytes_before_external_sort", "max_bytes_ratio_before_external_sort"),
+        ("max_bytes_before_external_group_by", "max_bytes_ratio_before_external_group_by"),
+    ):
+        threshold = settings.get(threshold_key)
+        if threshold is None or threshold > spill_after_bytes:
+            settings[threshold_key] = spill_after_bytes
+        # A non-zero ratio in the user profile stops the byte threshold from firing.
+        if settings[threshold_key] > 0:
+            settings[ratio_key] = 0
 
 
 # Settings applied on top of all HogQL queries.
