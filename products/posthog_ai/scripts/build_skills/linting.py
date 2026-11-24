@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from . import (
     reserved_names,
     skill_audience,
     skill_manifest,
+    skill_size,
     source_files,
     tool_references,
 )
@@ -47,6 +49,7 @@ class SkillLinter:
         if not (self.repo_root / skill_audience.SERVED_SKILLS_FILE).is_file():
             print("WARNING: MCP served-skills list not found; skipping the audience check.", file=sys.stderr)
         self.errors.extend(skill_audience._check_skill_audience(self.repo_root, self.skills))
+        self._warn_about_large_served_skills()
         tool_names = tool_references._load_mcp_tool_names(self.repo_root)
         if tool_names is None:
             print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)
@@ -62,6 +65,21 @@ class SkillLinter:
         # heuristic that can misfire on prose.
         tool_references._emit_reference_findings(self.findings)
         return self._report()
+
+    def _warn_about_large_served_skills(self) -> None:
+        """Advisory only. `learn` loads a served skill's SKILL.md into a customer agent's context in one piece."""
+        served_names = skill_audience._load_served_skill_names(self.repo_root) or set()
+        for skill in self.skills:
+            if discovery._unrendered_skill_name(skill) not in served_names:
+                continue
+            warning = skill_size.size_warning(skill_size.measure_entry(skill.source_file))
+            if warning is None:
+                continue
+            label = self._label(skill.source_file)
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                print(f"::warning file={label},line=1,title=Large served skill::{warning}")
+            else:
+                print(f"{label}: warning: {warning}", file=sys.stderr)
 
     def _label(self, path: Path) -> str:
         return str(path.relative_to(self.repo_root))
