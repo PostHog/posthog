@@ -49,6 +49,9 @@ export interface DashboardV2State extends Omit<DashboardV2Controller, 'activeTab
     /** Downloads the tab on screen, or with `tileId`, just that tile. */
     downloadImage: (format: ImageFormat, tileId?: string) => void
     downloadingImage: boolean
+    /** The tile shown on its own over the dashboard, or null. Only the screen keeps it. */
+    expandedTileId: string | null
+    expandTile: (id: string | null) => void
 }
 
 export const DashboardV2StateContext = createContext<DashboardV2State | null>(null)

@@ -53,12 +53,29 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
 }
 
 export function useContentTileActions(id: string, widget: ContentWidget): MenuAction[] {
-    const { dashboard, activeTab, widgets, disabledReasonFor, onEdit, tileActions, downloadImage, downloadingImage } =
-        useDashboardV2()
+    const {
+        dashboard,
+        activeTab,
+        widgets,
+        disabledReasonFor,
+        onEdit,
+        tileActions,
+        downloadImage,
+        downloadingImage,
+        expandTile,
+    } = useDashboardV2()
     const otherTabs = gridTabs(dashboard).filter((tab) => tab.id !== activeTab.id)
     const definition = findWidget(widgets, widget.type)
 
-    const actions: MenuAction[] = []
+    const actions: MenuAction[] = [
+        {
+            key: 'expand',
+            label: 'Expand',
+            dataAttr: 'dashboard-v2-tile-expand',
+            disabledReason: null,
+            onSelect: () => expandTile(id),
+        },
+    ]
     if (otherTabs.length > 0) {
         actions.push({
             key: 'move',

@@ -12,6 +12,7 @@ import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
+import { ExpandedTile } from '../tiles/ExpandedTile'
 import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
@@ -83,6 +84,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         []
     )
     const rootRef = useRef<HTMLDivElement>(null)
+    const [expandedTileId, expandTile] = useState<string | null>(null)
     // A capture mounts what it shows, so the image has no placeholders: the whole tab, or with `tileId` that tile only.
     const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
     const downloadingImage = capturing !== null
@@ -127,8 +129,10 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             onSectionFoldedChange,
             downloadImage: (format, tileId) => void downloadImage(format, tileId),
             downloadingImage,
+            expandedTileId,
+            expandTile,
         }
-    }, [controller, stacked, sizeOf, folds, onSectionFoldedChange, downloadImage, downloadingImage])
+    }, [controller, stacked, sizeOf, folds, onSectionFoldedChange, downloadImage, downloadingImage, expandedTileId])
     const drag = useMemo<GridDragState>(() => ({ dropTarget, setDropTarget }), [dropTarget])
     const [mountScheduler] = useState(createTileMountScheduler)
     useEffect(() => () => mountScheduler.dispose(), [mountScheduler])
@@ -194,6 +198,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
                                     )}
                                 </div>
                             </div>
+                            <ExpandedTile />
                         </CapturingTileContext.Provider>
                     </TileMountContext.Provider>
                 </TimeRangeContext.Provider>
