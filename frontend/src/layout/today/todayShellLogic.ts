@@ -305,8 +305,14 @@ export interface todayShellLogicActions {
     setHelpMenuOpen: (isOpen: boolean) => {
         isOpen: boolean
     } // helpMenuLogic
+    toggleHelpMenu: () => {
+        value: true
+    } // helpMenuLogic
     setAccountMenuOpen: (isOpen: boolean) => {
         isOpen: boolean
+    } // newAccountMenuLogic
+    toggleAccountMenu: () => {
+        value: true
     } // newAccountMenuLogic
     locationChanged: ({
         method,
@@ -471,9 +477,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
             router,
             ['locationChanged'],
             helpMenuLogic,
-            ['setHelpMenuOpen'],
+            ['setHelpMenuOpen', 'toggleHelpMenu'],
             newAccountMenuLogic,
-            ['setAccountMenuOpen'],
+            ['setAccountMenuOpen', 'toggleAccountMenu'],
         ],
     })),
     actions({
@@ -668,12 +674,19 @@ export const todayShellLogic = kea<todayShellLogicType>([
         mobileLayout: () => actions.setMobileSidebarOpen(false),
     })),
     listeners(({ actions, values, cache }) => ({
-        // On the rail the account menu holds what the help menu held, so the help shortcut opens it. The phone layout
-        // keeps the help menu as its More sheet.
+        // On the rail the account menu holds what the help menu held, so whatever opens the help menu opens the account
+        // menu instead: the `?` shortcut toggles it, and the nav switch sets it. The phone layout keeps the help menu
+        // as its More sheet.
         setHelpMenuOpen: ({ isOpen }) => {
             if (isOpen && values.todayRailEnabled && !values.phoneLayout) {
                 actions.setHelpMenuOpen(false)
                 actions.setAccountMenuOpen(true)
+            }
+        },
+        toggleHelpMenu: () => {
+            if (values.todayRailEnabled && !values.phoneLayout) {
+                actions.setHelpMenuOpen(false)
+                actions.toggleAccountMenu()
             }
         },
         toggleSidebar: ({ source }) => {

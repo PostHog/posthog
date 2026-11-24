@@ -32,7 +32,12 @@ const PANE_TYPES: Partial<Record<TodayRailPane, readonly string[]>> = {
 
 export function railEntryMatchesPane(entry: FileSystemEntry, pane: TodayRailPane): boolean {
     const type = fileSystemBaseType(entry.type)
-    return pane === 'products' ? !['folder', 'task'].includes(type) : (PANE_TYPES[pane]?.includes(type) ?? false)
+    if (pane === 'products') {
+        return !['folder', 'task'].includes(type)
+    }
+    // A pane lists most types by their base, such as `insight`, but some by their full type, such as `hog_function/destination`.
+    const paneTypes = PANE_TYPES[pane] ?? []
+    return paneTypes.includes(type) || paneTypes.includes(entry.type ?? '')
 }
 
 export function railPreviewItem(entry: FileSystemEntry): TodayRailPreviewItem | null {

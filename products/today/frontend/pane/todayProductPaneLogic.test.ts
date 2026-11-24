@@ -27,7 +27,7 @@ describe('todayProductPaneLogic', () => {
     })
 
     it('adds viewed destinations to the pane recents once each, skips ones never opened, and sorts by name', () => {
-        const opened = { type: 'destination' as const, name: 'Slack alerts', href: '/functions/a' }
+        const opened = { type: 'hog_function/destination' as const, name: 'Slack alerts', href: '/functions/a' }
         const viewed = (ref: string, name: string, lastViewedAt?: string): FileSystemEntry => ({
             id: ref,
             path: `Unfiled/Destinations/${name}`,

@@ -574,6 +574,7 @@ export interface inboxSceneLogicValues {
     selectedReportLoading: boolean
     selectedReportResponse: SignalReport | null
     selectedReportResponseLoading: boolean
+    selectedScoutConfig: SignalScoutConfig | null
     selectedScoutFindingId: string | null
     selectedScoutSkillName: string | null
     signalRuns: SignalRun[]
@@ -687,17 +688,18 @@ export interface inboxSceneLogicMeta {
             activeTab: InboxTabKey,
             selectedScoutSkillName: string | null
         ) => boolean
+        selectedScoutConfig: (
+            selectedScoutSkillName: string | null,
+            scoutConfigs: SignalScoutConfig[] | null
+        ) => SignalScoutConfig | null
         breadcrumbs: (
             selectedReport: SignalReport | null,
             selectedReportId: string | null,
             scoutsInAutomate: boolean,
-            selectedScoutSkillName: string | null,
-            scoutConfigs: SignalScoutConfig[] | null
+            selectedScoutConfig: SignalScoutConfig | null,
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
-        todayRecent: (
-            selectedScoutSkillName: string | null,
-            scoutConfigs: SignalScoutConfig[] | null
-        ) => TodayAutomateRecent | null
+        todayRecent: (selectedScoutConfig: SignalScoutConfig | null) => TodayAutomateRecent | null
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -981,46 +983,50 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 isTodayPaneEnabled('automate', featureFlags) &&
                 (activeTab === 'scouts' || !!selectedScoutSkillName),
         ],
-        breadcrumbs: [
-            (s) => [s.selectedReport, s.selectedReportId, s.scoutsInAutomate, s.selectedScoutSkillName, s.scoutConfigs],
-            (
-                selectedReport: SignalReport | null,
-                selectedReportId: string | null,
-                scoutsInAutomate: boolean,
-                selectedScoutSkillName: string | null,
-                scoutConfigs: SignalScoutConfig[] | null
-            ): Breadcrumb[] => {
-                if (scoutsInAutomate) {
-                    const config = scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName)
-                    return [
-                        { key: 'scouts', name: 'Scouts', iconType: 'inbox', path: urls.inbox('scouts') },
-                        ...(config ? [{ key: config.skill_name, name: scoutDisplayName(config) }] : []),
-                    ]
-                }
-                return [
-                    {
-                        key: 'inbox',
-                        name: sceneConfigurations[Scene.Inbox].name,
-                        iconType: 'inbox',
-                        path: urls.inbox('reports'),
-                    },
-                    ...(selectedReport && selectedReport.id === selectedReportId
-                        ? [{ key: selectedReport.id, name: selectedReport.title }]
-                        : []),
-                ]
-            },
-        ],
-        [TODAY_RECENT_KEY]: [
+        selectedScoutConfig: [
             (s) => [s.selectedScoutSkillName, s.scoutConfigs],
             (
                 selectedScoutSkillName: string | null,
                 scoutConfigs: SignalScoutConfig[] | null
-            ): TodayAutomateRecent | null => {
-                const config = scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName)
-                return config
-                    ? { type: 'scout', name: scoutDisplayName(config), href: urls.inboxScout(config.skill_name) }
-                    : null
+            ): SignalScoutConfig | null =>
+                scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName) ?? null,
+        ],
+        breadcrumbs: [
+            (s) => [s.selectedReport, s.selectedReportId, s.scoutsInAutomate, s.selectedScoutConfig, s.featureFlags],
+            (
+                selectedReport: SignalReport | null,
+                selectedReportId: string | null,
+                scoutsInAutomate: boolean,
+                selectedScoutConfig: SignalScoutConfig | null,
+                featureFlags: FeatureFlagsSet
+            ): Breadcrumb[] => {
+                const root: Breadcrumb = scoutsInAutomate
+                    ? { key: 'scouts', name: 'Scouts', iconType: 'inbox', path: urls.inbox('scouts') }
+                    : {
+                          key: 'inbox',
+                          name: sceneConfigurations[Scene.Inbox].name,
+                          iconType: 'inbox',
+                          path: urls.inbox('reports'),
+                      }
+                // Under the new navigation the phone header shows the last breadcrumb, so a scout's page names the scout.
+                if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && selectedScoutConfig) {
+                    return [root, { key: selectedScoutConfig.skill_name, name: scoutDisplayName(selectedScoutConfig) }]
+                }
+                return selectedReport && selectedReport.id === selectedReportId
+                    ? [root, { key: selectedReport.id, name: selectedReport.title }]
+                    : [root]
             },
+        ],
+        [TODAY_RECENT_KEY]: [
+            (s) => [s.selectedScoutConfig],
+            (selectedScoutConfig: SignalScoutConfig | null): TodayAutomateRecent | null =>
+                selectedScoutConfig
+                    ? {
+                          type: 'scout',
+                          name: scoutDisplayName(selectedScoutConfig),
+                          href: urls.inboxScout(selectedScoutConfig.skill_name),
+                      }
+                    : null,
         ],
         isStaff: [
             () => [userLogic.selectors.user],

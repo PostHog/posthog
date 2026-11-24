@@ -178,7 +178,11 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 loaded: boolean
             ): TodayAutomateRecent | null =>
                 loaded && id && id !== 'new' && (type === 'destination' || type === 'site_destination')
-                    ? { type: 'destination', name: configuration.name || 'Destination', href: urls.hogFunction(id) }
+                    ? {
+                          type: 'hog_function/destination',
+                          name: configuration.name || 'Destination',
+                          href: urls.hogFunction(id),
+                      }
                     : null,
         ],
         supportsBackfills: [

@@ -145,12 +145,9 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                         >
                             Refresh status
                         </LemonButton>
-                        {selectedConfig && (
-                            <>
-                                <ScoutRubricsButton config={selectedConfig} />
-                                <ScoutDialogs config={selectedConfig} />
-                            </>
-                        )}
+                        {selectedConfig && <ScoutRubricsButton config={selectedConfig} />}
+                        {/* Embedded in a scout's page, which hosts that scout's dialogs; a second host opens each twice. */}
+                        {selectedConfig && !props.fixedConfigId && <ScoutDialogs config={selectedConfig} />}
                     </div>
                 </>
             ) : (

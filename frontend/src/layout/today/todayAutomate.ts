@@ -41,7 +41,7 @@ export function destinationRecentsFromViews(entries: FileSystemEntry[]): TodayAu
         entry.ref && entry.last_viewed_at
             ? [
                   {
-                      type: 'destination',
+                      type: 'hog_function/destination',
                       name: splitPath(entry.path).at(-1) ?? entry.path,
                       href: urls.hogFunction(entry.ref),
                   },
@@ -71,7 +71,7 @@ export const AUTOMATE_PANE: TodayProductPaneConfig = {
             label: 'Workflow',
             description: 'A workflow. Open it to see its steps, runs, and metrics.',
         },
-        destination: {
+        'hog_function/destination': {
             iconType: 'data_pipeline',
             label: 'Destination',
             description: 'A destination. Open it to see its configuration and the events it sent.',

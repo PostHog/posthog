@@ -21,7 +21,18 @@ const releaseVisit = (id: string, name: string, viewedAt: string): StoredVisit =
 
 type StoredVisit = Parameters<typeof releaseRecentEntries>[1][number]
 
-describe('the release rail card recents', () => {
+describe('the rail card recents', () => {
+    it('lists a destination on the Automate card, which matches it by its full type', () => {
+        const destination: FileSystemEntry = {
+            id: 'fs-d',
+            path: 'Unfiled/Destinations/Slack alerts',
+            type: 'hog_function/destination',
+            ref: 'd-1',
+            href: '/functions/d-1',
+        }
+        expect(railPreviewItems([destination], 'automate').map((row) => row.name)).toEqual(['Slack alerts'])
+    })
+
     const sharedRecents = [
         flag('1', 'checkout-v2', '2026-09-28T12:00:00Z'),
         flag('2', 'new-onboarding', '2026-09-28T11:00:00Z'),

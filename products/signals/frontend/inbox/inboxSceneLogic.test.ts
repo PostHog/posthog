@@ -346,19 +346,32 @@ describe('inboxSceneLogic routing', () => {
         })
 
         it.each([
-            ['the Automate pane on', true],
-            ['the Automate pane off', false],
-        ])('names the scout page in breadcrumbs with %s', (_, automateOn) => {
+            { navigation: 'the Automate pane', railNav: true, dataArea: true, root: 'Scouts', namesScout: true },
+            {
+                navigation: 'the new navigation',
+                railNav: true,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: true,
+            },
+            {
+                navigation: 'the old navigation',
+                railNav: false,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: false,
+            },
+        ])('names a scout page in breadcrumbs under $navigation', ({ railNav, dataArea, root, namesScout }) => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-                [FEATURE_FLAGS.DATA_AREA]: automateOn,
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: railNav,
+                [FEATURE_FLAGS.DATA_AREA]: dataArea,
             })
             mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
             const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
             scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
             expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(
-                automateOn ? ['Scouts', scoutDisplayName(config)] : ['Self-driving inbox']
+                namesScout ? [root, scoutDisplayName(config)] : [root]
             )
         })
 
