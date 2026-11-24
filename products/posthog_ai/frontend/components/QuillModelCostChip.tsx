@@ -1,7 +1,8 @@
+import { useValues } from 'kea'
+
 import { Text } from '@posthog/quill'
 
-import { COST_BASELINE_LABEL } from 'products/tasks/frontend/modelCatalog.generated'
-
+import { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 import { getModelCost } from '../utils/composerModels'
 
 /**
@@ -9,7 +10,8 @@ import { getModelCost } from '../utils/composerModels'
  * tooltip competes with the popup's focus handling.
  */
 export function QuillModelCostChip({ model }: { model: string }): JSX.Element | null {
-    const cost = getModelCost(model)
+    const { catalogue, costBaselineLabel } = useValues(modelCatalogueLogic)
+    const cost = getModelCost(catalogue, model)
 
     if (!cost) {
         return null
@@ -20,7 +22,7 @@ export function QuillModelCostChip({ model }: { model: string }): JSX.Element | 
             size="xs"
             variant="muted"
             className="tabular-nums whitespace-nowrap"
-            title={`Cost per token vs ${COST_BASELINE_LABEL}. ${cost.summary}`}
+            title={`Cost per token vs ${costBaselineLabel}. ${cost.summary}`}
             data-attr="model-cost-multiplier"
             render={<span className="m-0" />}
         >

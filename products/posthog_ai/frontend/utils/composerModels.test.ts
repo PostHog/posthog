@@ -30,12 +30,14 @@ describe('composerModels', () => {
             model: 'claude-opus-4-8',
             display_name: 'Claude Opus 4.8',
             supported_efforts: ['low', 'medium', 'high'],
+            offered: true,
         },
         {
             runtime_adapter: 'codex',
             model: 'gpt-5.6-luna',
             display_name: 'GPT-5.6 Luna',
             supported_efforts: ['low', 'medium', 'high'],
+            offered: true,
         },
     ]
 
@@ -53,18 +55,21 @@ describe('composerModels', () => {
                 model: 'gpt-6-sol',
                 display_name: 'GPT-6 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6.1-sol',
                 display_name: 'GPT-6.1 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6.2-sol',
                 display_name: 'GPT-6.2 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
         ]
 
@@ -79,6 +84,7 @@ describe('composerModels', () => {
                 model: model.id,
                 display_name: model.label,
                 supported_efforts: [...model.reasoningEfforts] as ReasoningEffortEnumApi[],
+                offered: true,
             }))
             const model = getDefaultModelForRuntimeAdapter(catalogue, adapter, null)
 
@@ -145,8 +151,20 @@ describe('composerModels', () => {
         ['anthropic/claude-opus-5', '2.5×'],
         ['gpt-5', null],
         ['some-unreleased-model', null],
-    ])('reads the cost of %s off the catalog', (model, expected) => {
-        expect(getModelCost(model)?.multiplier ?? null).toBe(expected)
+    ])('reads the cost of %s off the catalogue', (model, expected) => {
+        const priced: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5',
+                display_name: 'Claude Opus 5',
+                supported_efforts: [],
+                cost_multiplier: '2.5×',
+                cost_summary: 'Input $5 · Output $25 per 1M tokens',
+                offered: true,
+            },
+            { runtime_adapter: 'codex', model: 'gpt-5', display_name: 'GPT-5', supported_efforts: [], offered: true },
+        ]
+        expect(getModelCost(priced, model)?.multiplier ?? null).toBe(expected)
     })
 
     // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
@@ -174,6 +192,7 @@ describe('composerModels', () => {
                     model: 'moonshotai/kimi-k3',
                     display_name: 'Moonshotai Kimi K3',
                     supported_efforts: [],
+                    offered: true,
                 },
             ],
             'moonshotai/kimi-k3',
@@ -195,12 +214,14 @@ describe('composerModels', () => {
                 model: 'claude-sonnet-5-5',
                 display_name: 'Claude Sonnet 5.5',
                 supported_efforts: ['low', 'medium'],
+                offered: true,
             },
             {
                 runtime_adapter: 'claude',
                 model: 'claude-opus-5-5',
                 display_name: 'Claude Opus 5.5',
                 supported_efforts: ['medium', 'high', 'xhigh'],
+                offered: true,
             },
         ]
 
@@ -220,12 +241,14 @@ describe('composerModels', () => {
                 model: 'gpt-5.6-sol',
                 display_name: 'GPT-5.6 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6-astra',
                 display_name: 'GPT-6 Astra',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
         ]
 
@@ -253,6 +276,7 @@ describe('composerModels', () => {
             model: 'claude-opus-4-7',
             display_name: 'Claude Opus 4.7',
             supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+            offered: false,
         }
         const FULL = [...CATALOGUE, RETIRED]
 

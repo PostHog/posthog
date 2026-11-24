@@ -9,11 +9,10 @@ import {
     TaskRunCreateRequestSchemaApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
     CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
-    MODELS,
     REASONING_EFFORT_LABELS,
     RUNTIME_OPTIONS,
 } from 'products/tasks/frontend/modelCatalog.generated'
@@ -100,7 +99,7 @@ export function modelsForRuntimeAdapter(
 // every keystroke.
 export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
     const selected = catalogueEntry(catalogue, selectedModel)
-    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+    return catalogue.filter((option) => option.offered || option.model === selected?.model)
 }
 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
@@ -169,15 +168,12 @@ export interface ModelCostDisplay {
 }
 
 /** What a model costs, or `null` where the catalog quotes no rate and a picker shows none. */
-export function getModelCost(model: string | null | undefined): ModelCostDisplay | null {
-    if (!model) {
+export function getModelCost(catalogue: ModelChoiceApi[], model: string | null | undefined): ModelCostDisplay | null {
+    const entry = catalogueEntry(catalogue, model)
+    if (!entry?.cost_multiplier || !entry.cost_summary) {
         return null
     }
-    const entry = MODELS.find((candidate) => candidate.id === normalizeModelId(model))
-    if (!entry?.costMultiplier || !entry.costSummary) {
-        return null
-    }
-    return { multiplier: entry.costMultiplier, summary: entry.costSummary }
+    return { multiplier: entry.cost_multiplier, summary: entry.cost_summary }
 }
 
 // Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of

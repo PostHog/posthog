@@ -8,6 +8,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import {
+    TEST_MODEL_LISTING,
+    TEST_MODEL_LISTING_ROUTE,
+    loadTestModelCatalogue,
+} from 'products/posthog_ai/frontend/logics/modelCatalogueFixture'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ScoutConfigForm } from './ScoutConfigControls'
@@ -69,7 +74,9 @@ describe('ScoutConfigForm', () => {
         // featureFlagLogic persists to localStorage, which jsdom keeps across tests — without
         // clearing, a flag set in one test leaks into the next test's mount-time state.
         localStorage.clear()
+        useMocks({ get: { [TEST_MODEL_LISTING_ROUTE]: TEST_MODEL_LISTING } })
         initKeaTests()
+        loadTestModelCatalogue()
     })
     afterEach(cleanup)
 

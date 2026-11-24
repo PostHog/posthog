@@ -139,6 +139,7 @@ import type {
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
     TasksListParams,
+    TasksModelsRetrieveParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
     TasksRunsArtifactsPreviewRetrieveParams,
@@ -2811,8 +2812,20 @@ export const tasksConfigAgentInstructionsCreate = async (
     })
 }
 
-export const getTasksModelsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/models/`
+export const getTasksModelsRetrieveUrl = (projectId: string, params?: TasksModelsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/models/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/models/`
 }
 
 /**
@@ -2821,9 +2834,10 @@ export const getTasksModelsRetrieveUrl = (projectId: string) => {
  */
 export const tasksModelsRetrieve = async (
     projectId: string,
+    params?: TasksModelsRetrieveParams,
     options?: RequestInit
 ): Promise<ModelCatalogueResponseApi> => {
-    return apiMutator<ModelCatalogueResponseApi>(getTasksModelsRetrieveUrl(projectId), {
+    return apiMutator<ModelCatalogueResponseApi>(getTasksModelsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

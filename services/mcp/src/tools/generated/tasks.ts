@@ -619,7 +619,10 @@ const tasksMeConfigList = (): ToolBase<
     },
 })
 
-const TasksModelsRetrieveSchema = () => z.object({})
+const TasksModelsRetrieveSchema = () => {
+    const TasksModelsRetrieveQueryParams = orvalSchemas.TasksModelsRetrieveQueryParams()
+    return TasksModelsRetrieveQueryParams
+}
 
 const tasksModelsRetrieve = (): ToolBase<
     ReturnType<typeof TasksModelsRetrieveSchema>,
@@ -627,11 +630,14 @@ const tasksModelsRetrieve = (): ToolBase<
 > => ({
     name: 'tasks-models-retrieve',
     schema: TasksModelsRetrieveSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof TasksModelsRetrieveSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksModelsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ModelCatalogueResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/models/`,
+            query: {
+                include_unoffered: params.include_unoffered,
+            },
         })
         return result
     },

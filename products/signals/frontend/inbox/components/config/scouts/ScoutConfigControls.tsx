@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
@@ -9,13 +9,13 @@ import { describeCron } from 'lib/cron'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import { SandboxCustomImagesListOriginProduct } from 'products/tasks/frontend/generated/api.schemas'
-import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
 import {
@@ -67,12 +67,6 @@ const SCOUT_MODEL_IDS = [
     'gpt-6-astra',
 ]
 
-// Labels come from the generated catalog, so every surface names a model the same way.
-const SCOUT_MODEL_OPTIONS: { value: string | null; label: string }[] = [
-    { value: null, label: 'Default' },
-    ...SCOUT_MODEL_IDS.map((id) => ({ value: id, label: MODELS.find((model) => model.id === id)?.label ?? id })),
-]
-
 interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     onDelete?: (configId: string) => void
     /** True while this scout's delete request is in flight — disables the delete button. */
@@ -117,6 +111,17 @@ export function ScoutConfigForm({
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { catalogue } = useValues(modelCatalogueLogic)
+    const scoutModelOptions = useMemo(
+        (): { value: string | null; label: string }[] => [
+            { value: null, label: 'Default' },
+            ...SCOUT_MODEL_IDS.map((id) => ({
+                value: id,
+                label: catalogue.find((choice) => choice.model === id)?.display_name ?? id,
+            })),
+        ],
+        [catalogue]
+    )
     const weekly = weeklyCronToDayTime(config.run_cron_schedule)
     const runTime = dailyCronToTime(config.run_cron_schedule) ?? weekly?.time ?? DEFAULT_SCOUT_DAILY_TIME
     const weeklyDay = weekly?.day ?? DEFAULT_SCOUT_WEEKLY_DAY
@@ -295,9 +300,9 @@ export function ScoutConfigForm({
                         // A pin stored via the API can name a catalog model the picker doesn't offer;
                         // keep it selected (hidden from the menu) so opening the picker doesn't lose it.
                         options={
-                            config.model && !SCOUT_MODEL_OPTIONS.some((option) => option.value === config.model)
-                                ? [...SCOUT_MODEL_OPTIONS, { value: config.model, label: config.model, hidden: true }]
-                                : SCOUT_MODEL_OPTIONS
+                            config.model && !scoutModelOptions.some((option) => option.value === config.model)
+                                ? [...scoutModelOptions, { value: config.model, label: config.model, hidden: true }]
+                                : scoutModelOptions
                         }
                         // Editable while the scout is disabled for the same reason as network access:
                         // a newly enabled scout is immediately due, so the model must be settable first.

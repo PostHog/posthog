@@ -3678,6 +3678,20 @@ class ModelChoiceSerializer(DataclassSerializer):
             "flatters either. Null for a model the catalogue quotes no rate for."
         ),
     )
+    cost_summary = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The list rates behind the multiplier, ready to display, such as "
+            "'Input $2 · Output $10 per 1M tokens'. Null wherever cost_multiplier is null."
+        ),
+    )
+    offered = serializers.BooleanField(
+        help_text=(
+            "Whether a picker should offer this model. False for an older version a run may still use, "
+            "which is listed only when include_unoffered is set."
+        ),
+    )
     context_window = serializers.IntegerField(
         required=False, help_text="Largest context window the model accepts, in tokens."
     )
@@ -3694,15 +3708,31 @@ class ModelChoiceSerializer(DataclassSerializer):
             "display_name",
             "supported_efforts",
             "cost_multiplier",
+            "cost_summary",
+            "offered",
             "context_window",
             "allowed",
         ]
+
+
+class ModelCatalogueQuerySerializer(serializers.Serializer):
+    include_unoffered = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also list the models a run may still use that no picker offers, such as older versions of a "
+            "model family. Each row's `offered` field tells the two apart. Defaults to false."
+        ),
+    )
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
     models = ModelChoiceSerializer(
         many=True,
         help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+    )
+    cost_baseline = serializers.CharField(
+        help_text="Display name of the model every cost_multiplier is measured against, such as 'Claude Sonnet 5'.",
     )
 
 

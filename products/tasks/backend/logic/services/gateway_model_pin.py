@@ -198,6 +198,11 @@ def offered_listing(product: str, listing: tuple[GatewayModel, ...]) -> tuple[Ga
 
 
 def admitted_listing(product: str, listing: tuple[GatewayModel, ...]) -> tuple[GatewayModel, ...]:
+    pin = PRODUCT_ALLOWED_MODELS.get(product)
+    if pin is None:
+        return listing
+    if product not in PRODUCT_MODEL_FAMILIES:
+        return tuple(listed for listed in listing if _in_static_pin(pin, listed.id))
     admitted = set(family_models(product, listing).admitted)
     return tuple(listed for listed in listing if normalize_model_id(listed.id) in admitted)
 

@@ -73,6 +73,7 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.facade.profiles import (
     ContractCheck,
     GithubResolution,
@@ -20532,6 +20533,80 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         self.assertIs(models["claude-opus-5-5"]["allowed"], opus_allowed)
         self.assertIs(models["moonshotai/kimi-k3.1-pro"]["allowed"], True)
 
+    @parameterized.expand(
+        [
+            ("offered_only", "", [("gpt-6.4-sol", True), ("gpt-6.5-sol", True)]),
+            (
+                "with_unoffered",
+                "?include_unoffered=true",
+                [("gpt-6.3-sol", False), ("gpt-6.4-sol", True), ("gpt-6.5-sol", True)],
+            ),
+        ]
+    )
+    def test_lists_an_older_version_only_when_asked(self, _name, query, expected):
+        listing = tuple(
+            GatewayModel(
+                id=model,
+                owned_by="openai",
+                context_window=1_050_000,
+                family="gpt-sol",
+                release_date=release_date,
+                api_shapes=("openai-responses",),
+            )
+            for model, release_date in (
+                ("gpt-6.3-sol", "2027-01-10"),
+                ("gpt-6.4-sol", "2027-03-01"),
+                ("gpt-6.5-sol", "2027-05-01"),
+            )
+        )
+        with serve_gateway_listing(listing):
+            response = self.client.get(f"/api/projects/@current/tasks/models/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([(m["model"], m["offered"]) for m in response.json()["models"]], expected)
+
+    def test_quotes_each_cost_against_the_named_baseline(self):
+        listing = (
+            GatewayModel(
+                id="claude-sonnet-5",
+                owned_by="anthropic",
+                context_window=1_000_000,
+                name="Claude Sonnet 5",
+                family="claude-sonnet",
+                input_per_mtok=2.0,
+                output_per_mtok=10.0,
+                api_shapes=("anthropic-messages",),
+            ),
+            GatewayModel(
+                id="claude-opus-5-5",
+                owned_by="anthropic",
+                context_window=1_000_000,
+                family="claude-opus",
+                input_per_mtok=4.0,
+                output_per_mtok=20.0,
+                api_shapes=("anthropic-messages",),
+            ),
+            GatewayModel(
+                id="claude-fable-5-2",
+                owned_by="anthropic",
+                context_window=1_000_000,
+                family="claude-fable",
+                api_shapes=("anthropic-messages",),
+            ),
+        )
+        with serve_gateway_listing(listing):
+            body = self.client.get("/api/projects/@current/tasks/models/").json()
+
+        self.assertEqual(body["cost_baseline"], "Claude Sonnet 5")
+        self.assertEqual(
+            {m["model"]: (m["cost_multiplier"], m["cost_summary"]) for m in body["models"]},
+            {
+                "claude-sonnet-5": ("1×", "Input $2 · Output $10 per 1M tokens"),
+                "claude-opus-5-5": ("2×", "Input $4 · Output $20 per 1M tokens"),
+                "claude-fable-5-2": (None, None),
+            },
+        )
+
     def test_unreachable_cache_yields_an_empty_catalogue_rather_than_an_error(self):
         # The cache is an optimization in front of the gateway; if Redis is down the endpoint still has to
         # answer with the documented empty catalogue rather than 500 every caller.
@@ -20542,7 +20617,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
             response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"models": []})
+        self.assertEqual(response.json()["models"], [])
 
     def test_unreachable_gateway_yields_an_empty_catalogue_rather_than_an_error(self):
         # `list_gateway_models` swallows gateway failures into an empty tuple; the endpoint must pass
@@ -20554,7 +20629,7 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
             response = self.client.get("/api/projects/@current/tasks/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"models": []})
+        self.assertEqual(response.json()["models"], [])
 
 
 class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):

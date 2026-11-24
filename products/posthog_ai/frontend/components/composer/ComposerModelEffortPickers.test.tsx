@@ -18,12 +18,14 @@ const CATALOGUE: ModelChoiceApi[] = [
         model: 'claude-sonnet-5-5',
         display_name: 'Claude Sonnet 5.5',
         supported_efforts: [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
+        offered: true,
     },
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-opus-5',
         display_name: 'Claude Opus 5',
         supported_efforts: [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
+        offered: true,
     },
 ]
 
@@ -65,6 +67,7 @@ describe('ComposerModelEffortPickers', () => {
                     model,
                     display_name: model,
                     supported_efforts: [ReasoningEffortEnumApi.High],
+                    offered: true,
                 })),
             ],
         }
@@ -90,6 +93,7 @@ describe('ComposerModelEffortPickers', () => {
                 model: 'gpt-6-sol',
                 display_name: 'GPT-6 Sol',
                 supported_efforts: [ReasoningEffortEnumApi.High],
+                offered: true,
             },
         ]
         const billing = (overrides = {}): React.ComponentProps<typeof ComposerModelEffortPickers>['codexBilling'] => ({
@@ -148,6 +152,7 @@ describe('ComposerModelEffortPickers', () => {
                     model: 'gpt-6-sol',
                     display_name: 'GPT-6 Sol',
                     supported_efforts: [ReasoningEffortEnumApi.High],
+                    offered: true,
                 },
             ],
         })

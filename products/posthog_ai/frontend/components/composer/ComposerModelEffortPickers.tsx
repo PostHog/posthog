@@ -188,7 +188,7 @@ export function ComposerModelEffortPickers({
                 adapterModels: offered,
                 ladder: getCapabilityLadder(models, adapter),
                 // The legend explains a symbol, so it only belongs where a row carries one.
-                showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
+                showsAnyCost: offered.some((option) => !!getModelCost(models, option.model)),
             }
         }, [models, selectedModel, taskRuntime])
 
