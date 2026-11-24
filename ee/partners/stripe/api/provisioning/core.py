@@ -207,9 +207,12 @@ class ProjectCreationRefusedError(Exception):
 
 
 def _assert_user_can_create_project(user: User, organization: Organization) -> None:
-    # A partner created this organization to hold the projects it provisions, so its admin-only
-    # setting does not stop the partner flow from adding one.
-    if OrganizationProvisioning.objects.filter(organization=organization).exists():
+    # Stripe created this organization to hold the projects it provisions, so its admin-only
+    # setting does not stop the Stripe flow from adding one. Organizations other partners
+    # created get no exemption, because this API serves only the Stripe OAuth application.
+    if OrganizationProvisioning.objects.filter(
+        organization=organization, partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS
+    ).exists():
         return
 
     membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()

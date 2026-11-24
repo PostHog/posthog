@@ -240,10 +240,24 @@ class TestAccountRequests(StripeProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("member", OrganizationMembership.Level.MEMBER, False, False, "forbidden"),
-            ("member_when_organization_allows_it", OrganizationMembership.Level.MEMBER, True, False, None),
-            ("member_of_a_partner_created_organization", OrganizationMembership.Level.MEMBER, False, True, None),
-            ("admin", OrganizationMembership.Level.ADMIN, False, False, None),
+            ("member", OrganizationMembership.Level.MEMBER, False, None, "forbidden"),
+            ("member_when_organization_allows_it", OrganizationMembership.Level.MEMBER, True, None, None),
+            (
+                "member_of_a_stripe_created_organization",
+                OrganizationMembership.Level.MEMBER,
+                False,
+                OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+                None,
+            ),
+            (
+                "member_of_an_organization_another_partner_created",
+                OrganizationMembership.Level.MEMBER,
+                False,
+                OrganizationProvisioning.Partner.VERCEL,
+                "forbidden",
+            ),
+            ("admin", OrganizationMembership.Level.ADMIN, False, None, None),
+            ("owner", OrganizationMembership.Level.OWNER, False, None, None),
         ]
     )
     def test_existing_user_new_project_follows_project_creation_policy(
@@ -251,17 +265,18 @@ class TestAccountRequests(StripeProvisioningTestBase):
         _name: str,
         level: OrganizationMembership.Level,
         members_can_create_projects: bool,
-        partner_created: bool,
+        created_by: OrganizationProvisioning.Partner | None,
         error_code: str | None,
     ) -> None:
         self.organization.available_product_features = [UNLIMITED_PROJECTS_FEATURE, MEMBERS_CAN_CREATE_PROJECTS_FEATURE]
         self.organization.members_can_create_projects = members_can_create_projects
         self.organization.save()
-        if partner_created:
+        if created_by is not None:
             OrganizationProvisioning.objects.create(
                 organization=self.organization,
-                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-                application=self.stripe_app,
+                partner=created_by,
+                # Vercel provisions without an OAuth application.
+                application=self.stripe_app if created_by == OrganizationProvisioning.Partner.STRIPE_PROJECTS else None,
             )
         self.organization_membership.level = level
         self.organization_membership.save()
