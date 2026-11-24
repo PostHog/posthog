@@ -5,7 +5,11 @@ import pytest
 import pymysql
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc import binlog
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import is_connection_error
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import MySQLCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.errors import (
+    MySQLUnsupportedBinlogError,
+    is_connection_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.position import BinlogPosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.tests.conftest import DATABASE, connect
 
@@ -155,3 +159,12 @@ class TestErrorClassification:
     )
     def test_only_reaching_the_server_is_a_connection_error(self, exc, connection):
         assert is_connection_error(exc) is connection
+
+    def test_an_unreadable_event_tells_the_customer_what_to_change(self):
+        info = MySQLCDCAdapter().classify_error(
+            MySQLUnsupportedBinlogError("Set binlog_row_value_options to an empty value.")
+        )
+
+        assert info is not None and not info.retryable
+        assert info.friendly_message.startswith("Set binlog_row_value_options to an empty value.")
+        assert "Repair CDC" in info.friendly_message
