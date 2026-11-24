@@ -148,6 +148,7 @@ from .credential_refresh import CredentialRefreshExitReason, run_credential_refr
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+RESUME_SNAPSHOT_INVALID_ERROR_TYPES = (*DEAD_SANDBOX_ERROR_TYPES, "ResumeSnapshotCredentialScrubError")
 RUN_ENDING_FOLLOWUP_ERROR_TYPES = ("ActiveSessionCapError",)
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
@@ -161,7 +162,9 @@ class _TaskCompletedDuringSandboxCreation(Exception):
 
 def _is_dead_sandbox_failure(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
-    return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in RESUME_SNAPSHOT_INVALID_ERROR_TYPES
+    )
 
 
 def _failure_error_type(cause: BaseException | None, exc: Exception) -> str:
@@ -2140,14 +2143,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         repository=prepared.repository,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
-                    # A dead sandbox won't come back; fail fast into the fallback below.
+                    # A dead sandbox or unsafe restored filesystem needs a fresh sandbox.
                     retry_policy=RetryPolicy(
                         maximum_attempts=3,
-                        non_retryable_error_types=list(DEAD_SANDBOX_ERROR_TYPES),
+                        non_retryable_error_types=list(RESUME_SNAPSHOT_INVALID_ERROR_TYPES),
                     ),
                 )
             except Exception as e:
-                # Only a dead restored sandbox falls back: drop the poison snapshot, discard the
+                # A dead sandbox or unsafe restored filesystem falls back: drop the poison snapshot, discard the
                 # sandbox, and provision fresh (the agent resumes from run-log history, not the
                 # filesystem). Anything else — e.g. credential failures — would hit a fresh
                 # sandbox too, so let it fail the run without trashing a valid snapshot.
