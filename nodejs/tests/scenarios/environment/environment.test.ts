@@ -34,6 +34,7 @@ import {
 } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from './roles'
 import {
+    ProbeFailure,
     RESIDENT_TEAMS_FROM,
     SES_RATE_LIMIT_KEY,
     STACK,
@@ -716,7 +717,8 @@ describe('scenario environment', () => {
             ['-e', probe],
             { cwd: NODEJS_DIR }
         )
-        const down: string[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
+        const failures: ProbeFailure[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
+        const down = failures.map(({ name }) => name)
         expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
             postgres: true,
             kafka: false,
@@ -1812,7 +1814,7 @@ describe('scenario environment', () => {
             expect({
                 health: Object.fromEntries(health),
                 edge,
-                rolesDown: down.filter((name) => name in ROLE_PORTS),
+                rolesDown: down.filter(({ name }) => name in ROLE_PORTS),
             }).toEqual({
                 health: Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
                 edge: 200,

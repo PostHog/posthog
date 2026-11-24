@@ -1,0 +1,229 @@
+{
+  "comment": "Shared run policy contract. Consumed by both packages/agent/packages/agent/src/server/launch/run-policy.test.ts and products/tasks/backend/tests/test_agent_run_policy.py, so the policy the server resolves and the shape the agent reads cannot drift while both suites stay green.",
+  "policy_from_origin": [
+    {
+      "name": "a run a person started",
+      "origin_product": "user_created",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": true,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a run a person started with the end-run opt-in",
+      "origin_product": "user_created",
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": true,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an automated run",
+      "origin_product": "signal_report",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a caller-managed assessment run",
+      "origin_product": "signal_report",
+      "end_run_when_done": false,
+      "caller_ends_run": true,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a workflow run",
+      "origin_product": "workflow",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a workflow run with the end-run opt-in",
+      "origin_product": "workflow",
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": true,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a caller-managed workflow run with the end-run opt-in",
+      "origin_product": "workflow",
+      "end_run_when_done": true,
+      "caller_ends_run": true,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": true,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a ReviewHog run",
+      "origin_product": "review_hog",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a ReviewHog run with the end-run opt-in",
+      "origin_product": "review_hog",
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a scout suggestions run",
+      "origin_product": "scout_suggestions",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a scout suggestions run with the end-run opt-in",
+      "origin_product": "scout_suggestions",
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a task analysis run",
+      "origin_product": "task_analysis",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": true,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "a PostHog AI run",
+      "origin_product": "posthog_ai",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": true,
+        "thread_link": true,
+        "default_client_provenance": "posthog_web"
+      }
+    },
+    {
+      "name": "an unknown origin",
+      "origin_product": null,
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an empty origin",
+      "origin_product": "",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an unknown origin with the end-run opt-in",
+      "origin_product": null,
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    }
+  ]
+}

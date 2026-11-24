@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
     DatabaseField,
@@ -4795,7 +4796,10 @@ class TrinoPrinter(PostgresPrinter):
             return table.to_printed_trino(self.context)
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:
-            return ".".join(escape_trino_identifier(part) for part in locator)
+            table_ref = ".".join(escape_trino_identifier(part) for part in locator)
+            if isinstance(table, DirectSQLTable):
+                return table.project_allowed_columns(table_ref, escape_trino_identifier)
+            return table_ref
         self._unsupported(
             missing_trino_locator_error_code(table),
             f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",

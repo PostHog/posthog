@@ -202,6 +202,53 @@ describe('accountSidebarPropertiesLogic', () => {
         expect(accountDataRequest).not.toHaveBeenCalled()
     })
 
+    it('loads property data after following a default from empty personal pins', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': {
+                    pinned_properties: [],
+                    pinned_properties_source: { kind: 'personal', roles: [] },
+                    available_default_pinned_properties: [
+                        {
+                            source: { kind: 'project', role: null },
+                            pinned_properties: [{ kind: 'custom_property', id: definition.id }],
+                        },
+                    ],
+                },
+            },
+            patch: {
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': () => [
+                    200,
+                    {
+                        pinned_properties: [{ kind: 'custom_property', id: definition.id }],
+                        pinned_properties_source: { kind: 'project', roles: [] },
+                        available_default_pinned_properties: [
+                            {
+                                source: { kind: 'project', role: null },
+                                pinned_properties: [{ kind: 'custom_property', id: definition.id }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            propertyData: null,
+            propertiesPanelState: 'ready',
+            sidebarProperties: [],
+        })
+
+        const config = accountSidebarConfigLogic({ projectId: 1 })
+        config.actions.beginConfiguring()
+        config.actions.resetDraftToDefault(config.values.availableDefaultPinnedProperties[0])
+        await expectLogic(logic, () => config.actions.savePinnedProperties()).toFinishAllListeners()
+
+        expect(logic.values.propertiesPanelState).toBe('ready')
+        expect(logic.values.sidebarProperties).toMatchObject([{ key: 'custom:property-1', value: 'Starter' }])
+    })
+
     it('blocks the panel only until properties load, then keeps them through a failed refresh', async () => {
         silenceKeaLoadersErrors()
         let accountDataFails = true

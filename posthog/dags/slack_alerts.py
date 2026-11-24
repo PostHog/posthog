@@ -76,6 +76,10 @@ SLACK_BLOCK_REJECTION_ERRORS = frozenset(
     {"invalid_blocks", "invalid_blocks_format", "blocks_too_long", "msg_too_long", "metadata_too_large"}
 )
 
+# Slack refused the channel itself, usually because the alerts bot was never invited. The message did
+# not post, so resending it to the default channel can't duplicate it.
+SLACK_UNREACHABLE_CHANNEL_ERRORS = frozenset({"not_in_channel", "channel_not_found", "is_archived"})
+
 
 def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> bool:
     """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
@@ -91,6 +95,17 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
         return True
     except SlackApiError as e:
         error_code = e.response.get("error") if e.response is not None else None
+        default_channel = settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL
+        if error_code in SLACK_UNREACHABLE_CHANNEL_ERRORS and channel != default_channel:
+            context.log.warning(f"Slack refused {channel} ({error_code}), sending to {default_channel}")
+            note = f"Could not post to {channel} ({error_code}). Invite the Dagster alerts bot there."
+            return send_slack_alert(
+                context,
+                client,
+                default_channel,
+                [{"type": "context", "elements": [{"type": "mrkdwn", "text": note}]}, *blocks],
+                f"{note} {fallback_text}",
+            )
         if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
             # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
             context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")

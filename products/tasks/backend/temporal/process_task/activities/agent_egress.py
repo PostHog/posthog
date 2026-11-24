@@ -23,6 +23,7 @@ class AgentEgressProbeInput:
     run_id: str
     sandbox_id: str | None = None
     enrollment: bool = False
+    sandbox_expires_at: float | None = None
 
 
 @frozen
@@ -36,6 +37,7 @@ class AgentEgressExecutionInput:
 class AgentEgressPrepared:
     sandbox_id: str
     duration_seconds: int
+    enrollment_expires_at: float | None = None
 
 
 @frozen
@@ -63,6 +65,7 @@ def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> Ite
         execution_id=UUID(input.execution_id),
         workflow_run_id=activity.info().workflow_run_id or "",
         provisioning_deadline=input.provisioning_deadline,
+        sandbox_expires_at=input.probe.sandbox_expires_at,
     )
     try:
         yield session
@@ -73,7 +76,12 @@ def lifecycle(input: AgentEgressExecutionInput, *, cleanup: bool = False) -> Ite
 @asyncify
 def _prepare(input: AgentEgressExecutionInput) -> AgentEgressPrepared:
     with lifecycle(input) as session:
-        return AgentEgressPrepared(sandbox_id=session.prepare(), duration_seconds=session.config.duration_seconds)
+        sandbox_id = session.prepare()
+        return AgentEgressPrepared(
+            sandbox_id=sandbox_id,
+            duration_seconds=session.config.duration_seconds,
+            enrollment_expires_at=session.enrollment_expires_at,
+        )
 
 
 @activity.defn

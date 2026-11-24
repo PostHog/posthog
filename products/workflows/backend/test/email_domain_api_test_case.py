@@ -78,7 +78,7 @@ class EmailDomainApiTestCase(APIBaseTest):
 
     def publish(self, records: list[dict[str, Any]], *kinds: str) -> None:
         for record in records:
-            if record["kind"] in kinds:
+            if record["kind"] in kinds and record["status"] != "verified":
                 self.world.publish_record(record)
 
     def is_verified(self, integration_id: int) -> bool:
