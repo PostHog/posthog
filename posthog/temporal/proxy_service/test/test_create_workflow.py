@@ -218,7 +218,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         else:
             self.record.status = scenario
             self.record.save(update_fields=["status"])
-        temporal = AsyncMock(spec=Client)
+        temporal = AsyncMock()
         with responses.RequestsMock() as http, patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), record_id)
             self.assertEqual(len(http.calls), 0)
@@ -244,7 +244,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
     def test_reactivation_resumes_incomplete_provisioning(self, status: str) -> None:
         self.record.status = status
         self.record.save(update_fields=["status"])
-        temporal = AsyncMock()
+        temporal = AsyncMock(spec=Client)
         with responses.RequestsMock() as http, patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
             self.assertEqual(len(http.calls), 0)
