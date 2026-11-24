@@ -2,6 +2,7 @@ import os
 import time
 import asyncio
 import threading
+from collections.abc import Callable
 
 import structlog
 
@@ -30,6 +31,8 @@ _producer: InternalLogsProducer | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _token_lock = threading.Lock()
 _token_cache: dict[int, tuple[float, str]] = {}
+
+_register_before_thread_shutdown: Callable[..., None] = vars(threading)["_register_atexit"]
 
 
 def _read_api_token(team_id: int) -> str | None:
@@ -87,6 +90,6 @@ def send_internal_logs(source: str, entries: list[InternalLogEntry]) -> None:
             threading.Thread(target=_loop.run_forever, name="internal-logs-producer", daemon=True).start()
             # Not `atexit`, because those handlers run after the interpreter stops every thread pool, and the
             # producer needs one to read the team token and to resolve the capture-logs host.
-            threading._register_atexit(_drain, _pid, producer, _loop)  # type: ignore[attr-defined]
+            _register_before_thread_shutdown(_drain, _pid, producer, _loop)
         loop = _loop
     loop.call_soon_threadsafe(_enqueue, producer, source, entries)
