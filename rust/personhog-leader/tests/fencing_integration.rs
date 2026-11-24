@@ -2305,10 +2305,8 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
     );
 }
 
-/// A cancelled handoff leaves this pod the owner with its cache intact,
-/// and routers drain their stashed reads back to it. Those reads must not
-/// wait on the broker round trip that re-admits writes, or a broker
-/// outage during a cancel turns a write-side fault into a read outage.
+/// A cancelled handoff must serve reads again without the broker round
+/// trip that re-admits writes.
 #[tokio::test]
 async fn a_resume_that_cannot_acquire_still_admits_strong_reads() {
     let topic = format!("fence_resume_reads_{}", uuid::Uuid::new_v4().simple());

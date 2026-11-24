@@ -438,11 +438,9 @@ async fn mismatched_partition_metadata_returns_failed_precondition() {
 /// stale table (an expired lease it hasn't noticed, a missed freeze).
 /// Accepting it would produce to Kafka past the HWM that warming
 /// snapshots, silently losing the write from the new owner's cache. After
-/// draining, the old owner must reject writes for the partition. It must
-/// reject strong reads too: it keeps its cache past cutover until it
-/// observes `Complete`, so the same stale router would read state the new
-/// owner has already written past. Releasing the partition clears the
-/// fence with it.
+/// draining, the old owner must reject writes for the partition, and
+/// strong reads with them, because it keeps its cache past cutover.
+/// Releasing the partition clears the fence with it.
 #[tokio::test]
 async fn writes_and_strong_reads_fenced_after_drain() {
     let cache = Arc::new(PartitionedCache::new(1 << 20));

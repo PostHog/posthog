@@ -238,9 +238,8 @@ pub struct HandoffModel {
     pub reads: u8,
     /// Total failure events (crash-restarts + lease expiries).
     pub crashes: u8,
-    /// Router lease expiries on top of `crashes`. A scenario that needs a
-    /// pod failure and a router failure together would otherwise have to
-    /// raise `crashes`, which also admits every two-pod-failure trace.
+    /// Router lease expiries on top of `crashes`, so a scenario can pair
+    /// one pod failure with one router failure without `crashes: 2`.
     pub router_expiries: u8,
     /// Total deadline cancellations the checker may inject.
     pub cancels: u8,
@@ -291,8 +290,7 @@ pub struct HandoffModel {
     /// keeps the rejected bucket rule, which lets a later request overtake.
     pub park_behind_key: bool,
     /// Whether the handoff fence refuses strong reads as well as writes;
-    /// `false` keeps the rejected rule, where the old owner answers from
-    /// its frozen cache until it releases.
+    /// `false` keeps the rejected rule.
     pub reads_fenced: bool,
 }
 

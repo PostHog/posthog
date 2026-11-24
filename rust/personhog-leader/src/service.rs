@@ -230,16 +230,9 @@ impl PersonHogLeaderService {
         )))
     }
 
-    /// Refuse a strong read for a partition that has drained for handoff.
-    ///
-    /// The frozen cache is the latest state only until cutover. After the
-    /// assignment flips, the new owner acks writes that this cache never
-    /// receives, and this pod keeps the cache until it observes `Complete`
-    /// and releases. Every registered router stashes reads from the freeze
-    /// onward, so a read that arrives in that span can only come from a
-    /// router with a stale table. The lease gate does not cover it, because
-    /// this pod's lease is healthy. `FailedPrecondition` makes the router
-    /// bounce and re-resolve, the same as a fenced write.
+    /// Refuse a strong read once the partition has drained for handoff:
+    /// this pod keeps its cache past cutover, and only a router with a
+    /// stale table can still reach it.
     #[allow(clippy::result_large_err)]
     fn check_read_admission(&self, partition: u32) -> Result<(), Status> {
         if !self.inflight.is_read_fenced(partition) {

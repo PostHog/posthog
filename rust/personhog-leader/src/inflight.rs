@@ -18,10 +18,7 @@ use dashmap::{DashMap, DashSet};
 ///   began, so a late write can only come from a router serving with a
 ///   stale view — accepting it would advance the Kafka HWM past the point
 ///   warming snapshots, silently losing the write from the new owner.
-///   The fence refuses strong reads as well (`is_read_fenced`), because
-///   the cache behind it stops being the latest state at cutover. The
-///   two lift separately on a cancelled handoff: reads need only this
-///   pod's ownership, while writes also need the changelog epoch back.
+///   Strong reads are refused too (`is_read_fenced`).
 ///
 /// Callers obtain a guard via `begin(partition)` and drop it once the
 /// write's outcome is known; the handoff protocol fences the partition,
@@ -93,10 +90,8 @@ impl InflightTracker {
         self.fenced.insert(partition);
     }
 
-    /// Serve strong reads for the partition again while writes stay
-    /// rejected. For a cancelled handoff: the assignment never moved, so
-    /// this pod's cache is still the latest state, and reads must not
-    /// wait on the broker round trip that re-admits writes.
+    /// Serve strong reads again while writes stay rejected. A cancelled
+    /// handoff's owner needs no broker round trip to answer reads.
     pub fn admit_reads(&self, partition: u32) {
         self.reads_fenced.remove(&partition);
     }

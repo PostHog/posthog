@@ -290,10 +290,8 @@ fn strong_reads_are_complete_across_cutover() {
     .assert_properties();
 }
 
-/// A handoff between two live pods that a lease-expired router never
-/// sees: a pod dies, its partition moves, the pod rejoins and the
-/// rebalance moves a partition back. The router keeps routing to the old
-/// owner, which still holds its cache until it converges on `Complete`.
+/// A lease-expired router across a handoff between two live pods: a pod
+/// dies, its partition moves, and the rejoin moves a partition back.
 fn stale_router_across_a_live_handoff() -> HandoffModel {
     HandoffModel {
         partitions: 2,
@@ -306,8 +304,7 @@ fn stale_router_across_a_live_handoff() -> HandoffModel {
     }
 }
 
-/// The handoff fence refuses the stale router's strong read, so no read
-/// is answered from a cache the new owner has written past.
+/// The handoff fence refuses the stale router's strong read.
 #[test]
 fn a_stale_router_cannot_read_past_cutover() {
     stale_router_across_a_live_handoff()
@@ -315,8 +312,8 @@ fn a_stale_router_cannot_read_past_cutover() {
         .assert_properties();
 }
 
-/// The rejected rule: with reads left unfenced, the old owner answers the
-/// stale router from its frozen cache after the new owner acked a write.
+/// The rejected rule: an unfenced old owner answers the stale router
+/// from its frozen cache.
 #[test]
 fn without_the_read_fence_a_stale_router_reads_past_cutover() {
     let checker = HandoffModel {

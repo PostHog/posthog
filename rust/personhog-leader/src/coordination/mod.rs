@@ -78,14 +78,11 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 ///     drops the partition's cache (and its write fence) after the
 ///     routing table has flipped to the new owner.
 ///   - `resume_partition` (fired when a handoff is cancelled while this
-///     pod still owns the partition): admits strong reads at once, then
-///     lifts the write fence once the changelog epoch is back, so the
-///     still-owning pod serves normally again.
+///     pod still owns the partition): admits reads, then lifts the write
+///     fence so the still-owning pod serves normally again.
 ///
-/// The fence refuses strong reads too. The frozen cache is the latest
-/// state only until cutover, and this pod keeps the cache past cutover
-/// until it observes `Complete`, so a read from a router with a stale
-/// table would otherwise miss the writes the new owner has acked.
+/// The fence refuses strong reads too, because this pod keeps its cache
+/// past cutover until it observes `Complete`.
 pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,

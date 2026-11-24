@@ -856,8 +856,6 @@ enum LiveRequest {
     StrongRead,
 }
 
-/// Send one live request of the given kind and reduce the router's
-/// response to its outcome.
 async fn forward_live(
     backend: &LeaderBackend,
     kind: LiveRequest,
@@ -878,11 +876,9 @@ async fn forward_live(
     }
 }
 
-/// The live path's re-entrant retry: a request that races a fence, with
-/// no stash open and the leader still settling, is held by the router
-/// and re-attempted, so the client sees a slow success instead of a
-/// `FAILED_PRECONDITION` it would not retry. The leader fences strong
-/// reads as well as writes, so both take this path.
+/// A request that races a fence, with no stash open, is held by the
+/// router and re-attempted, so the client sees a slow success. Strong
+/// reads take this path as well as writes.
 #[tokio::test]
 async fn a_live_request_rides_out_a_fence_via_router_retry() {
     for kind in [LiveRequest::Write, LiveRequest::StrongRead] {
@@ -896,8 +892,6 @@ async fn a_live_request_rides_out_a_fence_via_router_retry() {
         let stash = StashTable::with_bounds(usize::MAX, usize::MAX, changelog());
         let backend = make_backend(leader_addr, stash.clone()).await;
 
-        // The fence clears mid-retry, as it does in production once the
-        // pod's watch delivers the phase change.
         tokio::spawn({
             let fence = Arc::clone(&fence);
             async move {
@@ -914,13 +908,9 @@ async fn a_live_request_rides_out_a_fence_via_router_retry() {
     }
 }
 
-/// A router whose view never updates (the fence never clears from its
-/// perspective) must not hold requests forever: the bounce budget runs
-/// out and the client gets a retryable `UNAVAILABLE`, never the
-/// `FAILED_PRECONDITION` the leader actually answered with, which
-/// clients read as "do not retry". For a strong read this is the router
-/// with a stale table reading from an old owner past cutover: the answer
-/// must be an error, never the old owner's frozen state.
+/// A fence that never clears must exhaust the bounce budget and surface
+/// as retryable `UNAVAILABLE`, never `FAILED_PRECONDITION` and never the
+/// old owner's state.
 #[tokio::test]
 async fn a_live_request_past_the_bounce_budget_fails_unavailable() {
     for kind in [LiveRequest::Write, LiveRequest::StrongRead] {
