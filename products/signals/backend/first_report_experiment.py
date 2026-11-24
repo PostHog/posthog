@@ -10,7 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.models import SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalTeamConfig
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -20,6 +20,9 @@ FIRST_REPORT_TERRA_VARIANT = "test-terra"
 # Values that `self-driving-banger-scout` stored on onboarding state for projects that ran the
 # first-report scout. A job still pending from before this experiment reads them.
 _LEGACY_FIRST_REPORT_VARIANTS = frozenset({"test-sol", "test-deepseek"})
+# Onboarding state key for the variant whose exposure the dispatch captured. It is None for an
+# unenrolled project, so the runner checks for the key and not for a value.
+DISPATCHED_VARIANT_KEY = "first_report_dispatched_variant"
 
 DEEPSEEK_FIRST_REPORT_RUNTIME = AgentRuntime(runtime="pi", model="deepseek-ai/deepseek-v4.1-flash-1017-fast")
 TERRA_FIRST_REPORT_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-6.1-terra", reasoning_effort="medium")
@@ -61,10 +64,22 @@ def resolve_first_report_experiment(team: Team, *, raise_on_error: bool = False)
         if raise_on_error:
             raise
         variant = None
+    return _experiment_for_variant(variant)
+
+
+def dispatched_first_report_experiment(team: Team) -> FirstReportExperiment:
+    config = SignalTeamConfig.objects.filter(team_id=team.id).only("onboarding").first()
+    state = (config.onboarding or {}) if config else {}
+    if DISPATCHED_VARIANT_KEY in state:
+        return _experiment_for_variant(state[DISPATCHED_VARIANT_KEY])
+    return resolve_first_report_experiment(team)
+
+
+def _experiment_for_variant(variant: object) -> FirstReportExperiment:
     if variant == "control":
-        return FirstReportExperiment(variant=variant, agent_runtime=DEEPSEEK_FIRST_REPORT_RUNTIME)
+        return FirstReportExperiment(variant="control", agent_runtime=DEEPSEEK_FIRST_REPORT_RUNTIME)
     if variant == FIRST_REPORT_TERRA_VARIANT:
-        return FirstReportExperiment(variant=variant, agent_runtime=TERRA_FIRST_REPORT_RUNTIME)
+        return FirstReportExperiment(variant=FIRST_REPORT_TERRA_VARIANT, agent_runtime=TERRA_FIRST_REPORT_RUNTIME)
     return FirstReportExperiment(variant=None, agent_runtime=DEEPSEEK_FIRST_REPORT_RUNTIME)
 
 

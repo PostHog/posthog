@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
+from products.signals.backend.first_report_experiment import DISPATCHED_VARIANT_KEY
 from products.signals.backend.models import (
     SignalFirstReportNotification,
     SignalScoutConfig,
@@ -876,6 +877,9 @@ class TestInboxOnboardingActivation(BaseTest):
             exposures = exposure.return_value.__enter__.return_value.call_args_list
             assert {event.kwargs["properties"]["$feature_flag_response"] for event in exposures} == (
                 {arm} if first_report and arm else set()
+            )
+            assert config.onboarding.get(DISPATCHED_VARIANT_KEY, "absent") == (
+                (arm or None) if first_report else "absent"
             )
         assert SignalScoutConfig.objects.for_team(self.team.id).filter(
             skill_name="signals-scout-first-report"

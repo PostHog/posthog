@@ -38,7 +38,7 @@ from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, res
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
-from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
+from products.signals.backend.first_report_experiment import FirstReportExperiment, dispatched_first_report_experiment
 from products.signals.backend.first_report_scout import FirstReportRunInProgress, lock_first_report_start
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
@@ -531,7 +531,7 @@ async def _arun_signals_scout(
     # model+runtime as a pair, and overriding one without the other would mis-route.
     experiment = None
     if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
-        experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
+        experiment = await database_sync_to_async(dispatched_first_report_experiment, thread_sensitive=False)(team)
         agent_runtime = experiment.agent_runtime
     preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
     if trial is None and experiment is None and not preserve_trial_model:

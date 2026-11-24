@@ -107,7 +107,9 @@ class InboxOnboardingActivation:
                 "write_scopes": [],
             },
         )
-        set_first_report_state(team.id, FirstReportStatus.PENDING, activation_team_id=self.team_id)
+        set_first_report_state(
+            team.id, FirstReportStatus.PENDING, activation_team_id=self.team_id, experiment=experiment
+        )
         start_onboarding_signals_scout_run(
             sync_connect(), team_id=team.id, skill_name=scout.skill_name, run_note=context.prompt_context()
         )
