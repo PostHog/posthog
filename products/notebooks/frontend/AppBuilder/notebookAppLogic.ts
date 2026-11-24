@@ -129,6 +129,21 @@ export interface notebookAppLogicActions {
     changeLayout: (layout: NotebookAppLayoutApi) => {
         layout: NotebookAppLayoutApi
     }
+    checkRelease: (layout: NotebookAppLayoutApi) => NotebookAppLayoutApi
+    checkReleaseFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkReleaseSuccess: (
+        releaseReview: NotebookAppReleaseReviewApi,
+        payload?: NotebookAppLayoutApi
+    ) => {
+        releaseReview: NotebookAppReleaseReviewApi
+        payload?: NotebookAppLayoutApi
+    }
     duplicateBlock: (id: string) => {
         id: string
     }
@@ -167,15 +182,6 @@ export interface notebookAppLogicActions {
     reconcileCompletedRun: (run: NotebookRunStatusResponseApi) => {
         run: NotebookRunStatusResponseApi
     }
-    checkRelease: () => any
-    checkReleaseSuccess: (
-        releaseReview: NotebookAppReleaseReviewApi,
-        payload?: any
-    ) => { releaseReview: NotebookAppReleaseReviewApi; payload?: any }
-    checkReleaseFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
-    restoreRelease: () => any
-    restoreReleaseSuccess: (savedNotebook: NotebookApi, payload?: any) => { savedNotebook: NotebookApi; payload?: any }
-    restoreReleaseFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
     redo: () => {
         value: true
     }
@@ -187,6 +193,21 @@ export interface notebookAppLogicActions {
     }
     removeTab: (id: string) => {
         id: string
+    }
+    restoreRelease: () => any
+    restoreReleaseFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    restoreReleaseSuccess: (
+        savedNotebook: NotebookApi,
+        payload?: any
+    ) => {
+        savedNotebook: NotebookApi
+        payload?: any
     }
     saveApp: (publish?: boolean) => boolean
     saveAppFailure: (
@@ -326,11 +347,11 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
         releaseReview: [
             null as NotebookAppReleaseReviewApi | null,
             {
-                checkRelease: async (_, breakpoint) => {
+                checkRelease: async (layout: NotebookAppLayoutApi, breakpoint) => {
                     const result = await notebooksAppPreviewCreate(
                         String(ApiConfig.getCurrentTeamId()),
                         props.shortId,
-                        normalizeAppLayout(values.layout)
+                        normalizeAppLayout(layout)
                     )
                     breakpoint()
                     return result

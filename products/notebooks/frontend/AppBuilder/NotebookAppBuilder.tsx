@@ -88,7 +88,7 @@ export function NotebookAppBuilder({
     } = useActions(logic)
     useEffect(() => {
         if (!published && preview && !isRunning && !sourceSavingReason) {
-            checkRelease()
+            checkRelease(layout)
         }
     }, [checkRelease, published, preview, isRunning, sourceSavingReason, layout, savedNotebook?.version])
     const displayedLayout = published ? savedNotebook?.app_published : layout
@@ -272,7 +272,7 @@ export function NotebookAppBuilder({
                                     sourceSavingReason ||
                                     (releaseReviewLoading || isRunning ? 'A check or run is in progress.' : undefined)
                                 }
-                                onClick={checkRelease}
+                                onClick={() => checkRelease(layout)}
                             >
                                 Check again
                             </LemonButton>
