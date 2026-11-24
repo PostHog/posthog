@@ -575,7 +575,7 @@ def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_on
 
 def test_column_sources_follows_a_shared_query_type_once():
     events_type = ast.TableType(table=EventsTable())
-    query_type: ast.Type = events_type
+    query_type: ast.TableType | ast.SelectSetQueryType = events_type
     for _ in range(16):
         level = ast.SelectQueryType(columns={"uuid": ast.FieldType(name="uuid", table_type=query_type)})
         query_type = ast.SelectSetQueryType(types=[level, level], columns={"uuid": ast.UUIDType()})
