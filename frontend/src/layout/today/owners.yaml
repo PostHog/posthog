@@ -11,4 +11,5 @@ rules:
       owners: team-surfaces
     - match:
           - '/todayPhoneTabsLogic.test.ts'
+          - '/todayHelpMenuRedirectLogic.test.ts'
       owners: platform-ux
