@@ -1,4 +1,3 @@
-import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -106,27 +105,31 @@ describe('app metrics logic', () => {
         }
     })
 
-    it.each(['loadAppMetricsTrends', 'loadAppMetricsTrendsPreviousPeriod'] as const)(
-        '%s ignores an older load that fails after a newer one finished',
-        async (load) => {
-            initKeaTests()
-            let failFirstLoad = (): void => {}
-            jest.spyOn(api, 'queryHogQL')
-                .mockImplementationOnce(
-                    () => new Promise((_, reject) => (failFirstLoad = () => reject(new ApiError('Server error', 500))))
-                )
-                .mockResolvedValue({ results: [[['2026-10-01'], 'success', [3]]] } as HogQLQueryResponse)
-            const logic = appMetricsLogic({ logicKey: 'superseded', forceParams: { appSource: 'hog_function' } })
-            logic.mount()
+    it.each([
+        { load: 'loadAppMetricsTrends', value: 'appMetricsTrends' },
+        { load: 'loadAppMetricsTrendsPreviousPeriod', value: 'appMetricsTrendsPreviousPeriod' },
+    ] as const)('$load ignores an older load that fails after a newer one finished', async ({ load, value }) => {
+        initKeaTests()
+        let firstLoadStarted = (): void => {}
+        const started = new Promise<void>((resolve) => (firstLoadStarted = resolve))
+        let failFirstLoad = (): void => {}
+        jest.spyOn(api, 'queryHogQL')
+            .mockImplementationOnce(() => {
+                firstLoadStarted()
+                return new Promise((_, reject) => (failFirstLoad = () => reject(new ApiError('Server error', 500))))
+            })
+            .mockResolvedValue({ results: [[['2026-10-01'], 'success', [3]]] } as HogQLQueryResponse)
+        const logic = appMetricsLogic({ logicKey: 'superseded', forceParams: { appSource: 'hog_function' } })
+        logic.mount()
 
-            logic.actions[load]()
-            await waitFor(() => expect(api.queryHogQL).toHaveBeenCalledTimes(1))
-            await expectLogic(logic, () => logic.actions[load]()).toDispatchActions([`${load}Success`])
-            failFirstLoad()
-            await expectLogic(logic).toFinishAllListeners()
+        logic.actions[load]()
+        await started
+        await expectLogic(logic, () => logic.actions[load]()).toDispatchActions([`${load}Success`])
+        failFirstLoad()
+        await expectLogic(logic).toFinishAllListeners()
 
-            await expectLogic(logic).toNotHaveDispatchedActions([`${load}Failure`])
-            logic.unmount()
-        }
-    )
+        await expectLogic(logic).toNotHaveDispatchedActions([`${load}Failure`])
+        expect(logic.values[value]?.series).toEqual([{ name: 'success', values: [3] }])
+        logic.unmount()
+    })
 })
