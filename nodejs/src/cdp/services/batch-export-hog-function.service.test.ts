@@ -13,6 +13,7 @@ import { HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -266,6 +267,33 @@ describe('BatchExportHogFunctionService', () => {
     })
 
     describe('execution errors', () => {
+        it('answers 404 and sends nothing for a backfill of a deactivated organization', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                [team.organization_id],
+                'deactivateOrganization'
+            )
+            hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = true
+            const gatedApi = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
+            const gatedApp = setupExpressApp()
+            gatedApp.use('/', gatedApi.router())
+            const gatedServer = gatedApp.listen(0, () => {})
+
+            try {
+                const res = await supertest(gatedApp).post(invocationUrl()).send({ clickhouse_event: clickhouseEvent })
+
+                expect(res.status).toEqual(404)
+                expect(mockFetch).not.toHaveBeenCalled()
+            } finally {
+                gatedServer.close()
+                hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = false
+            }
+        })
+
         it('returns a failed invocation, not a 500, when an integration was deleted', async () => {
             hogFunction = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,

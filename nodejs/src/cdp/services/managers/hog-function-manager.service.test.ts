@@ -348,10 +348,12 @@ describe('HogFunctionManager - deactivated organizations', () => {
         const manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, true)
         await setOrganizationActive(manager, false)
         expect(await manager.getHogFunction(destination.id)).toBeNull()
+        expect(await manager.fetchHogFunction(destination.id)).toBeNull()
 
         await setOrganizationActive(manager, true)
 
         expect(await manager.getHogFunction(destination.id)).toMatchObject({ id: destination.id })
+        expect(await manager.fetchHogFunction(destination.id)).toMatchObject({ id: destination.id })
         expect(await manager.getHogFunctionsForTeam(teamId, ['destination'])).toMatchObject([{ id: destination.id }])
     })
 })
