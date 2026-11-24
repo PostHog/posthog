@@ -47,11 +47,11 @@ belongs to.** Read `questions[].id` from the survey JSON and name your columns f
 Rather than picking a format yourself, read answers with the HogQL helper
 `getSurveyResponse(<index>, '<questionId>')` (`posthog/hogql/functions/survey.py`). It builds the
 UUID key and coalesces it with the legacy index key, which is what every first-party read in
-`products/surveys/backend/` does, so your numbers match the customer's results table. A third
+`products/surveys/backend/` does, so your numbers match the results table in PostHog. A third
 argument `true` unpacks multiple-choice arrays. Both the index and the id must be literal constants.
 
 Only the **web** SDK sets `$survey_completed` and `$survey_submission_id`. React Native's
-`sendSurveyEvent` sets neither, and an `api`-type survey carries whatever the customer's own code
+`sendSurveyEvent` sets neither, and an `api`-type survey carries whatever the app's own code
 captures — so a missing `$survey_completed` is not by itself evidence of an old SDK.
 
 ## `$survey_questions`

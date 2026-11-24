@@ -1,6 +1,6 @@
 # Diagnostic queries (HogQL, read-only)
 
-Run via the PostHog MCP `execute-sql` against the customer's project. Adjust the date and
+Run via the PostHog MCP `execute-sql` against the project. Adjust the date and
 survey ID. Tables: `events`, `static_cohort_people` (NOT `person_static_cohort` — that's
 the ClickHouse name; HogQL exposes `static_cohort_people`), `persons`.
 
@@ -92,7 +92,7 @@ to see how much of the gap is partial saves.
 
 `(not set)` does **not** mean an old SDK on its own. Only the web SDK sets `$survey_completed` (and
 `$survey_submission_id`) at all — React Native's `sendSurveyEvent` sets neither, the other mobile
-SDKs don't support partial responses, and an `api`-type survey is captured by the customer's own
+SDKs don't support partial responses, and an `api`-type survey is captured by the app's own
 code with whatever properties they choose. So `(not set)` means web SDK below 1.240.0 **or** a
 non-web SDK **or** a hand-rolled `survey sent`. Check the `lib` property before reading it as a
 version signal.
@@ -123,7 +123,7 @@ comparison undercounts repeats rather than inventing them.)
 (`posthog/hogql/functions/survey.py`; callers in `products/surveys/backend/responses/`). It
 coalesces the UUID key with the legacy index key for you, so it can't miss an older response the way
 a hand-written `properties.$survey_response_<uuid>` does, and it returns what the results table
-shows the same customer. Pass a third argument `true` for multiple-choice questions so the array is
+shows. Pass a third argument `true` for multiple-choice questions so the array is
 unpacked. Both the index and the id must be literal constants.
 
 Take the index and id from `questions[]` in the survey JSON, in order:
