@@ -3,9 +3,10 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.accessible_teams import AccessibleTeams
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -13,6 +14,8 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.test.authentication_checks import covers_authentication
+
+from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
@@ -761,6 +764,13 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
+        orphan_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=sibling_user,
+            token="orphan_refresh_token_value",
+            access_token=None,
+            scoped_teams=[self.team.id],
+        )
         for _ in range(5):
             assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
         unrestricted_key, fully_unrestricted_key, other_organization_key, team_in_other_organization_key = (
@@ -794,8 +804,41 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         sibling_rt.refresh_from_db()
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
+        assert not OAuthRefreshToken.objects.filter(pk=orphan_rt.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(application=access_token.application, scoped_teams=[]).exists()
         surviving_ids = set(PersonalAPIKey.objects.filter(user=sibling_user).values_list("id", flat=True))
         assert surviving_ids == {own_key.id, other_organization_key.id, team_in_other_organization_key.id}
+
+    def test_remove_keeps_an_unrestricted_partner_key_whose_owner_cannot_access_the_project(self) -> None:
+        token = self._get_bearer_token()
+        partner_app = OAuthAccessToken.objects.get(token=token).application
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        teammate = User.objects.create_and_join(
+            organization=self.organization,
+            email="private-teammate@example.com",
+            password="testpass",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        assert maybe_create_provisioned_pat(teammate, other_team, partner_app, "query:read")
+        partner_key = PersonalAPIKey.objects.get(user=teammate, provisioned_by=partner_app)
+        PersonalAPIKey.objects.filter(id=partner_key.id).update(
+            scoped_teams=[], scoped_organizations=[str(self.organization.id)]
+        )
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+
+        res = self._post_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}/remove", token=token)
+
+        assert res.status_code == 200, res.json()
+        assert PersonalAPIKey.objects.filter(id=partner_key.id).exists()
 
     def test_remove_names_no_actor_in_another_organization_a_partner_key_reaches(self) -> None:
         token = self._get_bearer_token()
