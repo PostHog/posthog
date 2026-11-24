@@ -233,7 +233,7 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
-export function listRowSince(row: PlatformAlertListRow): string | null {
+export function listRowFiringSince(row: PlatformAlertListRow): string | null {
     const { configuration } = row
     const only = configuration.enabled && configuration.alerts.length === 1 ? configuration.alerts[0] : null
     const alert = row.kind === 'group' ? row.group : only

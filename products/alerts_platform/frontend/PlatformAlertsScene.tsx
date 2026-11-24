@@ -25,7 +25,7 @@ import {
     describeInterval,
     describeSchedule,
     listRowMute,
-    listRowSince,
+    listRowFiringSince,
 } from './platformAlertFormat'
 import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
@@ -105,7 +105,7 @@ function listColumns(
         {
             title: 'State',
             render: (_, row) => {
-                const since = listRowSince(row)
+                const since = listRowFiringSince(row)
                 return (
                     <div className="flex flex-wrap items-center gap-x-2">
                         {row.kind === 'group' ? (
