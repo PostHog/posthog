@@ -24,6 +24,7 @@ import {
     DEPRECATE_ACTION_COPY,
     REFRESH_CHOICES,
     RefreshChoice,
+    confirmDisabledReason,
     deprecateActionChoices,
 } from './DeprecateSuggestionModal'
 import { QuillChoiceGroup } from './QuillChoiceGroup'
@@ -47,7 +48,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
     const noReads = noReadsLabel(windowDays)
     const blockedReasons: Record<DeprecateAction, string | undefined> = {
         deprecate: catalogEditBlockedReason(),
-        stop: undefined,
+        unmarked: undefined,
         delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
     }
     const copy = DEPRECATE_ACTION_COPY[deprecateAction]
@@ -68,10 +69,10 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                             idPrefix="deprecate-action"
                             value={deprecateAction}
                             onChange={setDeprecateAction}
-                            choices={deprecateActionChoices(materialized, keepMaterialized, blockedReasons)}
+                            choices={deprecateActionChoices(materialized, blockedReasons)}
                             disabled={inFlight}
                         />
-                        {materialized && deprecateAction === 'deprecate' && (
+                        {materialized && deprecateAction !== 'delete' && (
                             <QuillChoiceGroup<RefreshChoice>
                                 legend={MATERIALIZATION_LEGEND}
                                 idPrefix="deprecate-refresh"
@@ -94,7 +95,7 @@ export function QuillDeprecateSuggestionModal(): JSX.Element | null {
                     <Button
                         variant={deprecateAction === 'delete' ? 'destructive-outline' : 'primary'}
                         loading={inFlight}
-                        disabledReason={blockedReasons[deprecateAction]}
+                        disabledReason={confirmDisabledReason(deprecateAction, keepMaterialized, blockedReasons)}
                         onClick={() => confirmAccept()}
                         data-attr={copy.confirmDataAttr}
                     >

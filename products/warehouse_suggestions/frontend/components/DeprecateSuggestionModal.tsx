@@ -27,7 +27,7 @@ export const DEPRECATE_ACTION_COPY: Record<DeprecateAction, DeprecateActionCopy>
         confirmLabel: 'Mark deprecated',
         confirmDataAttr: 'warehouse-suggestions-deprecate-confirm',
     },
-    stop: {
+    unmarked: {
         title: (subjectName) => `Stop refreshing ${subjectName}?`,
         confirmLabel: 'Stop refreshing',
         confirmDataAttr: 'warehouse-suggestions-stop-only-confirm',
@@ -39,26 +39,20 @@ export const DEPRECATE_ACTION_COPY: Record<DeprecateAction, DeprecateActionCopy>
     },
 }
 
-const MARK_DEPRECATED_DESCRIPTION =
-    'It stays in the data catalog with a deprecated label, so people know not to use it.'
-const MARK_DEPRECATED_REFRESH_NOTE: Record<RefreshChoice, string> = {
-    stop: 'Its stored table is deleted and its refreshes stop.',
-    keep: 'It keeps refreshing.',
-}
+const NOTHING_TO_CHANGE_REASON = 'Nothing would change. Stop refreshing it, or dismiss the suggestion instead.'
 
 const ACTION_CHOICES: LemonRadioOption<DeprecateAction>[] = [
     {
         value: 'deprecate',
         label: 'Mark it deprecated',
-        description: MARK_DEPRECATED_DESCRIPTION,
+        description: 'It stays in the data catalog with a deprecated label, so people know not to use it.',
         'data-attr': 'warehouse-suggestions-deprecate-mark',
     },
     {
-        value: 'stop',
-        label: 'Only stop refreshing it',
-        description:
-            "It isn't marked deprecated. Its stored table is deleted and its refreshes stop. If no one reads it in the next 30 days, it's suggested for deprecation again.",
-        'data-attr': 'warehouse-suggestions-deprecate-stop-only',
+        value: 'unmarked',
+        label: "Don't mark it deprecated",
+        description: "If no one reads it in the next 30 days, it's suggested for deprecation again.",
+        'data-attr': 'warehouse-suggestions-deprecate-unmarked',
     },
     {
         value: 'delete',
@@ -84,26 +78,25 @@ export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     },
 ]
 
-function markDeprecatedDescription(materialized: boolean, keepMaterialized: boolean): string {
-    if (!materialized) {
-        return MARK_DEPRECATED_DESCRIPTION
-    }
-    return `${MARK_DEPRECATED_DESCRIPTION} ${MARK_DEPRECATED_REFRESH_NOTE[keepMaterialized ? 'keep' : 'stop']}`
-}
-
 export function deprecateActionChoices(
     materialized: boolean,
-    keepMaterialized: boolean,
     blockedReasons: Record<DeprecateAction, string | undefined>
 ): LemonRadioOption<DeprecateAction>[] {
-    return ACTION_CHOICES.filter((choice) => materialized || choice.value !== 'stop').map((choice) => ({
+    return ACTION_CHOICES.filter((choice) => materialized || choice.value !== 'unmarked').map((choice) => ({
         ...choice,
-        description:
-            choice.value === 'deprecate'
-                ? markDeprecatedDescription(materialized, keepMaterialized)
-                : choice.description,
         disabledReason: blockedReasons[choice.value],
     }))
+}
+
+export function confirmDisabledReason(
+    deprecateAction: DeprecateAction,
+    keepMaterialized: boolean,
+    blockedReasons: Record<DeprecateAction, string | undefined>
+): string | undefined {
+    if (deprecateAction === 'unmarked' && keepMaterialized) {
+        return NOTHING_TO_CHANGE_REASON
+    }
+    return blockedReasons[deprecateAction]
 }
 
 export function DeprecateSuggestionModal(): JSX.Element | null {
@@ -122,7 +115,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
     const noReads = noReadsLabel(windowDays)
     const blockedReasons: Record<DeprecateAction, string | undefined> = {
         deprecate: catalogEditBlockedReason(),
-        stop: undefined,
+        unmarked: undefined,
         delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
     }
     const copy = DEPRECATE_ACTION_COPY[deprecateAction]
@@ -146,7 +139,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         type="primary"
                         status={deprecateAction === 'delete' ? 'danger' : undefined}
                         loading={inFlight}
-                        disabledReason={blockedReasons[deprecateAction]}
+                        disabledReason={confirmDisabledReason(deprecateAction, keepMaterialized, blockedReasons)}
                         onClick={() => confirmAccept()}
                         data-attr={copy.confirmDataAttr}
                     >
@@ -165,11 +158,11 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         aria-label="What to do"
                         value={deprecateAction}
                         onChange={setDeprecateAction}
-                        options={deprecateActionChoices(materialized, keepMaterialized, blockedReasons)}
+                        options={deprecateActionChoices(materialized, blockedReasons)}
                         radioPosition="top"
                     />
                 </fieldset>
-                {materialized && deprecateAction === 'deprecate' && (
+                {materialized && deprecateAction !== 'delete' && (
                     <fieldset disabled={inFlight} className="flex flex-col gap-2">
                         <h4 className="m-0 text-sm font-semibold">Its materialization</h4>
                         <LemonRadio

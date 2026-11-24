@@ -195,7 +195,7 @@ function changedRefreshOptions(
     return options
 }
 
-export type DeprecateAction = 'deprecate' | 'stop' | 'delete'
+export type DeprecateAction = 'deprecate' | 'unmarked' | 'delete'
 
 export function deprecateOptions(
     suggestion: WarehouseSuggestionApi,
@@ -207,7 +207,7 @@ export function deprecateOptions(
     if (deprecateAction === 'delete') {
         return { delete_view: true }
     }
-    if (deprecateAction === 'stop') {
+    if (deprecateAction === 'unmarked') {
         return { mark_deprecated: false }
     }
     return keepMaterialized ? { keep_materialized: true } : undefined
@@ -218,7 +218,7 @@ function defaultDeprecateAction(suggestion: WarehouseSuggestionApi | null): Depr
         return 'deprecate'
     }
     return suggestion && isDeprecatePayload(suggestion.payload) && refreshesTheView(suggestion.payload)
-        ? 'stop'
+        ? 'unmarked'
         : 'delete'
 }
 

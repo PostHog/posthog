@@ -955,9 +955,9 @@ describe('warehouseSuggestionsLogic', () => {
             'Deleted old_rollup.',
         ],
         [
-            'only stops refreshing when asked',
+            'stops refreshing without marking it deprecated when asked',
             false,
-            'stop',
+            'unmarked',
             { mark_deprecated: false },
             { saved_query_id: 'view-1' },
             "Stopped refreshing old_rollup. It isn't marked deprecated.",
@@ -980,7 +980,7 @@ describe('warehouseSuggestionsLogic', () => {
 
     it.each<[string, boolean, boolean, DeprecateAction]>([
         ['marks it deprecated for a data catalog editor', true, true, 'deprecate'],
-        ['stops its refreshes for someone who cannot edit the data catalog', false, true, 'stop'],
+        ['leaves it unmarked for someone who cannot edit the data catalog', false, true, 'unmarked'],
         ['deletes a plain view for someone who cannot edit the data catalog', false, false, 'delete'],
     ])(
         'a view deprecation opens on the choice that %s',
