@@ -19,7 +19,6 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -29,13 +28,14 @@ import { AnyPropertyFilter, CohortType, PropertyFilterType } from '~/types'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
-import { laneCardFacts } from './ReleaseLaneCard'
 import { ReleaseLaneSummary } from './ReleaseLaneSummary'
 import { UsageTarget } from './releaseLaneUsage'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { Lane, statusLabel } from './releaseTracks'
 import { ReleaseRow } from './releaseUtils'
+
+const CONDITIONS_SHOWN = 2
 
 const NO_EDIT_REASON = 'You need edit access to feature flags'
 
@@ -93,7 +93,7 @@ function Conditions({ flag }: { flag: FeatureFlagApi }): JSX.Element | null {
     }
     return (
         <div className="flex flex-col gap-0.5" data-attr="release-lane-detail-conditions">
-            {groups.map((group, index) => {
+            {groups.slice(0, CONDITIONS_SHOWN).map((group, index) => {
                 const text = group.properties?.length
                     ? group.properties.map((property) => propertyText(property, cohortsById)).join(' and ')
                     : 'Everyone'
@@ -108,23 +108,12 @@ function Conditions({ flag }: { flag: FeatureFlagApi }): JSX.Element | null {
                     </div>
                 )
             })}
+            {groups.length > CONDITIONS_SHOWN && (
+                <Text size="xs" variant="muted">
+                    {`+${groups.length - CONDITIONS_SHOWN} more`}
+                </Text>
+            )}
         </div>
-    )
-}
-
-function LastChange({ flagId }: { flagId: number }): JSX.Element | null {
-    const { flagActivity } = useValues(releaseCalendarLogic)
-    const entry = flagActivity[flagId]?.[0]
-    if (!entry) {
-        return null
-    }
-    const who = entry.user?.first_name || entry.user?.email || (entry.is_system ? 'PostHog' : 'someone')
-    return (
-        <Text size="xs" variant="muted" className="truncate">
-            <span>Changed </span>
-            <TZLabel time={entry.created_at} />
-            <span>{` by ${who}`}</span>
-        </Text>
     )
 }
 
@@ -253,54 +242,6 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
     )
 }
 
-function LinkedFlag({ row, flagId }: { row: ReleaseRow; flagId: number | undefined }): JSX.Element | null {
-    const { openCalendarItem } = useActions(releaseCalendarLogic)
-    const flag = row.flags.find((item) => item.id === flagId)
-    if (!flag) {
-        return null
-    }
-    return (
-        <Text size="xs" variant="muted" className="truncate">
-            <span>Flag </span>
-            <button
-                type="button"
-                className="cursor-pointer font-medium text-foreground hover:underline"
-                onClick={() => openCalendarItem(row.id, `flag-${flag.id}`, 'flag')}
-                data-attr="release-lane-detail-show-flag"
-            >
-                {flag.key}
-            </button>
-        </Text>
-    )
-}
-
-const TIMELINE_FACTS = new Set(['Status', 'Started', 'Starts', 'Ended'])
-
-function Facts({ lane }: { lane: Lane }): JSX.Element | null {
-    const span = lane.kind === 'experiment' || lane.kind === 'early_access' ? lane.span : null
-    const facts = span ? laneCardFacts({ lane, span }).filter(([label]) => !TIMELINE_FACTS.has(label)) : []
-    if (!facts.length) {
-        return null
-    }
-    return (
-        <Text size="xs" variant="muted" className="truncate" data-attr="release-lane-detail-facts">
-            {facts.map(([label, value], index) => (
-                <span key={label}>
-                    {index > 0 && <span>{' · '}</span>}
-                    {label === 'Progress' ? (
-                        <span className="text-foreground">{value}</span>
-                    ) : (
-                        <>
-                            <span>{`${label} `}</span>
-                            <span className="text-foreground">{value.charAt(0).toLowerCase() + value.slice(1)}</span>
-                        </>
-                    )}
-                </span>
-            ))}
-        </Text>
-    )
-}
-
 export function ReleaseLaneDetail({
     row,
     lane,
@@ -313,18 +254,6 @@ export function ReleaseLaneDetail({
     from: string
 }): JSX.Element {
     const { closeCalendarItem } = useActions(releaseCalendarLogic)
-    const experiment =
-        lane.kind === 'experiment' ? row.experiments.find((item) => `experiment-${item.id}` === lane.key) : undefined
-    const earlyAccess =
-        lane.kind === 'early_access'
-            ? row.earlyAccess.find((item) => `early-access-${item.id}` === lane.key)
-            : undefined
-    const description = experiment?.description || earlyAccess?.description
-    const linkedFlagId = experiment
-        ? row.flags.find((flag) => flag.key === experiment.feature_flag_key)?.id
-        : lane.kind === 'survey'
-          ? (lane.survey.linkedFlagId ?? undefined)
-          : earlyAccess?.feature_flag?.id
 
     return (
         <div className="flex h-full min-w-0 flex-col gap-2 overflow-y-auto py-2" data-attr="release-lane-detail">
@@ -342,16 +271,6 @@ export function ReleaseLaneDetail({
                 </Button>
             </div>
             {target && <ReleaseLaneSummary target={target} from={from} />}
-            <div className="flex flex-col gap-0.5">
-                {description && (
-                    <Text size="xs" className="truncate" title={description}>
-                        {description}
-                    </Text>
-                )}
-                <Facts lane={lane} />
-                {lane.kind === 'flag' && <LastChange flagId={lane.flag.id} />}
-                {lane.kind !== 'flag' && <LinkedFlag row={row} flagId={linkedFlagId} />}
-            </div>
             {lane.kind === 'flag' && <Conditions flag={lane.flag} />}
             <div className="mt-auto">
                 <Actions row={row} lane={lane} />
