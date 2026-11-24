@@ -18,7 +18,7 @@ import type { ReleaseMode } from './session'
 
 // Must equal PROTOCOL in hog/worker/src/main.rs. hog and the worker are two files, so an upgrade
 // that replaced only one of them is caught here instead of in a request the other can't read.
-export const WORKER_PROTOCOL = 2
+export const WORKER_PROTOCOL = 1
 
 // A first run of a signed binary can wait on the system's notarization check.
 const WORKER_CHECK_TIMEOUT_MS = 30_000

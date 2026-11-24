@@ -1,6 +1,6 @@
 // hog-worker does the file work of `hog error-tracking` with the Rust code posthog-cli runs, so
 // both write the same bytes. hog starts one worker per command and talks to it in JSON lines over
-// stdin and stdout. The worker sends {"type":"hello","protocol":2,"version":"0.1.0"}, then answers
+// stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
 // each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
 // and keeps running after a failure. R for each `op`:
 //   detect             {"sourcemap":[index],"composed":[],"mapping":[],"elf":[],"macho":[]}
@@ -66,7 +66,7 @@ use pair::{Action, SourcePair, Unreadable};
 use store::Store;
 use trace::Trace;
 
-const PROTOCOL: u32 = 2;
+const PROTOCOL: u32 = 1;
 
 // A release build carries hog's version, which release/build-worker.ts passes in this variable,
 // so the two binaries of a release name the same version. Any other build is a dev build.
