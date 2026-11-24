@@ -38,13 +38,12 @@ function MaterializedSettings({
     } = useValues(jobsLogic)
     const { setIncrementalDraft, setSyncFrequencyDraft, setPinDraft } = useActions(jobsLogic)
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
-    const runningReason =
-        dataModelingJobs?.results?.[0]?.status === 'Running'
-            ? 'Materialization is currently running'
-            : startingMaterialization
-              ? 'Materialization is starting'
-              : undefined
-    const frequencyReason = runningReason || blockedReason
+    const isRunning = dataModelingJobs?.results?.[0]?.status === 'Running'
+    const startingReason = startingMaterialization ? 'Materialization is starting' : undefined
+    // A cadence change only edits the schedule. The run in flight keeps going and the new cadence
+    // applies from the next one, so only the refresh mode, which can rebuild the table, waits for it.
+    const frequencyReason = startingReason || blockedReason
+    const refreshModeReason = (isRunning ? 'Materialization is currently running' : undefined) || frequencyReason
     const { structuralChange, refreshModeChanged } = refreshModeChange(savedQuery.incremental, incrementalDraft)
     const showIncremental = kind !== 'endpoint' && !!savedQuery.incremental?.enabled
 
@@ -68,8 +67,13 @@ function MaterializedSettings({
                     onUnpin={() => setPinDraft(false)}
                 />
             ) : null}
+            {kind !== 'endpoint' && isRunning && syncFrequencyDraft !== null && (
+                <Text size="xs" variant="muted" className="m-0">
+                    The current run finishes first. The new cadence applies from the next run.
+                </Text>
+            )}
             {kind !== 'endpoint' && !savedQuery.managed_viewset_kind && incrementalCheck && (
-                <FieldSet className="max-w-160" disabled={!!frequencyReason}>
+                <FieldSet className="max-w-160" disabled={!!refreshModeReason}>
                     <FieldLegend>Refresh mode</FieldLegend>
                     <QuillIncrementalConfigOptions
                         check={incrementalCheck}
