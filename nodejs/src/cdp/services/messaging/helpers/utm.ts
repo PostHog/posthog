@@ -258,7 +258,7 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
 
 // A link signed over its whole query, such as a framework signed route or a presigned storage URL, fails
 // verification once a parameter is added or removed. A sent email cannot be fixed, so these stay as written.
-const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac'])
+const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash'])
 
 const isSigned = (parsed: URL): boolean =>
     [...parsed.searchParams.keys()].some((key) => SIGNATURE_PARAMS.has(key.toLowerCase()))

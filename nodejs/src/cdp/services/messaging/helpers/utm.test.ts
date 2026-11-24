@@ -245,7 +245,7 @@ describe('addUtmTagsToEmail', () => {
             html: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
             expected: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
         },
-        ...['signature', 'SIG', 'X-Amz-Signature', 'x-goog-signature', 'Hmac'].map((param) => ({
+        ...['signature', 'SIG', 'X-Amz-Signature', 'x-goog-signature', 'Hmac', '_hash'].map((param) => ({
             case: `leaves a link signed with ${param} and tags the unsigned link next to it`,
             html: `<a href="https://example.com/verify?id=1&amp;${param}=abc">x</a><a href="https://example.com/">y</a>`,
             expected: `<a href="https://example.com/verify?id=1&amp;${param}=abc">x</a><a href="https://example.com/?ph_workflow_run=run-1">y</a>`,
