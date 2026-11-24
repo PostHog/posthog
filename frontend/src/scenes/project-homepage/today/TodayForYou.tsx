@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { TodayAiRow } from './TodayAiRow'
@@ -17,6 +19,10 @@ import { TodayNewProjectForYou } from './TodayNewProjectForYou'
 import { reportWorkKind } from './todayNextStep'
 import { TodayProductPushRow } from './TodayProductPushRow'
 import { TodayReportRow } from './TodayReportRow'
+
+const TodaySelfDrivingRow = lazyWithRetry(() =>
+    import('./TodaySelfDrivingRow').then(({ TodaySelfDrivingRow }) => ({ default: TodaySelfDrivingRow }))
+)
 
 function TodayRowsSkeleton(): JSX.Element {
     return (
@@ -62,6 +68,9 @@ function TodayForYouBody(): JSX.Element | null {
     return (
         <ol className="TodayRows">
             <TodayAiRow />
+            <Suspense fallback={null}>
+                <TodaySelfDrivingRow />
+            </Suspense>
             {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
             {forYouVisibleRows.map(renderRow)}
         </ol>

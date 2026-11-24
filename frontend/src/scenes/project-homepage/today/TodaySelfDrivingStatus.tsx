@@ -14,17 +14,25 @@ import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFle
 import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
 import { TodayRow } from './TodayRow'
+import { TodaySelfDrivingRow } from './TodaySelfDrivingRow'
 
-type QuietRowRenderer = (offerSelfDriving: boolean) => ReactNode
+function QuietRows({ quietRow }: { quietRow: ReactNode }): JSX.Element {
+    return (
+        <ol className="TodayRows" data-attr="today-for-you-empty">
+            <TodaySelfDrivingRow />
+            {quietRow}
+        </ol>
+    )
+}
 
-export function TodaySelfDrivingStatus({ quietRow }: { quietRow: QuietRowRenderer }): JSX.Element {
+export function TodaySelfDrivingStatus({ quietRow }: { quietRow: ReactNode }): JSX.Element {
     if (!useFeatureFlag('PRODUCT_AUTONOMY')) {
-        return <>{quietRow(false)}</>
+        return <QuietRows quietRow={quietRow} />
     }
     return <TodaySelfDrivingVerdict quietRow={quietRow} />
 }
 
-function TodaySelfDrivingVerdict({ quietRow }: { quietRow: QuietRowRenderer }): JSX.Element {
+function TodaySelfDrivingVerdict({ quietRow }: { quietRow: ReactNode }): JSX.Element {
     const { sourceConfigs, sourceConfigsLoadFailed, enabledSourcesCount } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
 
@@ -32,7 +40,7 @@ function TodaySelfDrivingVerdict({ quietRow }: { quietRow: QuietRowRenderer }): 
         return <Skeleton className="h-12 w-full" />
     }
     if (!computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs ?? [])) {
-        return <>{quietRow(!sourceConfigsLoadFailed && scoutConfigs !== null)}</>
+        return <QuietRows quietRow={quietRow} />
     }
     return (
         <ol className="TodayRows">
