@@ -22,7 +22,14 @@ import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
-import { FAIR_DEQUEUE_CANDIDATE_CAP, QUEUE_DEPTH_SQL, cappedQueueDepthSql, filesRowPollSql } from './due-rows-sql'
+import {
+    FAIR_DEQUEUE_CANDIDATE_CAP,
+    PollSql,
+    QUEUE_DEPTH_SQL,
+    cappedQueueDepthSql,
+    filesRowPollSql,
+    plainRowPollSql,
+} from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, IDEMPOTENCY_KEY_TTL_MS } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -4099,27 +4106,43 @@ describe('Cyclotron V2', () => {
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides })
 
-            async function deliveredAmong(
+            async function claimsByPoll(
                 worker: CyclotronV2Worker,
-                watched: string[],
-                count: number
-            ): Promise<string[]> {
-                const delivered: string[] = []
-                await new Promise<void>((resolve, reject) => {
-                    const timer = setTimeout(() => resolve(), 2000)
-                    worker
-                        .connect((batch) => {
-                            delivered.push(...batch.map((job) => job.id).filter((id) => watched.includes(id)))
-                            if (delivered.length >= count) {
-                                clearTimeout(timer)
-                                resolve()
-                            }
-                            return Promise.resolve()
-                        })
-                        .catch(reject)
-                })
+                poll: PollSql,
+                otherPoll: PollSql,
+                polls: number
+            ): Promise<string[][]> {
+                const pool = (worker as unknown as { pool: Pool }).pool
+                const passThrough = pool.query.bind(pool) as (...args: unknown[]) => Promise<{ rows: { id: string }[] }>
+                const claimStatements = new Set<unknown>([poll.fairDequeueJobs, poll.legacyFairDequeueJobs])
+                const otherStatements = new Set<unknown>(Object.values(otherPoll))
+                const firstClaimed = createPromise()
+                const recorded = createPromise<string[][]>()
+                const claims: string[][] = []
+                pool.query = (async (text: unknown, ...rest: unknown[]) => {
+                    // A row of the other kind stays due until this poll's first claim, so this poll can take it.
+                    if (otherStatements.has(text)) {
+                        await firstClaimed.promise
+                        return passThrough(text, ...rest)
+                    }
+                    if (!claimStatements.has(text)) {
+                        return passThrough(text, ...rest)
+                    }
+                    try {
+                        const result = await passThrough(text, ...rest)
+                        claims.push(result.rows.map((row) => row.id))
+                        if (claims.length === polls) {
+                            recorded.resolve(claims.map((ids) => [...ids]))
+                        }
+                        return result
+                    } finally {
+                        firstClaimed.resolve()
+                    }
+                }) as Pool['query']
+                await worker.connect(() => Promise.resolve())
+                const claimed = await recorded.promise
                 await worker.stopConsuming()
-                return delivered
+                return claimed
             }
 
             it.each([
@@ -4170,7 +4193,7 @@ describe('Cyclotron V2', () => {
             })
 
             it('delivers the due sends with files in sequence order from the poll for sends with files, past a parked lower-sequence row with files, while the plain poll claims an earlier-scheduled plain row', async () => {
-                const [parked] = await manager.bulkCreateJobs([
+                await manager.bulkCreateJobs([
                     {
                         teamId: 200,
                         queueName: EMAIL_QUEUE,
@@ -4196,27 +4219,31 @@ describe('Cyclotron V2', () => {
                     sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS },
                 })
 
-                expect(await deliveredAmong(worker, [parked, first, second], 2)).toEqual([first, second])
+                expect(
+                    await claimsByPoll(worker, filesRowPollSql(EMAIL_QUEUE), plainRowPollSql(EMAIL_QUEUE), 3)
+                ).toEqual([[first], [second], []])
             })
 
             it.each([
                 {
                     lane: 'plain poll',
                     withFiles: false,
-                    otherKind: 'left due',
+                    poll: plainRowPollSql(EMAIL_QUEUE),
+                    otherPoll: filesRowPollSql(EMAIL_QUEUE),
                     overrides: { sendsWithFiles: { room: () => 0, stalled: () => false, overdueAfterMs: DAY_MS } },
                 },
                 {
                     lane: 'poll for sends with files',
                     withFiles: true,
-                    otherKind: 'claimed by the plain poll',
+                    poll: filesRowPollSql(EMAIL_QUEUE),
+                    otherPoll: plainRowPollSql(EMAIL_QUEUE),
                     overrides: { sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS } },
                 },
             ])(
                 'delivers its lowest-sequence send of its own kind first from the $lane when more are due than the candidate cap',
-                async ({ withFiles, otherKind, overrides }) => {
+                async ({ withFiles, poll, otherPoll, overrides }) => {
                     const fileBytes = (files: boolean): number | null => (files ? 1000 : null)
-                    const [lowestSequenceOfTheOtherKind] = await manager.bulkCreateJobs([
+                    await manager.bulkCreateJobs([
                         {
                             teamId: 100,
                             queueName: EMAIL_QUEUE,
@@ -4232,7 +4259,7 @@ describe('Cyclotron V2', () => {
                             fileBytes: fileBytes(withFiles),
                         },
                     ])
-                    const earlierScheduled = await manager.bulkCreateJobs(
+                    await manager.bulkCreateJobs(
                         Array.from({ length: FAIR_DEQUEUE_CANDIDATE_CAP + 1 }, () => ({
                             teamId: 200,
                             queueName: EMAIL_QUEUE,
@@ -4243,13 +4270,7 @@ describe('Cyclotron V2', () => {
 
                     const worker = createFairWorker({ batchMaxSize: 1, ...overrides })
 
-                    const watched = [
-                        ...(otherKind === 'left due' ? [lowestSequenceOfTheOtherKind] : []),
-                        lowestSequence,
-                        ...earlierScheduled,
-                    ]
-
-                    expect(await deliveredAmong(worker, watched, 1)).toEqual([lowestSequence])
+                    expect(await claimsByPoll(worker, poll, otherPoll, 1)).toEqual([[lowestSequence]])
                 }
             )
 
