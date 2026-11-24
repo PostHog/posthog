@@ -97,7 +97,7 @@ from products.tasks.backend.temporal.process_task.sandbox_connection import (
 )
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
-    clear_github_remotes_from_sandbox,
+    clear_github_env_from_gitlab_sandbox,
     replace_sandbox_credentials,
     sandbox_credential_lock,
     set_git_remote_token,
@@ -1596,9 +1596,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
     This activity always fetches fresh tokens (rather than trusting whatever
     the workflow previously cached in its inputs) and persists them to the
-    in-sandbox locations that Modal secrets cannot refresh. A snapshot can also
-    contain clones this run does not list, so this activity strips GitHub
-    credentials from every restored git config before it applies fresh ones.
+    in-sandbox locations that Modal secrets cannot refresh. A repo-less snapshot
+    can still contain ad-hoc clones, so this activity strips GitHub credentials
+    from every restored remote before it continues.
     """
     ctx = input.context
 
@@ -1661,8 +1661,8 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        if not clear_github_remotes_from_sandbox(sandbox):
-            raise RuntimeError("Failed to clear GitHub credentials from resumed snapshot")
+        if not has_repository and not clear_github_env_from_gitlab_sandbox(sandbox):
+            raise RuntimeError("Failed to clear GitHub credentials from repo-less snapshot")
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.

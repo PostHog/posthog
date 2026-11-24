@@ -17,7 +17,7 @@ from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
+from products.tasks.backend.constants import GITLAB_HOST, SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
@@ -53,8 +53,6 @@ _GITHUB_REFRESH_INTERVAL_BY_PREFIX: dict[str, float] = {
 }
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 20 * 60
 CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS = 15
-# The scrub walks the whole workspace, so it gets more time than a single credential write.
-GITHUB_REMOTE_SCRUB_TIMEOUT_SECONDS = 45
 
 
 def github_refresh_interval_seconds(token: str) -> float:
@@ -163,85 +161,46 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
     return remote_cleared and env_cleared
 
 
-def clear_github_remotes_from_sandbox(sandbox: "SandboxBase") -> bool:
-    """Strip GitHub credentials from every git config under the workspace, leaving GitLab remotes.
-
-    The workspace is what a resume snapshot restores, task-filesystem backing for ``/root`` and
-    ``/tmp`` included, so a clone anywhere in it can carry a previous actor's token. Returns
-    ``True`` when there was nothing to scrub, and ``False`` only for a genuine scrub failure.
-    """
+def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
+    """Clear GitHub credentials while retaining any GitLab remote configuration."""
     script = textwrap.dedent("""\
         import os
         import re
         import subprocess
         import sys
 
-        root = sys.argv[1]
-        if not os.path.isdir(root):
+        def fail(error):
+            raise error
+
+        # A run that never cloned anything has no repositories root, so there is nothing to scrub.
+        if not os.path.isdir(sys.argv[1]):
             sys.exit(0)
-        # Dependency and build caches can be large; skipping them keeps the walk inside its timeout.
-        skipped = {".cache", ".next", ".npm", ".pnpm-store", ".tox", ".venv", ".yarn", "__pycache__", "node_modules", "target", "venv"}
-        github = rb"(?:[a-z0-9*-]+\\.)*github\\.com\\.?(?::[0-9]+)?(?:/|$)"
-        userinfo = re.compile(rb"(?i)^(https?://)[^/@]+@(?=" + github + rb")")
-        extraheader = re.compile(rb"(?i)^http\\.(?:https?://(?:[^/@]*@)?" + github + rb".*\\.)?extraheader$")
-        insteadof = re.compile(rb"(?i)^url\\.https?://[^/@]+@" + github + rb".*\\.(?:insteadof|pushinsteadof)$")
-        # Never read the restored workspace's own git config or the snapshot-backed global one.
-        env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
-
-        def git(*args, check=True):
-            return subprocess.run(["/usr/bin/git", "config", "--file", *args], cwd="/", env=env, capture_output=True, check=check)
-
-        def scrub(config):
-            result = git(config, "--no-includes", "--null", "--get-regexp", r"^(remote\\..*\\.(url|pushurl)|http\\..*extraheader|url\\..*insteadof)$", check=False)
+        for directory, dirs, files in os.walk(sys.argv[1], onerror=fail):
+            if ".git" not in dirs and ".git" not in files:
+                continue
+            # A checkout root: never walk into its working tree, which can hold huge build output.
+            dirs.clear()
+            command = ["git", "-C", directory, "config", "--local", "--no-includes"]
+            result = subprocess.run(command + ["--null", "--get-regexp", r"^remote\\..*\\.(url|pushurl)$"], capture_output=True)
             if result.returncode == 1:
-                return
+                continue
             result.check_returncode()
             values = {}
             for entry in result.stdout.split(b"\\0"):
                 if entry:
                     key, value = entry.split(b"\\n", 1)
                     values.setdefault(key, []).append(value)
-            for key, entries in values.items():
-                if extraheader.match(key) or insteadof.match(key):
-                    git(config, "--unset-all", os.fsdecode(key))
-                    continue
-                cleaned = [userinfo.sub(rb"\\1", value) for value in entries]
-                if cleaned != entries:
-                    git(config, "--unset-all", os.fsdecode(key))
-                    for value in cleaned:
-                        git(config, "--add", os.fsdecode(key), os.fsdecode(value))
-
-        def fail(error):
-            # The agent can delete a directory mid-walk; only an unreadable tree is a failure.
-            if isinstance(error, FileNotFoundError) and error.filename != root:
-                return
-            raise error
-
-        for directory, dirs, files in os.walk(root, onerror=fail):
-            # A git directory, bare clones and submodule git directories included. Only nested
-            # submodules can hold another config, so skip its object store.
-            if "config" in files and "HEAD" in files and "objects" in dirs and "refs" in dirs:
-                scrub(os.path.join(directory, "config"))
-                dirs[:] = [name for name in dirs if name == "modules"]
-            else:
-                dirs[:] = [name for name in dirs if name not in skipped]
+            for key, urls in values.items():
+                cleaned = [re.sub(rb"(?i)^(https?://)[^/@]+@(?=github\\.com(?::[0-9]+)?/)", rb"\\1", url) for url in urls]
+                if cleaned != urls:
+                    subprocess.run(command + ["--unset-all", os.fsdecode(key)], check=True, capture_output=True)
+                    for url in cleaned:
+                        subprocess.run(command + ["--add", os.fsdecode(key), os.fsdecode(url)], check=True, capture_output=True)
     """)
-    command = f"/usr/bin/python3 -I -c {shlex.quote(script)} {shlex.quote(DEFAULT_SANDBOX_WORKING_DIR)}"
-    result = sandbox.execute(command, timeout_seconds=GITHUB_REMOTE_SCRUB_TIMEOUT_SECONDS)
-    if result.exit_code != 0:
-        logger.warning(
-            "Failed to clear GitHub credentials from sandbox git config",
-            extra={"sandbox_id": sandbox.id, "stderr": result.stderr},
-        )
-        return False
-    return True
-
-
-def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
-    """Clear GitHub credentials while retaining any GitLab remote configuration."""
-    remotes_cleared = clear_github_remotes_from_sandbox(sandbox)
+    command = f"python3 -c {shlex.quote(script)} {shlex.quote(SANDBOX_REPOSITORIES_ROOT)}"
+    result = sandbox.execute(command, timeout_seconds=CREDENTIAL_SANDBOX_EXEC_TIMEOUT_SECONDS)
     env_cleared = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, b"")
-    return remotes_cleared and env_cleared
+    return result.exit_code == 0 and env_cleared
 
 
 def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
@@ -273,8 +232,7 @@ def _actor_rebound_away_from(sandbox_id: str, permitted_session_user_id: int | N
 # write is a chain of in-sandbox execs, each bounded by a 15s timeout — set_git_remote_token (1 exec)
 # and _write_sandbox_credential_file (a write, move, and chmod). The per-message gate can run two
 # such chains back-to-back in one lock hold (apply the new token, then, if that fails, log out), so
-# the worst case is ~8 × 15s ≈ 2 min. The GitLab logout holds the lock for one 45s workspace scrub
-# and one credential file write, ~90s. A 5 min TTL clears both with margin; recompute if those exec
+# the worst case is ~8 × 15s ≈ 2 min. A 5 min TTL clears that with margin; recompute if those exec
 # timeouts change. The wait stays under the refresh activity's 2 min timeout, so a contender that
 # can't acquire skips (fail-safe) rather than blocking the activity.
 _CREDENTIAL_LOCK_TTL_SECONDS = 5 * 60
