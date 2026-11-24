@@ -276,7 +276,6 @@ def rows_with_counted_copies(
     legacy_configuration_ids: Collection[UUID],
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
-    source_config_contains: Mapping[str, Any] | None = None,
 ) -> frozenset[UUID]:
     """Which of these source rows have a copy the platform owns that `count_configurations(held_only=True)`
     with the same filters counts. A source that adds its own rows to that count drops these rows, so an
@@ -288,7 +287,6 @@ def rows_with_counted_copies(
         legacy_configuration_ids=legacy_configuration_ids,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
-        source_config_contains=source_config_contains,
     )
 
 

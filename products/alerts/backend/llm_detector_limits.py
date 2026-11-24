@@ -317,37 +317,27 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     # Imported here to keep this module importable from the serializer without pulling the
     # alert model's own import graph into every reader of the cap.
     from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
-    from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
-        count_configurations,
-        rows_with_counted_copies,
-    )
+    from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
     from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceKind  # noqa: PLC0415
     from products.alerts_platform.backend.facade.enums import PlatformAlertOwner  # noqa: PLC0415
 
-    # A moved alert's settings live on its copy, so its copy is counted instead of its row.
+    # A moved alert's settings live on its copy, so its copy is counted instead of its row. A row that
+    # says insight owns it counts beside a copy that says the platform does, because each stack then
+    # runs the alert's charged checks.
     queryset = AlertConfiguration.objects.filter(
         team_id=team_id, enabled=True, detector_config__type=DetectorType.LLM.value
     ).exclude(owner=PlatformAlertOwner.PLATFORM)
     if exclude_alert_id is not None:
         queryset = queryset.exclude(id=exclude_alert_id)
-    llm_copy = {SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}}
     native = count_configurations(
         team_id=team_id,
         source_kind=SourceKind.INSIGHT,
         held_only=True,
         enabled_only=True,
         exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
-        source_config_contains=llm_copy,
+        source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},
     )
-    row_ids = set(queryset.values_list("id", flat=True))
-    row_ids -= rows_with_counted_copies(
-        team_id=team_id,
-        source_kind=SourceKind.INSIGHT,
-        legacy_configuration_ids=row_ids,
-        enabled_only=True,
-        source_config_contains=llm_copy,
-    )
-    return len(row_ids) + native
+    return queryset.count() + native
 
 
 def _read_payload() -> dict | None:

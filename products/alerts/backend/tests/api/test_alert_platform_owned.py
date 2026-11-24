@@ -1510,7 +1510,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             count = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded)
 
-        assert count == (1 if counted else 0)
+        # Both stacks run a split alert's charged checks, so the AI cap counts its row and its copy.
+        both_sides_charged = cap == "ai_detector" and kind == "copy_whose_row_says_insight_owns_it"
+        assert count == (0 if not counted else 2 if both_sides_charged else 1)
 
     @parameterized.expand(
         [

@@ -248,7 +248,6 @@ def rows_with_counted_copies(
     legacy_configuration_ids: Collection[UUID],
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
-    source_config_contains: Mapping[str, Any] | None = None,
 ) -> frozenset[UUID]:
     """Which of these source rows have a copy the platform owns that `count_configurations` with the same
     filters counts. Reads only the copies' row ids."""
@@ -259,7 +258,7 @@ def rows_with_counted_copies(
         source_kind=source_kind,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
-        source_config_contains=source_config_contains,
+        source_config_contains=None,
     ).filter(owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__in=list(legacy_configuration_ids))
     return frozenset(cast(UUID, legacy_id) for legacy_id in copies.values_list("legacy_configuration_id", flat=True))
 
