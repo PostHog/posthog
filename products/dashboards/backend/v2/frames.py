@@ -378,9 +378,12 @@ def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Frame:
 def hogql_frames(result: Mapping[str, Any], *, pivot: bool = True) -> Optional[list[Frame]]:
     if not isinstance(result.get("results"), list):
         return None
-    columns, types, rows = unwrap_html_tags(
-        list(result.get("columns") or []), list(result.get("types") or []), result["results"]
+    table = unwrap_html_tags(
+        HogQLTable(
+            columns=list(result.get("columns") or []), types=list(result.get("types") or []), rows=result["results"]
+        )
     )
+    columns, types, rows = table.columns, table.types, table.rows
     fields: list[FrameField] = []
     for index, name in enumerate(columns):
         raw = types[index] if index < len(types) else None
@@ -452,14 +455,21 @@ def _label_value(value: Any) -> str:
     return _NO_LABEL if value is None else str(value)
 
 
-def unwrap_html_tags(
-    columns: list[str], types: list[Any], rows: list[list[Any]]
-) -> tuple[list[str], list[Any], list[list[Any]]]:
+@frozen
+class HogQLTable:
+    columns: list[str]
+    # PostHog's `[name, type]` pairs, one per column.
+    types: list[Any]
+    rows: list[list[Any]]
+
+
+def unwrap_html_tags(table: HogQLTable) -> HogQLTable:
     """HogQL's HTML tags (`<a href=...>Jul 2026</a>` in a SELECT) come back as `["__hx_tag", "a", key, value...,
     "children", [...]]`. A tagged column becomes its text, and a link column gets a `<column> (link)` column beside it."""
+    columns, types, rows = table.columns, table.types, table.rows
     tagged = [any(_tag_text(row[index]) is not None for row in rows) for index in range(len(columns))]
     if not any(tagged):
-        return columns, types, rows
+        return table
     linked = [tagged[index] and any(_tag_href(row[index]) for row in rows) for index in range(len(columns))]
     new_columns: list[str] = []
     new_types: list[Any] = []
@@ -480,7 +490,7 @@ def unwrap_html_tags(
             if linked[index]:
                 new_row.append(_tag_href(value))
         new_rows.append(new_row)
-    return new_columns, new_types, new_rows
+    return HogQLTable(columns=new_columns, types=new_types, rows=new_rows)
 
 
 def _is_tag(value: Any) -> bool:
