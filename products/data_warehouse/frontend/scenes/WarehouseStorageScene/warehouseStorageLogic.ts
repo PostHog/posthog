@@ -226,7 +226,7 @@ export const warehouseStorageLogic = kea<warehouseStorageLogicType>([
             }
         },
     })),
-    // Data readiness was a tab of this page before Pipeline health replaced it.
+    // Data readiness was a tab of this page before the Pipelines page replaced it.
     urlToAction(() => ({
         [urls.warehouseStorage()]: (_, searchParams) => {
             if (searchParams.tab === 'readiness') {

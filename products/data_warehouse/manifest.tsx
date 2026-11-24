@@ -116,7 +116,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_warehouse',
         },
         WarehousePipelineHealth: {
-            name: 'Pipeline health',
+            name: 'Pipelines',
             import: () => import('./frontend/scenes/WarehousePipelineHealthScene/WarehousePipelineHealthScene'),
             projectBased: true,
             description: 'Check that your events and sources are landing in your managed warehouse.',

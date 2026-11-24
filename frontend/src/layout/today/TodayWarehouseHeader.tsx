@@ -28,10 +28,9 @@ import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
-const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'import', 'model', 'manage']
+const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'model', 'manage']
 
 const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
-    import: 'Import',
     model: 'Model',
     manage: 'Manage',
 }

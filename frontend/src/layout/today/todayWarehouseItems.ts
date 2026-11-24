@@ -8,7 +8,6 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 export type WarehouseItemKey =
     | 'home'
-    | 'sources'
     | 'sql_editor'
     | 'models'
     | 'managed_viewsets'
@@ -29,7 +28,7 @@ export interface WarehouseItem {
     href: string
     iconType: FileSystemIconType
     sceneKey: string
-    group: 'home' | 'import' | 'model' | 'manage'
+    group: 'home' | 'model' | 'manage'
     flag?: FeatureFlagKey
     // Any of these flags also shows the item, as `alternativeFlags` does in a product manifest.
     alternativeFlags?: FeatureFlagKey[]
@@ -48,14 +47,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'data_warehouse',
         sceneKey: 'WarehouseHome',
         group: 'home',
-    },
-    {
-        key: 'sources',
-        label: 'Sources',
-        href: urls.sources(),
-        iconType: 'data_source',
-        sceneKey: 'Sources',
-        group: 'import',
     },
     {
         key: 'sql_editor',
@@ -104,7 +95,7 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
     },
     {
         key: 'pipeline_health',
-        label: 'Pipeline health',
+        label: 'Pipelines',
         href: urls.warehousePipelineHealth(),
         iconType: 'data_pipeline',
         sceneKey: 'WarehousePipelineHealth',
@@ -167,9 +158,12 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
     },
 ]
 
-// Warehouse pages that no menu item names: the new-source wizard and the source connect flow.
+// Sources has no menu item: the Pipelines page lists every source and links to it.
+const SOURCES_PATH = urls.sources()
+
+// Warehouse pages that no menu item names: sources, the new-source wizard and the source connect flow.
 // The destination and migration connect pages share the `/data-warehouse` prefix but are not warehouse pages.
-const EXTRA_WAREHOUSE_PATHS = ['/data-warehouse/new-source', '/data-warehouse/connect']
+const EXTRA_WAREHOUSE_PATHS = [SOURCES_PATH, '/data-warehouse/new-source', '/data-warehouse/connect']
 
 export function hrefPath(href: string): string {
     return href.split(/[?#]/)[0]
@@ -189,7 +183,10 @@ export function isWarehousePath(path: string): boolean {
     return WAREHOUSE_ROUTE_ROOTS.some((root) => isUnder(path, root))
 }
 
-const WAREHOUSE_TOOL_PATHS = new Set(WAREHOUSE_ITEMS.filter((item) => item.key !== 'home').flatMap(itemPaths))
+const WAREHOUSE_TOOL_PATHS = new Set([
+    ...WAREHOUSE_ITEMS.filter((item) => item.key !== 'home').flatMap(itemPaths),
+    SOURCES_PATH,
+])
 
 export function isWarehouseToolHref(href: string): boolean {
     return WAREHOUSE_TOOL_PATHS.has(hrefPath(href))

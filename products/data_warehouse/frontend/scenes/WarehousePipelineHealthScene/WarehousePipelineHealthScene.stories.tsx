@@ -259,7 +259,7 @@ function mocks(
 }
 
 const meta: Meta<typeof WarehousePipelineHealthScene> = {
-    title: 'Scenes-App/Data Warehouse/Pipeline health',
+    title: 'Scenes-App/Data Warehouse/Pipelines',
     component: WarehousePipelineHealthScene,
     parameters: {
         layout: 'fullscreen',

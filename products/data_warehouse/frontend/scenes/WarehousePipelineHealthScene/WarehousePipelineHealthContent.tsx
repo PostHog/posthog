@@ -23,7 +23,7 @@ export function WarehousePipelineHealthContent(): JSX.Element {
     if (!managedWarehouseDataStatus) {
         return statusFailed ? (
             <WarehouseResourceError
-                title="Couldn't load pipeline health"
+                title="Couldn't load pipelines"
                 onRetry={() => loadManagedWarehouseDataStatus()}
                 data-attr="warehouse-pipeline-health-retry"
             />

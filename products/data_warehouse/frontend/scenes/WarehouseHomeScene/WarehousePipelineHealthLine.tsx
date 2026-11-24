@@ -30,13 +30,13 @@ function WarehousePipelineHealthLineBody(): JSX.Element | null {
                 }}
                 data-attr="warehouse-home-pipeline-health-link"
             >
-                Pipeline health
+                All pipelines
             </WarehouseSectionLink>
         </div>
     )
 }
 
-/** One muted line under the Pipelines heading on how much has landed in the warehouse, with a link to Pipeline health. */
+/** One muted line under the Pipelines heading on how much has landed in the warehouse, with a link to the Pipelines page. */
 export function WarehousePipelineHealthLine(): JSX.Element {
     return (
         <WarehouseConsoleReady>

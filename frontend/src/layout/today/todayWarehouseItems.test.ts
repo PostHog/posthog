@@ -32,7 +32,7 @@ describe('todayWarehouseItems', () => {
 
     test.each([
         ['/sql', 'sql_editor'],
-        ['/data-management/sources/abc/schemas', 'sources'],
+        ['/data-management/sources/abc/schemas', null],
         ['/models', 'models'],
         ['/models/abc', 'models'],
         ['/warehouse', 'home'],
@@ -59,6 +59,7 @@ describe('todayWarehouseItems', () => {
     test.each([
         ['/sql', true],
         ['/data-catalog', true],
+        ['/data-management/sources', true],
         ['/sql?open_query=abc', true],
         ['/etl', false],
         ['/data-management/destinations?tab=all', false],

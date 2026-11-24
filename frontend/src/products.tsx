@@ -1014,7 +1014,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_warehouse',
     },
     WarehousePipelineHealth: {
-        name: 'Pipeline health',
+        name: 'Pipelines',
         projectBased: true,
         description: 'Check that your events and sources are landing in your managed warehouse.',
         iconType: 'data_warehouse',

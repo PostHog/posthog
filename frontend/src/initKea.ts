@@ -186,7 +186,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadLogins: 'products.data_warehouse.frontend.scenes.WarehouseAccessScene.warehouseLoginsLogic',
     loadOverviewUsage: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
     loadOverviewSettings: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
-    // The console Performance tab and Pipeline health page show each failure inline with a retry, and both poll
+    // The console Performance tab and Pipelines page show each failure inline with a retry, and both poll
     loadLandingHistory:
         'products.data_warehouse.frontend.scenes.WarehousePipelineHealthScene.warehousePipelineHealthLogic',
     loadMonitoringSeries: 'scenes.data-warehouse.scene.managedWarehouseTrinoMonitoringLogic',
