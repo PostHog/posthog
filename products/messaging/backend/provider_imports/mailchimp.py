@@ -97,8 +97,7 @@ EMAILS_PER_PAGE = 10
 MAX_CAMPAIGNS_PER_TEMPLATE = 5
 _PREVIEW_TAG = "*|MC_PREVIEW_TEXT|*"
 _MAILCHIMP_IMAGE = re.compile(
-    r"(?:src\s*=\s*[\"']?|background\s*=\s*[\"']?|url\(\s*[\"']?)(?:https?:)?//(?:[a-z0-9-]+\.)*(?:mcusercontent|mailchimp)\.com/",
-    re.IGNORECASE,
+    r"//(?:(?:[a-z0-9-]+\.)*mcusercontent|gallery\.mailchimp|cdn-images\.mailchimp)\.com/", re.IGNORECASE
 )
 HOSTED_IMAGES_NOTE = (
     "Mailchimp still hosts images in this email. Upload them to PostHog and replace them before you close your "
@@ -933,7 +932,7 @@ def _read_template(
             title = _clean(settings.get("title")) or _clean(settings.get("subject_line")) or str(campaign["id"])
             notes = (
                 f"Mailchimp's API doesn't share a saved template's own HTML, so this is the email of {title}, the "
-                "newest campaign made from it. Check for text that belongs only to that campaign.",
+                "newest campaign made from it that has HTML. Check for text that belongs only to that campaign.",
             )
             break
     if not body.strip():
@@ -960,9 +959,12 @@ def _read_template(
 
 def _campaign_html(client: MailchimpClient, campaign_id: str) -> str:
     try:
-        return _clean(client.get(f"/campaigns/{quoted(campaign_id)}/content", {"fields": "html"}).get("html"))
+        content = client.get(f"/campaigns/{quoted(campaign_id)}/content", {"fields": "html,variate_contents"})
     except MailchimpNotFound:
         return ""
+    variants = content.get("variate_contents") or [{}]
+    # An A/B test keeps its content per variation.
+    return _clean(content.get("html")) or _clean(_as_dict(variants[0]).get("html"))
 
 
 def _campaign_selected(campaign: Mapping[str, Any], choice: str, now: datetime) -> bool:
@@ -1057,7 +1059,7 @@ def _read_campaign(
     if subject and "*|" not in subject:
         fixed["MC:SUBJECT"] = subject
     shows_preview = _PREVIEW_TAG in body
-    if "*|" in preview:
+    if "*|" in preview and not convert_text(preview, is_html=False, fixed=fixed).unsupported:
         # Put in as written, so its merge tags convert with the rest of the body.
         body = body.replace(_PREVIEW_TAG, html.escape(preview))
     # An empty preview text is still known, so a condition on it is false. One with merge tags isn't empty, so a
@@ -1131,14 +1133,15 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
             email["text"] = converted.text
         preview_notes: tuple[str, ...] = ()
         if source.preview:
-            preview = convert_text(source.preview, is_html=False, fixed=source.fixed)
+            # The send puts the preheader into the HTML as it is.
+            preview = convert_text(source.preview.replace("<", "&lt;"), is_html=False, fixed=source.fixed)
             email["preheader"] = preview.text
-            if preview.unsupported:
-                preview_notes = ("PostHog can't convert every merge tag in the preview text. Check it.",)
+            if preview.merge_fields or preview.unsupported:
+                preview_notes = ("The preview text uses merge tags. Check it with a test send.",)
         sender_notes: tuple[str, ...] = ()
         if source.from_email:
             sender_notes = apply_sender(email, source.from_name, source.from_email, senders)
-        image_notes = (HOSTED_IMAGES_NOTE,) if _MAILCHIMP_IMAGE.search(source.html) else ()
+        image_notes = (HOSTED_IMAGES_NOTE,) if _MAILCHIMP_IMAGE.search(email["html"]) else ()
         notes = (*source.notes, *converted.notes, *preview_notes, *converted.send_notes, *image_notes, *sender_notes)
         fields = {
             "name": source.label,

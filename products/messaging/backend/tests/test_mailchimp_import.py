@@ -162,12 +162,32 @@ class TestMailchimpImport(BaseTest):
         template = MessageTemplate.objects.get(team_id=self.team.id, key="mailchimp-template-102")
         assert "<p>Made 2 {{ person.properties.first_name | escape | raw }}</p>" in template.content["email"]["html"]
         item = next(item for item in run.progress["templates"]["items"] if item["label"] == "New builder template")
-        assert "the email of Made 2, the newest campaign made from it" in item["notes"][0]
+        assert "the email of Made 2, the newest campaign made from it that has HTML" in item["notes"][0]
         assert HOSTED_IMAGES_NOTE in item["notes"]
+
+    def test_preview_text_that_cannot_convert_leaves_the_conditions_in_the_body_alone(self) -> None:
+        campaign = self.mailchimp.data["campaigns"][0]
+        campaign["settings"]["preview_text"] = "*|IF:PLAN|* news"
+        campaign["content"]["html"] = "<i>*|MC_PREVIEW_TEXT|*</i>*|IF:CITY|*<p>City</p>*|END:IF|*"
+
+        self._run(["campaigns"])
+
+        email = MessageTemplate.objects.get(team_id=self.team.id, key="mailchimp-campaign-camp001").content["email"]
+        assert "{% if person.properties.CITY" in email["html"]
+
+    def test_a_template_only_an_ab_test_uses_comes_from_its_first_variation(self) -> None:
+        ab_test = next(row for row in self.mailchimp.data["campaigns"] if row["id"] == "camp005")
+        ab_test["settings"]["template_id"] = 102
+
+        self._run(["templates"])
+
+        template = MessageTemplate.objects.get(team_id=self.team.id, key="mailchimp-template-102")
+        assert "Short {{ person" in template.content["email"]["html"]
 
     @parameterized.expand(
         [
             ("not_in_the_body", "<p>Hi</p>", "Hi *|FNAME|*, news", "Hi {{ person.properties.first_name }}, news"),
+            ("markup", "<p>Hi</p>", "<!-- 5 > 3 & more", "&lt;!-- 5 > 3 & more"),
             ("audience_tag", "<p>Hi</p>", "*|LIST:NAME|* news", "Weekly newsletter news"),
             ("already_in_the_body", "<p>*|MC_PREVIEW_TEXT|*</p>", "News", None),
             ("none", "<p>Hi</p>", "", None),
