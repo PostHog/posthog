@@ -187,7 +187,7 @@
         "products/messaging/backend/**": ["products/messaging/frontend/e2e/"]
     },
     "scenes_smoke_only": ["groups", "integrations", "max", "web-analytics"],
-    "products_smoke_only": ["alerts_platform", "apm"],
+    "products_smoke_only": ["apm"],
     "products": {
         "ai_observability": ["products/ai_observability/frontend/e2e/"],
         "billing": ["products/billing/frontend/e2e/"],
