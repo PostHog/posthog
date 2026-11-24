@@ -5,6 +5,7 @@ import pytest
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import MySQLCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.prerequisite_validator import (
+    time_zone_error,
     validate_cdc_prerequisites,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.tests.conftest import (
@@ -132,3 +133,17 @@ def test_the_adapter_reads_the_database_from_the_source_not_the_view_hint(team, 
     )
 
     assert errors == []
+
+
+@pytest.mark.parametrize(
+    "time_zone,system_time_zone,refused",
+    [
+        ("SYSTEM", "UTC", False),
+        ("SYSTEM", "America/New_York", False),
+        ("+02:00", "CEST", False),
+        ("SYSTEM", "CEST", True),
+        ("SYSTEM", "EST", True),
+    ],
+)
+def test_a_system_time_zone_without_daylight_saving_rules_is_refused(time_zone, system_time_zone, refused):
+    assert (time_zone_error(time_zone, system_time_zone) is not None) is refused

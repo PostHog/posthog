@@ -56,8 +56,24 @@ def validate_cdc_prerequisites(conn: pymysql.Connection, tables: list[str], data
             "the role is active by default."
         )
     errors.extend(_check_retention(conn))
+    time_zone = _variables(conn, ["time_zone", "system_time_zone"])
+    if error := time_zone_error(time_zone.get("time_zone", ""), time_zone.get("system_time_zone", "")):
+        errors.append(error)
     errors.extend(_check_tables_have_primary_keys(conn, resolved))
     return errors
+
+
+def time_zone_error(time_zone: str, system_time_zone: str) -> str | None:
+    """CDC reads TIMESTAMP values in UTC and converts them to the zone the snapshot reads them in. Under SYSTEM
+    the server only names its zone by an abbreviation such as CET, which doesn't say when daylight saving
+    applies."""
+    if time_zone.upper() != "SYSTEM" or system_time_zone.upper() in ("UTC", "GMT") or "/" in system_time_zone:
+        return None
+    return (
+        f"The server's time_zone is SYSTEM ({system_time_zone}), so change data capture can't tell when daylight "
+        "saving time applies to TIMESTAMP columns. Set time_zone to a named zone such as 'Europe/Berlin' or an "
+        "offset such as '+00:00' (on RDS and Aurora, in the parameter group), then check again."
+    )
 
 
 def resolve_tables(tables: Iterable[str], database: str | None) -> list[QualifiedTable]:
