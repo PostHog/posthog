@@ -4,9 +4,10 @@ from products.experiments.backend.facade.contracts import ListAccess
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 
 
-def _visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
+def visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
     queryset: QuerySet[ModelT], access: ListAccess | None
 ) -> QuerySet[ModelT]:
+    # The same narrowing `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
     if access is None:
         return queryset
     if access.only_allowed:
@@ -18,9 +19,9 @@ def _visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
 
 def visible_experiments(team_id: int, access: ListAccess | None) -> QuerySet[Experiment]:
     """The team's experiments that `access` lets the viewer see. None means no narrowing."""
-    return _visible_to(Experiment.objects.filter(team_id=team_id), access)
+    return visible_to(Experiment.objects.filter(team_id=team_id), access)
 
 
 def visible_saved_metrics(team_id: int, access: ListAccess | None) -> QuerySet[ExperimentSavedMetric]:
     """The team's shared metrics that `access` lets the viewer see. None means no narrowing."""
-    return _visible_to(ExperimentSavedMetric.objects.filter(team_id=team_id), access)
+    return visible_to(ExperimentSavedMetric.objects.filter(team_id=team_id), access)

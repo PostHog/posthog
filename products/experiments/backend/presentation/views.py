@@ -116,6 +116,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
+from products.experiments.backend.presentation.saved_metrics import list_access
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
     refuse_scout_cleanup_pr,
@@ -1900,15 +1901,7 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSetupContextResponseSerializer(context).data)
 
     def _list_access(self, resource: Literal["experiment", "experiment_saved_metric"]) -> ListAccess | None:
-        access = self.user_access_control.list_access_filter(resource)
-        if access is None:
-            return None
-        return ListAccess(
-            viewer_id=cast(User, self.request.user).id,
-            only_allowed=access.only_allowed,
-            allowed_ids=access.allowed_ids,
-            blocked_ids=access.blocked_ids,
-        )
+        return list_access(self.user_access_control, resource, viewer_id=cast(User, self.request.user).id)
 
     def _setup_context_enabled(self) -> bool:
         # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff

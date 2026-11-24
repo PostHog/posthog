@@ -752,21 +752,6 @@ class ExperimentExposureLinkage:
     _resolution: object = field(compare=False, repr=False)
 
 
-@frozen
-class ListAccess:
-    """Which records the access control rules let a list show the viewer.
-
-    This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
-    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
-    viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
-    """
-
-    viewer_id: int
-    only_allowed: bool
-    allowed_ids: frozenset[str]
-    blocked_ids: frozenset[str]
-
-
 # Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
 # extra session widens the grouped scans; anything larger should arrive as separate batches.
 MAX_SESSION_CONTEXT_BATCH = 20
