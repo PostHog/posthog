@@ -111,8 +111,11 @@ describe('RealtimeCohortsWaitlistBanner', () => {
         jest.clearAllMocks()
     })
 
-    it('offers the waitlist while the feature is at the concept stage', () => {
-        setupMocks([CONCEPT_FEATURE])
+    it.each([
+        ['the feature is at the concept stage', {}],
+        ['the feature is at the concept stage and only the beta banner was dismissed', { betaDismissed: true }],
+    ])('offers the waitlist when %s', (_label, options) => {
+        setupMocks([CONCEPT_FEATURE], options)
 
         render(<RealtimeCohortsWaitlistBanner />)
 
@@ -164,6 +167,7 @@ describe('RealtimeCohortsWaitlistBanner', () => {
             true,
             'beta'
         )
+        expect(lemonToast.success).toHaveBeenCalled()
     })
 
     it.each([

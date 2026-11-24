@@ -17,10 +17,10 @@ import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
 import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
-const DISMISS_KEY = 'realtime-cohorts-waitlist'
+const WAITLIST_DISMISS_KEY = 'realtime-cohorts-waitlist'
 const BETA_DISMISS_KEY = 'realtime-cohorts-beta-opt-in'
 
-function joinedWaitlistInThisBrowser(): boolean {
+function enrolledInThisBrowser(): boolean {
     const storedPersonProps = posthog.get_property('$stored_person_properties') as Record<string, unknown> | undefined
     return !!storedPersonProps?.[`$feature_enrollment/${FEATURE_FLAGS.REALTIME_COHORTS}`]
 }
@@ -46,7 +46,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
     const { preflight } = useValues(preflightLogic)
-    const { isDismissed: waitlistDismissed } = useValues(lemonBannerLogic({ dismissKey: DISMISS_KEY }))
+    const { isDismissed: waitlistDismissed } = useValues(lemonBannerLogic({ dismissKey: WAITLIST_DISMISS_KEY }))
     const { isDismissed: betaDismissed } = useValues(lemonBannerLogic({ dismissKey: BETA_DISMISS_KEY }))
     // Teams with no cohorts get the setup screen today; this keeps them out if it becomes skippable.
     const { setupStatus } = useValues(cohortsSetupLogic)
@@ -58,7 +58,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
         !areClientFeatureFlagsHonored(preflight) ||
         alreadyHasRealtimeCohorts ||
         setupStatus !== 'has-data' ||
-        joinedWaitlistInThisBrowser()
+        enrolledInThisBrowser()
 
     // The loader forces a fresh request, so only ask when the banner could render.
     useEffect(() => {
@@ -94,7 +94,12 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
                             data-attr="realtime-cohorts-beta-opt-in"
                             // Enrollment turns the flag on in this browser, and realtimeCohortsJoinLogic reacts to
                             // the flag by joining the project.
-                            onClick={() => updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)}
+                            onClick={() => {
+                                updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
+                                if (!window.IMPERSONATED_SESSION) {
+                                    lemonToast.success("Realtime cohorts: you've joined the beta.")
+                                }
+                            }}
                         >
                             Join the beta
                         </LemonButton>
@@ -106,7 +111,7 @@ export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
 
     return (
         <PostHogCaptureOnViewed name="realtime-cohorts-waitlist-banner-shown">
-            <LemonBanner type="info" dismissKey={DISMISS_KEY} alignItems="start">
+            <LemonBanner type="info" dismissKey={WAITLIST_DISMISS_KEY} alignItems="start">
                 <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-semibold">Realtime cohorts are coming soon</span>
