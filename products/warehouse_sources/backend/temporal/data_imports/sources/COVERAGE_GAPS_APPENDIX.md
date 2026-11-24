@@ -6457,9 +6457,9 @@ Today (8): `members`, `newsletters`, `offers`, `pages`, `posts`, `tags`, `tiers`
 
 Diffed against: <https://docs.ghost.org/llms.txt>
 
-- [ ] `Labels (GET /admin/labels/)` — member label lookup; members carry labels, and labels drive segmentation (high)
-- [ ] `Member custom fields (GET /admin/members/metafields/custom/)` — definitions for the custom field values stored on members (medium)
-- [ ] `Roles (GET /admin/roles/)` — resolve staff user roles on the users table (low)
+- [x] `Labels (GET /admin/labels/)` — member label lookup; members carry labels, and labels drive segmentation (high)
+- [x] `Member custom fields (GET /admin/members/metafields/custom/)` — definitions for the custom field values stored on members (medium)
+- [x] `Roles (GET /admin/roles/)` — resolve staff user roles on the users table (low)
 
 Note: Ghost has no OpenAPI spec, so I read the Admin API pages listed in llms.txt as .md. Covered today: members, posts, pages, tiers, offers, newsletters, tags and users. Excluded: webhooks, themes, images, invites, site and session. Labels use page and limit pagination. The custom fields route needs a recent Ghost version.
 

@@ -115,9 +115,9 @@ def get_resource(name: str) -> EndpointResource:
         "name": name,
         "write_disposition": "replace",
         "endpoint": {
-            "path": f"{name}/",
+            "path": endpoint.path or f"{name}/",
             "params": params,
-            "data_selector": name,
+            "data_selector": endpoint.data_selector or name,
             "data_selector_required": True,
             "paginator": PageNumberPaginator(base_page=1, total_path="meta.pagination.pages")
             if endpoint.paginated
@@ -140,15 +140,15 @@ def probe_credentials(
         request_timeout=REQUEST_TIMEOUT,
     )
     params: dict[str, Any] = dict(endpoint.params)
-    if ENDPOINTS[name].paginated:
+    if endpoint.paginated:
         params.update({"limit": 1, "page": 1})
     try:
         next(
             client.paginate(
-                path=f"{name}/",
+                path=endpoint.path or f"{name}/",
                 params=params,
                 paginator=SinglePagePaginator(),
-                data_selector=name,
+                data_selector=endpoint.data_selector or name,
                 data_selector_required=True,
             )
         )
