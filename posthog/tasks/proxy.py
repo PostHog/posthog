@@ -3,6 +3,7 @@ import asyncio
 
 from django.conf import settings
 from django.db import DatabaseError
+from django.db.models import Q
 
 import requests
 from celery import shared_task
@@ -124,21 +125,26 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: b
                 .exists()
             )
             if active:
-                if from_sweep and record.status == ProxyRecord.Status.ERRORING:
+                if from_sweep and record.status == ProxyRecord.Status.ERRORING and not record.needs_activation_recovery:
                     return
                 if proxy_domain_can_be_provisioned(record):
                     asyncio.run(_resume_proxy(record))
+                    if record.needs_activation_recovery:
+                        ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=False)
                 return
-    reconcile_cloudflare_proxy(organization_id, proxy_record_id)
+    reconcile_cloudflare_proxy(organization_id, proxy_record_id, from_sweep=from_sweep)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reconcile_managed_proxies() -> None:
-    for organization_id, proxy_record_id, target_cname, status, is_active in ProxyRecord.objects.values_list(
-        "organization_id", "id", "target_cname", "status", "organization__is_active"
+    pending = ProxyRecord.objects.filter(
+        Q(organization__is_active=False)
+        | Q(needs_activation_recovery=True)
+        | Q(status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.DELETING))
+    )
+    for organization_id, proxy_record_id, target_cname, status in pending.values_list(
+        "organization_id", "id", "target_cname", "status"
     ).iterator():
-        if status == ProxyRecord.Status.ERRORING and is_active is not False:
-            continue
         if status == ProxyRecord.Status.DELETING or is_cloudflare_proxy_by_cname(target_cname):
             enqueue_proxy_reconciliation(str(organization_id), str(proxy_record_id), from_sweep=True)
