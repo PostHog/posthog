@@ -25,6 +25,7 @@
                 "backend/admin/**",
                 "backend/services/account_audience.py",
                 "backend/services/batch_jobs.py",
+                "backend/services/suggestions_scout.py",
                 "backend/services/default_email_sender.py",
                 "backend/services/email_sending_controls.py",
                 "backend/services/hog_flow_reads.py",
