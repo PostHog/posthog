@@ -94,7 +94,8 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   for attempt in 1 2 3 4; do
-                    existing_pr=$(gh pr list --head "browserslist-update" --json number --jq '.[0].number' 2>/dev/null || true)
+                    existing_pr=$(gh pr list --head "browserslist-update" --json number,isCrossRepository \
+                      --jq '[.[] | select(.isCrossRepository | not)][0].number // empty' 2>/dev/null || true)
                     if [ -n "$existing_pr" ]; then
                       gh pr edit "$existing_pr" --body-file /tmp/pr-body.md && break
                     else
