@@ -18,6 +18,7 @@ from products.tasks.backend.logic.services.modal_egress_probe import (
     _RENEW_CERTIFICATE,
     _START_RELAY,
     _WAIT_READY,
+    AgentEgressCertificateDeliveryError,
     ModalEgressProbe,
 )
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
@@ -260,6 +261,37 @@ class TestModalEgressProbe(SimpleTestCase):
             close("test-egress")
 
         self.assertEqual(self.sandbox._sandbox.terminate.call_count, int(state == "live"))
+
+    def test_attached_relay_process_uses_the_remaining_sandbox_lifetime(self) -> None:
+        with patch("products.tasks.backend.logic.services.modal_egress_probe.MAX_SANDBOX_TTL_SECONDS", 21600):
+            probe = ModalEgressProbe.attach(
+                sandbox_id="sb-original",
+                relay_name="egress-relay-example",
+                relay_image_id="im-example",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=7200,
+            )
+        probe.start_relay(certificate="public certificate", server_ca="public CA")
+        start = next(call for call in self.sidecar.exec.call_args_list if _START_RELAY in call.args)
+        self.assertEqual(start.kwargs["timeout"], 7200)
+        self.create.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "lifetime"):
+            ModalEgressProbe.create(
+                name="test-egress",
+                relay_image_id="im-example",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=7200,
+            )
+
+    @parameterized.expand([("write",), ("reload",)])
+    def test_certificate_delivery_errors_are_distinct_from_authority_errors(self, phase: str) -> None:
+        probe = self.launch()
+        if phase == "write":
+            self.sidecar.filesystem.write_text.side_effect = ServiceError("temporarily unavailable")
+        else:
+            self.sidecar.exec.return_value.returncode = 1
+        with self.assertRaisesRegex(AgentEgressCertificateDeliveryError, "certificate delivery failed"):
+            probe.renew_certificate("public certificate")
 
     @parameterized.expand([(False,), (True,)])
     def test_identity_recovery_preserves_private_key(self, csr_missing: bool) -> None:
