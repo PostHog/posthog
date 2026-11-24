@@ -29,6 +29,7 @@ const LIQUID_BLOCKS = new Set(['if', 'unless', 'case', 'for', 'tablerow', 'captu
 const LIQUID_BRANCHES = new Set(['else', 'elsif', 'when'])
 /** Tags that only set something up, so they matter even when the markup around them isn't text. */
 const LIQUID_SETUP = new Set(['assign', 'capture', 'liquid'])
+const LIQUID_CHANGES_VALUE = new Set([...LIQUID_SETUP, 'increment', 'decrement'])
 const LIQUID_PRINTS = new Set(['cycle', 'increment', 'decrement', 'echo', 'include', 'render', 'unsubscribe_url'])
 
 /** Filters that make a value safe inside html. In plain text they would print entities, and break a URL. */
@@ -44,12 +45,16 @@ function holdsRawClose(text: string): boolean {
     return text.search(RAW_CLOSE) !== -1
 }
 
-/** Where the Liquid tag that starts here ends, read the way LiquidJS does: a quoted string can hold a delimiter. */
-function liquidEnd(html: string, start: number): number | null {
+/**
+ * Where the Liquid tag that starts here ends, read the way LiquidJS does: a quoted string can hold a delimiter.
+ * `unclosed` collects the starts that have no end, so a later search from or through one stops there.
+ */
+function liquidEnd(html: string, start: number, unclosed: Set<number>): number | null {
     const close = html[start + 1] === '{' ? '}}' : html[start + 1] === '%' ? '%}' : null
-    if (html[start] !== '{' || !close) {
+    if (html[start] !== '{' || !close || unclosed.has(start)) {
         return null
     }
+    const starts = [start]
     let quote = ''
     for (let at = start + 2; at < html.length; at++) {
         if (quote) {
@@ -62,24 +67,30 @@ function liquidEnd(html: string, start: number): number | null {
             quote = html[at]
         } else if (html.startsWith(close, at)) {
             return at + 2
+        } else if (html[at] === '{' && html[at + 1] === html[start + 1]) {
+            if (unclosed.has(at)) {
+                break
+            }
+            starts.push(at)
         }
     }
+    starts.forEach((position) => unclosed.add(position))
     return null
 }
 
 /** The end of a raw block that starts here, or of the one Liquid tag. */
-function liquidUnitEnd(html: string, start: number): number | null {
+function liquidUnitEnd(html: string, start: number, unclosed: Set<number>): number | null {
     if (execAt(RAW_OPEN, html, start)) {
         const close = execAt(RAW_CLOSE, html, RAW_OPEN.lastIndex)
         if (close) {
             return RAW_CLOSE.lastIndex
         }
     }
-    return liquidEnd(html, start)
+    return liquidEnd(html, start, unclosed)
 }
 
 /** Reads a tag with Liquid in mind, because Liquid runs first: a quote inside one doesn't end an attribute. */
-function readTag(html: string, start: number, inRaw: boolean): HtmlTag | null {
+function readTag(html: string, start: number, inRaw: boolean, unclosed: Set<number>): HtmlTag | null {
     const match = execAt(TAG_START, html, start)
     if (!match) {
         return null
@@ -93,7 +104,7 @@ function readTag(html: string, start: number, inRaw: boolean): HtmlTag | null {
     }
     let at = start + match[0].length
     const skip = (): boolean => {
-        const end = !inRaw && html[at] === '{' ? liquidUnitEnd(html, at) : null
+        const end = !inRaw && html[at] === '{' ? liquidUnitEnd(html, at, unclosed) : null
         if (end === null) {
             return false
         }
@@ -156,10 +167,11 @@ function piecesOf(source: string, inRaw: boolean): Piece[] {
         return [{ kind: 'text', value: decodeEntities(source.replace(RAW_CLOSE, '')) }]
     }
     const pieces: Piece[] = []
+    const unclosed = new Set<number>()
     let at = 0
     while (at < source.length) {
         const raw = execAt(RAW_OPEN, source, at)
-        const end = liquidUnitEnd(source, at)
+        const end = liquidUnitEnd(source, at, unclosed)
         if (end === null) {
             const next = source.indexOf('{', at + 1)
             const stop = next === -1 ? source.length : next
@@ -278,7 +290,8 @@ function linkAddress(tag: HtmlTag, inRaw: boolean): LinkAddress | null {
         0,
         flow.findIndex((piece) => !liquidTagName(piece))
     )
-    const pieces = staysInOneBranch(toHref) ? piecesOf(href, inRaw) : flow
+    const hrefPieces = piecesOf(href, inRaw)
+    const pieces = staysInOneBranch(toHref) && staysInOneBranch(hrefPieces) ? hrefPieces : flow
     const text = textOf(pieces).trim()
     return !text || /^(#|(javascript|vbscript|data):)/i.test(text) ? null : { pieces, text }
 }
@@ -292,6 +305,7 @@ function linkAddress(tag: HtmlTag, inRaw: boolean): LinkAddress | null {
  */
 export function htmlToEmailText(html: string, { imageText = true }: { imageText?: boolean } = {}): string {
     const out: Piece[] = []
+    const unclosed = new Set<number>()
     let link: { start: number; address: LinkAddress } | null = null
     let inRaw = false
     let lineEmpty = true
@@ -323,8 +337,9 @@ export function htmlToEmailText(html: string, { imageText = true }: { imageText?
         const { start, address } = link
         link = null
         const inner = out.slice(start)
-        if (!staysInOneBranch(inner)) {
-            // The address belongs to the branch the link opens in, so it goes there.
+        const changesValue = inner.some((piece) => LIQUID_CHANGES_VALUE.has(liquidTagName(piece) ?? ''))
+        if (changesValue || !staysInOneBranch(inner)) {
+            // The address belongs where the link opens: in that branch, and with the values set there.
             out.splice(start, 0, ...address.pieces, { kind: 'text', value: ' ' })
             return
         }
@@ -354,8 +369,11 @@ export function htmlToEmailText(html: string, { imageText = true }: { imageText?
             const address = closing ? null : linkAddress(tag, inRaw)
             link = address ? { start: out.length, address } : null
         } else if ((name === 'img' || name === 'area') && !closing) {
-            const address = name === 'area' ? linkAddress(tag, inRaw) : null
-            const alt = imageText ? piecesOf(tag.attributes.alt ?? '', inRaw) : []
+            const address =
+                name === 'area' && staysInOneBranch(piecesOf(tag.flow, inRaw)) ? linkAddress(tag, inRaw) : null
+            const altPieces = imageText ? piecesOf(tag.attributes.alt ?? '', inRaw) : []
+            // A condition that ends outside the alt text can't be written from the alt text alone.
+            const alt = staysInOneBranch(altPieces) ? altPieces : []
             out.push(...alt)
             lineEmpty = lineEmpty && !alt.length
             if (address) {
@@ -379,7 +397,7 @@ export function htmlToEmailText(html: string, { imageText = true }: { imageText?
         if (html[at] === '{') {
             const rawClose = inRaw ? execAt(RAW_CLOSE_HERE, html, at) : null
             const rawOpen = inRaw ? null : execAt(RAW_OPEN, html, at)
-            const end = inRaw ? null : liquidEnd(html, at)
+            const end = inRaw ? null : liquidEnd(html, at, unclosed)
             if (rawClose) {
                 inRaw = false
                 at += rawClose[0].length
@@ -410,7 +428,7 @@ export function htmlToEmailText(html: string, { imageText = true }: { imageText?
             at = close === -1 ? html.length : close + 1
             continue
         }
-        const tag: HtmlTag | null = html[at] === '<' ? readTag(html, at, inRaw) : null
+        const tag: HtmlTag | null = html[at] === '<' ? readTag(html, at, inRaw, unclosed) : null
         if (tag) {
             // A condition can open inside a tag and close after it.
             const keptByLink = tag.name === 'a' && !staysInOneBranch(piecesOf(tag.flow, inRaw))

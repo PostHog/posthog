@@ -119,6 +119,21 @@ describe('htmlToEmailText', () => {
             '<a href="https://example.com/{% if vip %}a">V{% else %}b">N{% endif %}</a>',
             'https://example.com/a V',
         ],
+        [
+            'a condition that starts in an alt text',
+            '<p>Hi</p><img alt="{% if vip %}VIP" title="badge{% endif %}" src="x">',
+            'Hi',
+        ],
+        [
+            'a condition that starts inside an address',
+            '<a href="https://example.com/{% if vip %}a" title="x{% else %}b{% endif %}">Go</a>',
+            'Go (https://example.com/a)',
+        ],
+        [
+            'an address whose variable changes inside the link',
+            '{% assign u = "https://example.com/old" %}<a href="{{ u }}">{% assign u = "https://example.com/new" %}Go</a>',
+            'https://example.com/old Go',
+        ],
         ['a conditional class on a link with no address', '<a {% if vip %}class="b"{% endif %}>Go</a>', 'Go'],
         ['a raw block that opens in a comment', '<!--[if mso]>{% raw %}<![endif]-->{{#x}}{% endraw %}', '{{#x}}'],
         [
