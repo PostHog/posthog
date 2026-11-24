@@ -60,7 +60,7 @@ from products.signals.backend.anomaly_scores.config import (
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
-from products.signals.backend.anomaly_scores.judging import judge_flags
+from products.signals.backend.anomaly_scores.judging import _daily_key, judge_flags, reserve_daily_checks
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
@@ -971,16 +971,28 @@ class TestTrainScoreSplit(BaseTest):
         now: datetime,
         data: list[float],
         ai_judge: AIJudgeConfig = NO_AI_JUDGE,
+        history_error: Exception | None = None,
     ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
         days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
         results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        capture = MagicMock()
         with (
             patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
             patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
             patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture),
         ):
             runner.return_value.run.return_value = MagicMock(results=results)
+            if history_error is not None:
+                # The second fetch of a pick is the judge's history.
+                runner.return_value.run.side_effect = [MagicMock(results=results), history_error]
             result = run_insight(ScoreInsightInput(pick=pick, ai_judge=ai_judge), now)
+        self.fetched_ranges = [call.kwargs["query"].dateRange.date_from for call in runner.call_args_list]
+        [self.pick_event] = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "anomaly scoring pick"
+        ]
         return result, emit.call_args.args[1] if emit.called else []
 
     def _train(
@@ -1035,6 +1047,88 @@ class TestTrainScoreSplit(BaseTest):
         assert state.trained_at == trained_at + timedelta(days=7)
         # A retrain replaces the blob and deletes the previous one.
         assert list(self.blobs) == [state.artifact_key] != [first_key]
+
+    @parameterized.expand(
+        [
+            ("no_new_flag", 100.0, True, False, ["-6d"], 0),
+            ("flagged", 500.0, True, False, ["-6d", "-62d"], 1),
+            ("flagged_without_consent", 500.0, False, False, ["-6d"], 0),
+            ("flagged_past_the_daily_cap", 500.0, True, True, ["-6d"], 0),
+        ]
+    )
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_default_v2_score_pick_fetches_the_judge_history_only_for_a_flag_the_judge_is_asked_about(
+        self, _name: str, newest: float, consent: bool, daily_cap_spent: bool, fetched: list[str], calls: int
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+        if daily_cap_spent:
+            reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, events = self._run(
+                insight, self._score_pick(insight, trained), scored_at, [*self.values[-4:], newest, 100.0], ai_judge
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+
+        assert result.run == ScoringRun.SCORE
+        zscore_flagged = [
+            event["properties"]["$anomaly_bucket_start"]
+            for event in events
+            if json.loads(event["properties"]["$anomaly_details"])["members"][0]["state"] == "fired"
+        ]
+        assert zscore_flagged == ([] if newest == 100.0 else ["2026-10-21T00:00:00+00:00"])
+        assert self.fetched_ranges == fetched
+        assert len(requests) == calls
+        assert (self.pick_event["queries"], self.pick_event["ai_history_fetched"]) == (len(fetched), len(fetched) > 1)
+        assert score_budget_spent == len(fetched) - 1
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_judge_history_fetch_that_fails_still_charges_its_queries_and_keeps_the_daily_cap(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, _events = self._run(
+                insight,
+                self._score_pick(insight, trained),
+                scored_at,
+                [*self.values[-4:], 500.0, 100.0],
+                ai_judge,
+                history_error=ClickHouseQueryTimeOut(),
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+            daily_cap_left = reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        assert result.status == "too_expensive"
+        assert self.fetched_ranges == ["-6d", "-62d"]
+        assert len(requests) == 0
+        assert score_budget_spent == 1
+        assert daily_cap_left == 1
 
     @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
     def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:

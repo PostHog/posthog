@@ -10,7 +10,7 @@ import collections
 from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 import certifi
 import structlog
@@ -26,6 +26,7 @@ from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
+from pymongo.uri_parser import split_options
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -359,20 +360,71 @@ _UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
 UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
 
 
+# Only mechanisms that sign in with the username and password in the string are allowed. The
+# other mechanisms (MONGODB-OIDC, MONGODB-AWS, MONGODB-X509, GSSAPI) get their credential from the
+# host that runs the client, which is our pod and not the customer's machine, and send it to the
+# server the string names. `authMechanismProperties` only configures those mechanisms.
+_PASSWORD_AUTH_MECHANISMS = frozenset({"DEFAULT", "SCRAM-SHA-1", "SCRAM-SHA-256"})
+_AUTH_MECHANISM_OPTION = "authmechanism"
+_AUTH_MECHANISM_PROPERTIES_OPTION = "authmechanismproperties"
+UNSUPPORTED_AUTH_OPTION_ERROR = "Connection string sets an authentication mechanism PostHog does not support"
+
+
 class UnsupportedConnectionOptionError(ValueError):
     pass
 
 
+class UnsupportedAuthOptionError(UnsupportedConnectionOptionError):
+    pass
+
+
+def _option_tokens(connection_string: str) -> list[str]:
+    # pymongo splits a query that has no `&` or `;` on whitespace instead, so an option can sit
+    # after a space inside what `_options` returns as one option.
+    return re.split(r"[&;\s]", connection_string.partition("?")[2])
+
+
+def _sets_unsupported_auth_option(connection_string: str) -> bool:
+    # URI option names are case-insensitive and pymongo percent-decodes the values, so compare
+    # the decoded forms. A duplicated option counts on every occurrence, not only the one that wins.
+    for option in _option_tokens(connection_string):
+        key, _, value = option.partition("=")
+        key = unquote_plus(key).lower()
+        if key == _AUTH_MECHANISM_PROPERTIES_OPTION:
+            return True
+        if key == _AUTH_MECHANISM_OPTION and unquote_plus(value).upper() not in _PASSWORD_AUTH_MECHANISMS:
+            return True
+    # Check again with the parser `MongoClient` uses, so that a difference between the loop above
+    # and pymongo cannot let a mechanism through. The DNS TXT record of a mongodb+srv host cannot
+    # add either option, because pymongo accepts only authSource, replicaSet and loadBalanced there.
+    query = connection_string.partition("?")[2]
+    if not query:
+        return False
+    parsed = split_options(query, validate=False, warn=False, normalize=True)
+    if _AUTH_MECHANISM_PROPERTIES_OPTION in parsed:
+        return True
+    mechanism = parsed.get(_AUTH_MECHANISM_OPTION)
+    return mechanism is not None and str(mechanism).upper() not in _PASSWORD_AUTH_MECHANISMS
+
+
 def _checked_connection_string(connection_string: str) -> str:
-    """The string without `tlsCAFile`. Raises when it names a file that has no replacement."""
+    """The string without `tlsCAFile`. Raises when it names a file that has no replacement, or an
+    authentication mechanism other than a username and password."""
     options = _options(connection_string)
-    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS for option in options):
-        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
     kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
     if len(kept) == len(options):
-        return connection_string
-    base = connection_string.partition("?")[0]
-    return f"{base}?{'&'.join(kept)}" if kept else base
+        checked = connection_string
+    else:
+        base = connection_string.partition("?")[0]
+        checked = f"{base}?{'&'.join(kept)}" if kept else base
+    # Check the string `MongoClient` receives, not the input. Removing `tlsCAFile` can leave one
+    # option, which pymongo then splits on whitespace into several. A `tlsCAFile` still present was
+    # hidden behind whitespace, so the strip missed it and pymongo would open that path.
+    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS | {_CA_FILE_OPTION} for option in _option_tokens(checked)):
+        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
+    if _sets_unsupported_auth_option(checked):
+        raise UnsupportedAuthOptionError(UNSUPPORTED_AUTH_OPTION_ERROR)
+    return checked
 
 
 @contextlib.contextmanager
