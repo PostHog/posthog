@@ -76,6 +76,35 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
     }
 }
 
+// The runtime renders every string leaf it finds, including strings nested in
+// dictionary objects and json arrays, so validation walks the same set.
+const eachStringLeaf = (
+    value: unknown,
+    visit: (leaf: string, path: string) => string | undefined,
+    path = ''
+): string | undefined => {
+    if (typeof value === 'string') {
+        return visit(value, path)
+    }
+    if (Array.isArray(value)) {
+        for (const [index, item] of value.entries()) {
+            const result = eachStringLeaf(item, visit, `${path}[${index}]`)
+            if (result) {
+                return result
+            }
+        }
+        return
+    }
+    if (value !== null && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+            const result = eachStringLeaf(item, visit, path ? `${path}.${key}` : key)
+            if (result) {
+                return result
+            }
+        }
+    }
+}
+
 const detectInputWarning = (
     input: CyclotronJobInputType,
     inputSchema: CyclotronJobInputSchemaType
@@ -88,17 +117,8 @@ const detectInputWarning = (
     }
     const language = input.templating ?? 'hog'
 
-    if (['string', 'json'].includes(inputSchema.type)) {
-        return detectTemplatingMismatch(input.value, language)
-    }
-
-    if (inputSchema.type === 'dictionary' && input.value && typeof input.value === 'object') {
-        for (const val of Object.values(input.value)) {
-            const warning = detectTemplatingMismatch(val, language)
-            if (warning) {
-                return warning
-            }
-        }
+    if (['string', 'json', 'dictionary'].includes(inputSchema.type)) {
+        return eachStringLeaf(input.value, (leaf) => detectTemplatingMismatch(leaf, language))
     }
 }
 
@@ -110,12 +130,12 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         return
     }
 
-    const getTemplatingError = (value: string): string | undefined => {
+    const getTemplatingError = (value: string, path?: string): string | undefined => {
         if (language === 'liquid' && typeof value === 'string') {
             try {
                 LiquidRenderer.parse(value)
             } catch (e: any) {
-                return `Liquid template error: ${e.message}`
+                return path ? `Liquid template error at "${path}": ${e.message}` : `Liquid template error: ${e.message}`
             }
         }
     }
@@ -191,22 +211,8 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         }
     }
 
-    if (['string', 'json'].includes(inputSchema.type)) {
-        const templatingError = getTemplatingError(value)
-        if (templatingError) {
-            return templatingError
-        }
-    }
-
-    if (inputSchema.type === 'dictionary') {
-        for (const val of Object.values(value ?? {})) {
-            if (typeof val === 'string') {
-                const templatingError = getTemplatingError(val)
-                if (templatingError) {
-                    return templatingError
-                }
-            }
-        }
+    if (['string', 'json', 'dictionary'].includes(inputSchema.type)) {
+        return eachStringLeaf(value, getTemplatingError)
     }
 }
 export const MISSING_INTEGRATION_ERROR =
