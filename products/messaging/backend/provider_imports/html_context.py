@@ -47,7 +47,7 @@ class HtmlContext:
         self.raw_element = ""
         # Nothing after this point is trusted, such as after a script whose end a comment in it can hide.
         self.untrusted = False
-        self._after_svg = False
+        self._after_foreign = False
         # A `<` at the end of what was fed, with what follows it so far. The next text decides whether it opens a tag.
         self.partial = ""
 
@@ -163,9 +163,9 @@ class HtmlContext:
             opened_raw = not self.closing and self.tag_name in _RAW_ELEMENTS
             self.state = "raw" if opened_raw else "text"
             self.raw_element = self.tag_name if opened_raw else ""
-            # Inside these a title is an ordinary element, so its content and its end read differently.
-            self._after_svg = self._after_svg or self.tag_name in ("svg", "math")
-            self.untrusted = self.untrusted or (self._after_svg and self.raw_element == "title")
+            # Inside these a title, script or style can read as markup, so its end is somewhere else.
+            self._after_foreign = self._after_foreign or self.tag_name in ("svg", "math", "select")
+            self.untrusted = self.untrusted or (self._after_foreign and opened_raw)
             return
         if state == "tag_name":
             if character in _HTML_SPACE or character == "/":
@@ -210,5 +210,5 @@ def _closer_start(unread: str, closer: str) -> str:
 
 
 def _find_end_tag(text: str, name: str, start: int) -> int:
-    match = re.compile(rf"</{re.escape(name)}[\t\n\f\r />]", re.IGNORECASE).search(text, start)
+    match = re.compile(rf"</{re.escape(name)}[\t\n\f\r />]", re.IGNORECASE | re.ASCII).search(text, start)
     return match.start() if match else -1

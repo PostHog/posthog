@@ -83,6 +83,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("no_break_space_inside_an_unquoted_value", '<img alt=x\u00a0title="{{x}}">', "{{x}}"),
             ("value_under_a_lookup", '{{#if (lookup flags "enabled") includeZero=true}}{{x}}{{/if}}', "{{x}}"),
             ("after_a_script_that_hides_its_end", "<script><!--<script></script>--></script><p>{{x}}</p>", "{{x}}"),
+            ("after_a_script_in_an_svg", """<svg><script><a title="</script>" onclick="f('{{x}}')">""", "{{x}}"),
+            (
+                "a_closing_tag_with_a_long_s_in_a_script",
+                """<script>var a="</\u017fcript>"; f({{x}})</script>""",
+                "{{x}}",
+            ),
             ("after_a_title_in_an_svg", """<svg><title/></svg><a onclick="f('{{x}}')">""", "{{x}}"),
             ("raw_in_the_title", "<title>{{{x}}}</title>", "{{{x}}}"),
             ("after_the_start_of_a_closing_title", "<title></titl{{x}}></title>", "{{x}}"),
