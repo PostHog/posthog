@@ -10,6 +10,7 @@ export type UsageKind = 'flag' | 'experiment' | 'early_access' | 'survey'
 export interface UsageTarget {
     kind: UsageKind
     value: string
+    id?: number
 }
 
 export interface UsageDay {
@@ -39,14 +40,16 @@ const SOURCE: Record<UsageKind, { event: string; filter: string }> = {
 
 export function usageTarget(lane: Lane, row: ReleaseRow): UsageTarget | null {
     if (lane.kind === 'flag') {
-        return { kind: 'flag', value: lane.flag.key }
+        return { kind: 'flag', value: lane.flag.key, id: lane.flag.id }
     }
     if (lane.kind === 'survey') {
         return { kind: 'survey', value: lane.survey.id }
     }
     if (lane.kind === 'experiment') {
-        const key = row.experiments.find((item) => `experiment-${item.id}` === lane.key)?.feature_flag_key
-        return key ? { kind: 'experiment', value: key } : null
+        const experiment = row.experiments.find((item) => `experiment-${item.id}` === lane.key)
+        return experiment?.feature_flag_key
+            ? { kind: 'experiment', value: experiment.feature_flag_key, id: experiment.id }
+            : null
     }
     if (lane.kind === 'early_access') {
         const key = row.earlyAccess.find((item) => `early-access-${item.id}` === lane.key)?.feature_flag?.key

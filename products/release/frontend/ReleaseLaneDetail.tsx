@@ -13,7 +13,6 @@ import {
     ItemContent,
     ItemDescription,
     ItemTitle,
-    Skeleton,
     Text,
 } from '@posthog/quill'
 
@@ -22,7 +21,6 @@ import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/P
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -32,8 +30,8 @@ import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/a
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { laneCardFacts } from './ReleaseLaneCard'
-import { UsageKind, UsageTarget } from './releaseLaneUsage'
-import { releaseLaneUsageLogic } from './releaseLaneUsageLogic'
+import { ReleaseLaneSummary } from './ReleaseLaneSummary'
+import { UsageTarget } from './releaseLaneUsage'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { Lane, statusLabel } from './releaseTracks'
@@ -47,13 +45,6 @@ const OPEN_LABEL: Record<Lane['kind'], string> = {
     early_access: 'Open feature',
     broadcast: 'Open broadcast',
     survey: 'Open survey',
-}
-
-const WEEK_LABEL: Record<UsageKind, string> = {
-    flag: 'users had this flag checked in the last 7 days',
-    experiment: 'users entered the experiment in the last 7 days',
-    early_access: 'users opted in or out in the last 7 days',
-    survey: 'users answered in the last 7 days',
 }
 
 interface ConditionGroup {
@@ -117,45 +108,6 @@ function Conditions({ flag }: { flag: FeatureFlagApi }): JSX.Element | null {
                     </div>
                 )
             })}
-        </div>
-    )
-}
-
-function Usage({ target, from }: { target: UsageTarget; from: string }): JSX.Element {
-    const { usage, usageLoading } = useValues(releaseLaneUsageLogic({ target, from }))
-    if (usageLoading && !usage) {
-        return <Skeleton className="h-10 w-full" />
-    }
-    if (!usage) {
-        return (
-            <Text size="xs" variant="muted">
-                Usage could not load.
-            </Text>
-        )
-    }
-    const total = usage.split.reduce((sum, item) => sum + item.users, 0)
-    return (
-        <div className="flex flex-col gap-1">
-            <div className="flex items-baseline gap-1.5">
-                <Text size="lg" weight="semibold" className="tabular-nums">
-                    {humanFriendlyNumber(usage.weekUsers)}
-                </Text>
-                <Text size="xs" variant="muted">
-                    {WEEK_LABEL[target.kind]}
-                </Text>
-            </div>
-            {usage.split.length > 0 && total > 0 && (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5" data-attr="release-lane-detail-split">
-                    {usage.split.map((item) => (
-                        <Text key={item.label} size="xs" variant="muted" className="tabular-nums">
-                            <span className="text-foreground">{item.label}</span>{' '}
-                            {target.kind === 'survey'
-                                ? humanFriendlyNumber(item.users)
-                                : `${Math.round((item.users / total) * 100)}%`}
-                        </Text>
-                    ))}
-                </div>
-            )}
         </div>
     )
 }
@@ -349,27 +301,6 @@ function Facts({ lane }: { lane: Lane }): JSX.Element | null {
     )
 }
 
-function SurveyQuestion(): JSX.Element | null {
-    const { panelSurvey } = useValues(releaseCalendarLogic)
-    const questions = (panelSurvey?.questions ?? []) as { question?: string }[]
-    if (!questions.length) {
-        return null
-    }
-    const more = questions.length - 1
-    return (
-        <Text
-            size="xs"
-            variant="muted"
-            className="line-clamp-2"
-            title={questions.map((item) => item.question).join('\n')}
-        >
-            <span>Asks </span>
-            <span className="text-foreground">{questions[0].question}</span>
-            {more > 0 && <span>{` (${more} more ${more === 1 ? 'question' : 'questions'})`}</span>}
-        </Text>
-    )
-}
-
 export function ReleaseLaneDetail({
     row,
     lane,
@@ -410,16 +341,15 @@ export function ReleaseLaneDetail({
                     <IconX />
                 </Button>
             </div>
-            {target && <Usage target={target} from={from} />}
+            {target && <ReleaseLaneSummary target={target} from={from} />}
             <div className="flex flex-col gap-0.5">
                 {description && (
-                    <Text size="xs" className="line-clamp-2" title={description}>
+                    <Text size="xs" className="truncate" title={description}>
                         {description}
                     </Text>
                 )}
                 <Facts lane={lane} />
                 {lane.kind === 'flag' && <LastChange flagId={lane.flag.id} />}
-                {lane.kind === 'survey' && <SurveyQuestion />}
                 {lane.kind !== 'flag' && <LinkedFlag row={row} flagId={linkedFlagId} />}
             </div>
             {lane.kind === 'flag' && <Conditions flag={lane.flag} />}

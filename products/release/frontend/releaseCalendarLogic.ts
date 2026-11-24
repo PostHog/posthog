@@ -5,8 +5,6 @@ import posthog from 'lib/posthog-typed'
 
 import { featureFlagsActivityRetrieve } from 'products/feature_flags/frontend/generated/api'
 import type { ActivityLogEntryApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { surveysRetrieve } from 'products/surveys/frontend/generated/api'
-import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
 import { releaseLogic } from './releaseLogic'
 
@@ -24,7 +22,6 @@ interface ReleaseCalendarLogicValues {
     currentProjectId: number | null
     expanded: Record<string, true>
     openItem: ReleaseCalendarItem | null
-    panelSurvey: SurveyApi | null
     flagActivity: Record<number, ActivityLogEntryApi[]>
     failedFlagIds: number[]
 }
@@ -41,7 +38,6 @@ interface ReleaseCalendarLogicActions {
         kind: string
     }
     closeCalendarItem: () => { value: true }
-    setPanelSurvey: (survey: SurveyApi | null) => { survey: SurveyApi | null }
     loadFlagActivity: (flagIds: number[]) => { flagIds: number[] }
     setFlagActivity: (
         flagId: number,
@@ -63,7 +59,6 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         toggleExpanded: (id: string) => ({ id }),
         openCalendarItem: (releaseId: string, laneKey: string, kind: string) => ({ releaseId, laneKey, kind }),
         closeCalendarItem: true,
-        setPanelSurvey: (survey: SurveyApi | null) => ({ survey }),
         loadFlagActivity: (flagIds: number[]) => ({ flagIds }),
         setFlagActivity: (flagId: number, entries: ActivityLogEntryApi[]) => ({ flagId, entries }),
         setFlagActivityFailed: (flagId: number) => ({ flagId }),
@@ -79,14 +74,6 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                 },
                 openCalendarItem: (state, { releaseId }) =>
                     state[releaseId] ? state : { ...state, [releaseId]: true as const },
-            },
-        ],
-        panelSurvey: [
-            null as SurveyApi | null,
-            {
-                setPanelSurvey: (_, { survey }) => survey,
-                openCalendarItem: () => null,
-                closeCalendarItem: () => null,
             },
         ],
         openItem: [
@@ -164,24 +151,9 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                     posthog.capture('release row expanded', { release_id: id })
                 }
             },
-            openCalendarItem: async ({ releaseId, laneKey, kind }) => {
-                if (!values.openItem) {
-                    return
-                }
-                posthog.capture('release calendar item opened', { release_id: releaseId, kind })
-                if (kind !== 'survey' || values.currentProjectId === null) {
-                    return
-                }
-                try {
-                    const survey = await surveysRetrieve(
-                        String(values.currentProjectId),
-                        laneKey.replace(/^survey-/, '')
-                    )
-                    if (values.openItem?.laneKey === laneKey) {
-                        actions.setPanelSurvey(survey)
-                    }
-                } catch {
-                    actions.setPanelSurvey(null)
+            openCalendarItem: ({ releaseId, kind }) => {
+                if (values.openItem) {
+                    posthog.capture('release calendar item opened', { release_id: releaseId, kind })
                 }
             },
             refreshFlagActivity: ({ flagIds }) => {
