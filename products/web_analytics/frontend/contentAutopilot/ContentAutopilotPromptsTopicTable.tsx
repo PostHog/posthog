@@ -56,7 +56,7 @@ export const ContentAutopilotPromptsTopicTable = ({
             render: (_, row) => <span className="tabular-nums">{row.active_prompts}</span>,
         },
         {
-            title: 'Mentioned',
+            title: 'Visibility',
             key: 'mention_rate',
             align: 'right',
             sorter: byRate('mention_rate'),
