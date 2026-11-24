@@ -163,8 +163,9 @@ const dbWriteFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
-// Outlives the intake topics' 72h retention, so a message read twice from Kafka still finds its key.
-export const IDEMPOTENCY_KEY_TTL_MS = 96 * 60 * 60 * 1000
+// Outlives the intake topics' 72h retention, so a message read twice from Kafka still finds its key, and a caller
+// that retries for days, such as the support reply outbox's 5 days, still sends once.
+export const IDEMPOTENCY_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const idempotentInsertsCounter = new Counter({
     name: 'cdp_cyclotron_v2_idempotent_inserts_total',
