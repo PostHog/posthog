@@ -763,6 +763,16 @@ def reserve_queries(
     return False
 
 
+def charge_queries(team_id: int, queries: int, now: datetime.datetime, kind: ScoringRun) -> None:
+    """Charge ``queries`` that a pick sent past its plan to both hourly budgets of ``kind``.
+
+    The pick has already sent them, so the charge can pass a cap. Later plans then have that much less budget.
+    """
+    for key in (_fleet_budget_key(now, kind), _project_budget_key(team_id, now, kind)):
+        cache.add(key, 0, timeout=int(_BUDGET_TTL.total_seconds()))
+        cache.incr(key, queries)
+
+
 def within_budget(
     order: list[int],
     team_ids: dict[int, int],
