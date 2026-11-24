@@ -2169,7 +2169,7 @@ filters:
         - products/warehouse_sources/backend/billing.py
         - products/warehouse_sources/backend/types.py
         - products/warehouse_sources/backend/facade/types.py
-        - products/warehouse_sources/backend/models/credential.py
+        - 'products/warehouse_sources/backend/models/credential.py'
         - products/warehouse_sources/backend/models/external_data_destination_delivery.py
         - products/warehouse_sources/backend/models/external_data_job.py
         - products/warehouse_sources/backend/models/external_data_schema.py
@@ -2328,7 +2328,6 @@ filters:
         - products/logs/backend/logs_query_runner.py
         - products/logs/backend/logs_url_params.py
         - products/logs/backend/models.py
-        - products/logs/backend/platform_source_config.py
         - products/alerts/backend/facade/destinations.py
         - products/alerts/backend/logic/destinations.py
         - products/alerts/backend/logic/insight_alert_destinations.py
@@ -2428,6 +2427,7 @@ filters:
         - products/warehouse_sources/backend/logic/source_credentials.py
         - products/warehouse_sources/backend/logic/source_credentials_rollout.py
         - products/warehouse_sources/backend/logic/credential_auth_types.py
+        - products/warehouse_sources/backend/facade/contracts.py
         - posthog/helpers/encrypted_fields.py
         - posthog/event_usage.py
         - posthog/schema.py
@@ -2589,11 +2589,11 @@ images:
             logs-alerting:
                 repository: posthog-temporal-workers/logs-alerting
                 filter: logsAlertingWorker
-                bootstrapPolicyDigest: 1c0d926c8f49ff324b6f4fa7c5b1d013ad06f6ad9a6cb36e864c6d4d489170fd
+                bootstrapPolicyDigest: 16fe52e0725770010af1c44f96e5a56ee915b4884b8fa4d9702b49b26b959fa5
             experiments-recalculation:
                 repository: posthog-temporal-workers/experiments-recalculation
                 filter: experimentsRecalculationWorker
-                bootstrapPolicyDigest: e47f96b682234445154c1c9bf6f3a8a345cd2739fe7d0344f20203943cf51910
+                bootstrapPolicyDigest: 1bee4188ec171a426e7098be5959ad76e1b6d6b9564375c65cd43e95dc11e5ce
             stamphog:
                 repository: posthog-temporal-workers/stamphog
                 filter: stamphogWorker
