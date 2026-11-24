@@ -118350,14 +118350,14 @@ export namespace Schemas {
     }
 
     /**
-     * Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name.
+     * Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name. At most 256 KiB as JSON.
      */
     export type SendPushBatchMessageData = {[key: string]: unknown};
 
     export interface SendPushBatch {
       /** ID of a push template made transactional, which holds the notification's title, body and push channels. */
       template_id: string;
-      /** Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name. */
+      /** Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name. At most 256 KiB as JSON. */
       message_data?: SendPushBatchMessageData;
       /**
          * Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.

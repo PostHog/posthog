@@ -60,6 +60,10 @@ class SenderUnavailable(TransactionalEmailError):
     code = "sender_unavailable"
 
 
+class TemplateTypeChanged(TransactionalEmailError):
+    code = "template_type_mismatch"
+
+
 class TemplateNotTransactional(TransactionalEmailError):
     code = "template_not_transactional"
 

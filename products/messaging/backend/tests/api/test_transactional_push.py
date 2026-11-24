@@ -1,3 +1,4 @@
+import json
 import hashlib
 from typing import Any
 
@@ -15,10 +16,11 @@ from posthog import rate_limit
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_secret
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE
 
+from products.messaging.backend.facade.contracts import TemplateTypeChanged
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.presentation.views.message_templates import (
@@ -27,6 +29,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.messaging.backend.services.transactional_email_status import keyed_run_id
+from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 
 
@@ -149,6 +152,66 @@ class TestTransactionalPushTemplates(APIBaseTest):
 
         with self.assertNumQueries(0):
             assert unfiled.get_file_system_representation().href == f"/transactional/push/{template.id}"
+    def _pak_client(self, scopes: list[str]) -> APIClient:
+        raw_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="make sendable", secure_value=hash_key_value(raw_token), scopes=scopes
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+        return client
+
+    @parameterized.expand(
+        [
+            ("email_scope", ["transactional_email:write"], False, True),
+            ("push_scope", ["transactional_push:write"], True, False),
+            ("both_scopes", ["transactional_email:write", "transactional_push:write"], True, True),
+            ("workflow_scope", ["hog_flow:write"], True, True),
+            ("workflow_read_scope", ["hog_flow:read"], False, False),
+        ]
+    )
+    def test_each_kind_of_template_needs_its_own_send_scope_to_become_sendable(
+        self, _flag, _name, scopes, converts_push, converts_email
+    ):
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        email = MessageTemplate.objects.create(
+            team=self.team, name="Reset", type="email", content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}}
+        )
+        client = self._pak_client(scopes)
+
+        for template, converts in ((self._template(), converts_push), (email, converts_email)):
+            response = client.post(f"{self.templates_url}{template.id}/make_transactional/", {}, format="json")
+
+            expected = status.HTTP_200_OK if converts else status.HTTP_403_FORBIDDEN
+            assert response.status_code == expected, (template.type, response.json())
+            template.refresh_from_db()
+            assert (template.transactional_hog_flow_id is not None) is converts
+
+    def test_the_email_scope_cannot_reach_a_push_that_is_already_sendable(self, _flag):
+        template = self._template()
+        linked = self._make_transactional(template).json()["transactional_hog_flow_id"]
+
+        response = self._pak_client(["transactional_email:write"]).post(
+            f"{self.templates_url}{template.id}/make_transactional/", {}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        template.refresh_from_db()
+        assert str(template.transactional_hog_flow_id) == linked
+
+    def test_a_template_changed_to_push_after_the_scope_check_is_not_made_sendable(self, _flag):
+        template = self._template()
+
+        with self.assertRaises(TemplateTypeChanged):
+            make_transactional(
+                self.team.id, template.id, user_id=self.user.id, from_integration_id=None, template_type="email"
+            )
+
+        template.refresh_from_db()
+        assert template.transactional_hog_flow_id is None
 
     def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
         template = self._template()
@@ -530,6 +593,24 @@ class TestTransactionalPushBatchSend(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "transactional_push_paused"
         mock_post.assert_not_called()
+
+    @parameterized.expand([("at_the_cap", 0, True), ("one_byte_over", 1, False)])
+    def test_shared_message_data_is_capped_like_the_email_batch(self, mock_post, _flag, _capture, _name, extra, sent):
+        mock_post.side_effect = self._answer_by_key({})
+        # Two bytes per "é", so a count of characters would let more through.
+        shared = {"note": "é" * 100}
+        shared["note"] += "x" * (256 * 1024 - len(json.dumps(shared, ensure_ascii=False).encode()) + extra)
+
+        response = self._batch(self._recipients(2), message_data=shared)
+
+        if sent:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert mock_post.call_count == 2
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["code"] == "content_too_large"
+            assert "256 KiB" in response.json()["detail"]
+            mock_post.assert_not_called()
 
     @parameterized.expand(
         [
