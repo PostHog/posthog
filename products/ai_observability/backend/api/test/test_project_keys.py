@@ -2,11 +2,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.models import OrganizationMembership, Team
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.ai_observability.backend.dataset_export import DatasetExportError, export_dataset_jsonl
 from products.ai_observability.backend.presentation.views.trace_ids import encode_trace_id_segment
-from products.exports.backend.facade.api import get_export_asset
 
 
 class TestAIObservabilityProjectKeys(APIBaseTest):
@@ -65,7 +63,43 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         self._use(writer)
         assert self.client.delete(url).status_code == 204
 
-    def test_dataset_snapshot_and_export_belong_to_the_issuing_project_and_requesting_key(self) -> None:
+    def test_project_key_edits_preserve_the_human_reviewer_on_retries_and_audit_real_changes(self) -> None:
+        key = self._issue("Review editor", ["ai_observability:write"])
+        scorer = self.client.post(
+            f"{self.project_url}/llm_analytics/score_definitions/",
+            {"name": "Resolved", "kind": "boolean", "config": {"true_label": "Yes", "false_label": "No"}},
+            format="json",
+        )
+        assert scorer.status_code == 201, scorer.data
+        score = {"definition_id": scorer.data["id"], "boolean_value": True}
+        reviews = f"{self.project_url}/llm_analytics/trace_reviews/"
+        original = self.client.post(
+            reviews, {"trace_id": "reviewed", "comment": "Human review", "scores": [score]}, format="json"
+        )
+        assert original.status_code == 201, original.data
+        url = f"{reviews}{original.data['id']}/"
+        self._use(key)
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="TraceReview", item_id=original.data["id"])
+        for payload in ({}, {"comment": "Human review", "scores": [score]}):
+            same = self.client.patch(url, payload, format="json")
+            assert same.status_code == 200, same.data
+            assert same.data == original.data
+        assert not logs.exists()
+
+        edited = self.client.patch(url, {"scores": [{**score, "boolean_value": False}]}, format="json")
+        assert edited.status_code == 200, edited.data
+        assert edited.data["reviewed_by"] is None
+        assert edited.data["scores"][0]["boolean_value"] is False
+        log = logs.get()
+        assert log.credential_type == "project_secret_key"
+        assert log.credential_id == key["id"]
+        assert log.detail is not None
+        assert {change["field"]: change.get("before") for change in log.detail["changes"]} == {
+            "scores": None,
+            "reviewed_by": self.user.id,
+        }
+
+    def test_project_keys_can_read_dataset_snapshots_but_exports_require_a_user(self) -> None:
         writer = self._issue("Dataset writer", ["dataset:write"])
         reader = self._issue("Dataset reader", ["dataset:read"])
         self._use(writer)
@@ -83,20 +117,15 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             assert snapshot.status_code == 200, snapshot.data
             assert snapshot.data["results"][0]["id"] == item.data["id"]
             exports = f"{datasets}{dataset_id}/exports/"
+            self.client.logout()
+            personal_key = self.create_personal_api_key_with_scopes(["dataset:read"])
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {personal_key}")
             receipt = self.client.post(exports, {}, format="json")
             assert receipt.status_code == 201, receipt.data
-            export_id = receipt.data["id"]
-            url = f"{exports}{export_id}/"
+            url = f"{exports}{receipt.data['id']}/"
             assert self.client.get(url).status_code == 200
-            self._use(writer)
-            assert self.client.get(url).status_code == 404
-            assert self.client.get(f"{url}content/").status_code == 404
-        asset = get_export_asset(team_id=self.team.id, asset_id=export_id)
-        assert asset is not None
-        assert asset.created_by_id is None
-        assert asset.export_context["project_key_id"] == reader["id"]
-        with patch("products.ai_observability.backend.dataset_export.posthog_feature_flag_value", return_value=True):
-            export_dataset_jsonl(asset)
-        ProjectSecretAPIKey.objects.filter(id=reader["id"]).update(scopes=["evaluation:read"])
-        with self.assertRaisesRegex(DatasetExportError, "no longer have access"):
-            export_dataset_jsonl(asset)
+            for key in (reader, writer):
+                self._use(key)
+                assert self.client.post(exports, {}, format="json").status_code == 403
+                assert self.client.get(url).status_code == 403
+                assert self.client.get(f"{url}content/").status_code == 403

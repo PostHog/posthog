@@ -5,6 +5,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q, QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 import django_filters
@@ -21,6 +22,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -360,6 +362,23 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             ]
         )
 
+    @staticmethod
+    def _scores_match(review: TraceReview, scores: list[dict[str, Any]]) -> bool:
+        stored = {
+            version: (categories, number, boolean)
+            for version, categories, number, boolean in review.scores.values_list(
+                "definition_version", "categorical_values", "numeric_value", "boolean_value"
+            )
+        }
+        return stored == {
+            score["definition_version"].id: (
+                score["categorical_values"],
+                score["numeric_value"],
+                score["boolean_value"],
+            )
+            for score in scores
+        }
+
     def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> None:
         pending_items = ReviewQueueItem.objects.select_for_update().filter(team=team, trace_id=trace_id, deleted=False)
         if queue_id:
@@ -405,6 +424,35 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         validated_data.pop("scores", None)
         queue_id = str(validated_data.pop("queue_id", "") or "") or None
         validated_data.pop("trace_id", None)
+
+        instance = get_object_or_404(TraceReview.objects.select_for_update(), team=team, pk=instance.pk, deleted=False)
+        if review_user is None:
+            changes = []
+            if "comment" in validated_data and validated_data["comment"] != instance.comment:
+                changes.append(Change(type="TraceReview", action="changed", field="comment"))
+            if resolved_scores is not None and not self._scores_match(instance, resolved_scores):
+                changes.append(Change(type="TraceReview", action="changed", field="scores"))
+            else:
+                resolved_scores = None
+            if not changes:
+                if queue_id:
+                    self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
+                return instance
+            if instance.reviewed_by_id is not None:
+                changes.append(
+                    Change(type="TraceReview", action="changed", field="reviewed_by", before=instance.reviewed_by_id)
+                )
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=None,
+                item_id=instance.pk,
+                scope="TraceReview",
+                activity="updated",
+                detail=Detail(changes=changes),
+                was_impersonated=False,
+                strict=True,
+            )
 
         if "comment" in validated_data:
             instance.comment = validated_data["comment"]

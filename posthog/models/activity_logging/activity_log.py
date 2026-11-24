@@ -122,6 +122,7 @@ ActivityScope = Literal[
     "LLMPromptLabel",
     "LLMSkill",
     "LLMTrace",
+    "TraceReview",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",

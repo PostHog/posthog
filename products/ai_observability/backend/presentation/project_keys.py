@@ -1,8 +1,8 @@
 from typing import cast
 
 from rest_framework.request import Request
-from rest_framework.settings import api_settings
 from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
@@ -30,7 +30,7 @@ class AIObservabilityProjectKeyMixin(TeamAndOrgViewSetMixin):
         return None if is_service_auth(self.request) else self.user_access_control
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if is_service_auth(self.request) and self.throttle_classes == api_settings.DEFAULT_THROTTLE_CLASSES:
+        if is_service_auth(self.request) and self.throttle_classes == APIView.throttle_classes:
             return [
                 OfflineEvaluationReadBurstThrottle(),
                 OfflineEvaluationReadSustainedThrottle(),

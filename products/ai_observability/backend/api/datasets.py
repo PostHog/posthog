@@ -36,11 +36,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     get_authenticator_client,
 )
-from posthog.rate_limit import (
-    PersonalApiKeyOrUserRateThrottle,
-    PersonalOrProjectSecretApiKeyRateThrottle,
-    ProjectSecretApiKeyTeamRateThrottle,
-)
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -578,14 +574,9 @@ class DatasetItemVersionPagination(BoundedLimitOffsetPagination):
     max_limit = 100
 
 
-class DatasetExportRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle, PersonalApiKeyOrUserRateThrottle):
+class DatasetExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "dataset_export"
     rate = "10/day"
-
-
-class DatasetExportTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "dataset_export"
-    rate = DatasetExportRateThrottle.rate
 
 
 def _parse_dataset_export_id(export_id: str | None) -> int:
@@ -704,18 +695,10 @@ def _current_item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItem
 
 class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, GenericViewSet):
     scope_object = "dataset"
-    scope_object_read_actions = [
-        "list",
-        "retrieve",
-        "revisions",
-        "exports",
-        "export_status",
-        "export_content",
-        "retention",
-        "extend_retention",
-    ]
+    dataset_read_actions = ["list", "retrieve", "revisions", "retention", "extend_retention"]
+    scope_object_read_actions = [*dataset_read_actions, "exports", "export_status", "export_content"]
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
-    psak_allowed_actions = [*scope_object_read_actions, *scope_object_write_actions]
+    psak_allowed_actions = [*dataset_read_actions, *scope_object_write_actions]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetPagination
@@ -1039,7 +1022,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
         detail=True,
         methods=["post"],
         url_path="exports",
-        throttle_classes=[DatasetExportRateThrottle, DatasetExportTeamRateThrottle],
+        throttle_classes=[DatasetExportRateThrottle],
     )
     def exports(self, request: Request, *args: object, **kwargs: object) -> Response:
         dataset = self.get_object()
@@ -1049,8 +1032,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
             asset = create_dataset_export(
                 dataset=dataset,
                 team=self.team,
-                created_by=attribution_user(request),
-                project_key_id=self._export_project_key_id(request),
+                created_by=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
                 revision=serializer.validated_data.get("revision"),
             )
@@ -1081,8 +1063,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
         asset = get_dataset_export(
             dataset=dataset,
             team_id=self.team.id,
-            user_id=request.user.id,
-            project_key_id=self._export_project_key_id(request),
+            user_id=cast(User, request.user).id,
             asset_id=_parse_dataset_export_id(export_id),
         )
         if asset is None:
@@ -1110,8 +1091,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
         asset = get_dataset_export(
             dataset=dataset,
             team_id=self.team.id,
-            user_id=request.user.id,
-            project_key_id=self._export_project_key_id(request),
+            user_id=cast(User, request.user).id,
             asset_id=_parse_dataset_export_id(export_id),
         )
         if asset is None:
@@ -1135,11 +1115,6 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
             {"export_id": asset.id, "dataset_revision": (asset.export_context or {}).get("dataset_revision")},
         )
         return response
-
-    @staticmethod
-    def _export_project_key_id(request: Request) -> str | None:
-        user = request.user
-        return user.project_secret_api_key.id if isinstance(user, ProjectSecretAPIKeyUser) else None
 
 
 class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
