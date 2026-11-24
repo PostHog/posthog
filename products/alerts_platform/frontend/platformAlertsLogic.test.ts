@@ -165,7 +165,8 @@ describe('platformAlertsLogic', () => {
         ['snoozes', () => logic.actions.snoozeGroup(ALERT, GROUP, '1h', 1), expect.any(String)],
         ['unsnoozes', () => logic.actions.unsnoozeGroup(ALERT, GROUP), null],
     ])('%s one group by its key and reloads the list', async (_, act, snoozeUntil) => {
-        mockList.mockClear()
+        const reloaded = { ...ALERT, alerts: [GROUP] }
+        mockList.mockResolvedValue({ results: [reloaded], count: 1 } as Awaited<ReturnType<typeof platformAlertsList>>)
         act()
         expect(logic.values.updatingAlertIds).toEqual(new Set([GROUP.id]))
         await expectLogic(logic).toFinishAllListeners()
@@ -174,7 +175,7 @@ describe('platformAlertsLogic', () => {
             grouping_key: GROUP.grouping_key,
             snooze_until: snoozeUntil,
         })
-        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values.configurationsPage?.results).toEqual([reloaded])
     })
 
     it('unsnoozes the alert and shows it in the reloaded list', async () => {
