@@ -226,7 +226,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Change',
                                     key: 'previous_visibility',
                                     align: 'right',
-                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points.`,
+                                    tooltip: `Compared with the ${rankings.days} days before, in percentage points. Left blank when those days have under a quarter of this range's answers.`,
                                     render: (_, brand) => {
                                         const change = visibilityChange(brand.visibility, brand.previous_visibility)
                                         if (change === null) {
