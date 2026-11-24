@@ -14,9 +14,10 @@ from products.logs.backend.internal_logs_producer import (
 
 logger = structlog.get_logger(__name__)
 
-# Shorter than LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS, because the web server kills a worker that takes too long
-# to exit, and a capture-logs outage must not hold every worker until that kill.
-DRAIN_TIMEOUT_SECONDS = 5
+# Shorter than LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS, because the web server kills a worker that takes more than
+# 5 seconds to exit (bin/start-backend), and a capture-logs outage must not hold every worker until that kill.
+# The exit waits one second more than this, for the drain to cancel its requests and close its session.
+DRAIN_TIMEOUT_SECONDS = 3
 
 _lock = threading.Lock()
 _pid: int | None = None

@@ -15,8 +15,7 @@ def send_internal_log(
                 log_source_id=log_source_id,
                 instance_id=instance_id,
                 timestamp=timestamp,
-                # The producer reads the severity number from a lowercase level.
-                level=level.lower(),
+                level=level,
                 message=message,
             )
         ],

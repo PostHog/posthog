@@ -313,7 +313,7 @@ def _encode_otlp_log_record(entry: InternalLogEntry) -> bytes:
     record: dict[str, Any] = {
         "timeUnixNano": str(int(timestamp.timestamp() * 1_000_000) * 1_000),
         "severityText": entry.level.upper(),
-        "severityNumber": SEVERITY_NUMBERS.get(entry.level, 0),
+        "severityNumber": SEVERITY_NUMBERS.get(entry.level.lower(), 0),
         "body": {"stringValue": _valid_utf8(entry.message[:MAX_MESSAGE_LENGTH])},
         "attributes": [
             {"key": "log_source_id", "value": {"stringValue": entry.log_source_id}},
