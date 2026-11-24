@@ -32,23 +32,6 @@ _MAX_NOTED_TAGS = 5
 
 _UNSUBSCRIBE_VARIABLES = {"unsubscribe", "unsubscribe_preferences"}
 _SENDER_VARIABLES = {"Sender_Name", "Sender_Address", "Sender_City", "Sender_State", "Sender_Zip"}
-_CONTACT_VARIABLES = {
-    "first_name",
-    "last_name",
-    "email",
-    "alternate_emails",
-    "address_line_1",
-    "address_line_2",
-    "city",
-    "state_province_region",
-    "postal_code",
-    "country",
-    "phone_number",
-    "whatsapp",
-    "line",
-    "facebook",
-    "unique_name",
-}
 
 # https://www.twilio.com/docs/sendgrid/ui/sending-email/group-unsubscribes
 _ASM_TAG = re.compile(r"(?:<|&lt;)%\s*([\w.]+)\s*%(?:>|&gt;)")
@@ -76,12 +59,10 @@ class ConvertedSendGridTemplate:
 class _Found:
     """What a part of the template uses, for the notes."""
 
-    def __init__(self, contact_fields: bool) -> None:
-        self.contact_fields = contact_fields
+    def __init__(self) -> None:
         self.unsupported: list[str] = []
         self.uses_unsubscribe = False
         self.sender_variables: set[str] = set()
-        self.contact_variables: set[str] = set()
         self.web_link = False
         self.legacy_variables: set[str] = set()
 
@@ -92,8 +73,6 @@ class _Found:
             return ""
         if name in _SENDER_VARIABLES:
             self.sender_variables.add(name)
-        elif self.contact_fields and name in _CONTACT_VARIABLES:
-            self.contact_variables.add(name)
         return None
 
 
@@ -167,14 +146,14 @@ def _legacy_nodes(source: str) -> Iterator[_Text | _Liquid]:
 
 
 def _convert_legacy(source: str, is_html: bool) -> tuple[str, _Found]:
-    found = _Found(False)
+    found = _Found()
     converter = HandlebarsToLiquid(
         is_html=is_html, dialect="sendgrid", split_text=lambda text: _split_legacy_tags(text, is_html)
     )
     try:
         converted = converter.convert(tuple(_legacy_nodes(source)))
     except OutputTooLarge:
-        return _kept_as_text(source, False, "make a template too large to convert")
+        return _kept_as_text(source, "make a template too large to convert")
     found.unsupported = [*converter.unsupported, *(match.group(0) for match in _ANY_LIQUID_OPENING.finditer(source))]
     for tag in converter.converted:
         if (match := _LEGACY_TAG.fullmatch(tag)) is None:
@@ -188,7 +167,7 @@ def _convert_legacy(source: str, is_html: bool) -> tuple[str, _Found]:
 
 def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Found]:
     source = source or ""
-    found = _Found(contact_fields)
+    found = _Found()
     if not source:
         return "", found
     converter = HandlebarsToLiquid(
@@ -196,13 +175,15 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         dialect="sendgrid",
         root_value=found.root_value,
         split_text=lambda text: _split_asm_tags(text, is_html),
+        root_path="person.properties" if contact_fields else "variables",
+        variable_names=_SENDER_VARIABLES,
     )
     try:
         converted = converter.convert(_parse_nodes(_tokenize(source, is_html)))
     except _Malformed:
-        return _kept_as_text(source, contact_fields, "don't form valid Handlebars")
+        return _kept_as_text(source, "don't form valid Handlebars")
     except OutputTooLarge:
-        return _kept_as_text(source, contact_fields, "make a template too large to convert")
+        return _kept_as_text(source, "make a template too large to convert")
     found.unsupported = converter.unsupported
     # Only the links that converted open PostHog's preferences page.
     found.uses_unsubscribe = any(
@@ -212,9 +193,9 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     return converted, found
 
 
-def _kept_as_text(source: str, contact_fields: bool, reason: str) -> tuple[str, _Found]:
+def _kept_as_text(source: str, reason: str) -> tuple[str, _Found]:
     """The whole template as text. Its `<%...%>` tags stay text too, so a guarded body can't print unguarded."""
-    found = _Found(contact_fields)
+    found = _Found()
     found.unsupported.append(f"this template's tags, which {reason}")
     return _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source), found
 
@@ -402,7 +383,8 @@ def convert_version(
     version: dict[str, object], *, generation: str = "dynamic", contact_fields: bool = False
 ) -> ConvertedSendGridTemplate:
     """A template version's subject and bodies in Liquid, with notes on anything to review. `contact_fields` says
-    SendGrid fills its reserved contact fields, as it does for a Single Send."""
+    SendGrid fills the tags from each contact, as it does for a Single Send, so they print the person's properties. The
+    contacts step copies SendGrid's fields to properties with the same names."""
     html_source = _as_text(version.get("html_content"))
     text_source = _as_text(version.get("plain_content"))
     subject_source = _as_text(version.get("subject"))
@@ -461,10 +443,10 @@ def convert_version(
         send_notes.append(
             f"SendGrid fills {', '.join(senders)} from the sender. PostHog doesn't, so your app has to pass the value."
         )
-    if contacts := sorted({name for state in states for name in state.contact_variables}):
+    if any("person.properties." in part for part in (subject, html, text)):
         send_notes.append(
-            f"SendGrid fills {', '.join(contacts)} from the contact. PostHog doesn't, so this needs a value when you "
-            "send it."
+            "SendGrid's contact fields print the person's property with the same name. Import your contacts, or set "
+            "those properties, so they aren't empty. Alternate emails and SendGrid's own IDs aren't imported."
         )
     if names := sorted({name for state in states for name in state.legacy_variables}):
         send_notes.append(

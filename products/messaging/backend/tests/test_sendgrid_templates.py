@@ -410,6 +410,34 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": "<a href='-link-'>Go</a>"}, generation="legacy")
         assert converted.text.startswith("Go ({% if variables.link == nil %}-link-{% else %}")
 
+    @parameterized.expand(
+        [
+            ("single_send", True, "person.properties", "print the person's property"),
+            ("dynamic", False, "variables", ""),
+        ]
+    )
+    def test_contact_fields_read_the_person_and_a_send_reads_its_variables(
+        self, _name: str, contact_fields: bool, root: str, note: str
+    ) -> None:
+        converted = convert_version(
+            {
+                "subject": "Hi {{first_name}}",
+                "html_content": "<p>{{#if Plan}}{{Plan}}{{/if}} {{#if Sender_Name}}{{Sender_Name}}{{/if}} {{{unsubscribe}}}</p>",
+                "generate_plain_content": False,
+                "plain_content": "{{Plan}}",
+            },
+            contact_fields=contact_fields,
+        )
+
+        assert converted.subject == f'Hi {{{{ {root}.first_name | join: "," }}}}'
+        assert f'{{{{ {root}.Plan | join: "," }}}}' in converted.html
+        assert f"{{% if {root}.Plan" in converted.html
+        assert "{% if variables.Sender_Name" in converted.html
+        assert "{{ variables.Sender_Name" in converted.html
+        assert "{{ unsubscribe_url }}" in converted.html
+        assert converted.text == f'{{{{ {root}.Plan | join: "," }}}}'
+        assert note in " ".join(converted.send_notes)
+
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (
             "<html><head><style>p{color:red}</style></head><body><p>Hi {{ variables.n | raw }}</p>"
