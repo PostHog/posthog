@@ -19,6 +19,7 @@ export const DAY = 30
 export const TOTAL = CALENDAR_DAYS_BEFORE + CALENDAR_DAYS_AFTER
 export const LANE = 34
 export const DETAILED_LANE = 44
+export const DETAIL_HEIGHT = 216
 const NO_STEPS: RolloutStep[] = []
 
 export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; color: string }> = {

@@ -1,6 +1,6 @@
 import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
+import { Fragment, createContext, memo, useContext, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { DataTable, Text, cn } from '@posthog/quill'
@@ -9,8 +9,10 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { ReleaseCalendarItemPanel } from './ReleaseCalendarItemPanel'
-import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { ReleaseCalendarItem, releaseCalendarLogic } from './releaseCalendarLogic'
+import { ReleaseLaneDetail } from './ReleaseLaneDetail'
+import { usageTarget } from './releaseLaneUsage'
+import { ReleaseLaneUsageChart } from './ReleaseLaneUsageChart'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { RolloutStep } from './releaseRollout'
@@ -25,6 +27,7 @@ import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import {
     CALENDAR_SCALE,
+    DETAIL_HEIGHT,
     LANE,
     Lane,
     SPAN_LOOK,
@@ -47,7 +50,15 @@ const NARROW_WIDTH = 640
 const SUMMARY = 60
 const SUMMARY_OPEN = 36
 
-function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Element {
+function TrackHeader({
+    track,
+    open,
+    openLaneKey,
+}: {
+    track: Track
+    open: boolean
+    openLaneKey: string | null
+}): JSX.Element {
     const { row, lanes } = track
     const { nameWidth } = useContext(CalendarStateContext)
     const narrow = nameWidth < NAME
@@ -78,7 +89,31 @@ function TrackHeader({ track, open }: { track: Track; open: boolean }): JSX.Elem
             </div>
             {open &&
                 lanes.map((lane) => (
-                    <ReleaseTrackLabel key={lane.key} lane={lane} className="border-t border-border/60 pl-5 pr-3" />
+                    <Fragment key={lane.key}>
+                        <ReleaseTrackLabel
+                            lane={lane}
+                            className={cn(
+                                'border-t border-border/60 pl-5 pr-3',
+                                lane.key === openLaneKey && 'bg-fill-hover'
+                            )}
+                        />
+                        {lane.key === openLaneKey && (
+                            <div
+                                className="border-t border-border/60 bg-fill-hover/40 pl-5 pr-3"
+                                style={{ height: DETAIL_HEIGHT }}
+                                data-row-click-ignore
+                            >
+                                {!narrow && (
+                                    <ReleaseLaneDetail
+                                        row={row}
+                                        lane={lane}
+                                        target={usageTarget(lane, row)}
+                                        from={CALENDAR_SCALE().start.format('YYYY-MM-DD')}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </Fragment>
                 ))}
             {open && !lanes.length && (
                 <div className="flex items-center border-t border-border/60 pl-5 pr-3" style={{ height: LANE }}>
@@ -95,10 +130,14 @@ function TrackLanesContent({
     track,
     open,
     stickyOffset,
+    openLaneKey,
+    detailWidth,
 }: {
     track: Track
     open: boolean
     stickyOffset: number
+    openLaneKey: string | null
+    detailWidth: number | null
 }): JSX.Element {
     const scale = CALENDAR_SCALE()
     const { row, steps, lanes } = track
@@ -159,16 +198,52 @@ function TrackLanesContent({
                 )}
             </div>
             {open &&
-                lanes.map((lane) => (
-                    <ReleaseTrackLane
-                        key={lane.key}
-                        lane={lane}
-                        color={STAGE_COLOR.flag}
-                        scale={scale}
-                        stickyOffset={stickyOffset}
-                        releaseId={row.id}
-                    />
-                ))}
+                lanes.map((lane) => {
+                    const target = lane.key === openLaneKey ? usageTarget(lane, row) : null
+                    return (
+                        <Fragment key={lane.key}>
+                            <div className={cn(lane.key === openLaneKey && 'bg-fill-hover')}>
+                                <ReleaseTrackLane
+                                    lane={lane}
+                                    color={STAGE_COLOR.flag}
+                                    scale={scale}
+                                    stickyOffset={stickyOffset}
+                                    releaseId={row.id}
+                                />
+                            </div>
+                            {lane.key === openLaneKey && (
+                                <div
+                                    className="relative border-t border-border/60 bg-fill-hover/40"
+                                    style={{ height: DETAIL_HEIGHT }}
+                                    data-row-click-ignore
+                                >
+                                    {detailWidth !== null ? (
+                                        <div
+                                            className="sticky z-10 bg-background px-3"
+                                            style={{ left: stickyOffset, width: detailWidth, height: DETAIL_HEIGHT }}
+                                        >
+                                            <ReleaseLaneDetail
+                                                row={row}
+                                                lane={lane}
+                                                target={target}
+                                                from={scale.start.format('YYYY-MM-DD')}
+                                            />
+                                        </div>
+                                    ) : (
+                                        target && (
+                                            <ReleaseLaneUsageChart
+                                                target={target}
+                                                scale={scale}
+                                                height={DETAIL_HEIGHT}
+                                                stickyOffset={stickyOffset}
+                                            />
+                                        )
+                                    )}
+                                </div>
+                            )}
+                        </Fragment>
+                    )
+                })}
             {open && !lanes.length && <div className="border-t border-border/60" style={{ height: LANE }} />}
         </div>
     )
@@ -184,6 +259,8 @@ const TrackLanes = memo(
     (previous, next) =>
         previous.open === next.open &&
         previous.stickyOffset === next.stickyOffset &&
+        previous.openLaneKey === next.openLaneKey &&
+        previous.detailWidth === next.detailWidth &&
         previous.track.row === next.track.row &&
         previous.track.steps === next.track.steps &&
         laneKeys(previous.track) === laneKeys(next.track) &&
@@ -197,6 +274,8 @@ interface CalendarState {
     sentinel: (node: Element | null) => void
     loadFlagActivity: (flagIds: number[]) => void
     expanded: Record<string, true>
+    openItem: ReleaseCalendarItem | null
+    detailWidth: number | null
     stepsByFlag: Map<number, RolloutStep[]>
     related: Record<string, TrackRelated>
 }
@@ -208,23 +287,40 @@ const CalendarStateContext = createContext<CalendarState>({
     sentinel: () => {},
     loadFlagActivity: () => {},
     expanded: {},
+    openItem: null,
+    detailWidth: null,
     stepsByFlag: new Map(),
     related: {},
 })
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
+    const { expanded, openItem, stepsByFlag, related } = useContext(CalendarStateContext)
     const rowRelated = related[row.original.id]
     const track = useMemo(
         () => buildTrack(row.original, stepsByFlag, rowRelated),
         [row.original, stepsByFlag, rowRelated]
     )
-    return <TrackHeader track={track} open={!!expanded[row.original.id]} />
+    return (
+        <TrackHeader
+            track={track}
+            open={!!expanded[row.original.id]}
+            openLaneKey={openItem?.releaseId === row.original.id ? openItem.laneKey : null}
+        />
+    )
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag, related, lastRowId, sentinel, loadFlagActivity, stickyOffset } =
-        useContext(CalendarStateContext)
+    const {
+        expanded,
+        openItem,
+        detailWidth,
+        stepsByFlag,
+        related,
+        lastRowId,
+        sentinel,
+        loadFlagActivity,
+        stickyOffset,
+    } = useContext(CalendarStateContext)
     const firstFlagId = row.original.flags[0]?.id
     useEffect(() => {
         if (firstFlagId !== undefined) {
@@ -238,7 +334,13 @@ function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
     )
     return (
         <>
-            <TrackLanes track={track} open={!!expanded[row.original.id]} stickyOffset={stickyOffset} />
+            <TrackLanes
+                track={track}
+                open={!!expanded[row.original.id]}
+                stickyOffset={stickyOffset}
+                openLaneKey={openItem?.releaseId === row.original.id ? openItem.laneKey : null}
+                detailWidth={detailWidth}
+            />
             {row.original.id === lastRowId && <div ref={sentinel} />}
         </>
     )
@@ -265,7 +367,7 @@ function calendarColumns(nameWidth: number): ColumnDef<ReleaseRow>[] {
 
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
-    const { expanded } = useValues(releaseCalendarLogic)
+    const { expanded, openItem } = useValues(releaseCalendarLogic)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
 
@@ -290,6 +392,7 @@ export function ReleaseTimeline(): JSX.Element {
     useScrollToToday(container, CALENDAR_SCALE(), true, width > 0 && rows.length > 0)
     const columns = useMemo(() => calendarColumns(nameWidth), [nameWidth])
 
+    const detailWidth = nameWidth < NAME ? Math.max(width - stickyOffset, 0) : null
     const state = useMemo(
         () => ({
             nameWidth,
@@ -298,10 +401,23 @@ export function ReleaseTimeline(): JSX.Element {
             sentinel,
             loadFlagActivity,
             expanded,
+            openItem,
+            detailWidth,
             stepsByFlag,
             related: relatedByRelease,
         }),
-        [nameWidth, stickyOffset, lastRowId, sentinel, loadFlagActivity, expanded, stepsByFlag, relatedByRelease]
+        [
+            nameWidth,
+            stickyOffset,
+            lastRowId,
+            sentinel,
+            loadFlagActivity,
+            expanded,
+            openItem,
+            detailWidth,
+            stepsByFlag,
+            relatedByRelease,
+        ]
     )
 
     return (
@@ -333,7 +449,6 @@ export function ReleaseTimeline(): JSX.Element {
                     />
                 </CalendarStateContext.Provider>
             )}
-            <ReleaseCalendarItemPanel />
             <ReleaseScheduleDialog />
         </div>
     )

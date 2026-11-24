@@ -77,6 +77,8 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                     const { [id]: open, ...rest } = state
                     return open ? rest : { ...state, [id]: true as const }
                 },
+                openCalendarItem: (state, { releaseId }) =>
+                    state[releaseId] ? state : { ...state, [releaseId]: true as const },
             },
         ],
         panelSurvey: [
@@ -90,8 +92,10 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         openItem: [
             null as ReleaseCalendarItem | null,
             {
-                openCalendarItem: (_, { releaseId, laneKey }) => ({ releaseId, laneKey }),
+                openCalendarItem: (state, { releaseId, laneKey }) =>
+                    state?.releaseId === releaseId && state.laneKey === laneKey ? null : { releaseId, laneKey },
                 closeCalendarItem: () => null,
+                toggleExpanded: (state, { id }) => (state?.releaseId === id ? null : state),
             },
         ],
         flagActivity: [
@@ -161,6 +165,9 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                 }
             },
             openCalendarItem: async ({ releaseId, laneKey, kind }) => {
+                if (!values.openItem) {
+                    return
+                }
                 posthog.capture('release calendar item opened', { release_id: releaseId, kind })
                 if (kind !== 'survey' || values.currentProjectId === null) {
                     return

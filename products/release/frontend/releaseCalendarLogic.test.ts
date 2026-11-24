@@ -50,10 +50,21 @@ describe('releaseCalendarLogic', () => {
         logic.actions.openCalendarItem('release-2', 'survey-9', 'survey')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.openItem).toEqual({ releaseId: 'release-2', laneKey: 'survey-9' })
+        expect(logic.values.expanded).toEqual({ 'release-1': true, 'release-2': true })
 
+        logic.actions.openCalendarItem('release-2', 'survey-9', 'survey')
+        expect(logic.values.openItem).toBeNull()
+
+        logic.actions.openCalendarItem('release-1', 'flag-1', 'flag')
+        logic.actions.toggleExpanded('release-1')
+        expect(logic.values.openItem).toBeNull()
+
+        logic.actions.openCalendarItem('release-2', 'survey-9', 'survey')
         logic.actions.closeCalendarItem()
         expect(logic.values.openItem).toBeNull()
         expect(capture.mock.calls).toEqual([
+            ['release calendar item opened', { release_id: 'release-1', kind: 'flag' }],
+            ['release calendar item opened', { release_id: 'release-2', kind: 'survey' }],
             ['release calendar item opened', { release_id: 'release-1', kind: 'flag' }],
             ['release calendar item opened', { release_id: 'release-2', kind: 'survey' }],
         ])
