@@ -3647,10 +3647,10 @@ Today (15): `categories`, `credit_refunds`, `customers`, `discounts`, `employees
 
 Diffed against: <https://docs.clover.com/dev/reference/api-reference-overview>
 
-- [ ] `Cash events (GET /v3/merchants/{mId}/cash_events)` — Cash drawer movements (cash in, out, opening) per device and employee, for till reconciliation next to payments and shifts (high)
-- [ ] `Authorizations (GET /v3/merchants/{mId}/authorizations)` — Pre-authorizations and tab holds that never appear in the payments table until captured (medium)
-- [ ] `Item stocks (GET /v3/merchants/{mId}/item_stocks)` — On-hand stock quantity per item we sync, for inventory and sell-through analysis (medium)
-- [ ] `Order types (GET /v3/merchants/{mId}/order_types)` — Lookup that resolves the order type carried on orders (dine in, take out, delivery) (medium)
+- [x] `Cash events (GET /v3/merchants/{mId}/cash_events)` — Cash drawer movements (cash in, out, opening) per device and employee, for till reconciliation next to payments and shifts (high)
+- [x] `Authorizations (GET /v3/merchants/{mId}/authorizations)` — Pre-authorizations and tab holds that never appear in the payments table until captured (medium)
+- [x] `Item stocks (GET /v3/merchants/{mId}/item_stocks)` — On-hand stock quantity per item we sync, for inventory and sell-through analysis (medium)
+- [x] `Order types (GET /v3/merchants/{mId}/order_types)` — Lookup that resolves the order type carried on orders (dine in, take out, delivery) (medium)
 - [ ] `Tags (GET /v3/merchants/{mId}/tags)` — Item tags, joined to items through the tag-items route (low)
 - [ ] `Item groups (GET /v3/merchants/{mId}/item_groups)` — Variant groups that item attributes and options belong to (low)
 - [ ] `Attributes (GET /v3/merchants/{mId}/attributes); Options (GET /v3/merchants/{mId}/options)` — Variant attribute and option definitions behind item groups (low)
