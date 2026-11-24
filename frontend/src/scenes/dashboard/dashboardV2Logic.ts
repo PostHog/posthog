@@ -16,11 +16,12 @@ import type { DashboardTile, InsightModel } from '~/types'
 import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
 import type { DashboardStreamResultTiming } from 'products/dashboards/frontend/streamDashboardQueryResults'
 
-import type { DashboardLogicProps, DashboardSettings } from './dashboardLogic'
+import type { DashboardLogicProps, DashboardSettings, TileLoadRefresh } from './dashboardLogic'
 import {
     RATE_LIMITED_ERROR_CODE,
     RATE_LIMIT_ERROR_MESSAGE,
     TaskQueue,
+    type TileLoads,
     getInsightQueryError,
     isRefreshRejectionStub,
 } from './dashboardUtils'
@@ -192,9 +193,18 @@ export interface BoardStreamOutcome<T extends InsightTile> {
     refreshEventProperties: Record<string, unknown>
 }
 
+export interface RefreshBoardStreamOutcome<T extends InsightTile> extends BoardStreamOutcome<T> {
+    /** A tab switch stopped the stream. Its `leftTiles` wait for their tab to show again. */
+    stopped: boolean
+    /** The stream's query id and start time, for reporting the tiles it left as aborted. */
+    queryId: string
+    startedAt: number
+}
+
 interface BoardStreamLoad<T extends InsightTile> {
     refresh: BoardStreamRefresh
     teamId: number
+    queryId: string
     report: TileRefreshReporter
     settle: (tile: T, outcome: TileOutcome) => void
 }
@@ -261,7 +271,7 @@ async function loadThroughBoardStream<T extends InsightTile>(
             dashboardId,
             {
                 tile_ids: tiles.map((tile) => tile.id).join(','),
-                client_query_id: uuid(),
+                client_query_id: load.queryId,
                 refresh: refresh.forceRefresh ? 'force_blocking' : 'blocking',
                 cached_first: true,
                 filters_override: JSON.stringify(refresh.filters),
@@ -343,25 +353,43 @@ function boardStreamOutcome<T extends InsightTile>(
 export async function refreshThroughBoardStream<T extends InsightTile>(
     cache: Record<string, any>,
     tiles: T[],
-    refresh: BoardStreamRefresh,
+    refresh: BoardStreamRefresh & { tileLoads: TileLoads<TileLoadRefresh>; settings: DashboardSettings },
     {
         placement,
         report,
         settle,
     }: { placement: DashboardPlacement; report: TileRefreshReporter; settle: (tile: T, outcome: TileOutcome) => void }
-): Promise<BoardStreamOutcome<T> | null> {
+): Promise<RefreshBoardStreamOutcome<T> | null> {
     if (!refresh.currentTeamId || !usesBoardStream(placement, tiles.length)) {
         return null
     }
+    // Registered with tileLoads, so a tab switch that stops the loads of the tab a viewer leaves stops this stream.
+    const tileLoad = refresh.tileLoads.start(
+        tiles.map((tile) => tile.id),
+        refresh.signal,
+        { forceRefresh: refresh.forceRefresh, settings: refresh.settings }
+    )
     const controller = new AbortController()
-    refresh.signal.addEventListener('abort', () => controller.abort(), { once: true })
+    tileLoad.signal.addEventListener('abort', () => controller.abort(), { once: true })
     cache.disposables.add(() => () => controller.abort(), 'dashboard-board-stream', { pauseOnPageHidden: false })
-    return await loadThroughBoardStream(tiles, {
-        refresh: { ...refresh, signal: controller.signal },
-        teamId: refresh.currentTeamId,
-        report,
-        settle,
-    })
+    const queryId = uuid()
+    const startedAt = performance.now()
+    try {
+        const outcome = await loadThroughBoardStream(tiles, {
+            refresh: { ...refresh, signal: controller.signal },
+            teamId: refresh.currentTeamId,
+            queryId,
+            report,
+            settle: (tile, tileOutcome) => {
+                tileLoad.release(tile.id)
+                settle(tile, tileOutcome)
+            },
+        })
+        const stopped = tileLoad.signal.aborted && !refresh.signal.aborted
+        return { ...outcome, aborted: outcome.aborted && !stopped, stopped, queryId, startedAt }
+    } finally {
+        tileLoad.finish()
+    }
 }
 
 /**
@@ -405,6 +433,7 @@ export async function loadScrolledInTiles<T extends InsightTile>(
     return await loadThroughBoardStream(waiting, {
         refresh,
         teamId: refresh.currentTeamId,
+        queryId: uuid(),
         report,
         settle: () => {},
     })
