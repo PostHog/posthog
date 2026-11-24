@@ -55,6 +55,8 @@ SIDE_EFFECT_RETRY_POLICY = temporalio.common.RetryPolicy(
 )
 
 HEAVY_ACTIVITY_TIMEOUT = dt.timedelta(hours=2)
+# Persons batches wait for TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES slots, so a large deletion takes hours.
+PERSONS_ACTIVITY_TIMEOUT = dt.timedelta(hours=12)
 HEAVY_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 LIGHT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=10)
 LIGHT_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
@@ -110,7 +112,9 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 activity,
                 team_inputs,
-                start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+                start_to_close_timeout=(
+                    PERSONS_ACTIVITY_TIMEOUT if activity is delete_team_persons_activity else HEAVY_ACTIVITY_TIMEOUT
+                ),
                 heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
                 retry_policy=DELETE_RETRY_POLICY,
             )

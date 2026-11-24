@@ -114,6 +114,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     reset_task_run_stream,
 )
 from products.tasks.backend.models import (
+    ENDED_BY_STALE_SWEEP_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
@@ -8755,6 +8756,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("written", {}, {"state": {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"}}, None),
+            (
+                "removed",
+                {ENDED_BY_STALE_SWEEP_STATE_KEY: "heartbeat"},
+                {"state": {}, "state_remove_keys": [ENDED_BY_STALE_SWEEP_STATE_KEY]},
+                "heartbeat",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_change_the_stale_sweep_mark(self, _name, state, body, kept, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", body, format="json")
+
+        run.refresh_from_db()
+        assert response.status_code == status.HTTP_200_OK
+        assert run.state.get(ENDED_BY_STALE_SWEEP_STATE_KEY) == kept
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         trial_context = {"version": 1, "launch_id": "synthetic-launch"}
@@ -10184,6 +10207,65 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(len(log_entries), 2)
         self.assertEqual(log_entries[0]["message"], "Initial entry")
         self.assertEqual(log_entries[1]["message"], "Task completed")
+
+    @parameterized.expand(
+        [
+            ("live_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.QUEUED, 204, TaskRun.Status.QUEUED),
+            (
+                "completed_local_run_reopens",
+                TaskRun.Environment.LOCAL,
+                TaskRun.Status.COMPLETED,
+                204,
+                TaskRun.Status.QUEUED,
+            ),
+            ("failed_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.FAILED, 409, TaskRun.Status.FAILED),
+            ("cancelled_local_run", TaskRun.Environment.LOCAL, TaskRun.Status.CANCELLED, 409, TaskRun.Status.CANCELLED),
+            ("cloud_run", TaskRun.Environment.CLOUD, TaskRun.Status.IN_PROGRESS, 409, TaskRun.Status.IN_PROGRESS),
+        ]
+    )
+    def test_heartbeat_keeps_a_local_run_alive(self, _name, environment, run_status, expected_response, status_after):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=run_status,
+            environment=environment,
+            completed_at=django_timezone.now() if run_status == TaskRun.Status.COMPLETED else None,
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/heartbeat/")
+
+        self.assertEqual(response.status_code, expected_response)
+        run.refresh_from_db()
+        self.assertEqual(run.status, status_after)
+        self.assertEqual(run.last_heartbeat_at is not None, expected_response == 204)
+        self.assertIsNone(run.agent_status)
+        if run.status == TaskRun.Status.QUEUED:
+            self.assertIsNone(run.completed_at)
+
+    @parameterized.expand(
+        [
+            ("completed_run_is_not_reopened", TaskRun.Status.COMPLETED),
+            ("live_run_takes_no_heartbeat", TaskRun.Status.QUEUED),
+        ]
+    )
+    def test_heartbeat_is_refused_for_a_run_of_a_finished_task(self, _name, run_status):
+        task = self.create_task()
+        Task.objects.filter(id=task.id).update(status=Task.Status.DONE, profile="user")
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL
+        )
+
+        with patch(
+            "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+            return_value={"user": "enforce"},
+        ):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/heartbeat/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        run.refresh_from_db()
+        self.assertEqual(run.status, run_status)
+        self.assertIsNone(run.last_heartbeat_at)
 
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()
@@ -16367,16 +16449,28 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("live_run", TaskRun.Status.IN_PROGRESS, 0),
+            ("ended_run", TaskRun.Status.COMPLETED, 1),
+        ]
+    )
     @patch("products.tasks.backend.models.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
-    def test_task_session_sync_atomically_replaces_opaque_content(self, mock_write, mock_tag):
+    def test_task_session_sync_atomically_replaces_opaque_content(
+        self, _name, run_status, ended_run_credential_uses, mock_write, mock_tag
+    ):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
         run.active_task_session = task_session
         run.save(update_fields=["active_task_session"])
         self._open_sandbox_session(run)
+        TaskRun.objects.filter(id=run.id).update(status=run_status)
         content = b"opaque native session content"
+        metric = "posthog_tasks_ended_run_credential_used_total"
+        labels = {"surface": "task_run_sandbox_token"}
+        counted_before = REGISTRY.get_sample_value(metric, labels) or 0
 
         response = self.client.generic(
             "POST",
@@ -16397,6 +16491,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertIsNotNone(task_session.object_storage_key)
         mock_write.assert_called_once_with(task_session.object_storage_key, content)
         mock_tag.assert_called_once()
+        self.assertEqual((REGISTRY.get_sample_value(metric, labels) or 0) - counted_before, ended_run_credential_uses)
 
     @patch("posthog.storage.object_storage.delete")
     @patch("posthog.storage.object_storage.write")
@@ -16798,7 +16893,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertNotIn("mobile_push_user_ids", task.state or {})
 
-    @parameterized.expand([("ai_gateway_product", "slack_app"), ("billing_product", "posthog_ai")])
+    @parameterized.expand(
+        [
+            ("ai_gateway_product", "slack_app"),
+            ("billing_product", "posthog_ai"),
+            ("gateway_token_hashes", ["a" * 64]),
+            ("gateway_token_revoke_pending", True),
+        ]
+    )
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_forge_billing_or_gateway_product(self, key, original, _mock_publish):
         task = self.create_task()

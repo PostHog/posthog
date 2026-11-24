@@ -1,27 +1,7 @@
 import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
-import {
-    compactStatParts,
-    formatCacheTokens,
-    formatCostUsd,
-    formatLatencyMs,
-    formatTokenCounts,
-    statParts,
-} from './formatStats'
+import { compactStatParts, formatCacheTokens, formatLatencyMs, formatTokenCounts, statParts } from './formatStats'
 
 describe('formatStats', () => {
-    it.each([
-        [0, '$0'],
-        [0.0004, '<$0.001'],
-        [0.0021, '$0.0021'],
-        [0.0154, '$0.0154'],
-        [0.1257, '$0.1257'],
-        [0.5, '$0.50'],
-        [0.999, '$0.999'],
-        [1.5, '$1.50'],
-    ])('formats cost %p as %p', (cost, expected) => {
-        expect(formatCostUsd(cost)).toBe(expected)
-    })
-
     it.each([
         [420, '420ms'],
         [1840, '1.84s'],
@@ -69,7 +49,7 @@ describe('formatStats', () => {
         ],
         ['cache writes without reads', { cacheWriteTokens: 1585 }, ['1,585 cache write']],
     ])('statParts omits unknown stats for %s', (_label, stats, expected) => {
-        expect(statParts({ ...unknownStats, ...stats })).toEqual(expected)
+        expect(statParts({ ...unknownStats, ...stats }).map((part) => part.text)).toEqual(expected)
     })
 
     it.each<[string, Partial<TraceNodeStatsApi>, string[]]>([
@@ -78,6 +58,6 @@ describe('formatStats', () => {
         ['only output tokens', { outputTokens: 5, latencyMs: 420 }, ['420ms', '5 tok']],
         ['nothing known', {}, []],
     ])('compactStatParts with %s', (_label, stats, expected) => {
-        expect(compactStatParts({ ...unknownStats, ...stats })).toEqual(expected)
+        expect(compactStatParts({ ...unknownStats, ...stats }).map((part) => part.text)).toEqual(expected)
     })
 })
