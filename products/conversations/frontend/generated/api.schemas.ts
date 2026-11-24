@@ -194,7 +194,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -458,7 +458,7 @@ export const TicketPriorityEnumApi = {
 /**
  * @nullable
  */
-export type TicketAssignmentApiUser = { [key: string]: string } | null
+export type TicketAssignmentApiUser = { [key: string]: string | null } | null
 
 /**
  * @nullable

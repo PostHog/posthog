@@ -12,8 +12,11 @@ export interface CrossProjectDashboardCreatorApi {
     readonly id: number
     /** First name of the user who created the dashboard. */
     readonly first_name: string
-    /** Email of the user who created the dashboard. */
-    readonly email: string
+    /**
+     * Email of the user who created the dashboard. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly email: string | null
 }
 
 /**

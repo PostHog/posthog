@@ -748,8 +748,11 @@ export interface AEOPromptStatsApi {
 }
 
 export interface AEOPromptAuthorApi {
-    /** Email of the person who made the change. */
-    email: string
+    /**
+     * Email of the person who made the change. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
     /** First name of the person who made the change. Empty when they have none. */
     name: string
 }
@@ -1745,7 +1748,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */

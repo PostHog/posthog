@@ -199,8 +199,11 @@ export interface WizardRunCreatorApi {
     readonly first_name: string
     /** Last name of the user who created the Wizard run. */
     readonly last_name: string
-    /** Email address of the user who created the Wizard run. */
-    readonly email: string
+    /**
+     * Email address of the user who created the Wizard run. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly email: string | null
 }
 
 /**
@@ -708,7 +711,8 @@ export interface WizardTaskDTOApi {
 export interface WizardSessionUserDTOApi {
     id: number
     first_name: string
-    email: string
+    /** @nullable */
+    email: string | null
 }
 
 /**

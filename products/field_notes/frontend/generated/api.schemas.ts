@@ -70,7 +70,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */

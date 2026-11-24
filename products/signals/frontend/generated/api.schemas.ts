@@ -2437,7 +2437,8 @@ export interface _UserApi {
     readonly uuid: string
     readonly first_name: string
     readonly last_name: string
-    readonly email: string
+    /** @nullable */
+    readonly email: string | null
 }
 
 export interface ReportDecisionSetByApi {
@@ -9034,8 +9035,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    /** @maxLength 254 */
-    email: string
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -10789,8 +10789,11 @@ export interface ScoutMemberActivityApi {
 export interface ScoutMemberApi {
     /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
     user_uuid: string
-    /** The member's email — use to match a finding's owner by name/email. */
-    email: string
+    /**
+     * The member's email — use to match a finding's owner by name/email. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
     /** The member's first name (may be empty). */
     first_name: string
     /** The member's last name (may be empty). */

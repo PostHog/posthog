@@ -417,12 +417,10 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
         distinct_id: zod.string().max(advancedActivityLogsExportCreateBodyUserDistinctIdMax).nullish(),
         first_name: zod.string().max(advancedActivityLogsExportCreateBodyUserFirstNameMax).optional(),
         last_name: zod.string().max(advancedActivityLogsExportCreateBodyUserLastNameMax).optional(),
-        email: zod
-            .union([
-                zod.email().max(advancedActivityLogsExportCreateBodyUserEmailOneMax).nullable(),
-                zod.string().max(advancedActivityLogsExportCreateBodyUserEmailTwoMax),
-            ])
-            .optional(),
+        email: zod.union([
+            zod.email().max(advancedActivityLogsExportCreateBodyUserEmailOneMax).nullable(),
+            zod.string().max(advancedActivityLogsExportCreateBodyUserEmailTwoMax),
+        ]),
         is_email_verified: zod.boolean().nullish(),
         hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
         role_at_organization: zod

@@ -511,8 +511,11 @@ export namespace Schemas {
     }
 
     export interface AEOPromptAuthor {
-      /** Email of the person who made the change. */
-      email: string;
+      /**
+         * Email of the person who made the change. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
       /** First name of the person who made the change. Empty when they have none. */
       name: string;
     }
@@ -3761,8 +3764,11 @@ export namespace Schemas {
     export interface AccountAssignment {
       /** PostHog user id of the assignee. */
       readonly id: number;
-      /** Email of the assignee. */
-      readonly email: string;
+      /**
+         * Email of the assignee. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly email: string | null;
     }
 
     export interface AccountAuditConflict {
@@ -4115,7 +4121,7 @@ export namespace Schemas {
       first_name?: string;
       /** @maxLength 150 */
       last_name?: string;
-      email?: string | null;
+      email: string | null;
       /** @nullable */
       is_email_verified?: boolean | null;
       /** @nullable */
@@ -6587,7 +6593,8 @@ export namespace Schemas {
       distinct_id: string | null;
       first_name: string;
       last_name: string;
-      email: string;
+      /** @nullable */
+      email: string | null;
       /** @nullable */
       is_email_verified: boolean | null;
       /** @nullable */
@@ -20122,7 +20129,8 @@ export namespace Schemas {
     export interface UserBasicInfo {
       id: number;
       first_name: string;
-      email: string;
+      /** @nullable */
+      email: string | null;
     }
 
     export interface QuarantineSourceRun {
@@ -27372,8 +27380,11 @@ export namespace Schemas {
       first_name: string;
       /** Last name of the user. */
       last_name: string;
-      /** Email address of the user. */
-      email: string;
+      /**
+         * Email address of the user. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     export interface CatalogFlag {
@@ -27899,7 +27910,8 @@ export namespace Schemas {
       distinct_id: string;
       first_name: string;
       last_name: string;
-      email: string;
+      /** @nullable */
+      email: string | null;
       /** @nullable */
       is_email_verified?: boolean | null;
       /** @nullable */
@@ -28518,8 +28530,11 @@ export namespace Schemas {
       first_name: string;
       /** The user's last name. */
       last_name: string;
-      /** The user's email address. */
-      email: string;
+      /**
+         * The user's email address. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     export interface ChartExplanation {
@@ -31724,7 +31739,7 @@ export namespace Schemas {
       /** Whether the batch runner currently computes this version. */
       is_active: boolean;
       /**
-         * Email of the staff user who created this version, or null for system-seeded rows.
+         * Email of the staff user who created this version. Null for system-seeded rows and for a service account without a contact email.
          * @nullable
          */
       readonly created_by_email: string | null;
@@ -34060,8 +34075,11 @@ export namespace Schemas {
       readonly id: number;
       /** First name of the user who created the dashboard. */
       readonly first_name: string;
-      /** Email of the user who created the dashboard. */
-      readonly email: string;
+      /**
+         * Email of the user who created the dashboard. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly email: string | null;
     }
 
     /**
@@ -34710,8 +34728,11 @@ export namespace Schemas {
     export interface CustomerTaskUser {
       /** PostHog user ID. */
       readonly id: number;
-      /** Email address of the user. */
-      readonly email: string;
+      /**
+         * Email address of the user. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly email: string | null;
       /** First name of the user. */
       readonly first_name: string;
       /** Last name of the user. */
@@ -54010,8 +54031,11 @@ export namespace Schemas {
     export interface ExternalAccountAssignment {
       /** PostHog user id of the assigned user. */
       user_id: number;
-      /** Email address of the assigned user. */
-      email: string;
+      /**
+         * Email address of the assigned user. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     /**
@@ -70213,7 +70237,8 @@ export namespace Schemas {
 
     export interface LegalDocumentCreator {
       first_name: string;
-      email: string;
+      /** @nullable */
+      email: string | null;
     }
 
     /**
@@ -73563,8 +73588,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_computed_at: string | null;
-      /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
-      readonly last_computed_by_email: string;
+      /**
+         * Email of the user who triggered the latest recompute, empty for system-triggered runs. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly last_computed_by_email: string | null;
       /** Clusters that met the minimum member count, by call volume desc. */
       readonly clusters: readonly MCPIntentCluster[];
       /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met it, on older snapshots, and on tool-scoped responses. */
@@ -80308,8 +80336,11 @@ export namespace Schemas {
       first_name: string;
       /** Member's last name, for display. */
       last_name: string;
-      /** Member's email address, which is where these notifications go. */
-      email: string;
+      /**
+         * Member's email address, which is where these notifications go. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
       /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
       organization_membership_level: number;
       /** False when the member's membership level is above yours, which means you cannot change their settings. */
@@ -87357,7 +87388,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TicketAssignmentUser = {[key: string]: string} | null;
+    export type TicketAssignmentUser = {[key: string]: string | null} | null;
 
     /**
      * @nullable
@@ -88245,7 +88276,7 @@ export namespace Schemas {
       /** @maxLength 150 */
       last_name?: string;
       /** @maxLength 254 */
-      email?: string;
+      email: string;
       /** @nullable */
       readonly pending_email: string | null;
       /** @nullable */
@@ -88725,8 +88756,11 @@ export namespace Schemas {
     export interface WarehouseMigrationCreator {
       /** First name of the person who prepared the migration. */
       first_name: string;
-      /** Email of the person who prepared the migration. */
-      email: string;
+      /**
+         * Email of the person who prepared the migration. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     export interface WarehouseMigrationItem {
@@ -89023,8 +89057,11 @@ export namespace Schemas {
       id: number;
       /** User first name. */
       first_name: string;
-      /** User email. */
-      email: string;
+      /**
+         * User email. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     /**
@@ -89457,8 +89494,11 @@ export namespace Schemas {
       readonly first_name: string;
       /** Last name of the user who created the Wizard run. */
       readonly last_name: string;
-      /** Email address of the user who created the Wizard run. */
-      readonly email: string;
+      /**
+         * Email address of the user who created the Wizard run. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly email: string | null;
     }
 
     export type WizardWorkspace = LocalFolderWorkspace | GitRepositoryWorkspace;
@@ -89650,7 +89690,8 @@ export namespace Schemas {
     export interface WizardSessionUserDTO {
       id: number;
       first_name: string;
-      email: string;
+      /** @nullable */
+      email: string | null;
     }
 
     /**
@@ -110577,8 +110618,11 @@ export namespace Schemas {
       first_name: string;
       /** The user's last name. */
       last_name: string;
-      /** The user's email address. */
-      email: string;
+      /**
+         * The user's email address. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     export interface RecommendationResolution {
@@ -116867,8 +116911,11 @@ export namespace Schemas {
     export interface ScoutMember {
       /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
       user_uuid: string;
-      /** The member's email — use to match a finding's owner by name/email. */
-      email: string;
+      /**
+         * The member's email — use to match a finding's owner by name/email. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
       /** The member's first name (may be empty). */
       first_name: string;
       /** The member's last name (may be empty). */
@@ -130384,7 +130431,11 @@ export namespace Schemas {
 
     export interface _WelcomeInviter {
       name: string;
-      email: string;
+      /**
+         * Email address of the inviter. Null when the inviter is a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }
 
     export interface _WelcomeTeamMember {

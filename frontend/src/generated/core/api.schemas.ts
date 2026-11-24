@@ -157,7 +157,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -690,8 +690,11 @@ export interface OrganizationNotificationMemberApi {
     first_name: string
     /** Member's last name, for display. */
     last_name: string
-    /** Member's email address, which is where these notifications go. */
-    email: string
+    /**
+     * Member's email address, which is where these notifications go. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
     /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
     organization_membership_level: number
     /** False when the member's membership level is above yours, which means you cannot change their settings. */
@@ -6752,7 +6755,7 @@ export interface UserApi {
     /** @maxLength 150 */
     last_name?: string
     /** @maxLength 254 */
-    email?: string
+    email: string
     /** @nullable */
     readonly pending_email: string | null
     /** @nullable */

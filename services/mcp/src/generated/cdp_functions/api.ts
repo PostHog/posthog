@@ -686,15 +686,13 @@ export const HogFunctionsInvocationsCreateBody = () => zod.object({
                         .string()
                         .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
                         .optional(),
-                    email: zod
-                        .union([
-                            zod
-                                .email()
-                                .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax)
-                                .nullable(),
-                            zod.string().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
-                        ])
-                        .optional(),
+                    email: zod.union([
+                        zod
+                            .email()
+                            .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax)
+                            .nullable(),
+                        zod.string().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
+                    ]),
                     is_email_verified: zod.boolean().nullish(),
                     hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
                     role_at_organization: zod

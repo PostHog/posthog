@@ -480,8 +480,11 @@ export interface MCPIntentClusterSnapshotApi {
      * @nullable
      */
     readonly last_computed_at: string | null
-    /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
-    readonly last_computed_by_email: string
+    /**
+     * Email of the user who triggered the latest recompute, empty for system-triggered runs. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly last_computed_by_email: string | null
     /** Clusters that met the minimum member count, by call volume desc. */
     readonly clusters: readonly MCPIntentClusterApi[]
     /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met it, on older snapshots, and on tool-scoped responses. */

@@ -9145,7 +9145,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -9749,8 +9749,11 @@ export interface ChartExplanationAuthorApi {
     first_name: string
     /** The user's last name. */
     last_name: string
-    /** The user's email address. */
-    email: string
+    /**
+     * The user's email address. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 export interface ChartExplanationApi {

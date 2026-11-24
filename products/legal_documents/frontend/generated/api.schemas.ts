@@ -9,7 +9,8 @@
  */
 export interface LegalDocumentCreatorApi {
     first_name: string
-    email: string
+    /** @nullable */
+    email: string | null
 }
 
 /**

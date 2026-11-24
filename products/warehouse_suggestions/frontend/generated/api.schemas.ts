@@ -191,8 +191,11 @@ export interface WarehouseSuggestionReviewerApi {
     id: number
     /** User first name. */
     first_name: string
-    /** User email. */
-    email: string
+    /**
+     * User email. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 /**

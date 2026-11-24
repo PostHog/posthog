@@ -2091,15 +2091,10 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
                     .optional(),
-                email: zod
-                    .union([
-                        zod
-                            .email()
-                            .max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax)
-                            .nullable(),
-                        zod.string().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
-                    ])
-                    .optional(),
+                email: zod.union([
+                    zod.email().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailOneMax).nullable(),
+                    zod.string().max(hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneEmailTwoMax),
+                ]),
                 is_email_verified: zod.boolean().nullish(),
                 hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
                 role_at_organization: zod

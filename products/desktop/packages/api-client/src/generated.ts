@@ -890,7 +890,7 @@ export namespace Schemas {
         distinct_id?: (string | null) | undefined;
         first_name?: string | undefined;
         last_name?: string | undefined;
-        email?: ((string | null) | string) | undefined;
+        email: (string | null) | string;
         is_email_verified?: (boolean | null) | undefined;
         hedgehog_config: Record<string, unknown> | null;
         role_at_organization?:
@@ -15927,7 +15927,7 @@ export namespace Schemas {
         distinct_id: string;
         first_name: string;
         last_name: string;
-        email: string;
+        email: string | null;
         /**
          * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
          */
@@ -16505,7 +16505,7 @@ export namespace Schemas {
         distinct_id: string | null;
         first_name?: string | undefined;
         last_name?: string | undefined;
-        email?: string | undefined;
+        email: string;
         pending_email: string | null;
         is_email_verified: boolean | null;
         notification_settings?: Record<string, unknown> | undefined;
@@ -19285,7 +19285,7 @@ export namespace Schemas {
     export type TicketAssignment = {
         id: string | null;
         type: string;
-        user: Record<string, string> | null;
+        user: Record<string, string | null> | null;
         role: Record<string, string> | null;
     };
     /**

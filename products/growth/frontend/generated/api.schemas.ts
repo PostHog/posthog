@@ -62,7 +62,7 @@ export interface ConfigVersionApi {
     /** Whether the batch runner currently computes this version. */
     is_active: boolean
     /**
-     * Email of the staff user who created this version, or null for system-seeded rows.
+     * Email of the staff user who created this version. Null for system-seeded rows and for a service account without a contact email.
      * @nullable
      */
     readonly created_by_email: string | null

@@ -15,8 +15,11 @@ export type ExternalAccountApiProperties = { [key: string]: unknown }
 export interface ExternalAccountAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
-    /** Email address of the assigned user. */
-    email: string
+    /**
+     * Email address of the assigned user. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 /**
@@ -339,7 +342,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -905,8 +908,11 @@ export interface PatchedAccountNotebookUpdateApi {
 export interface AccountAssignmentApi {
     /** PostHog user id of the assignee. */
     readonly id: number
-    /** Email of the assignee. */
-    readonly email: string
+    /**
+     * Email of the assignee. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly email: string | null
 }
 
 /**
@@ -3880,8 +3886,11 @@ export const CustomerTaskStatusEnumApi = {
 export interface CustomerTaskUserApi {
     /** PostHog user ID. */
     readonly id: number
-    /** Email address of the user. */
-    readonly email: string
+    /**
+     * Email address of the user. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly email: string | null
     /** First name of the user. */
     readonly first_name: string
     /** Last name of the user. */

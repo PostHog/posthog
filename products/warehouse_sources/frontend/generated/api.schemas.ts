@@ -3057,8 +3057,11 @@ export const WarehouseMigrationItemStatusEnumApi = {
 export interface WarehouseMigrationCreatorApi {
     /** First name of the person who prepared the migration. */
     first_name: string
-    /** Email of the person who prepared the migration. */
-    email: string
+    /**
+     * Email of the person who prepared the migration. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 export interface WarehouseMigrationItemApi {

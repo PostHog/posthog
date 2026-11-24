@@ -245,8 +245,11 @@ export interface CatalogUserApi {
     first_name: string
     /** Last name of the user. */
     last_name: string
-    /** Email address of the user. */
-    email: string
+    /**
+     * Email address of the user. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 export interface CatalogFlagApi {

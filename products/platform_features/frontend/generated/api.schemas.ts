@@ -466,7 +466,7 @@ export interface UserBasicApi {
     first_name?: string
     /** @maxLength 150 */
     last_name?: string
-    email?: string | null
+    email: string | null
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
@@ -925,7 +925,11 @@ export interface PaginatedRoleMembershipListApi {
 
 export interface _WelcomeInviterApi {
     name: string
-    email: string
+    /**
+     * Email address of the inviter. Null when the inviter is a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
 }
 
 /**

@@ -78,7 +78,8 @@ export interface PatchedUpdateRepoRequestInputApi {
 export interface UserBasicInfoApi {
     id: number
     first_name: string
-    email: string
+    /** @nullable */
+    email: string | null
 }
 
 export interface QuarantineSourceRunApi {
