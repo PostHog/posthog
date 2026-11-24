@@ -281,6 +281,8 @@ class MovedAlertSettings:
     fields: Mapping[str, Any]
     threshold: dict[str, Any] | None
     schedule_start_time: str | None
+    created_by_id: int | None = None
+    threshold_name: str | None = None
 
 
 class PlatformCannotOwn(ValueError):

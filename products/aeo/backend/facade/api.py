@@ -23,6 +23,7 @@ from django.db.models import (
     Count,
     Exists,
     ExpressionWrapper,
+    F,
     Max,
     Min,
     OuterRef,
@@ -48,6 +49,7 @@ from products.aeo.backend import (
     gaps,
     keyword_suggestions,
     keywords,
+    movers,
     rankings,
     suggestions,
 )
@@ -104,6 +106,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
+    PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -698,7 +702,9 @@ def get_prompt_set_overview(
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
-        "overview",
+        # The name changes with the fields of `PromptSetOverview`, because a result stored by a release with
+        # other fields loads without the new ones.
+        "overview_v2",
         _window_key(timezone_name, window, branded, engine, topic),
         lambda: _compute_prompt_set_overview(
             team_id, timezone_name=timezone_name, window=window, branded=branded, engine=engine, topic=topic
@@ -766,6 +772,13 @@ def _compute_prompt_set_overview(
         )
         for topic in sorted(active_prompts.keys() | topic_checks.keys())
     )
+    engine_topics = tuple(
+        PromptSetEngineTopicCounts(**row)
+        for row in current.filter(check_failed=False)
+        .values("engine", topic=F("prompt_topic"))
+        .annotate(answers=Count("id"), mentioned=Count("id", filter=mention_filter()))
+        .order_by("engine", "topic")
+    )
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
     return PromptSetOverview(
@@ -785,6 +798,7 @@ def _compute_prompt_set_overview(
         non_branded_answers=split["answers"] - split["branded"],
         engines=engines,
         topics=topics,
+        engine_topics=engine_topics,
         top_domains=_top_domains(
             team_id,
             window=window,
@@ -827,12 +841,43 @@ def get_prompt_set_rankings(
     )
 
 
+def get_prompt_set_movers(
+    team_id: int,
+    *,
+    timezone_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+    refresh: bool = False,
+) -> PromptSetMovers:
+    """The prompts whose mention rate, and the own pages whose citation rate, gained and lost the most
+    between `date_from` to `date_to` in the team's timezone and the range of the same length before it.
+    `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
+    one topic. Raises InvalidDateRangeError."""
+    window = _window(timezone_name, date_from, date_to)
+    return stored_result(
+        team_id,
+        "movers",
+        _window_key(timezone_name, window, branded, engine, topic),
+        lambda: movers.get_movers(
+            team_id,
+            target_domains=catalog.own_domains(team_id),
+            window=window,
+            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+        ),
+        refresh=refresh,
+    )
+
+
 def refresh_stored_results(team_id: int, *, timezone_name: str) -> None:
     """Compute the views the page opens on and store them, so a person who opens it never waits for
     the queries. Run it after every write that changes them, and on a timer."""
     # No date range: a request without one resolves to the same default window, so it reads these results.
     get_prompt_set_overview(team_id, timezone_name=timezone_name, refresh=True)
     get_prompt_set_rankings(team_id, timezone_name=timezone_name, refresh=True)
+    get_prompt_set_movers(team_id, timezone_name=timezone_name, refresh=True)
 
 
 def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
