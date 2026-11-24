@@ -3,6 +3,7 @@
 Each version starts at the row's incremental field value, and the lane writes versions once per run (see `history_upsert`).
 """
 
+import uuid
 import functools
 from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
@@ -100,8 +101,9 @@ def history_destination_types_refusal(types: Collection[str], *, history_only: b
     return None
 
 
-def history_destinations_refusal(schema: ExternalDataSchema, *, history_only: bool) -> str | None:
+def history_destinations_refusal(team_id: int, schema_id: uuid.UUID | str, *, history_only: bool) -> str | None:
     """Why the schema's saved destinations can't take its history table, the same check a run makes."""
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     if not is_multi_destination_enabled(schema.team_id, schema.source.source_type):
         return None
     types = {destination.type for destination in resolve_destinations(schema)}
@@ -109,33 +111,30 @@ def history_destinations_refusal(schema: ExternalDataSchema, *, history_only: bo
 
 
 def source_destinations_history_refusal(
-    source: ExternalDataSource, destinations: Sequence[ExternalDataDestination]
+    team_id: int, source_id: uuid.UUID | str, destination_types: Collection[str]
 ) -> str | None:
     """Why a source's new destinations can't take the history table of a table that follows them, naming the table.
 
     A table with destinations of its own doesn't follow its source, so the source's set doesn't reach it.
     """
-    keeping = [
-        schema
-        for schema in ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id).exclude(
-            deleted=True
-        )
-        if schema.is_incremental and schema.keeps_history
-    ]
+    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).exclude(deleted=True)
+    keeping = [schema for schema in schemas if schema.is_incremental and schema.keeps_history]
     if not keeping:
         return None
     overridden = set(
-        ExternalDataSchemaDestination.objects.for_team(source.team_id)
+        ExternalDataSchemaDestination.objects.for_team(team_id)
         .filter(schema_id__in=[schema.id for schema in keeping])
         .values_list("schema_id", flat=True)
     )
     following = [schema for schema in keeping if schema.id not in overridden]
-    if not following or not is_multi_destination_enabled(source.team_id, source.source_type):
+    if not following:
         return None
-    types = {destination.type for destination in destinations}
+    source_type = ExternalDataSource.objects.values_list("source_type", flat=True).get(id=source_id, team_id=team_id)
+    if not is_multi_destination_enabled(team_id, source_type):
+        return None
     for schema in following:
-        refusal = history_destination_types_refusal(types, history_only=schema.cdc_table_mode == "cdc_only")
-        if refusal:
+        history_only = schema.cdc_table_mode == "cdc_only"
+        if refusal := history_destination_types_refusal(destination_types, history_only=history_only):
             return f"{schema.name}: {refusal}"
     return None
 
