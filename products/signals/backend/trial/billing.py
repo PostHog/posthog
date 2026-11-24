@@ -139,8 +139,7 @@ def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBilling
         organization = team.organization
         if organization.is_active is not True:
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
-        # Change the version when TrialBillingStatus changes its fields, because an instance that
-        # older code cached has no value in the new slots and raises AttributeError on access.
+        # Bump the version when TrialBillingStatus fields change: an entry older code cached lacks the new slots.
         cache_key = f"signals_trial_billing_status:v2:{organization.id}"
         status: TrialBillingStatus | None = cache.get(cache_key) if use_cache else None
         if status is None:
@@ -151,7 +150,6 @@ def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBilling
                 status = TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
             cache.set(cache_key, status, timeout=30)
         # Admission shares remote Billing status, but always checks the current team quota.
-        # A paid status needs billing's spend start date to have passed, so the spend quota applies.
         if status.paid_authorized and is_team_limited(
             team.api_token, QuotaResource.SIGNALS_SPEND_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         ):
