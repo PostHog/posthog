@@ -4797,6 +4797,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [c["skill_name"] for c in response.json()] == expected
 
+    @parameterized.expand(
+        [
+            ("slack", "slack", ["signals-scout-alpha"]),
+            ("replay_vision", "replay_vision", ["signals-scout-beta"]),
+            ("unused_product", "github", []),
+        ]
+    )
+    def test_list_filters_by_source_product(self, _name: str, source_product: str, expected: list[str]) -> None:
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-alpha", source_product="slack", source_id="source-1"
+        )
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-beta", source_product="replay_vision", source_id="scanner-1"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-gamma")
+
+        response = self.client.get(self._list_url(), data={"source_product": source_product})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
     def test_list_without_a_tag_filter_returns_the_whole_fleet(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta", tags=[])
