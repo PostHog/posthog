@@ -71,7 +71,7 @@ export const E2E = {
   strongModel(adapter: Adapter): string {
     if (adapter === "claude") {
       return (
-        process.env.POSTHOG_CODE_E2E_CLAUDE_STRONG_MODEL || "claude-sonnet-4-5"
+        process.env.POSTHOG_CODE_E2E_CLAUDE_STRONG_MODEL || "claude-sonnet-5-5"
       );
     }
     return process.env.POSTHOG_CODE_E2E_CODEX_STRONG_MODEL || "gpt-5.5";

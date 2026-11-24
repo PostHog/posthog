@@ -14,6 +14,26 @@ class TestRenderSource:
 
     @parameterized.expand(
         [
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.render.com', port=443): Max retries exceeded with url: /v1/services?limit=100 "
+                "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='api.render.com', port=443): "
+                'Read timed out. (read timeout=60)"))',
+            ),
+            (
+                "connection_refused",
+                "HTTPSConnectionPool(host='api.render.com', port=443): Max retries exceeded with url: /v1/services?limit=100 "
+                "(Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7f0000000000>: "
+                "Failed to establish a new connection: [Errno 111] Connection refused'))",
+            ),
+        ]
+    )
+    def test_exhausted_connection_retries_are_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
             # Mutating resources with a server-side time filter sync incrementally via merge.
             ("services", True, False),
             ("deploys", True, False),

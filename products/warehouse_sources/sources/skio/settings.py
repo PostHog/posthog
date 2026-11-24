@@ -40,7 +40,9 @@ class SkioEndpointConfig:
     description: str
     parent: SkioParentConfig | None = None
     created_field: str = "createdAt"
-    updated_field: str = "updatedAt"
+    # None for a type with no update timestamp. Its rows still change after creation, so the
+    # endpoint syncs by full refresh only.
+    updated_field: str | None = "updatedAt"
 
     @property
     def query_document(self) -> str:
@@ -410,24 +412,109 @@ ENDPOINTS: dict[str, SkioEndpointConfig] = {
         ),
         description="Sessions of customers going through a version 3 cancel flow, with the path they took and the outcome.",
     ),
+    "pricing_policies": SkioEndpointConfig(
+        name="pricing_policies",
+        query_name="PricingPolicies",
+        graphql_type="PricingPolicy",
+        fields=(
+            "id",
+            "sellingPlanId",
+            "sellingPlanPricingPolicyAdjustmentType",
+            "percentageOff",
+            "fixedPrice",
+            "afterCycle",
+            "createdAt",
+            "updatedAt",
+        ),
+        description="Price adjustments that selling plans apply, optionally only after a number of billing cycles.",
+    ),
+    "discounts": SkioEndpointConfig(
+        name="discounts",
+        query_name="Discounts",
+        graphql_type="Discount",
+        # Skio has a root query only for a single discount, so the list is read through the
+        # subscriptions the discounts are attached to.
+        parent=SkioParentConfig(query_name="Subscriptions", graphql_type="Subscription"),
+        fields=(
+            "id",
+            "platformId",
+            "subscriptionId",
+            "subscriptionLineId",
+            "orderLineItemId",
+            "shippingLineId",
+            "cancelFlowSessionId",
+            "title",
+            "type",
+            "redeemCode",
+            "percentage",
+            "fixedValue",
+            "appliesOnEachItem",
+            "allocationPresentmentAmount",
+            "allocationPresentmentCurrencyCode",
+            "timesUsed",
+            "maxTimesUsed",
+            "createdAt",
+            "updatedAt",
+        ),
+        description="Discounts attached to subscriptions, with their value, code, and usage counts.",
+    ),
+    "notification_logs": SkioEndpointConfig(
+        name="notification_logs",
+        query_name="NotificationLogs",
+        graphql_type="NotificationLog",
+        parent=SkioParentConfig(query_name="Subscriptions", graphql_type="Subscription"),
+        # `body` is deliberately not selected: notification messages can carry customer login
+        # links, which are credentials and not delivery data.
+        fields=(
+            "id",
+            "notificationId",
+            "subscriptionId",
+            "status",
+            "subject",
+            "email",
+            "phoneNumber",
+            "deliveredAt",
+            "createdAt",
+            "updatedAt",
+        ),
+        description="Notifications sent about subscriptions, with their channel, status, and delivery time.",
+    ),
+    "reward_credit_histories": SkioEndpointConfig(
+        name="reward_credit_histories",
+        query_name="RewardCreditHistories",
+        graphql_type="RewardCreditHistory",
+        parent=SkioParentConfig(query_name="StorefrontUsers", graphql_type="StorefrontUser"),
+        fields=(
+            "id",
+            "storefrontUserId",
+            "type",
+            "creditDelta",
+            "creditRewardId",
+            "rewardId",
+            "orderId",
+            "expiredAt",
+            "removedAt",
+            "createdAt",
+        ),
+        description="Store credit granted to and redeemed by customers, one row per credit change.",
+        updated_field=None,
+    ),
 }
 
-# Every collection carries non-null created/updated timestamptz columns with server-side
-# comparison filters in its Hasura bool_exp, so both are genuine incremental cursors.
+# Every collection with an update timestamp carries non-null created/updated timestamptz columns
+# with server-side comparison filters in its Hasura bool_exp, so both are genuine incremental
+# cursors.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [
         {
-            "label": config.updated_field,
+            "label": field,
             "type": IncrementalFieldType.DateTime,
-            "field": config.updated_field,
+            "field": field,
             "field_type": IncrementalFieldType.DateTime,
-        },
-        {
-            "label": config.created_field,
-            "type": IncrementalFieldType.DateTime,
-            "field": config.created_field,
-            "field_type": IncrementalFieldType.DateTime,
-        },
+        }
+        for field in (config.updated_field, config.created_field)
     ]
+    if config.updated_field is not None
+    else []
     for name, config in ENDPOINTS.items()
 }

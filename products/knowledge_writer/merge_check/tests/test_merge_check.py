@@ -31,7 +31,7 @@ from products.knowledge_writer.merge_check.facts import (
 )
 from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
-from products.knowledge_writer.merge_check.sources import LandedChange
+from products.knowledge_writer.merge_check.sources import LandedChange, read_page_sources
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
 DIFF_QUOTE = "showLegacyRollout = false"
@@ -581,15 +581,23 @@ def test_a_check_past_its_deadline_stops_before_a_model_call() -> None:
 
 
 @pytest.mark.parametrize(
-    "changed_page_quote, is_page_named_in_evidence",
+    "changed_page_quote, merge_diff, is_page_named_in_evidence",
     [
-        pytest.param(DIFF_QUOTE, True, id="quote_from_the_diff"),
-        pytest.param("chore: drop legacy rollout", False, id="quote_from_the_pull_request_title"),
+        pytest.param(DIFF_QUOTE, COMPONENT_CHUNK, True, id="quote_from_the_diff"),
+        pytest.param("chore: drop legacy rollout", COMPONENT_CHUNK, False, id="quote_from_the_pull_request_title"),
+        pytest.param(
+            f"const rolloutLabel = 'Legacy' {DIFF_QUOTE}",
+            f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n const rolloutLabel = 'Legacy'\n-old\n+{DIFF_QUOTE}\n",
+            True,
+            id="quote_spanning_new_side_lines_split_by_a_removed_line",
+        ),
     ],
 )
-def test_only_a_diff_quote_names_a_changed_page(changed_page_quote: str, is_page_named_in_evidence: bool) -> None:
+def test_only_a_diff_quote_names_a_changed_page(
+    changed_page_quote: str, merge_diff: str, is_page_named_in_evidence: bool
+) -> None:
     commit_sha = "8" * 40
-    github = FakePostHogGitHub(commit_sha, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
+    github = FakePostHogGitHub(commit_sha, merge_diff=merge_diff, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
     facts = merge_facts(changed_page_paths=ONE_NAMED_PAGE, changed_page_quote=changed_page_quote)
     verdict = JudgeVerdict(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[0]], reason="rollout removed"
@@ -652,3 +660,24 @@ def test_a_merge_into_a_branch_that_never_reached_the_default_branch_is_retried_
     report = check_merge(commit_sha, github, judge_returning_malformed_output(), is_final_attempt=True)
 
     assert (report.needs_docs, report.reason) == (False, "not_on_default_branch")
+
+
+def test_a_diff_path_cannot_read_outside_the_repository_contents() -> None:
+    requested_paths: list[str] = []
+
+    class RecordingGitHub:
+        def api_request(self, method: str, path: str, **_request: object) -> requests.Response:
+            requested_paths.append(path)
+            response = requests.Response()
+            response.status_code = 200
+            response._content = b"text"
+            return response
+
+    traversal_paths = ["%2e%2e/%2e%2e/orgs/PostHog", "docs/../../orgs/PostHog", "posthog/models/team.py"]
+    read_page_sources(
+        RecordingGitHub(), "PostHog/posthog", {path: path for path in traversal_paths}, docs_commit_sha=None
+    )
+    assert requested_paths == [
+        "/repos/PostHog/posthog/contents/%252e%252e/%252e%252e/orgs/PostHog",
+        "/repos/PostHog/posthog/contents/posthog/models/team.py",
+    ]
