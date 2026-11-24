@@ -7,7 +7,7 @@ import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invoc
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
-import { IntakeMode, IntakeProducer, PublishSettlement } from './intake-producer'
+import { IntakeMode, IntakeProduceOutcome, IntakeProducer, IntakeRun, PublishSettlement } from './intake-producer'
 import { RunKind, claimFingerprint } from './message'
 
 export type Run = {
@@ -35,6 +35,16 @@ export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolea
     invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true
 
 export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
+
+const producedOf = (outcome: IntakeProduceOutcome): Produced =>
+    outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
+
+const intakeRunOf = (run: Run): IntakeRun => ({
+    kind: run.kind,
+    invocation: run.invocation,
+    fingerprint: run.claim?.fingerprint,
+    reply: run.claim?.reply,
+})
 
 // In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
 export const ASYNC_RECALL_BUDGET_MS = 250
@@ -126,20 +136,22 @@ export class RunIntake {
     }
 
     async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {
-        const outcome = await this.deps.intake!.producer.produce(
-            {
-                kind: run.kind,
-                invocation: run.invocation,
-                fingerprint: run.claim?.fingerprint,
-                reply: run.claim?.reply,
-            },
-            'async',
-            settlement
-        )
-        return outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
+        return producedOf(await this.deps.intake!.producer.produce(intakeRunOf(run), 'async', settlement))
     }
 
-    async launch(runs: Run[], options: { wait: 'committed'; settlement?: PublishSettlement }): Promise<Committed[]> {
+    // Publishes none of the runs when encoding them all ends past `publishBy`, a `performance.now()` time.
+    async produceAllBy(runs: Run[], publishBy: number): Promise<Produced[] | 'deadline_exceeded'> {
+        const producer = this.deps.intake!.producer
+        const encoded = runs.map((run) => producer.encode(intakeRunOf(run), 'async'))
+        if (performance.now() > publishBy) {
+            return 'deadline_exceeded'
+        }
+        return Promise.all(
+            encoded.map(async (run) => producedOf(typeof run === 'string' ? run : await producer.publish(run)))
+        )
+    }
+
+    async launch(runs: Run[]): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
         // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
@@ -152,30 +164,11 @@ export class RunIntake {
                 rows.queuePreparedRow(row)
             }
         })
-        await this.produceShadowCopies(
-            runs.filter((_, i) => claims[i].outcome === 'created'),
-            options.settlement
-        )
         return invocations.map((invocation, i) => ({
             runId: invocation.id,
             outcome: claims[i].outcome,
             claimedFingerprint: claims[i].storedFingerprint,
         }))
-    }
-
-    // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
-    private async produceShadowCopies(created: Run[], settlement?: PublishSettlement): Promise<void> {
-        const intake = this.deps.intake
-        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
-        await Promise.all(
-            shadow.map((run) =>
-                intake!.producer.produce(
-                    { kind: run.kind, invocation: run.invocation, fingerprint: run.claim?.fingerprint },
-                    'shadow',
-                    settlement
-                )
-            )
-        )
     }
 
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {

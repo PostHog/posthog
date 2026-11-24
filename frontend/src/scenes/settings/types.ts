@@ -97,7 +97,6 @@ export type SettingSectionId =
     | 'organization-oauth-apps'
     | 'organization-proxy'
     | 'organization-roles'
-    | 'organization-access-resolution'
     | 'organization-security'
     | 'organization-ssf'
     | 'organization-startup-program'
@@ -268,7 +267,6 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'
-    | 'organization-access-resolution-preview'
     | 'organization-security'
     | 'organization-ssf'
     | 'organization-mcp-access'
@@ -345,6 +343,7 @@ export type SettingId =
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-utm-defaults'
+    | 'workflows-email-run-link-tag'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 

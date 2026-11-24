@@ -1,7 +1,7 @@
 import './AccountProductUsageTable.scss'
 
 import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -12,7 +12,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import type { BookActivityMatrixFirstUse, BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { ProductUsageCountCell } from '../ProductActivity/ProductUsageCountCell'
-import { getProductUsageFirstSeries } from '../ProductActivity/productUsagePresentation'
+import {
+    createProductUsageChannelLookup,
+    getProductUsageChannelLabel,
+    getProductUsageFirstSeries,
+} from '../ProductActivity/productUsagePresentation'
 import { accountProductUsageLogic } from './accountProductUsageLogic'
 
 export function AccountProductUsageTable({
@@ -42,6 +46,7 @@ export function AccountProductUsageTable({
     const { grouping, presentation } = useValues(logic)
     const { setGrouping } = useActions(logic)
     const rowByKey = new Map(presentation.rows.map((row) => [row.key, row]))
+    const getChannelCounts = useMemo(() => createProductUsageChannelLookup(result.data), [result.data])
     return (
         <div className="AccountProductUsageTable flex flex-col gap-3 min-w-0" data-attr="account-product-usage-table">
             <div className="flex flex-wrap items-center gap-4 px-2">
@@ -59,7 +64,7 @@ export function AccountProductUsageTable({
                     label="Show first use"
                     data-attr="account-product-usage-first-use"
                 />
-                <Tooltip title="A user counts when they take a product action or spend 30 seconds to 30 minutes on its pages.">
+                <Tooltip title="A user counts when they take a product action, spend 30 seconds to 30 minutes on its pages, or use it through an AI agent. A robot marks cells with agent activity.">
                     <IconInfo
                         className="text-secondary"
                         role="img"
@@ -93,8 +98,10 @@ export function AccountProductUsageTable({
                     if (row.kind === 'group') {
                         return null
                     }
+                    const channels = row.productKey ? getChannelCounts(accountId, cell.columnKey, row.productKey) : null
                     return (
                         <ProductUsageCountCell
+                            agent={!!channels?.agentUsers}
                             value={cell.data[0]?.value ?? 0}
                             users={row.kind !== 'summary'}
                             firstUse={
@@ -111,9 +118,24 @@ export function AccountProductUsageTable({
                 tooltipInteractive
                 renderTooltip={(cell) => {
                     const row = rowByKey.get(cell.rowKey)!
-                    return row.productKey && renderUserDetails
-                        ? renderUserDetails(row.productKey, cell.columnKey)
-                        : null
+                    // The details modal clears renderUserDetails, and the hover tooltip must close with it.
+                    if (!row.productKey || !renderUserDetails) {
+                        return null
+                    }
+                    const channelLabel = getProductUsageChannelLabel(
+                        getChannelCounts(accountId, cell.columnKey, row.productKey)
+                    )
+                    const details = renderUserDetails(row.productKey, cell.columnKey)
+                    return channelLabel || details ? (
+                        <div className="flex flex-col gap-2">
+                            {channelLabel && (
+                                <span className="text-xs text-secondary" data-attr="product-usage-channel-split">
+                                    {channelLabel}
+                                </span>
+                            )}
+                            {details}
+                        </div>
+                    ) : null
                 }}
                 trailingColumns={
                     renderTopUsers

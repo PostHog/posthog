@@ -1,8 +1,10 @@
-import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
-
 import type { IntegrationType } from '~/types'
 
-import { type EmailSenderCandidate, isVerifiedEmailSender } from '../../../../Channels/defaultEmailSender'
+import {
+    type EmailSenderCandidate,
+    isDeliverableEmailSender,
+    isVerifiedEmailSender,
+} from '../../../../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { type TeamUtmDefaults, matchesTeamUtmDefaults } from '../components/utmDefaults'
 
@@ -30,7 +32,7 @@ export function needsSandboxSender(
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
-        sandboxTakesStepId(action) &&
+        sandboxCanTake(action) &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
         ownOnlySettings(action).every(
             (setting) =>
@@ -41,8 +43,9 @@ export function needsSandboxSender(
     )
 }
 
-export function sandboxTakesStepId(action: Pick<HogFlowAction, 'id'>): boolean {
-    return SANDBOX_STEP_ID.test(action.id)
+/** A sensitive step stays on an own sender: the sandbox step has no `sensitive` setting, so its email would be stored. */
+export function sandboxCanTake(action: HogFlowAction): boolean {
+    return SANDBOX_STEP_ID.test(action.id) && !(action.type === 'function_email' && action.config.sensitive)
 }
 
 export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {
@@ -54,9 +57,7 @@ export function hasOwnSender(integrations: EmailSenderCandidate[] | null | undef
 }
 
 export function hasDeliverableSender(integrations: IntegrationType[] | null | undefined): boolean | null {
-    return integrations
-        ? integrations.some((sender) => isVerifiedEmailSender(sender) && !isSendingStopped(sender))
-        : null
+    return integrations ? integrations.some(isDeliverableEmailSender) : null
 }
 
 export function sandboxRecipient(action: SandboxEmailAction): string {
@@ -148,6 +149,7 @@ function categoryOf(config: EmailValue): EmailValue {
     }
 }
 
+// A saved email input without templating runs as Hog, so the step it turns into keeps Hog.
 function templatingOf(email: EmailValue): Templating {
     return email.templating === 'liquid' ? 'liquid' : 'hog'
 }

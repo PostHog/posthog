@@ -898,7 +898,7 @@ def get_evaluations_overview(
         buckets=list(overview.buckets),
         evaluations=rows,
         totals=overview_totals(rows, bucket_count),
-        pass_rate_overview=pass_rate_overview(rows, bucket_count),
+        pass_rate_overview=pass_rate_overview(rows),
     )
 
 
