@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -24,6 +24,12 @@ export type WarehouseItemKey =
     | 'actions'
     | 'sql_variables'
     | 'data_ops'
+    | 'usage'
+    | 'queries'
+    | 'storage'
+    | 'access'
+    | 'connect'
+    | 'settings'
 
 export interface WarehouseItem {
     // pinned: sent as the `item` and `from` properties of `warehouse menu item clicked`, and part of each menu row's data-attr.
@@ -36,6 +42,8 @@ export interface WarehouseItem {
     flag?: FeatureFlagKey
     // Any of these flags also shows the item, as `alternativeFlags` does in a product manifest.
     alternativeFlags?: FeatureFlagKey[]
+    // Every one of these flags hides the item, as `hiddenWhenFlags` does in a product manifest.
+    hiddenWhenFlags?: FeatureFlagKey[]
     // Pages reached from this item that live under another prefix, such as batch exports under `/pipeline`.
     // They keep the warehouse pane and mark this item as the current page.
     extraPaths?: string[]
@@ -193,6 +201,62 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         group: 'manage',
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        // The console takes over its tabs: Settings, Queries and Storage.
+        hiddenWhenFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
+    },
+    {
+        key: 'usage',
+        label: 'Usage',
+        href: urls.warehouseUsage(),
+        iconType: 'metrics',
+        sceneKey: 'WarehouseUsage',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'queries',
+        label: 'Queries',
+        href: urls.warehouseQueries(),
+        iconType: 'sql_editor',
+        sceneKey: 'WarehouseQueries',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'storage',
+        label: 'Storage',
+        href: urls.warehouseStorage(),
+        iconType: 'data_warehouse',
+        sceneKey: 'WarehouseStorage',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'access',
+        label: 'Access',
+        href: urls.warehouseAccess(),
+        iconType: 'settings',
+        sceneKey: 'WarehouseAccess',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'connect',
+        label: 'Connect',
+        href: urls.warehouseConnect(),
+        iconType: 'data_pipeline',
+        sceneKey: 'WarehouseConnect',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'settings',
+        label: 'Settings',
+        href: urls.warehouseSettings(),
+        iconType: 'settings',
+        sceneKey: 'WarehouseSettings',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
     },
 ]
 
@@ -228,7 +292,7 @@ export function isWarehouseToolHref(href: string): boolean {
 export function visibleWarehouseItems(featureFlags: FeatureFlagsSet): WarehouseItem[] {
     return WAREHOUSE_ITEMS.filter(
         (item) =>
-            isFileSystemImportFlagEnabled(item, featureFlags) &&
+            isFileSystemImportShown(item, featureFlags) &&
             !getProductAccessDisabledReason({ sceneKey: item.sceneKey, path: item.label })
     )
 }
