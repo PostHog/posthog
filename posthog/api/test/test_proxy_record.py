@@ -84,6 +84,33 @@ class TestProxyRecordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "invalid_input")
 
+    @parameterized.expand(
+        [(method, same_organization) for method in ("patch", "delete") for same_organization in (True, False)]
+    )
+    def test_proxy_write_can_be_retried_when_record_is_locked(self, method: str, same_organization: bool) -> None:
+        organization = (
+            self.organization if same_organization else Organization.objects.create(name="Other organization")
+        )
+        record = ProxyRecord.objects.create(
+            organization=organization,
+            domain="locked.example.com",
+            target_cname="locked.proxy.example.com",
+            status=ProxyRecord.Status.WAITING,
+        )
+        url = f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/"
+
+        with cloudflare_proxy_lock(record.id):
+            response = getattr(self.client, method)(url, data={})
+
+        if same_organization:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.headers["Retry-After"], "5")
+        else:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        record.refresh_from_db()
+        self.assertEqual(record.status, ProxyRecord.Status.WAITING)
+        self.assertIsNone(record.root_redirect_url)
+
     def test_list_returns_max_proxy_records_from_feature(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
         assert response.status_code == status.HTTP_200_OK
@@ -587,7 +614,7 @@ class TestProxyRecordAPI(APIBaseTest):
         temporal.start_workflow.side_effect = start_workflow
         with (
             patch("posthog.api.proxy_record.sync_connect", return_value=temporal),
-            patch("posthog.tasks.proxy.sync_connect", return_value=temporal),
+            patch("posthog.tasks.proxy.async_connect", return_value=temporal),
         ):
             if sweep_first:
                 reconcile_proxy.run(str(self.organization.id), str(record.id))
