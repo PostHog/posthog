@@ -218,20 +218,19 @@ describe('todayShellLogic', () => {
         ['/project/1/inbox/scouts/checkout-errors', 'automate', 'products'],
         ['/project/1/inbox/reports', 'products', 'products'],
         ['/project/1/functions/0190-function', null, null],
-    ])('puts %s under %s with automate-area on, and under %s with it off', (pathname, pane, paneWithoutAutomate) => {
-        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.AUTOMATE_AREA]: true })).toBe(pane)
+    ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutAutomate) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
         expect(railPaneForPath(pathname, {})).toBe(paneWithoutAutomate)
     })
 
     test.each([
-        [true, ['home', 'spaces', 'analytics', 'people', 'automate', 'products'], 'automate'],
-        [false, ['home', 'spaces', 'analytics', 'people', 'products'], 'products'],
-    ] as const)('with automate-area %s, the rail shows %o and a workflow shows %s', (enabled, railPanes, pane) => {
-        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.AUTOMATE_AREA]: enabled }
+        [true, 'automate'],
+        [false, 'products'],
+    ] as const)('with data-area %s, a workflow shows %s', (enabled, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: enabled }
         featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
         const logic = todayShellLogic()
         logic.mount()
-        expect(logic.values.railPanes).toEqual(railPanes)
 
         router.actions.push('/project/1/workflows/0190-flow/workflow')
         expect(logic.values.activePane).toBe(pane)
@@ -253,7 +252,7 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        [true, ['home', 'spaces', 'analytics', 'people', 'data', 'products'], 'analytics'],
+        [true, ['home', 'spaces', 'analytics', 'people', 'automate', 'data', 'products'], 'analytics'],
         [false, ['home', 'spaces', 'analytics', 'people', 'products'], 'products'],
     ] as const)(
         'with data-area %s, the rail shows %o and an event opened from an insight shows %s',

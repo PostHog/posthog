@@ -272,7 +272,6 @@ export const FEATURE_FLAGS = {
     APPLICATION_OBSERVABILITY: 'unified-apm-product', // owner: #team-apm — gates the Application observability scene, nav entry, and services API; the backend reads the same key
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     APPROVALS_SCOPE_BY_FLAG_OWNER: 'approvals-scope-by-flag-owner', // owner: @yasen-posthog #team-platform-features, scopes approval policies by the product that owns the flag
-    AUTOMATE_AREA: 'automate-area', // owner: #team-platform-ux, the Automate rail entry under today-rail-nav, which groups workflows, transactional email, destinations, subscriptions and scouts
     AUTORESEARCH: 'autoresearch', // owner: @andrewm4894 #team-platform-features
     AUTORESEARCH_REPORT_NOTEBOOK: 'autoresearch-report-notebook', // owner: @andrewm4894 #team-platform-features, gates the training run report notebook
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-analytics
@@ -314,7 +313,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_V2: 'dashboard-v2', // owner: @DanielVisca, aggregated by project. Loads and refreshes only the dashboard tiles on screen, and queues metrics tiles apart from analytics tiles
     DASHBOARD_V2_USERS: 'dashboard-v2-users', // owner: @DanielVisca, aggregated by person. Who sees dashboard-v2 behaviour in the UI; it applies only together with DASHBOARD_V2
     DASHBOARDS_V2: 'dashboards-v2', // owner: #team-dashboards-and-charts, gates the dashboards v2 scene with nested layout containers
-    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data rail entry under today-rail-nav, which groups sources, pipelines, the warehouse, definitions and setup tools
+    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data and Automate rail entries under today-rail-nav. Data groups sources, pipelines, the warehouse, definitions and setup tools; Automate groups workflows, transactional email, destinations, subscriptions and scouts
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page

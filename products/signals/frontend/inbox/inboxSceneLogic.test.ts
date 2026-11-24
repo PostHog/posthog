@@ -351,7 +351,7 @@ describe('inboxSceneLogic routing', () => {
         ])('names the scout page in breadcrumbs with %s', (_, automateOn) => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-                [FEATURE_FLAGS.AUTOMATE_AREA]: automateOn,
+                [FEATURE_FLAGS.DATA_AREA]: automateOn,
             })
             mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'))

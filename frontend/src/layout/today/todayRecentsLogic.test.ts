@@ -60,11 +60,6 @@ describe('todayRecentsLogic', () => {
         expect(added[0].href).toBe('/new')
     })
 
-    const AUTOMATE_ON = {
-        [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-        [FEATURE_FLAGS.MONITOR_AREA]: true,
-        [FEATURE_FLAGS.AUTOMATE_AREA]: true,
-    }
     const DATA_ON = {
         [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
         [FEATURE_FLAGS.MONITOR_AREA]: true,
@@ -85,8 +80,8 @@ describe('todayRecentsLogic', () => {
         ['a cohort with today-rail-nav off', {}, recent('/cohorts/5', 'Churned'), [], [], [], []],
         ['an issue with monitor-area on', MONITOR_ON, issue, [], ['Checkout timeout'], [], []],
         ['an issue with monitor-area off', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, issue, [], [], [], []],
-        ['a workflow with automate-area and monitor-area on', AUTOMATE_ON, workflow, [], [], ['Onboarding'], []],
-        ['a workflow with automate-area off', MONITOR_ON, workflow, [], [], [], []],
+        ['a workflow with data-area and monitor-area on', DATA_ON, workflow, [], [], ['Onboarding'], []],
+        ['a workflow with data-area off', MONITOR_ON, workflow, [], [], [], []],
         ['an event definition with data-area and monitor-area on', DATA_ON, eventDefinition, [], [], [], ['Signed up']],
         ['an event definition with data-area off', MONITOR_ON, eventDefinition, [], [], [], []],
     ])('a scene showing %s adds it to its pane once it loads', (_, flags, record, people, monitor, automate, data) => {
