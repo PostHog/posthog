@@ -124,7 +124,7 @@ from products.cohorts.backend.cohort_enablement import (
     turn_realtime_on,
     turn_realtime_on_for_included_cohorts,
 )
-from products.cohorts.backend.models.backfill import CohortBackfillKind
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import (
     COHORT_REALTIME_SWITCH_FIELDS,
@@ -138,6 +138,7 @@ from products.cohorts.backend.models.cohort import (
 from products.cohorts.backend.models.dependencies import (
     extract_cohort_dependencies,
     get_flag_excluded_behavioral_cohort_ids,
+    queue_cohort_backfill,
     supersede_cohort_backfills,
 )
 from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
@@ -2296,9 +2297,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
-                    # The editor sends filters on every save, so a rename must not re-judge a realtime cohort. An
-                    # absolute start date that aged past the limit would take it off realtime, and flags that
-                    # target it would then match nobody.
+                    # The editor sends filters on every save. An absolute start date that aged past the limit
+                    # must not take a realtime cohort off realtime on a rename, because flags that target it
+                    # would then match nobody.
                     apply_pipeline_limits=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
@@ -2356,15 +2357,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     "Please remove the cohort from these workflows before changing its criteria.",
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
-
-        # Shape hashes are kept only while a cohort is realtime, so an edit back to the old criteria would keep the
-        # old stamps and read as ready from membership the processor stopped maintaining. Realtime stays switched on.
-        cleared_stamps = [field for field in COHORT_REALTIME_SWITCH_FIELDS if field != "realtime_enabled_at"]
-        if stops_realtime:
-            for field in cleared_stamps:
-                setattr(cohort, field, None)
-            for kind in CohortBackfillKind:
-                transaction.on_commit(partial(supersede_cohort_backfills, cohort, kind))
 
         deleted_state = cast(bool | None, validated_data.get("deleted"))
 
@@ -2515,7 +2507,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             for field in Cohort._meta.concrete_fields
             if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
         ]
-        if stops_realtime:
+        # The processor keeps no membership for a cohort while it is off realtime, so its stamps go stale and it needs
+        # a fresh build when it comes back. Shape hashes don't change while it is away, so no save would queue one.
+        returns_to_realtime = (
+            not was_realtime
+            and cohort.realtime_enabled
+            and cohort.cohort_type == CohortType.REALTIME
+            and not cohort.is_static
+            and not cohort.deleted
+        )
+        if stops_realtime or returns_to_realtime:
+            cleared_stamps = [field for field in COHORT_REALTIME_SWITCH_FIELDS if field != "realtime_enabled_at"]
+            for field in cleared_stamps:
+                setattr(cohort, field, None)
             update_fields += cleared_stamps
         with transaction.atomic():
             # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
@@ -2543,6 +2547,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.save(update_fields=[field for field in update_fields if field != "is_calculating"])
             else:
                 cohort.save(update_fields=update_fields)
+            if stops_realtime:
+                for kind in CohortBackfillKind:
+                    transaction.on_commit(partial(supersede_cohort_backfills, cohort, kind))
+
+        if returns_to_realtime:
+            for kind in CohortBackfillKind:
+                queue_cohort_backfill(cohort, CohortBackfillTrigger.COHORT_CREATED, kind)
 
         if not deleted_state:
             if import_from_csv:

@@ -61,7 +61,14 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
-from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
+from products.cohorts.backend.models.backfill import (
+    CohortBackfillKind,
+    CohortBackfillRun,
+    CohortBackfillRunCohort,
+    CohortBackfillRunStatus,
+    CohortBackfillScope,
+    CohortBackfillTrigger,
+)
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
@@ -9167,6 +9174,15 @@ _REALTIME_PERSON_LEAF = {
     "conditionHash": "email00000000000",
     "bytecode": _REALTIME_BYTECODE,
 }
+_PAGEVIEW_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{k: v for k, v in _REALTIME_PAGEVIEW_LEAF.items() if k not in ("bytecode", "conditionHash")}],
+    }
+}
+_SKIPPED_PAGEVIEW_FILTERS = {
+    "properties": {"type": "AND", "values": [{**_PAGEVIEW_FILTERS["properties"]["values"][0], "negation": True}]}
+}
 
 
 @override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3, REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
@@ -9174,7 +9190,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         enqueue = patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async")
-        enqueue.start()
+        self.enqueue_backfill = enqueue.start()
         self.addCleanup(enqueue.stop)
         RealtimeCohortTeamAccess.objects.create(
             team=self.team,
@@ -9313,6 +9329,61 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             not turned_off_during_the_edit,
             not turned_off_during_the_edit,
         )
+
+    def test_a_refused_edit_that_would_stop_realtime_keeps_the_build_running(self) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        run = CohortBackfillRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            cohort=cohort,
+            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            trigger_kind=CohortBackfillTrigger.COHORT_CREATED,
+            scope=CohortBackfillScope.COHORT,
+            status=CohortBackfillRunStatus.SEEDING,
+            timezone="UTC",
+        )
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).create(
+            run=run, team_id=self.team.id, cohort=cohort, filters_shape_hash="shape", pinned_filters=cohort.filters
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+                {"is_static": True, "filters": {"properties": {"type": "AND", "values": [_REALTIME_PERSON_LEAF]}}},
+                format="json",
+            )
+
+        participation.refresh_from_db()
+        assert response.status_code == 400, response.json()
+        assert participation.superseded_at is None
+
+    @parameterized.expand(
+        [
+            ("criteria_the_processor_skips", {"filters": _SKIPPED_PAGEVIEW_FILTERS}, {"filters": _PAGEVIEW_FILTERS}),
+            ("static", {"is_static": True}, {"is_static": False, "filters": _PAGEVIEW_FILTERS}),
+        ]
+    )
+    def test_a_cohort_that_is_on_queues_its_build_when_it_comes_back_to_realtime(
+        self, _name: str, away: dict, back: dict
+    ) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/", {"name": "Realtime", "filters": _PAGEVIEW_FILTERS}, format="json"
+        )
+        cohort = Cohort.objects.get(id=created.json()["id"])
+        Cohort.objects.filter(id=cohort.id).update(
+            realtime_enabled_at=timezone.now(), last_backfill_events_at=timezone.now()
+        )
+        self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", away, format="json")
+        self.enqueue_backfill.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", back, format="json")
+
+        cohort.refresh_from_db()
+        assert response.status_code == 200, response.json()
+        assert (cohort.cohort_type, cohort.last_backfill_events_at) == (CohortType.REALTIME, None)
+        assert [call.kwargs["args"][1::2] for call in self.enqueue_backfill.call_args_list] == [
+            [cohort.id, CohortBackfillKind.BEHAVIORAL]
+        ]
 
     @parameterized.expand(
         [
