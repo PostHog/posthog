@@ -231,9 +231,14 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
-// The API refuses a snooze or an edit when the alert's source product keeps its own row for it.
-export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
-    return configuration.legacy_configuration_id === null
+// The API refuses an edit to an alert its source product owns (409).
+export function canEditFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
+}
+
+// A snooze also needs no source row, which keeps a snooze of its own (400).
+export function canSnoozeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return canEditFromList(configuration) && configuration.legacy_configuration_id === null
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

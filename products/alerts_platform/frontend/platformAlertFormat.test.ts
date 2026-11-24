@@ -15,7 +15,8 @@ import {
     describeGroup,
     describeInterval,
     describeOverflow,
-    canChangeFromList,
+    canEditFromList,
+    canSnoozeFromList,
     describeSchedule,
     listRowMute,
     groupLabels,
@@ -166,11 +167,25 @@ describe('platformAlertFormat', () => {
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
     })
 
-    test.each<[string, string | null, boolean]>([
-        ['an alert with no source row', null, true],
-        ['an alert its source product keeps', '0192a5b0-0000-7000-8000-000000000001', false],
-    ])('canChangeFromList: %s', (_, legacy_configuration_id, expected) => {
-        expect(canChangeFromList(makeConfiguration({ legacy_configuration_id }))).toEqual(expected)
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean, boolean]>([
+        ['a platform alert with no source row', { owner: 'platform', legacy_configuration_id: null }, true, true],
+        [
+            'a platform alert that keeps its source row',
+            { owner: 'platform', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
+            true,
+            false,
+        ],
+        ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false, false],
+        [
+            'a source alert',
+            { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
+            false,
+            false,
+        ],
+    ])('canEditFromList and canSnoozeFromList: %s', (_, overrides, canEdit, canSnooze) => {
+        const configuration = makeConfiguration(overrides)
+        expect(canEditFromList(configuration)).toEqual(canEdit)
+        expect(canSnoozeFromList(configuration)).toEqual(canSnooze)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([
