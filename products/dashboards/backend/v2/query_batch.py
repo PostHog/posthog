@@ -187,7 +187,19 @@ _TIMED_OUT_BODY = json.dumps({"error": _TIMED_OUT}).encode()
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 # Rate-limited per team on `/query` for its CPU cost, which a batch's per-request admission cannot account for.
-_UNBATCHABLE_KINDS = frozenset({"ErrorTrackingFingerprintProjectionQuery"})
+_RATE_LIMITED_KINDS = frozenset({"ErrorTrackingFingerprintProjectionQuery"})
+# An experiment can read its metric or exposure from a warehouse connection, named in the query or stored on the
+# experiment, and a batch can cancel only ClickHouse work on disconnect.
+_EXPERIMENT_KINDS = frozenset(
+    {
+        "ExperimentQuery",
+        "ExperimentExposureQuery",
+        "ExperimentTrendsQuery",
+        "ExperimentFunnelsQuery",
+        "ExperimentActorsQuery",
+    }
+)
+_UNBATCHABLE_KINDS = _RATE_LIMITED_KINDS | _EXPERIMENT_KINDS
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
 _EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
 

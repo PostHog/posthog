@@ -154,14 +154,22 @@ describe('dashboardEdits', () => {
     })
 
     it.each([
-        { name: 'keeps a section at the height it was resized to', h: 18, expected: 18 },
-        { name: 'never lets a section be shorter than its tiles need', h: 4, expected: 11 },
-    ])('$name', ({ h, expected }) => {
+        { name: 'keeps a section at the height it was resized to', h: 18, expected: 18, collapsed: false },
+        { name: 'never lets a section be shorter than its tiles need', h: 4, expected: 11, collapsed: false },
+        {
+            name: 'keeps the height of a closed section that the person opened and resized',
+            h: 18,
+            expected: 18,
+            collapsed: true,
+        },
+    ])('$name', ({ h, expected, collapsed }) => {
+        const saved = section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)])
         const board = dashboard([
-            section('group', 0, 0, 24, [text('inside', 0, 0, 24, 8)]),
+            { ...saved, widget: { ...saved.widget, collapsed } } as Tile,
             text('below', 0, 12, 24, 4),
         ])
-        const group = findTile(board, 'group')!
+        const view = (shown: Dashboard): Dashboard => withFolds(shown, { group: false }, sizeOf)
+        const group = findTile(view(board), 'group')!
         const edit = {
             edit: 'placeTiles',
             grid: 'first',
@@ -169,10 +177,10 @@ describe('dashboardEdits', () => {
             resized: 'group',
         } as const
 
-        const resized = applyEdit(board, edit, sizeOf)
-        const later = applyEdit(resized, { edit: 'moveTile', id: 'below', grid: 'first', x: 0, y: 40 }, sizeOf)
+        const resized = applyEdit(board, edit, sizeOf, view)
+        const later = applyEdit(resized, { edit: 'moveTile', id: 'below', grid: 'first', x: 0, y: 40 }, sizeOf, view)
 
-        expect(findTile(later, 'group')!.place.h).toEqual(expected)
+        expect(findTile(view(later), 'group')!.place.h).toEqual(expected)
     })
 
     it('keeps the last tab with tiles when only link tabs would be left', () => {
