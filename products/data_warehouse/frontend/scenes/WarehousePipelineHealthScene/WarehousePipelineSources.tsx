@@ -89,7 +89,7 @@ export function WarehousePipelineSources(): JSX.Element {
     return (
         <WarehouseSection
             title="Sources"
-            description="Source syncs bring tables into PostHog. The warehouse stage shows whether they have landed."
+            description="Sources sync in batches on a schedule. The warehouse stage shows whether each batch has landed."
             flush
             data-attr="warehouse-pipeline-health-sources"
             controls={

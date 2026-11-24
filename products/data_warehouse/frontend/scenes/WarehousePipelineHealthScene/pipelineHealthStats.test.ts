@@ -7,11 +7,8 @@ import type {
 } from '../../generated/api.schemas'
 import {
     formatDay,
-    hasNoRuns,
-    historyBuckets,
     humanizeStatus,
     landingSummary,
-    landingTiles,
     landingTotals,
     tablesInSync,
     waitingText,
@@ -68,35 +65,6 @@ function status(
 }
 
 describe('pipelineHealthStats', () => {
-    it('counts datasets by their state and tables by every source, and words the tiles', () => {
-        const totals = landingTotals(
-            status('behind', 'in_sync', [
-                source({ in_sync: 9, failing: 1, paused: 3 }),
-                source({ in_sync: 5, not_in_warehouse: 2 }),
-            ])
-        )
-
-        expect(landingTiles(totals)).toEqual([
-            {
-                state: 'in_sync',
-                label: 'In sync',
-                value: '15',
-                detail: '1 dataset, 14 tables',
-                note: '3 tables paused',
-            },
-            { state: 'behind', label: 'Behind', value: '1', detail: '1 dataset' },
-            { state: 'failing', label: 'Failing', value: '1', detail: '1 table' },
-            { state: 'not_in_warehouse', label: 'Not in warehouse yet', value: '2', detail: '2 tables' },
-        ])
-    })
-
-    it('says None for an empty state and leaves out the paused note when nothing is paused', () => {
-        const tiles = landingTiles(landingTotals(status('in_sync', 'in_sync', [])))
-
-        expect(tiles[0]).toEqual({ state: 'in_sync', label: 'In sync', value: '2', detail: '2 datasets' })
-        expect(tiles[1].detail).toBe('None')
-    })
-
     it.each([
         [
             status('in_sync', 'in_sync', [source({ in_sync: 4, paused: 1 })]),
@@ -120,33 +88,6 @@ describe('pipelineHealthStats', () => {
         ['2026-11-24T10:00:30Z', 'Waiting 0 ms'],
     ])('words the wait since %s as %s', (pendingSince, expected) => {
         expect(waitingText(pendingSince, Date.parse('2026-11-24T10:00:00Z'))).toBe(expected)
-    })
-
-    it('merges source and backfill runs into one bar and keeps the split in the note', () => {
-        const buckets = historyBuckets({
-            days: 7,
-            buckets: [
-                {
-                    date: '2026-11-23',
-                    source_succeeded: 8,
-                    source_failed: 1,
-                    backfill_succeeded: 4,
-                    backfill_failed: 2,
-                },
-                {
-                    date: '2026-11-24',
-                    source_succeeded: 0,
-                    source_failed: 0,
-                    backfill_succeeded: 0,
-                    backfill_failed: 0,
-                },
-            ],
-        })
-
-        expect(buckets[0]).toMatchObject({ key: '2026-11-23', successful: 12, failed: 3 })
-        expect(buckets[0].note).toBe('sources: 8 succeeded, 1 failed; backfill: 4 succeeded, 2 failed')
-        expect(hasNoRuns(buckets)).toBe(false)
-        expect(hasNoRuns([buckets[1]])).toBe(true)
     })
 
     it('words a source table count, a day and a status', () => {

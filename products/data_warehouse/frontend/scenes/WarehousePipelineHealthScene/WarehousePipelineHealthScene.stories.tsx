@@ -12,7 +12,6 @@ import type {
     ManagedWarehouseDatasetStatusApi,
     ManagedWarehouseDataStatusResponseApi,
     ManagedWarehouseLandingCountsApi,
-    ManagedWarehouseLandingHistoryBucketApi,
     ManagedWarehouseSourceSummaryApi,
     ManagedWarehouseSourceTableStatusApi,
 } from '../../generated/api.schemas'
@@ -215,42 +214,15 @@ const STRIPE_SCHEMAS = [
     schema('sch-customers', 'stripe_customers', {}),
 ]
 
-function historyBuckets(days: number, failedEvery: number): ManagedWarehouseLandingHistoryBucketApi[] {
-    return Array.from({ length: days }, (_, index) => {
-        const date = new Date(NOW - (days - 1 - index) * 86_400_000).toISOString().slice(0, 10)
-        return {
-            date,
-            source_succeeded: 6 + ((index * 3) % 7),
-            source_failed: index % failedEvery === 0 ? 2 : 0,
-            backfill_succeeded: index % 3 === 0 ? 0 : 4,
-            backfill_failed: index % (failedEvery * 2) === 0 ? 1 : 0,
-        }
-    })
-}
-
-function emptyBuckets(days: number): ManagedWarehouseLandingHistoryBucketApi[] {
-    return historyBuckets(days, 1).map(({ date }) => ({
-        date,
-        source_succeeded: 0,
-        source_failed: 0,
-        backfill_succeeded: 0,
-        backfill_failed: 0,
-    }))
-}
-
 function mocks(
     dataStatus: ManagedWarehouseDataStatusResponseApi | 500,
-    options: { quiet?: boolean; schemas?: ManagedWarehouseSourceTableStatusApi[] } = {}
+    options: { schemas?: ManagedWarehouseSourceTableStatusApi[] } = {}
 ): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
             '/api/projects/:team_id/data_warehouse/warehouse_status/': READY_WAREHOUSE,
             '/api/projects/:team_id/data_warehouse/managed-warehouse-data-status/':
                 dataStatus === 500 ? (): [number, unknown] => [500, { detail: 'Server error' }] : dataStatus,
-            '/api/projects/:team_id/data_warehouse/managed-warehouse-landing-history/': ({ request }) => {
-                const days = Number(new URL(request.url).searchParams.get('days') ?? 7)
-                return { days, buckets: options.quiet ? emptyBuckets(days) : historyBuckets(days, 4) }
-            },
             '/api/projects/:team_id/data_warehouse/managed-warehouse-source-schemas/': {
                 schemas: options.schemas ?? [],
             },
@@ -267,20 +239,34 @@ const meta: Meta<typeof WarehousePipelineHealthScene> = {
         viewMode: 'story',
         mockDate: '2026-11-24T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
-        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-sources"]' },
+        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-events"]' },
     },
 }
 export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Healthy: Story = { decorators: [mocks(HEALTHY)] }
+const SOURCES_TAB = {
+    pageUrl: `${urls.warehousePipelineHealth()}?tab=sources`,
+    testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-sources"]' },
+}
 
-export const Mixed: Story = { decorators: [mocks(MIXED)] }
+export const PostHogData: Story = { decorators: [mocks(MIXED)] }
 
-export const MixedWithTablesOpen: Story = {
+export const PostHogDataBackfillOff: Story = { decorators: [mocks(EMPTY)] }
+
+export const Sources: Story = { decorators: [mocks(MIXED)], parameters: SOURCES_TAB }
+
+export const SourcesAllInSync: Story = { decorators: [mocks(HEALTHY)], parameters: SOURCES_TAB }
+
+export const SourcesEmpty: Story = { decorators: [mocks(EMPTY)], parameters: SOURCES_TAB }
+
+export const SourcesWithTablesOpen: Story = {
     decorators: [mocks(MIXED, { schemas: STRIPE_SCHEMAS })],
-    parameters: { testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-schema-link"]' } },
+    parameters: {
+        ...SOURCES_TAB,
+        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-schema-link"]' },
+    },
     play: async ({ canvasElement }): Promise<void> => {
         const toggle = await waitFor(
             () => {
@@ -297,8 +283,6 @@ export const MixedWithTablesOpen: Story = {
         await userEvent.click(toggle)
     },
 }
-
-export const NothingSetUp: Story = { decorators: [mocks(EMPTY, { quiet: true })] }
 
 export const StatusLoadError: Story = {
     decorators: [mocks(500)],

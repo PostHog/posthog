@@ -9,7 +9,7 @@ import { warehousePipelineHealthLogic } from './warehousePipelineHealthLogic'
 
 // pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 
-/** Events and persons, the data PostHog ingests, and how much of it the warehouse holds. */
+/** Events and persons, the data PostHog ingests continuously, and how much of it the warehouse holds. */
 export function WarehousePipelineEventData(): JSX.Element | null {
     const { managedWarehouseDataStatus, ingestedEvent } = useValues(warehousePipelineHealthLogic)
     const { linkClicked } = useActions(warehousePipelineHealthLogic)
@@ -19,10 +19,10 @@ export function WarehousePipelineEventData(): JSX.Element | null {
     }
     return (
         <WarehouseSection
-            title="Event data"
+            title="PostHog data"
             description={
                 ingestedEvent
-                    ? 'Events are arriving in PostHog. This shows how much of that has been copied into your warehouse.'
+                    ? 'Events and persons arrive in PostHog continuously. This shows how much has been copied into your warehouse.'
                     : 'No events have been ingested into PostHog yet, so there is nothing to copy into your warehouse.'
             }
             flush

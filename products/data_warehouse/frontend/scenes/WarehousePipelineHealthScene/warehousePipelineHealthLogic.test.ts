@@ -13,7 +13,6 @@ import { warehousePipelineHealthLogic } from './warehousePipelineHealthLogic'
 
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     dataWarehouseManagedWarehouseDataStatusRetrieve: jest.fn(),
-    dataWarehouseManagedWarehouseLandingHistoryRetrieve: jest.fn(),
     dataWarehouseManagedWarehouseSourceSchemasRetrieve: jest.fn(),
 }))
 
@@ -29,9 +28,6 @@ describe('warehousePipelineHealthLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.mocked(api.dataWarehouseManagedWarehouseDataStatusRetrieve).mockReset().mockResolvedValue(STATUS)
-        jest.mocked(api.dataWarehouseManagedWarehouseLandingHistoryRetrieve)
-            .mockReset()
-            .mockResolvedValue({ days: 7, buckets: [] })
         jest.mocked(api.dataWarehouseManagedWarehouseSourceSchemasRetrieve)
             .mockReset()
             .mockResolvedValue({ schemas: SCHEMAS })
@@ -76,19 +72,5 @@ describe('warehousePipelineHealthLogic', () => {
         expect(logic.values.statusFailed).toBe(false)
         await expectLogic(managedWarehouseDataStatusLogic).toDispatchActions(['loadManagedWarehouseDataStatusFailure'])
         expect(logic.values.statusFailed).toBe(true)
-    })
-
-    it('reloads the history for the window that was picked', async () => {
-        const logic = warehousePipelineHealthLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadLandingHistorySuccess'])
-
-        await expectLogic(logic, () => logic.actions.setHistoryDays(30)).toDispatchActions([
-            'loadLandingHistorySuccess',
-        ])
-
-        expect(api.dataWarehouseManagedWarehouseLandingHistoryRetrieve).toHaveBeenLastCalledWith(expect.anything(), {
-            days: 30,
-        })
     })
 })
