@@ -365,6 +365,7 @@ describe('catalog gaps', () => {
             { [REGISTRY]: `${registry('actions')}\nexport const COUNT = 1` },
             { [REGISTRY]: registry('actions') },
         ],
+        ['a hog-worker change', ['hog/worker/src/main.rs', 'hog/worker/Cargo.lock'], {}, {}],
     ])('needs a patch release for %s', (_name, changed, head: Record<string, string>, base: Record<string, string>) => {
         const result = gaps(changed, head, base)
 

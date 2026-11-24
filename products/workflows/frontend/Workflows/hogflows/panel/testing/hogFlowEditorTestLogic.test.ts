@@ -590,7 +590,11 @@ describe('hogFlowEditorTestLogic', () => {
             'explains a missing test event on the %s',
             async (_name, mode, events, message, canTryExtendedSearch, exampleEvent, exampleFlagKey) => {
                 useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': workflowTriggeredBy(events) } })
-                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    flag_evaluations_mode: mode,
+                    flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+                })
                 logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
                 logic.mount()
 
