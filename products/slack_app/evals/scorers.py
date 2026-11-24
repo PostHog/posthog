@@ -15,6 +15,7 @@ from typing import Any
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.slack_app.backend.logic.onboarding.work_focus import CLIPPED
 
 DOCS_SEARCH_TOOL_NAME = "docs-search"
 
@@ -714,6 +715,67 @@ class SummaryVoice(Scorer):
             if "—" in text:
                 problems.append(f"has an em dash: {text}")
         return Score(name=self._name(), score=0.0 if problems else 1.0, metadata={"problems": problems})
+
+
+class SummaryNotClipped(Scorer):
+    """The intro and every item fit their limits, so the code never had to cut one short."""
+
+    def _name(self) -> str:
+        return "summary_not_clipped"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        if output and output.get("error"):
+            # A failed call writes nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        texts = [str((output or {}).get("intro") or "")]
+        texts += [str(item.get("text") or "") for item in (output or {}).get("items") or []]
+        clipped = [text for text in texts if text.endswith(CLIPPED)]
+        return Score(name=self._name(), score=0.0 if clipped else 1.0, metadata={"clipped": clipped})
+
+
+class SummaryIntroFits(JudgedScorer):
+    """Binary: does the intro lead into the items under it, without calling other people's work the person's own?"""
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
+        if output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        items = output.get("items") or []
+        if not items:
+            return Score(name=self._name(), score=None, metadata={"reason": "The summary has no items"})
+        return {
+            "output": {
+                "person": output.get("person") or "",
+                "intro": output.get("intro") or "",
+                "items": "\n".join(f"- {item['text']}" for item in items),
+            }
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="summary_intro_fits",
+            prompt_template="""
+You are checking the first line of a daily digest that PostHog sent one person in Slack. People appear as Slack tokens such as <@U0ANA>. The digest is for {{output.person}}, so an item that starts with "You" is something {{output.person}} did.
+
+First line:
+<intro>
+{{output.intro}}
+</intro>
+
+Digest items under it:
+<items>
+{{output.items}}
+</items>
+
+Does the first line introduce these items? It passes when it describes what the items cover, or is a neutral lead-in to them. It fails when it describes topics the items do not contain, or calls the items the person's own work while most of them are things other people did. Answer `yes` when it passes, otherwise `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=256,
+            **kwargs,
+        )
 
 
 class SummaryFaithful(JudgedScorer):

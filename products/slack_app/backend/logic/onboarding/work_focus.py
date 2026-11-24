@@ -164,9 +164,10 @@ person the message goes to, with their Slack token and name. Write to them as "y
 their token or their name.
 
 Return:
-- "intro": one short, warm sentence to the person, in the second person, that names what their recent work is \
-about. Start it with one fitting emoji. At most 120 characters. For example: "👀 Looks like your week is all about \
-Slack handoffs and feature tips."
+- "intro": one short, warm sentence to the person that leads into the items below it. When there are summary \
+items, name what they cover, such as "👀 Since yesterday: pricing calls, a workflows check and two database fixes." \
+When there are none, lead into the suggestions, such as "👀 A couple of asks for you came in." Never call the items \
+the person's own work unless the person did them. Start it with one fitting emoji. At most 120 characters.
 - "suggestions": at most 3 tasks that PostHog could do for them, the most useful first. Each task has:
   - "offer": one short line in the second person that ends with a question. At most 100 characters. For example: \
 "Chart previews ignore edited query params. Want me to find out why?"
@@ -855,10 +856,24 @@ def write_work_focus(
     )
     parsed = extract_json_object(response.choices[0].message.content or "") or {}
     return WorkFocus(
-        intro=str(parsed.get("intro") or "").strip()[:MAX_INTRO_CHARS],
+        intro=clip(str(parsed.get("intro") or ""), MAX_INTRO_CHARS),
         suggestions=_clean_suggestions(parsed.get("suggestions"), candidates),
         summary=_clean_summary(parsed.get("summary"), threads),
     )
+
+
+CLIPPED = "…"
+
+
+def clip(text: str, limit: int) -> str:
+    """Cut model text that runs over its limit at a word boundary, so no word and no `<@U…>` mention is cut in half."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head = text[: limit - len(CLIPPED)]
+    if not text[len(head)].isspace():
+        head = head.rsplit(None, 1)[0]
+    return head.rstrip(" ,;:") + CLIPPED
 
 
 def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSummaryItem]:
@@ -866,7 +881,7 @@ def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSumm
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        text = str(item.get("text") or "").strip()[:MAX_SUMMARY_CHARS]
+        text = clip(str(item.get("text") or ""), MAX_SUMMARY_CHARS)
         source = item.get("source")
         thread = threads[source - 1] if isinstance(source, int) and 1 <= source <= len(threads) else None
         if text and thread is not None:
@@ -879,8 +894,8 @@ def _clean_suggestions(raw: Any, candidates: list[FoundMessage]) -> list[WorkFoc
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        offer = str(item.get("offer") or "").strip()[:MAX_OFFER_CHARS]
-        request = str(item.get("request") or "").strip()[:MAX_REQUEST_CHARS]
+        offer = clip(str(item.get("offer") or ""), MAX_OFFER_CHARS)
+        request = clip(str(item.get("request") or ""), MAX_REQUEST_CHARS)
         source = item.get("source")
         if not offer or not request:
             continue

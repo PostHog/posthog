@@ -13,7 +13,9 @@ shares with the bot. Two model calls shape it, and each suite here grades one:
   those out itself.
 
 `summary_covers` is the number to watch for the writer: a summary that misses the day's
-incident fails the person more than one that keeps a borderline thread.
+incident fails the person more than one that keeps a borderline thread. `summary_intro_fits`
+checks that the first line leads into the items instead of calling them the person's work, and
+`summary_not_clipped` that no line ran over its limit and lost its end.
 
 To run:
     hogli evals eval_daily_summary
@@ -38,6 +40,8 @@ from products.slack_app.evals.scorers import (
     DailySummaryRankMatch,
     SummaryCovers,
     SummaryFaithful,
+    SummaryIntroFits,
+    SummaryNotClipped,
     SummaryOmitsChatter,
     SummaryVoice,
 )
@@ -197,11 +201,25 @@ async def eval_daily_summary_write(ctx: EvalContext) -> None:
         experiment_name="slack-app-daily-summary-write",
         offline_suite=offline_suite(
             "slack_app/eval_daily_summary::eval_daily_summary_write",
-            metrics=["summary_covers", "summary_omits_chatter", "summary_voice", "summary_faithful"],
+            metrics=[
+                "summary_covers",
+                "summary_omits_chatter",
+                "summary_voice",
+                "summary_faithful",
+                "summary_intro_fits",
+                "summary_not_clipped",
+            ],
             suite_kind=SUITE_KIND,
         ),
         cases=WRITE_CASES,
-        scorers=[SummaryCovers(), SummaryOmitsChatter(), SummaryVoice(), SummaryFaithful()],
+        scorers=[
+            SummaryCovers(),
+            SummaryOmitsChatter(),
+            SummaryVoice(),
+            SummaryFaithful(),
+            SummaryIntroFits(),
+            SummaryNotClipped(),
+        ],
         task=task,
         ctx=ctx,
     )

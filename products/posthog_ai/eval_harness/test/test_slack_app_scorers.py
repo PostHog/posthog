@@ -19,6 +19,7 @@ from products.slack_app.evals.scorers import (
     SentimentDetected,
     SummaryCovers,
     SummaryFaithful,
+    SummaryNotClipped,
     SummaryOmitsChatter,
     SummaryVoice,
     UnhappyDetected,
@@ -292,3 +293,15 @@ class TestDailySummaryScorers:
         }
         prepared = SummaryFaithful()._prepare(output, _write_spec())
         assert isinstance(prepared, dict) and prepared["output"]["person"] == "<@U0DANA>"
+
+    @parameterized.expand(
+        [
+            ("fits", {"intro": "Since yesterday: a fix", **_summary(("incident", "<@U0BEN> rolled back"))}, 1.0),
+            ("clipped_intro", {"intro": "Since yesterday: a…", **_summary(("incident", "x"))}, 0.0),
+            ("clipped_item", {"intro": "Since yesterday", **_summary(("incident", "<@U0BEN> rolled…"))}, 0.0),
+            # A failed call writes nothing, which would pass, so it must not count.
+            ("errored_call", {"items": [], "error": "boom"}, None),
+        ]
+    )
+    def test_summary_not_clipped(self, _name, output, want):
+        assert SummaryNotClipped().eval(output=output, expected=_write_spec()).score == want
