@@ -1,10 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCalendar, IconEllipsis, IconTrash, IconX } from '@posthog/icons'
 import {
     Badge,
     Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardFooter,
+    CardHeader,
+    CardTitle,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -19,8 +25,11 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { cohortsModel } from '~/models/cohortsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, CohortType, PropertyFilterType } from '~/types'
@@ -28,12 +37,15 @@ import { AnyPropertyFilter, CohortType, PropertyFilterType } from '~/types'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { KIND_ICON } from './ReleaseLaneCard'
 import { ReleaseLaneSummary } from './ReleaseLaneSummary'
-import { UsageTarget } from './releaseLaneUsage'
+import { usageTarget } from './releaseLaneUsage'
+import { ReleaseLaneUsageChart } from './ReleaseLaneUsageChart'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
-import { Lane, statusLabel } from './releaseTracks'
-import { ReleaseRow } from './releaseUtils'
+import { Lane, buildTrack, statusLabel } from './releaseTracks'
+import { CALENDAR_DAYS_AFTER, ReleaseRow } from './releaseUtils'
+import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
 
 const CONDITIONS_SHOWN = 2
 
@@ -92,7 +104,7 @@ function Conditions({ flag }: { flag: FeatureFlagApi }): JSX.Element | null {
         return null
     }
     return (
-        <div className="flex flex-col gap-0.5" data-attr="release-lane-detail-conditions">
+        <div className="flex flex-col gap-0.5" data-attr="release-inspector-conditions">
             {groups.slice(0, CONDITIONS_SHOWN).map((group, index) => {
                 const text = group.properties?.length
                     ? group.properties.map((property) => propertyText(property, cohortsById)).join(' and ')
@@ -136,7 +148,7 @@ function StatusToggle({ lane }: { lane: Lane }): JSX.Element | null {
                 size="xs"
                 onClick={() => setConfirming(true)}
                 disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                data-attr={turnOn ? 'release-lane-detail-turn-on' : 'release-lane-detail-turn-off'}
+                data-attr={turnOn ? 'release-inspector-turn-on' : 'release-inspector-turn-off'}
             >
                 {turnOn ? 'Turn on' : 'Turn off'}
             </Button>
@@ -162,7 +174,7 @@ function StatusToggle({ lane }: { lane: Lane }): JSX.Element | null {
                             setFlagActive(flag.id, turnOn)
                             setConfirming(false)
                         }}
-                        data-attr="release-lane-detail-status-confirm"
+                        data-attr="release-inspector-status-confirm"
                     >
                         {turnOn ? 'Turn on' : 'Turn off'}
                     </Button>
@@ -192,7 +204,7 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
                 variant="primary"
                 nativeButton={false}
                 render={<LinkPrimitive to={lane.href} />}
-                data-attr="release-lane-detail-open"
+                data-attr="release-inspector-open"
             >
                 {OPEN_LABEL[lane.kind]}
             </Button>
@@ -202,7 +214,7 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
                     variant="outline"
                     onClick={() => openSchedule(lane.flag.id)}
                     disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                    data-attr="release-lane-detail-schedule"
+                    data-attr="release-inspector-schedule"
                 >
                     <IconCalendar />
                     Schedule
@@ -216,7 +228,7 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
                                 size="icon-sm"
                                 className="ml-auto"
                                 aria-label={`More actions for ${lane.title}`}
-                                data-attr="release-lane-detail-more"
+                                data-attr="release-inspector-more"
                             />
                         }
                     >
@@ -230,7 +242,7 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
                                 remove()
                             }}
                             disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                            data-attr="release-lane-detail-remove"
+                            data-attr="release-inspector-remove"
                         >
                             <IconTrash />
                             Remove from release
@@ -242,39 +254,105 @@ function Actions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
     )
 }
 
-export function ReleaseLaneDetail({
-    row,
-    lane,
-    target,
-    from,
-}: {
-    row: ReleaseRow
-    lane: Lane
-    target: UsageTarget | null
-    from: string
-}): JSX.Element {
+const DAYS = 14
+const CHART_HEIGHT = 132
+
+const KIND_LABEL: Record<Lane['kind'], string> = {
+    flag: 'Feature flag',
+    experiment: 'Experiment',
+    early_access: 'Early access feature',
+    broadcast: 'Broadcast',
+    survey: 'Survey',
+}
+
+export function ReleaseInspector({ row }: { row: ReleaseRow }): JSX.Element | null {
+    const { openItem } = useValues(releaseCalendarLogic)
     const { closeCalendarItem } = useActions(releaseCalendarLogic)
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
+    const stepsByFlag = useRolloutStepsByFlag(CALENDAR_DAYS_AFTER)
+    const [chart, setChart] = useState<HTMLDivElement | null>(null)
+    const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: chart })
+    const related = relatedByRelease[row.id]
+    const laneKey = openItem?.releaseId === row.id ? openItem.laneKey : null
+    const lane = useMemo(
+        () => (laneKey ? buildTrack(row, stepsByFlag, related).lanes.find((item) => item.key === laneKey) : undefined),
+        [laneKey, row, stepsByFlag, related]
+    )
+    const open = !!lane
+
+    useEffect(() => {
+        if (!open) {
+            return
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                closeCalendarItem()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [open, closeCalendarItem])
+
+    if (!lane) {
+        return null
+    }
+    const target = usageTarget(lane, row)
+    const start = dayjs()
+        .startOf('day')
+        .subtract(DAYS - 1, 'day')
+    const from = start.format('YYYY-MM-DD')
+    const scale = { start, days: DAYS, day: Math.max(8, Math.floor(width / DAYS)) }
 
     return (
-        <div className="flex h-full min-w-0 flex-col gap-2 overflow-y-auto py-2" data-attr="release-lane-detail">
-            <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={lane.live ? 'success' : 'default'}>{statusLabel(lane.status)}</Badge>
-                <StatusToggle lane={lane} />
-                <Button
-                    size="icon-xs"
-                    className="ml-auto"
-                    aria-label="Close details"
-                    onClick={closeCalendarItem}
-                    data-attr="release-lane-detail-close"
-                >
-                    <IconX />
-                </Button>
-            </div>
-            {target && <ReleaseLaneSummary target={target} from={from} />}
-            {lane.kind === 'flag' && <Conditions flag={lane.flag} />}
-            <div className="mt-auto">
+        <Card size="sm" data-attr="release-inspector">
+            <CardHeader>
+                <div className="flex min-w-0 items-start gap-2">
+                    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+                        {iconForType(KIND_ICON[lane.kind] as never)}
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <CardTitle className="truncate" title={lane.title}>
+                            {lane.title}
+                        </CardTitle>
+                        <CardDescription>{KIND_LABEL[lane.kind]}</CardDescription>
+                    </div>
+                    <Button
+                        size="icon-xs"
+                        aria-label="Close"
+                        tooltip="Close (Esc)"
+                        onClick={closeCalendarItem}
+                        data-attr="release-inspector-close"
+                    >
+                        <IconX />
+                    </Button>
+                </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={lane.live ? 'success' : 'default'}>{statusLabel(lane.status)}</Badge>
+                    <StatusToggle lane={lane} />
+                </div>
+                {target && <ReleaseLaneSummary target={target} from={from} />}
+                {target && (
+                    <div className="flex flex-col gap-1">
+                        <div ref={setChart} className="-mx-3 overflow-hidden">
+                            {width > 0 && <ReleaseLaneUsageChart target={target} scale={scale} height={CHART_HEIGHT} />}
+                        </div>
+                        <div className="flex justify-between">
+                            <Text size="xxs" variant="muted">
+                                {start.format('D MMM')}
+                            </Text>
+                            <Text size="xxs" variant="muted">
+                                Today
+                            </Text>
+                        </div>
+                    </div>
+                )}
+                {lane.kind === 'flag' && <Conditions flag={lane.flag} />}
+            </CardContent>
+            <CardFooter>
                 <Actions row={row} lane={lane} />
-            </div>
-        </div>
+            </CardFooter>
+        </Card>
     )
 }

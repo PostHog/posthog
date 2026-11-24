@@ -11,6 +11,7 @@ import {
     EmptyMedia,
     EmptyTitle,
     Skeleton,
+    cn,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -22,8 +23,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
+import { ReleaseInspector } from './ReleaseInspector'
 import { ReleaseLaunchDialog } from './ReleaseLaunchDialog'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
@@ -80,8 +83,13 @@ function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element
 function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
     const { rows, dataLoading, loadFailed, canEditReleases } = useValues(releaseLogic)
     const { updateRelease, autoLinkBroadcasts } = useActions(releaseLogic)
+    const { closeCalendarItem } = useActions(releaseCalendarLogic)
+    const { openItem } = useValues(releaseCalendarLogic)
     const row = rows.find((item) => item.id === id)
     const loaded = !!row
+    const inspecting = !!row && openItem?.releaseId === row.id
+
+    useEffect(() => () => closeCalendarItem(), [id, closeCalendarItem])
 
     useEffect(() => {
         if (loaded && canEditReleases && id) {
@@ -160,16 +168,29 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                             <ReleaseTrackCard row={row} />
                         </div>
                     </div>
-                    <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
-                        <div className="order-1 min-w-0 empty:hidden">
-                            <ReleaseDetailsCard row={row} />
-                        </div>
-                        <div className="order-5 min-w-0 empty:hidden">
-                            <ReleaseSuggestedCard row={row} />
-                        </div>
-                        <div className="order-6 min-w-0 empty:hidden">
-                            <ReleaseHistory row={row} />
-                        </div>
+                    <div
+                        className={cn(
+                            'contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4',
+                            inspecting && '@4xl:self-stretch'
+                        )}
+                    >
+                        {inspecting ? (
+                            <div className="order-4 min-w-0 @4xl:sticky @4xl:top-4">
+                                <ReleaseInspector row={row} />
+                            </div>
+                        ) : (
+                            <>
+                                <div className="order-1 min-w-0 empty:hidden">
+                                    <ReleaseDetailsCard row={row} />
+                                </div>
+                                <div className="order-5 min-w-0 empty:hidden">
+                                    <ReleaseSuggestedCard row={row} />
+                                </div>
+                                <div className="order-6 min-w-0 empty:hidden">
+                                    <ReleaseHistory row={row} />
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
                 <ReleaseScheduleDialog />

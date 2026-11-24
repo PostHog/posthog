@@ -36,6 +36,7 @@ export function ReleaseRolloutBar({
     releaseId?: string
 }): JSX.Element | null {
     const { openCalendarItem } = useActions(releaseCalendarLogic)
+    const interactive = !!(lane && releaseId)
     const segments = rolloutSegments(steps, scale, dayjs(), lane?.kind === 'flag' && !!lane.flag.archived)
     const end = scale.days * scale.day
     if (!segments.length) {
@@ -53,36 +54,65 @@ export function ReleaseRolloutBar({
                     <Tooltip key={`${step.from}-${index}`} trackCursorAxis="x">
                         <TooltipTrigger
                             render={
-                                <button
-                                    type="button"
-                                    aria-label={lane ? `Show details for ${lane.title}` : undefined}
-                                    onClick={(event) => {
-                                        if (lane && releaseId) {
+                                interactive ? (
+                                    <button
+                                        type="button"
+                                        aria-label={`Show details for ${lane?.title}`}
+                                        onClick={(event) => {
                                             event.stopPropagation()
-                                            openCalendarItem(releaseId, lane.key, lane.kind)
-                                        }
-                                    }}
-                                    className={cn(
-                                        'absolute flex cursor-pointer items-center border-y p-0 text-start text-[10px] font-semibold tabular-nums text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-                                        dashed && 'border-dashed',
-                                        isFirst && 'rounded-l-full border-l',
-                                        isLast && 'rounded-r-full border-r'
-                                    )}
-                                    style={{
-                                        left,
-                                        width,
-                                        top,
-                                        height,
-                                        clipPath: 'inset(0)',
-                                        backgroundColor: `color-mix(in oklab, ${color} ${fill}%, transparent)`,
-                                        borderColor: `color-mix(in oklab, ${color} ${dashed ? 60 : 35}%, transparent)`,
-                                        boxShadow:
-                                            index === 0 || projected
-                                                ? undefined
-                                                : `inset 1px 0 0 color-mix(in oklab, ${color} 40%, transparent)`,
-                                    }}
-                                    data-attr="release-rollout-step"
-                                />
+                                            if (lane && releaseId) {
+                                                openCalendarItem(releaseId, lane.key, lane.kind)
+                                            }
+                                        }}
+                                        className={cn(
+                                            'absolute flex items-center border-y p-0 text-start text-[10px] font-semibold tabular-nums text-foreground',
+                                            interactive &&
+                                                'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                                            dashed && 'border-dashed',
+                                            isFirst && 'rounded-l-full border-l',
+                                            isLast && 'rounded-r-full border-r'
+                                        )}
+                                        style={{
+                                            left,
+                                            width,
+                                            top,
+                                            height,
+                                            clipPath: 'inset(0)',
+                                            backgroundColor: `color-mix(in oklab, ${color} ${fill}%, transparent)`,
+                                            borderColor: `color-mix(in oklab, ${color} ${dashed ? 60 : 35}%, transparent)`,
+                                            boxShadow:
+                                                index === 0 || projected
+                                                    ? undefined
+                                                    : `inset 1px 0 0 color-mix(in oklab, ${color} 40%, transparent)`,
+                                        }}
+                                        data-attr="release-rollout-step"
+                                    />
+                                ) : (
+                                    <div
+                                        className={cn(
+                                            'absolute flex items-center border-y p-0 text-start text-[10px] font-semibold tabular-nums text-foreground',
+                                            interactive &&
+                                                'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                                            dashed && 'border-dashed',
+                                            isFirst && 'rounded-l-full border-l',
+                                            isLast && 'rounded-r-full border-r'
+                                        )}
+                                        style={{
+                                            left,
+                                            width,
+                                            top,
+                                            height,
+                                            clipPath: 'inset(0)',
+                                            backgroundColor: `color-mix(in oklab, ${color} ${fill}%, transparent)`,
+                                            borderColor: `color-mix(in oklab, ${color} ${dashed ? 60 : 35}%, transparent)`,
+                                            boxShadow:
+                                                index === 0 || projected
+                                                    ? undefined
+                                                    : `inset 1px 0 0 color-mix(in oklab, ${color} 40%, transparent)`,
+                                        }}
+                                        data-attr="release-rollout-step"
+                                    />
+                                )
                             }
                         >
                             {!projected && width >= LABEL_ROOM && (

@@ -40,13 +40,7 @@ function Line({ children, title }: { children: ReactNode; title?: string }): JSX
 
 function Warning({ children, title }: { children: ReactNode; title?: string }): JSX.Element {
     return (
-        <Text
-            size="xs"
-            variant="destructive"
-            className="truncate"
-            title={title}
-            data-attr="release-lane-detail-warning"
-        >
+        <Text size="xs" variant="destructive" className="truncate" title={title} data-attr="release-inspector-warning">
             {children}
         </Text>
     )
@@ -98,7 +92,7 @@ function ExperimentSummary({ insights }: { insights: LaneInsights | null }): JSX
     const good = experiment.goal === 'decrease' ? lead.change < 0 : lead.change > 0
     return (
         <>
-            <div className="flex min-w-0 items-center gap-2" data-attr="release-lane-detail-result">
+            <div className="flex min-w-0 items-center gap-2" data-attr="release-inspector-result">
                 <Headline
                     value={`${lead.change > 0 ? '+' : ''}${percent(lead.change)}`}
                     className={good ? 'text-success-foreground' : 'text-destructive-foreground'}
@@ -141,7 +135,7 @@ function SurveySummary({ usage, insights }: { usage: LaneUsage; insights: LaneIn
                 }
             />
             {latest && (
-                <Text size="xs" className="truncate italic" title={latest} data-attr="release-lane-detail-answer">
+                <Text size="xs" className="truncate italic" title={latest} data-attr="release-inspector-answer">
                     {`“${latest}”`}
                 </Text>
             )}
@@ -173,7 +167,7 @@ export function ReleaseLaneSummary({ target, from }: { target: UsageTarget; from
         )
     }
     return (
-        <div className="flex flex-col gap-1" data-attr="release-lane-detail-summary">
+        <div className="flex flex-col gap-1" data-attr="release-inspector-summary">
             {target.kind === 'flag' ? (
                 <FlagSummary usage={usage} insights={insights} />
             ) : target.kind === 'experiment' ? (

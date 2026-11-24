@@ -2,22 +2,24 @@ import { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
-import { Button, Card, CardDescription, CardHeader, CardTitle, DataTable, Text } from '@posthog/quill'
+import { Button, Card, CardDescription, CardFooter, CardHeader, CardTitle, DataTable, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
+import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { ReleaseFlagActions, ReleaseVariantWarning, emptyVariantWarning } from './ReleaseFlagActions'
-import { ReleaseLaneDetail } from './ReleaseLaneDetail'
-import { usageTarget } from './releaseLaneUsage'
-import { ReleaseLaneUsageChart } from './ReleaseLaneUsageChart'
+import { ReleaseLaneRemoveButton } from './ReleaseLaneRemoveButton'
+import { ReleaseLinkedInsights } from './ReleaseLinkedInsights'
+import { releaseLogic } from './releaseLogic'
+import { ReleaseMissingFlagsWarning } from './ReleaseMissingFlagsWarning'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
-import { DETAIL_HEIGHT, Lane, Scale, Track, buildTrack } from './releaseTracks'
+import { Lane, Scale, Track, buildTrack } from './releaseTracks'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
@@ -66,11 +68,6 @@ function FlagHistoryLoader({ flagId, onLoad }: { flagId: number; onLoad: (flagId
     return null
 }
 
-interface TrackRow {
-    lane: Lane
-    detail: boolean
-}
-
 interface TrackCardState {
     row: ReleaseRow
     labelWidth: number
@@ -93,85 +90,42 @@ function useTrackCard(): TrackCardState {
     return state
 }
 
-function LaneDetailCell({ lane }: { lane: Lane }): JSX.Element {
-    const { row, labelWidth, scale } = useTrackCard()
-    return (
-        <div style={{ width: labelWidth - 24, height: DETAIL_HEIGHT }}>
-            <ReleaseLaneDetail
-                row={row}
-                lane={lane}
-                target={usageTarget(lane, row)}
-                from={scale.start.format('YYYY-MM-DD')}
-            />
-        </div>
+function LaneActions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
+    return lane.kind === 'flag' ? (
+        <ReleaseFlagActions row={row} flag={lane.flag} />
+    ) : (
+        <ReleaseLaneRemoveButton row={row} lane={lane} />
     )
 }
 
-function LaneUsageCell({ lane }: { lane: Lane }): JSX.Element {
-    const { row, scale, stacked, width, stickyOffset } = useTrackCard()
-    const target = usageTarget(lane, row)
-    return (
-        <div className="relative" style={{ width: scale.days * scale.day }}>
-            <ReleaseTrackGrid scale={scale} />
-            {stacked && (
-                <div className="sticky left-0 z-10 bg-card px-3" style={{ width, height: DETAIL_HEIGHT }}>
-                    <ReleaseLaneDetail row={row} lane={lane} target={target} from={scale.start.format('YYYY-MM-DD')} />
-                </div>
-            )}
-            {target ? (
-                <ReleaseLaneUsageChart
-                    target={target}
-                    scale={scale}
-                    height={DETAIL_HEIGHT}
-                    stickyOffset={stickyOffset}
-                />
-            ) : (
-                !stacked && <div style={{ height: DETAIL_HEIGHT }} />
-            )}
-        </div>
-    )
-}
-
-function TrackLabelCell({ row: { original } }: CellContext<TrackRow, unknown>): JSX.Element {
+function TrackLabelCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
     const { row, labelWidth } = useTrackCard()
-    if (original.detail) {
-        return <LaneDetailCell lane={original.lane} />
-    }
     return (
         <ReleaseTrackLabel
-            lane={original.lane}
+            lane={lane.original}
             style={{ width: labelWidth - 24 }}
             variant="detailed"
-            actions={
-                original.lane.kind === 'flag' ? <ReleaseFlagActions row={row} flag={original.lane.flag} /> : undefined
-            }
+            actions={<LaneActions row={row} lane={lane.original} />}
         />
     )
 }
 
-function TrackLaneCell({ row: { original } }: CellContext<TrackRow, unknown>): JSX.Element {
+function TrackLaneCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
     const { row, scale, color, lanesByKey, loadFlagActivity, stacked, width, stickyOffset } = useTrackCard()
-    if (original.detail) {
-        return <LaneUsageCell lane={lanesByKey.get(original.lane.key) ?? original.lane} />
-    }
     return (
         <div className="relative" style={{ width: scale.days * scale.day }}>
             <ReleaseTrackGrid scale={scale} />
             {stacked && (
                 <ReleaseTrackLabel
-                    lane={original.lane}
+                    lane={lane.original}
                     variant="inline"
                     className="sticky left-0 z-10 w-fit rounded-br-md bg-card py-0.5 pr-2 pl-3 mt-1.5"
                     style={{ maxWidth: width - 1 }}
-                    actions={
-                        original.lane.kind === 'flag' ? (
-                            <ReleaseFlagActions row={row} flag={original.lane.flag} />
-                        ) : undefined
-                    }
+                    actions={<LaneActions row={row} lane={lane.original} />}
                 />
             )}
             <ReleaseTrackLane
-                lane={lanesByKey.get(original.lane.key) ?? original.lane}
+                lane={lanesByKey.get(lane.original.key) ?? lane.original}
                 color={color}
                 scale={scale}
                 detailed={!stacked}
@@ -179,8 +133,8 @@ function TrackLaneCell({ row: { original } }: CellContext<TrackRow, unknown>): J
                 stickyOffset={stickyOffset}
                 releaseId={row.id}
             />
-            {original.lane.kind === 'flag' && (
-                <FlagHistoryLoader flagId={original.lane.flag.id} onLoad={loadFlagActivity} />
+            {lane.original.kind === 'flag' && (
+                <FlagHistoryLoader flagId={lane.original.flag.id} onLoad={loadFlagActivity} />
             )}
         </div>
     )
@@ -191,8 +145,8 @@ function TrackAxisHeader(): JSX.Element {
     return <ReleaseTimelineAxis scale={scale} stickyOffset={stickyOffset} />
 }
 
-function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<TrackRow>[] {
-    const timeline: ColumnDef<TrackRow> = {
+function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<Lane>[] {
+    const timeline: ColumnDef<Lane> = {
         id: 'timeline',
         header: TrackAxisHeader,
         enableSorting: false,
@@ -214,7 +168,8 @@ function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<TrackRow>
     ]
 }
 
-export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | null {
+export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
+    const { canEditReleases } = useValues(releaseLogic)
     const { failedFlagIds, openItem } = useValues(releaseCalendarLogic)
     const { loadFlagActivity } = useActions(releaseCalendarLogic)
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
@@ -224,22 +179,10 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
     const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const related = relatedByRelease[row.id]
+    const hasInsights = (related?.insights.length ?? 0) > 0
     const track = useMemo(() => buildTrack(row, stepsByFlag, related), [row, stepsByFlag, related])
 
-    const lanes = useMemo(() => buildTrack(row, new Map(), related).lanes, [row, related])
-    const openLaneKey = openItem?.releaseId === row.id ? openItem.laneKey : null
-    const rows = useMemo(
-        () =>
-            lanes.flatMap((lane): TrackRow[] =>
-                lane.key === openLaneKey
-                    ? [
-                          { lane, detail: false },
-                          { lane, detail: true },
-                      ]
-                    : [{ lane, detail: false }]
-            ),
-        [lanes, openLaneKey]
-    )
+    const rows = useMemo(() => buildTrack(row, new Map(), related).lanes, [row, related])
     const lanesByKey = useMemo(() => new Map(track.lanes.map((lane) => [lane.key, lane])), [track])
     const stacked = width > 0 && width < NARROW_WIDTH
     const labelWidth = stacked ? 0 : TRACK_NAME
@@ -261,10 +204,6 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
         [row, labelWidth, stickyOffset, width, stacked, scale, color, lanesByKey, loadFlagActivity]
     )
 
-    if (!track.lanes.length) {
-        return null
-    }
-
     return (
         <Card flush data-attr="release-track-card" className={STAGE_COLOR_VARS}>
             <CardHeader>
@@ -273,8 +212,9 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                     Who gets each part of this release, day by day. Change who gets a flag in its release conditions.
                 </CardDescription>
             </CardHeader>
-            {(warnings.length > 0 || openEarlyAccess || failedFlags.length > 0) && (
+            {(warnings.length > 0 || openEarlyAccess || failedFlags.length > 0 || row.missingFlagIds.length > 0) && (
                 <div className="flex flex-col gap-2 px-4 pb-3">
+                    <ReleaseMissingFlagsWarning row={row} />
                     {failedFlags.length > 0 && (
                         <div className="flex items-center gap-2">
                             <Text size="xs" variant="muted">
@@ -302,28 +242,40 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
                     )}
                 </div>
             )}
-            <div
-                ref={setContainer}
-                className="overflow-hidden border-t border-border [--quill-table-sticky-bg:var(--card)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0"
-            >
-                {width > 0 && (
-                    <TrackCardContext.Provider value={state}>
-                        <DataTable
-                            columns={columns}
-                            data={rows}
-                            size="sm"
-                            getRowId={(item) => (item.detail ? `${item.lane.key}-detail` : item.lane.key)}
-                            rowClassName={(item) =>
-                                item.lane.key === openLaneKey
-                                    ? item.detail
-                                        ? 'bg-fill-hover/40'
-                                        : 'group/track bg-fill-hover/40'
-                                    : 'group/track'
-                            }
-                        />
-                    </TrackCardContext.Provider>
-                )}
-            </div>
+            {track.lanes.length > 0 ? (
+                <div
+                    ref={setContainer}
+                    className="overflow-hidden border-t border-border [--quill-table-sticky-bg:var(--card)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0"
+                >
+                    {width > 0 && (
+                        <TrackCardContext.Provider value={state}>
+                            <DataTable
+                                columns={columns}
+                                data={rows}
+                                size="sm"
+                                getRowId={(lane) => lane.key}
+                                rowClassName={(lane) =>
+                                    openItem?.releaseId === row.id && openItem.laneKey === lane.key
+                                        ? 'group/track bg-fill-hover/60'
+                                        : 'group/track'
+                                }
+                            />
+                        </TrackCardContext.Provider>
+                    )}
+                </div>
+            ) : (
+                <div className="border-t border-border px-4 py-3">
+                    <Text size="xs" variant="muted">
+                        {hasInsights ? 'Nothing on the calendar yet.' : 'Nothing linked yet.'}
+                    </Text>
+                </div>
+            )}
+            {(canEditReleases || hasInsights) && (
+                <CardFooter className="flex flex-col items-stretch gap-3 border-t border-border">
+                    <ReleaseLinkedInsights row={row} />
+                    {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
+                </CardFooter>
+            )}
         </Card>
     )
 }
