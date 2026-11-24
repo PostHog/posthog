@@ -42,7 +42,9 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::migration::SealDuty;
-use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
+use personhog_leader::pg::{
+    validate_table_name, LifecycleTables, PgFallback, STATEMENT_TIMEOUT_MS,
+};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
@@ -324,14 +326,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_connections: config.fallback_pg_max_connections,
             min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
-            statement_timeout_ms: Some(5_000),
+            statement_timeout_ms: Some(STATEMENT_TIMEOUT_MS),
             ..Default::default()
         };
+        let mut options = common_database::pool_options(pool_config);
+        if let Some(min_idle) = config.fallback_pg_ping_idle_after() {
+            tracing::info!(
+                ?min_idle,
+                "Pinging fallback connections only after an idle period"
+            );
+            options = common_database::install_idle_ping(options, min_idle);
+        }
         let fallback = PgFallback {
-            pool: common_database::get_pool_with_config(
-                &config.fallback_database_url,
-                pool_config,
-            )?,
+            pool: options.connect_lazy(&config.fallback_database_url)?,
             table: config.fallback_table.clone(),
             lifecycle: LifecycleTables::new(
                 &config.lifecycle_op_table,
