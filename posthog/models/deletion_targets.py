@@ -289,7 +289,8 @@ SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
 # squash deletes the overrides that recorded the mapping right after applying them.
 #
 # sharded_ai_events stays out until the squash has run against the ai_events cluster. Its TTL drops a
-# row within about 61 days, so that is the longest a merge can strand one there.
+# row up to a month after the row's retention_days, which ingestion sets per team from 30 to 365. A
+# merge can strand a row there for that long.
 PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({AI_EVENTS_DATA_TABLE})
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a

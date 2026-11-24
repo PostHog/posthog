@@ -406,7 +406,7 @@ The heavy properties (`$ai_input`, `$ai_output` and the others in `HEAVY_AI_PROP
 - `copied_from` stays unset. The table shards on `trace_id` on another cluster, so a row and its events copy are never on the same shard, and the shard-local copy check cannot run.
 - Event removal with a HogQL predicate refuses while the table holds rows that the portable predicate matches. The fragment names events columns that this table does not have.
 - Property removal refuses while the table holds any row in the request's window and events. The rewrite needs `person_properties`, which the table does not have, and a presence check on `properties` would miss the heavy properties in their own columns.
-- `sharded_ai_events` is in `PERSON_ID_REWRITE_EXEMPT`. A merge can strand a row on the absorbed person until the TTL drops it. `retention_days` defaults to 30, and the table partitions by month of `drop_date` with `ttl_only_drop_parts = 1`, so a row can stay about 61 days.
+- `sharded_ai_events` is in `PERSON_ID_REWRITE_EXEMPT`. A merge can strand a row on the absorbed person until the TTL drops it. `retention_days` is 30 by default and up to 365 for a team with extended retention. The table partitions by month of `drop_date` with `ttl_only_drop_parts = 1`, so a row can stay up to a month past its retention: about 61 days by default, and about 13 months at 365.
 
 Before this registration, no deletion reached the table, and each row stayed until the TTL dropped it.
 
