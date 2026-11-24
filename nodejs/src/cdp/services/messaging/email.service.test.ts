@@ -2713,8 +2713,9 @@ describe('EmailService', () => {
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 5))
             const halfTheSizeLimit = (): Promise<StoredFile> =>
                 uploadAttachment(team.id, { filename: 'a.pdf' }, Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2))
-            // A send that must arrive gets several seconds past its download, because the fake clock also moves
-            // with real time while the send waits on I/O.
+            // The fake clock also moves with real time while the send waits on I/O. Each send that must arrive has
+            // more time left after its download than the 10 real seconds untilOnTheFakeClock waits, so a slow
+            // runner fails the wait before the deadline can turn the delivery into a retry.
             it.each([
                 [
                     'a download answered after 19 s, a small send, whose deadline is 17 s, sends nothing and retries',
@@ -2725,10 +2726,10 @@ describe('EmailService', () => {
                     0,
                 ],
                 [
-                    'a download answered after 24 s, a send of half the size limit, whose deadline is 31 s, sends',
+                    'a download answered after 20 s, a send of half the size limit, whose deadline is 31 s, sends',
                     halfTheSizeLimit,
                     undefined,
-                    24_000,
+                    20_000,
                     sent,
                     1,
                 ],
@@ -2741,10 +2742,10 @@ describe('EmailService', () => {
                     0,
                 ],
                 [
-                    'a download answered after 25 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
+                    'a download answered after 22 s, a send of half the size limit under a configured 20 s deadline, which grows to 32.5 s, sends',
                     halfTheSizeLimit,
                     20_000,
-                    25_000,
+                    22_000,
                     sent,
                     1,
                 ],

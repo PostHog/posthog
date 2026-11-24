@@ -683,6 +683,47 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             expect(stopReturned).toBe(true)
         })
 
+        it('writes the result of a send at half the file size limit that is still running 26 s into a stop, before the stop returns', async () => {
+            const report = await uploadAttachment(
+                team.id,
+                { filename: 'report.pdf', contentType: 'application/pdf' },
+                Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2)
+            )
+            const [running] = await enqueue(transactionalSend([report.metadata]))
+            const clockStarted = Date.now()
+            useFakeClock()
+            let callStarted = false
+            const worker = await startWorker(
+                {
+                    budgetBytes: estimateSend(report.metadata.sizeBytes).reservedBytes,
+                    heapLimitBytes: 64 * 1024 * 1024 * 1024,
+                    maxInFlight: 100,
+                },
+                stalledSes(() => (callStarted = true))
+            )
+            await onTheFakeClock(async () => {
+                expect((await jobRow(running)).status).toBe('running')
+                expect(callStarted).toBe(true)
+            }, clockStarted + 5_000)
+
+            let stopReturned = false
+            const stopStarted = Date.now()
+            void worker.stop().then(() => (stopReturned = true))
+            await jest.advanceTimersByTimeAsync(26_000)
+            expect({ stopReturned, status: (await jobRow(running)).status }).toEqual({
+                stopReturned: false,
+                status: 'running',
+            })
+            await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
+
+            const row = await jobRow(running)
+            expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
+                status: 'available',
+                retries: 1,
+            })
+            expect(delivered()).toEqual([])
+        })
+
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
             const clockStarted = Date.now()
