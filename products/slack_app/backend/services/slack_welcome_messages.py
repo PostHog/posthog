@@ -125,7 +125,7 @@ def build_channel_welcome(integration: WorkspaceIntegration) -> tuple[str, list[
     blocks: list[dict[str, Any]] = [
         section_block(
             ":wave: Hey, I'm PostHog. Tag me with `@PostHog` and I'll dig into your product data, poke "
-            "around your codebase, or open a pull request to fix something."
+            "around your codebase, open a pull request to fix something, or tell you a joke."
         ),
         # One analytics question and one code change, so nobody reads the app as only the
         # half they happened to see first.
