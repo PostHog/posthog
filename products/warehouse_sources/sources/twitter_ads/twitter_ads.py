@@ -197,7 +197,13 @@ def _is_entity_rejection(response: requests.Response | None) -> bool:
 
 
 class TwitterAdsClient:
-    def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
+    def __init__(
+        self,
+        integration: IntegrationRecord,
+        api_version: str = API_VERSION,
+        *,
+        wait_for_rate_limit_reset: bool = False,
+    ) -> None:
         if api_version != API_VERSION:
             raise ValueError("Unsupported X Ads API version")
         if integration.kind != "twitter-ads":
@@ -211,12 +217,17 @@ class TwitterAdsClient:
         consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
         if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self._retry = _TwitterAdsRetry(
-            total=DEFAULT_RETRY.total,
-            backoff_factor=DEFAULT_RETRY.backoff_factor,
-            status_forcelist=DEFAULT_RETRY.status_forcelist,
-            allowed_methods=DEFAULT_RETRY.allowed_methods,
-            raise_on_status=False,
+        self._wait_for_rate_limit_reset = wait_for_rate_limit_reset
+        self._retry = (
+            _TwitterAdsRetry(
+                total=DEFAULT_RETRY.total,
+                backoff_factor=DEFAULT_RETRY.backoff_factor,
+                status_forcelist=DEFAULT_RETRY.status_forcelist,
+                allowed_methods=DEFAULT_RETRY.allowed_methods,
+                raise_on_status=False,
+            )
+            if wait_for_rate_limit_reset
+            else DEFAULT_RETRY
         )
         self.session = make_tracked_session(
             allow_redirects=False, redact_values=(token, secret, consumer_secret), retry=NO_RETRY
@@ -227,7 +238,9 @@ class TwitterAdsClient:
     def _get_response(self, path: str, params: dict[str, str | int] | None) -> requests.Response:
         url = f"{self.base_url}/{path}"
         retry: BoundedRetry = self._retry
-        with request_deadline(time.monotonic() + _REQUEST_RETRY_BUDGET_SECONDS):
+        with request_deadline(
+            time.monotonic() + _REQUEST_RETRY_BUDGET_SECONDS if self._wait_for_rate_limit_reset else None
+        ):
             while True:
                 try:
                     # OAuth1 must prepare each attempt after waiting; adapter retries reuse a stale signature.

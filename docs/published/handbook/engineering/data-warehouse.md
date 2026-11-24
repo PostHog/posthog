@@ -422,7 +422,8 @@ X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for eac
 Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
 If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
 The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
-For `429` responses, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+For `429` responses during an import, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+Account listing and credential validation run inside web requests, so they keep the shared retry policy and request budget and do not wait for X's reset.
 This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
 Each retry prepares a new OAuth1 signature after the wait, so a rate-limit reset does not leave the request with an expired timestamp.
 

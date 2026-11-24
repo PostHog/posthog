@@ -1,6 +1,7 @@
 import json
 import time
-from collections.abc import Iterable, Iterator
+import contextlib
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -42,7 +43,7 @@ def client() -> TwitterAdsClient:
     with override_settings(
         TWITTER_ADS_CONSUMER_KEY="fake-consumer", TWITTER_ADS_CONSUMER_SECRET="fake-consumer-secret"
     ):
-        return TwitterAdsClient(integration)
+        return TwitterAdsClient(integration, wait_for_rate_limit_reset=True)
 
 
 @pytest.fixture
@@ -301,7 +302,7 @@ def test_error_without_a_parsable_body_keeps_the_bare_status(client: TwitterAdsC
 
 
 @pytest.fixture
-def stats_driver() -> Iterator[SourceDriver]:
+def stats_source() -> Iterator[TwitterAdsSource]:
     source = TwitterAdsSource()
     integration = Integration(
         kind="twitter-ads", sensitive_config={"oauth_token": "fake-access", "oauth_token_secret": "fake-secret"}
@@ -313,7 +314,12 @@ def stats_driver() -> Iterator[SourceDriver]:
             "products.warehouse_sources.sources.twitter_ads.source._is_video_and_conversion_enabled", return_value=False
         ),
     ):
-        yield SourceDriver(source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
+        yield source
+
+
+@pytest.fixture
+def stats_driver(stats_source: TwitterAdsSource) -> SourceDriver:
+    return SourceDriver(stats_source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
 
 
 def stats_metadata(request: RecordedRequest, timezone: str) -> ScriptedResponse | None:
@@ -387,7 +393,7 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
     ],
 )
 def test_stats_daily_fallback_waits_for_rate_limit_reset(
-    client: TwitterAdsClient, reset_headers: dict[str, str | int]
+    stats_source: TwitterAdsSource, reset_headers: dict[str, str | int]
 ) -> None:
     timezone = "Asia/Kolkata"
     now = datetime(2025, 11, 12, 12, tzinfo=UTC)
@@ -426,8 +432,11 @@ def test_stats_daily_fallback_waits_for_rate_limit_reset(
         return stats_success(request, timezone)
 
     with time_machine.travel(now, tick=False) as clock, scripted_network(answer) as network:
-        manager = ResumableSourceManager(source_inputs("campaign_stats"), TwitterAdsResumeConfig)
-        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2025, 10, 31), MagicMock())
+        inputs = source_inputs("campaign_stats", incremental_field="date", db_incremental_field_last_value="2025-10-31")
+        manager = ResumableSourceManager(inputs, TwitterAdsResumeConfig)
+        resource = stats_source.source_for_pipeline(
+            TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1), manager, inputs
+        )
         rows = []
         for page in sync_items(resource):
             rows.extend(page)
@@ -488,6 +497,31 @@ def test_rate_limit_reset_cannot_hold_request_indefinitely(
         with pytest.raises(requests.HTTPError, match="429 Client Error"):
             client.get("stats/accounts/account")
     assert len(network.requests_log) == expected_attempts
+    assert network.elapsed <= 3
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda source: source.get_oauth_accounts(integration_id=1, team_id=1),
+        lambda source: source.validate_credentials(
+            TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1), team_id=1
+        ),
+    ],
+    ids=["oauth_accounts", "validate_credentials"],
+)
+def test_web_entrypoints_do_not_wait_for_rate_limit_reset(
+    stats_source: TwitterAdsSource, call: Callable[[TwitterAdsSource], object]
+) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(
+            status=429, headers={"x-rate-limit-reset": str(int(time.time()) + 900)}, json={"errors": []}
+        )
+
+    with time_machine.travel("2025-11-12T12:00:00Z", tick=False), scripted_network(answer) as network:
+        with contextlib.suppress(requests.HTTPError):
+            call(stats_source)
+    assert len(network.requests_log) == 4
     assert network.elapsed <= 3
 
 

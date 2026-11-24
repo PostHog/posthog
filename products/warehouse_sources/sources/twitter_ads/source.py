@@ -213,6 +213,7 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
         client = TwitterAdsClient(
             self.get_oauth_integration(config.twitter_ads_integration_id, inputs.team_id),
             inputs.api_version or API_VERSION,
+            wait_for_rate_limit_reset=True,
         )
         return twitter_ads_source(
             client,
