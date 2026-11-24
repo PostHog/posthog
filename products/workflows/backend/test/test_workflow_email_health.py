@@ -619,6 +619,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
     def test_a_warn_band_spread_across_workflows_warns_each_workflow(
         self, _name: str, actions: list[dict[str, object]], clean_sender_actions: list[dict[str, object]]
     ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.flow.actions = actions
         self.flow.save()
         spreading = HogFlow.objects.create(name="Second blast", team=self.team, actions=actions)
@@ -627,15 +631,36 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self._seed(source_id=str(spreading.id), sent=150, hard_bounces=12)
         self._seed(source_id=str(clean_sender.id), sent=700)
 
-        applied, _ = self._sweep()
+        with self.captureOnCommitCallbacks(execute=True):
+            applied = sweep_workflow_email_health(now=self.now)
 
         assert applied == []
-        stored = HogFlow.objects.filter(team=self.team).order_by("created_at")
-        assert [(flow.name, flow.email_sending_paused_at, flow.email_sending_warned_at) for flow in stored] == [
-            (self.flow.name, None, self.now),
-            (spreading.name, None, self.now),
-            (clean_sender.name, None, None),
-        ]
+        flows = (self.flow, spreading, clean_sender)
+        delivered = []
+        for message in mail.outbox:
+            [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            html = html_bytes.decode()
+            delivered.append(
+                (
+                    "needs attention" in str(message.subject),
+                    message.to,
+                    next(flow.name for flow in flows if f"/workflows/{flow.id}/" in html),
+                    "reached 8% of the 300 emails this project" in html,
+                )
+            )
+        assert sorted(delivered) == sorted(
+            (True, [self.user.email], flow.name, True) for flow in (self.flow, spreading)
+        )
+        assert (
+            list(
+                HogFlow.objects.filter(team=self.team, email_sending_paused_at__isnull=False).values_list(
+                    "name", flat=True
+                )
+            )
+            == []
+        )
 
     @parameterized.expand(
         [
