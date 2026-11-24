@@ -2009,7 +2009,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def push_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         require_transactional_push_api(self.team)
         recipients = push_batch_recipients(request.validated_data)
-        reserve_units(transactional_email_throttles(), request, self, len(recipients) - 1)
+        reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
         template = self.get_object()
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
