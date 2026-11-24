@@ -11,10 +11,13 @@ const HOUR_LABELS = ['12am', '6am', '12pm', '6pm']
 export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX.Element {
     const multiple = peakMultiple(card.heat)
     return (
-        <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
+        <WrappedCard
+            cardKey="rush_hour"
+            kicker={`Rush hour (${formatTimezone(card.timezone)})`}
+            hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}
+        >
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
-                {formatHour(card.weekday, card.hour)}{' '}
-                <span className="whitespace-nowrap text-xl opacity-75">({formatTimezone(card.timezone)})</span>
+                {formatHour(card.weekday, card.hour)}
             </h2>
             <p className="MCPWrapped__rise m-0 text-base font-bold">
                 {rushHourLine(card.weekday, card.hour, card.night_shift)}
