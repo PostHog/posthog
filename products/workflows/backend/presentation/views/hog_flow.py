@@ -290,6 +290,7 @@ from products.workflows.backend.facade.sandbox_email import (
     deliverable_own_sender_ids,
     has_sandbox_sender,
     has_verified_own_sender,
+    is_sensitive,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -4872,6 +4873,13 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
             {
                 "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the PostHog test sender, "
                 "then remove this one."
+            }
+        )
+    if is_sensitive(action):
+        raise exceptions.ValidationError(
+            {
+                "sender": "This step is sensitive, and the PostHog test sender would store its email. "
+                "Keep it on one of the project's own senders."
             }
         )
     dropped = own_only_settings(action)
