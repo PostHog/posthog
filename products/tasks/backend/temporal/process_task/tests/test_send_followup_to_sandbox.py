@@ -456,6 +456,11 @@ class TestSandboxGithubIdentityGate:
     their token when they have access, otherwise a logout so no previous actor's
     identity survives."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_stale_credential_scrub(self):
+        with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=True):
+            yield
+
     def test_same_actor_is_re_established_not_skipped(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):

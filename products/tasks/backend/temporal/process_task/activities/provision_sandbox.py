@@ -1596,9 +1596,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
     This activity always fetches fresh tokens (rather than trusting whatever
     the workflow previously cached in its inputs) and persists them to the
-    in-sandbox locations that Modal secrets cannot refresh. A repo-less snapshot
-    can still contain ad-hoc clones, so this activity strips GitHub credentials
-    from every restored remote before it continues.
+    in-sandbox locations that Modal secrets cannot refresh. A restored snapshot
+    can still contain stale GitHub credentials, so this activity strips them
+    before it resolves or applies credentials for this run.
     """
     ctx = input.context
 
@@ -1608,6 +1608,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         **ctx.to_log_context(),
     ):
         task = _load_task(ctx)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        if not clear_github_env_from_gitlab_sandbox(sandbox):
+            raise RuntimeError("Failed to clear stale GitHub credentials from restored snapshot")
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
@@ -1658,11 +1661,6 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,
             )
-
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
-
-        if not has_repository and not clear_github_env_from_gitlab_sandbox(sandbox):
-            raise RuntimeError("Failed to clear GitHub credentials from repo-less snapshot")
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.
