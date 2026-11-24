@@ -59,21 +59,24 @@ describe('RunStatusCell', () => {
     )
 
     it.each([
-        { level: 'error', alsoLogged: 'The run also logged an error.' },
-        { level: 'warn', alsoLogged: 'The run also logged a warning.' },
-        { level: null, alsoLogged: null },
-    ] as const)('email outcome tooltip names a separate $level as $alsoLogged', async ({ level, alsoLogged }) => {
+        { outcome: 'bounced', tag: 'EMAIL BOUNCED', level: 'error', alsoLogged: 'The run also logged an error.' },
+        { outcome: 'bounced', tag: 'EMAIL BOUNCED', level: 'warn', alsoLogged: 'The run also logged a warning.' },
+        { outcome: 'bounced', tag: 'EMAIL BOUNCED', level: null, alsoLogged: null },
+        { outcome: 'complained', tag: 'MARKED AS SPAM', level: 'error', alsoLogged: 'The run also logged an error.' },
+        { outcome: 'complained', tag: 'MARKED AS SPAM', level: 'warn', alsoLogged: 'The run also logged a warning.' },
+        { outcome: 'complained', tag: 'MARKED AS SPAM', level: null, alsoLogged: null },
+    ] as const)('$tag tooltip names a separate $level as $alsoLogged', async ({ outcome, tag, level, alsoLogged }) => {
         jest.useFakeTimers()
         const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-        render(<RunStatusCell row={runRow('succeeded', level, 'bounced')} />)
+        render(<RunStatusCell row={runRow('succeeded', level, outcome)} />)
 
-        await user.hover(screen.getByText('EMAIL BOUNCED'))
+        await user.hover(screen.getByText(tag))
         act(() => {
             jest.advanceTimersByTime(1000)
         })
 
         expect(
-            screen.getByText(/refused the email/).textContent?.match(/The run also logged an? \w+\./)?.[0] ?? null
+            screen.getByText(/^The run finished, but/).textContent?.match(/The run also logged an? \w+\./)?.[0] ?? null
         ).toBe(alsoLogged)
     })
 })
