@@ -6,10 +6,13 @@ import {
 } from "@posthog/agent-contracts";
 import { isRetiredModel } from "@posthog/agent-contracts/model-catalog";
 import {
+  buildPosthogDistinctIdHeaderLines,
+  buildPosthogDistinctIdHeaderRecord,
   buildPosthogPropertiesHeaderLines,
   buildPosthogPropertiesHeaderRecord,
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogSessionHeaderLines,
   buildPosthogSessionHeaderRecord,
   buildPosthogUserHeaderLines,
   buildPosthogUserHeaderRecord,
@@ -30,6 +33,8 @@ import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { AgentConfig, TaskExecutionOptions } from "./types";
 import { Logger } from "./utils/logger";
+
+const AI_GATEWAY_CREDENTIAL_PREFIXES = ["pha_", "phs_", "phe_"] as const;
 
 export class Agent {
   private posthogAPI?: PostHogAPIClient;
@@ -84,9 +89,20 @@ export class Agent {
       throw new Error("gatewayUrl override requires gatewayApiKey");
     }
     try {
-      const gatewayUrl = overrideUrl ?? this.posthogAPI.getAiGatewayUrl();
-      const apiKey = overrideApiKey ?? (await this.posthogAPI.getApiKey());
-      return { gatewayUrl, apiKey };
+      if (overrideUrl && overrideApiKey) {
+        return { gatewayUrl: overrideUrl, apiKey: overrideApiKey };
+      }
+      const apiKey = await this.posthogAPI.getApiKey();
+      if (
+        !AI_GATEWAY_CREDENTIAL_PREFIXES.some((prefix) =>
+          apiKey.startsWith(prefix),
+        )
+      ) {
+        throw new Error(
+          "The AI gateway accepts only an OAuth access token (pha_), a project secret API key (phs_) or a gateway token (phe_). Pass gatewayUrl and gatewayApiKey to use another credential.",
+        );
+      }
+      return { gatewayUrl: this.posthogAPI.getAiGatewayUrl(), apiKey };
     } catch (error) {
       this.logger.error("Failed to resolve LLM gateway config", error);
       throw error;
@@ -169,6 +185,7 @@ export class Agent {
                   ...buildPosthogPropertiesHeaderRecord(aiGatewayProperties),
                   ...buildPosthogSessionHeaderRecord(taskId),
                   ...buildPosthogUserHeaderRecord(userNode),
+                  ...buildPosthogDistinctIdHeaderRecord(userNode),
                 }
               : {
                   ...buildPosthogPropertyHeaderRecord(
@@ -251,7 +268,11 @@ export class Agent {
               directAiGateway
                 ? buildPosthogPropertiesHeaderLines(aiGatewayProperties)
                 : buildPosthogPropertyHeaderLines(attribution),
+              directAiGateway ? buildPosthogSessionHeaderLines(taskId) : "",
               buildPosthogUserHeaderLines(userNode),
+              directAiGateway
+                ? buildPosthogDistinctIdHeaderLines(userNode)
+                : "",
             ]
               .filter(Boolean)
               .join("\n"),
