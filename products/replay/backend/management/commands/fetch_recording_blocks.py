@@ -57,8 +57,7 @@ class Command(BaseCommand):
                 respect_retry_after_header=True,
                 raise_on_status=False,
             )
-            session.mount("http://", HTTPAdapter(max_retries=retry))
-            session.mount("https://", HTTPAdapter(max_retries=retry))
+            session.mount(settings.RECORDING_API_URL, HTTPAdapter(max_retries=retry))
             expires_at = datetime.min.replace(tzinfo=UTC)
 
             def get(url: str) -> requests.Response:
