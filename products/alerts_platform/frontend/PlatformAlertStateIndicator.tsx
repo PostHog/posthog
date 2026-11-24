@@ -3,11 +3,12 @@ import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi } from './generated/api.schemas'
+import { PlatformAlertStateEnumApi as PlatformAlertStateApi } from './generated/api.schemas'
 
 const STATE_CONFIG: Record<PlatformAlertStateApi, { label: string; type: LemonTagType }> = {
     [PlatformAlertStateApi.NotFiring]: { label: 'OK', type: 'success' },
     [PlatformAlertStateApi.Firing]: { label: 'Firing', type: 'danger' },
+    [PlatformAlertStateApi.NoData]: { label: 'No data', type: 'caution' },
     [PlatformAlertStateApi.Errored]: { label: 'Errored', type: 'danger' },
     [PlatformAlertStateApi.Snoozed]: { label: 'Snoozed', type: 'muted' },
     [PlatformAlertStateApi.Broken]: { label: 'Broken', type: 'danger' },

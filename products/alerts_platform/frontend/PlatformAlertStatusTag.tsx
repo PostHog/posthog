@@ -5,6 +5,7 @@ import { PlatformAlertConfigurationStatus } from './platformAlertFormat'
 const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; type: LemonTagType }> = {
     not_firing: { label: 'OK', type: 'success' },
     firing: { label: 'Firing', type: 'danger' },
+    no_data: { label: 'No data', type: 'caution' },
     errored: { label: 'Errored', type: 'danger' },
     snoozed: { label: 'Snoozed', type: 'muted' },
     broken: { label: 'Broken', type: 'danger' },

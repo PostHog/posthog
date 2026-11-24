@@ -2,7 +2,7 @@ import { ApiError } from 'lib/api-error'
 import { urls } from 'scenes/urls'
 
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
@@ -62,6 +62,7 @@ const STATE_PRIORITY: PlatformAlertStateApi[] = [
     PlatformAlertStateApi.Broken,
     PlatformAlertStateApi.Errored,
     PlatformAlertStateApi.Firing,
+    PlatformAlertStateApi.NoData,
     PlatformAlertStateApi.Snoozed,
     PlatformAlertStateApi.NotFiring,
 ]

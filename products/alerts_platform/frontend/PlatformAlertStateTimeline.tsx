@@ -8,7 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { shortTimeZone } from 'lib/utils/timezones'
 
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     PlatformAlertStateIntervalApi,
 } from './generated/api.schemas'
 
@@ -37,6 +37,7 @@ type AlertStateInterval = Omit<PlatformAlertStateIntervalApi, 'state'> & { state
 const STATE_LABELS: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'OK',
     [PlatformAlertStateApi.Firing]: 'Firing',
+    [PlatformAlertStateApi.NoData]: 'No data',
     pending_resolve: 'Resolving',
     [PlatformAlertStateApi.Errored]: 'Errored',
     [PlatformAlertStateApi.Snoozed]: 'Snoozed',
@@ -46,6 +47,7 @@ const STATE_LABELS: Record<TimelineState, string> = {
 const STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success',
     [PlatformAlertStateApi.Firing]: 'bg-danger',
+    [PlatformAlertStateApi.NoData]: 'bg-muted',
     pending_resolve: 'bg-warning',
     [PlatformAlertStateApi.Errored]: 'bg-warning',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted',
@@ -63,6 +65,7 @@ function bgForInterval(state: TimelineState, enabled: boolean): string {
 const QUILL_STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success-foreground',
     [PlatformAlertStateApi.Firing]: 'bg-destructive-foreground',
+    [PlatformAlertStateApi.NoData]: 'bg-muted-foreground',
     pending_resolve: 'bg-warning-foreground',
     [PlatformAlertStateApi.Errored]: 'bg-warning-foreground',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted-foreground',
