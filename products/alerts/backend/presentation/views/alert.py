@@ -2,7 +2,7 @@ import copy
 import json
 import uuid
 import builtins
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
@@ -159,6 +159,7 @@ from products.alerts.backend.facade.platform import (
     platform_subscriber_ids,
     platform_takes_new_alert_with,
     queue_delivery_test,
+    set_moved_alert_subscribers,
     set_native_subscribers,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
@@ -1235,11 +1236,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     def _update_moved(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
         """`update` for an alert the platform owns that keeps an insight row, which the caller locked.
-        The alert's settings live on its copy, so the edit starts from the copy and writes only the copy.
-        The row keeps the subscriptions and the insight, which the API checks access against."""
+        The alert's settings and subscribers live on its copy, so the edit starts from the copy and writes
+        only the copy. The row keeps the insight, which the API checks access against."""
         lock_source_configuration(team_id=instance.team_id, public_id=instance.id)
         if instance.id not in _show_copy_settings([instance]):
             raise Http404
+        locked_insight_id = instance.insight_id
         subscribed_users = validated_data.pop("subscribed_users", None)
         edit = self._start_platform_edit(instance, validated_data)
 
@@ -1266,15 +1268,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 rescheduled=rescheduled,
             )
 
-        if subscribed_users is not None:
-            AlertSubscription.objects.filter(alert_configuration=instance).exclude(user__in=subscribed_users).delete()
-            for user in subscribed_users:
-                # nosemgrep: idor-lookup-without-team (user team membership validated by viewset)
-                AlertSubscription.objects.get_or_create(
-                    user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
-                )
-        # The insight decides the in-app destination's resource, so any edit can change the copy's subscribers.
-        sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
+        # The insight names the in-app destination's resource, so moving the alert rewrites its subscribers too.
+        if subscribed_users is not None or instance.insight_id != locked_insight_id:
+            set_moved_alert_subscribers(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                user_ids=[user.id for user in subscribed_users] if subscribed_users is not None else None,
+                actor_id=self.context["request"].user.id,
+                was_impersonated=is_impersonated(self.context["request"]),
+            )
         # Again under the lock, because `validate` counted without it and another update can race. After
         # the copy's write, because the platform locks a copy before this lock.
         self._recheck_real_time_limit(instance, edit.previous)
@@ -2037,15 +2039,13 @@ class AlertListFiltersSerializer(serializers.Serializer):
 
 
 def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
-    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert with no insight row.
-    Only subscribers who can still view its insight, as a delivery reaches."""
-    if not alert.has_no_insight_row:
+    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert the platform owns.
+    For an alert with no insight row, only subscribers who can still view its insight, as a delivery reaches."""
+    if not alert.platform_owned:
         return alert.get_subscribed_users_emails()
-    user_ids = subscribers_with_insight_access(
-        team_id=alert.team_id,
-        configuration_id=alert.id,
-        user_ids=platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ()),
-    )
+    user_ids: Collection[int] = platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ())
+    if alert.has_no_insight_row:
+        user_ids = subscribers_with_insight_access(team_id=alert.team_id, configuration_id=alert.id, user_ids=user_ids)
     return list(
         User.objects.filter(
             id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
@@ -2054,15 +2054,15 @@ def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
 
 
 def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
-    """Shows each alert's subscribers as its platform copy names them, in place. An alert whose copy
-    names none keeps its subscriptions."""
+    """Shows each alert's subscribers as its platform copy names them, in place. An alert the insight
+    stack still owns keeps its subscriptions."""
     if not alerts:
         return
     user_ids = platform_subscriber_ids(team_id=alerts[0].team_id, alert_ids=[alert.id for alert in alerts])
     users = User.objects.in_bulk({user_id for ids in user_ids.values() for user_id in ids})
     for alert in alerts:
-        if alert.id in user_ids:
-            alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
+        if alert.platform_owned:
+            alert.platform_subscribers = [users[user_id] for user_id in user_ids.get(alert.id, ()) if user_id in users]  # type: ignore[attr-defined]
 
 
 def _show_destination_counts(alerts: list[AlertConfiguration]) -> None:

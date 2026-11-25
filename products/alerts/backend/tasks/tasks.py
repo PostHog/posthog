@@ -35,9 +35,9 @@ DELIVERY_TEST_TIME_LIMIT_SECONDS = 90
 def remove_departed_subscriber(organization_id: str, user_id: int, alert_ids: list[str] | None = None) -> None:
     """Brings the subscriber destinations of an organization's alerts in line after a user left it.
 
-    An alert with an insight row is rewritten from its subscriptions, so it matches them whether or
-    not the user has joined again since. An alert with no insight row has only its destinations, so
-    the user is taken out of those only while they are still not a member. A retry repeats both
+    An alert the insight stack owns is rewritten from its subscriptions, so it matches them whether or
+    not the user has joined again since. An alert the platform owns has only its destinations, so the
+    user is taken out of those only while they are still not a member. A retry repeats both
     steps, which leaves the same result.
     """
     from products.alerts.backend.platform_subscribers import sync_subscriber_destinations  # noqa: PLC0415 - cycle

@@ -2174,6 +2174,12 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         self.alert = response.json()
 
+    def _subscribe(self, user: User) -> None:
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", {"subscribed_users": [user.id]}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
     def _create_destination(
         self,
         *,
@@ -2264,8 +2270,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
     def test_sends_test_delivery_to_subscribed_users_without_a_destination(
         self, _mock_available, mock_email_message, mock_trigger
     ) -> None:
-        alert = AlertConfiguration.objects.get(id=self.alert["id"])
-        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+        self._subscribe(self.user)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
@@ -2287,8 +2292,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
     def test_returns_email_unavailable_when_email_delivery_is_not_configured(
         self, mock_email_message, _mock_facade_available, _mock_view_available
     ) -> None:
-        alert = AlertConfiguration.objects.get(id=self.alert["id"])
-        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+        self._subscribe(self.user)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
@@ -2307,8 +2311,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         return_value=[TEST_DESTINATION_DELIVERY],
     )
     def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
-        alert = AlertConfiguration.objects.get(id=self.alert["id"])
-        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+        self._subscribe(self.user)
         self._create_destination()
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
