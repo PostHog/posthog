@@ -499,6 +499,12 @@ class TestStarExpansion:
 
 
 DAILY_EVENT_TYPES = {"day": "DateTime64(6, 'UTC')", "event": "String", "c": "UInt64"}
+EVENT_ROW_TYPES = {
+    "uuid": "UUID",
+    "timestamp": "DateTime64(6, 'UTC')",
+    "created_at": "DateTime64(6, 'UTC')",
+    "event": "String",
+}
 
 
 class TestProposeIncrementalConfig(SimpleTestCase):
@@ -510,7 +516,31 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 DAILY_EVENT_TYPES,
                 DAY_EVENT_KEY,
             ),
-            ("not_grouped", "SELECT uuid, timestamp FROM events", {"uuid": "UUID", "timestamp": "DateTime64(6)"}, None),
+            (
+                "plain_event_projection_keyed_on_its_uuid",
+                "SELECT uuid, timestamp, event FROM events WHERE event = '$pageview'",
+                EVENT_ROW_TYPES,
+                IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
+            ),
+            ("plain_event_projection_without_its_uuid", "SELECT timestamp, event FROM events", EVENT_ROW_TYPES, None),
+            (
+                "plain_projection_of_a_join",
+                "SELECT e.uuid, e.timestamp FROM events AS e JOIN persons AS p ON e.person_id = p.id",
+                EVENT_ROW_TYPES,
+                None,
+            ),
+            (
+                "plain_event_projection_with_two_time_columns",
+                "SELECT uuid, timestamp, created_at FROM events",
+                EVENT_ROW_TYPES,
+                None,
+            ),
+            (
+                "plain_event_projection_with_a_moving_window",
+                "SELECT uuid, timestamp FROM events WHERE timestamp >= now() - INTERVAL 7 DAY",
+                EVENT_ROW_TYPES,
+                None,
+            ),
             (
                 "two_time_columns",
                 "SELECT toStartOfDay(timestamp) AS day, toStartOfHour(timestamp) AS hour, count() AS c "

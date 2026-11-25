@@ -41,6 +41,7 @@
                 "backend/logic/saved_query_freshness.py",
                 "backend/logic/view_column_refresh.py",
                 "backend/logic/view_freshness_warnings.py",
+                "backend/logic/unique_key_budget.py",
                 "dags/job_usage.py"
             ],
             "outputs": [],

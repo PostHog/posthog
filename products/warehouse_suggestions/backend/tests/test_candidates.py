@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -69,6 +69,13 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+EVENT_ROWS = "SELECT uuid, timestamp, event FROM events"
+EVENT_ROW_COLUMNS = {
+    "uuid": {"hogql": "UUIDDatabaseField", "clickhouse": "UUID"},
+    "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+}
+ROW_BUDGET = "products.data_modeling.backend.logic.unique_key_budget.MAX_ROW_LEVEL_INCREMENTAL_ROWS"
 
 
 class TestCertifyCandidate(SimpleTestCase):
@@ -293,7 +300,7 @@ class TestMaterializeRules(SimpleTestCase):
         assert basis == expected
 
 
-class TestMaterializeRefreshMode(BaseTest):
+class TestMaterializeRefreshMode(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("grouped_by_day", DAILY_COUNTS, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
@@ -327,11 +334,50 @@ class TestMaterializeRefreshMode(BaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT timestamp FROM events WHERE rand() % 10 = 0"},
             columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
         )
+
+        payload = self._materialize_payload(hogql, DAILY_COUNT_COLUMNS)
+
+        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
+        assert (
+            payload.refresh_mode,
+            payload.incremental_key,
+            payload.unique_key,
+            payload.lookback_seconds,
+        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
+
+    @parameterized.expand(
+        [
+            ("under_the_row_budget", 2, WarehouseSuggestionRefreshMode.INCREMENTAL, "timestamp", ("uuid",)),
+            ("over_the_row_budget", 1, WarehouseSuggestionRefreshMode.FULL, None, ()),
+        ]
+    )
+    def test_a_plain_event_projection_is_incremental_only_under_the_row_budget(
+        self,
+        _name: str,
+        row_budget: int,
+        refresh_mode: WarehouseSuggestionRefreshMode,
+        incremental_key: str | None,
+        unique_key: tuple[str, ...],
+    ) -> None:
+        for _ in range(2):
+            _create_event(team=self.team, event="$pageview", distinct_id="d1")
+        flush_persons_and_events()
+
+        with patch(ROW_BUDGET, row_budget):
+            payload = self._materialize_payload(EVENT_ROWS, EVENT_ROW_COLUMNS)
+
+        assert (payload.refresh_mode, payload.incremental_key, payload.unique_key) == (
+            refresh_mode,
+            incremental_key,
+            unique_key,
+        )
+
+    def _materialize_payload(self, hogql: str, columns: dict[str, dict[str, str]]) -> MaterializePayload:
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="daily_counts",
             query={"kind": "HogQLQuery", "query": hogql},
-            columns=DAILY_COUNT_COLUMNS,
+            columns=columns,
         )
         dag = DAG.objects.create(team=self.team, name="Default")
         Node.objects.create(team=self.team, dag=dag, name="daily_counts", saved_query=saved_query, type=NodeType.VIEW)
@@ -350,13 +396,7 @@ class TestMaterializeRefreshMode(BaseTest):
         [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
         assert isinstance(draft.payload, MaterializePayload)
-        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
-        assert (
-            draft.payload.refresh_mode,
-            draft.payload.incremental_key,
-            draft.payload.unique_key,
-            draft.payload.lookback_seconds,
-        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
+        return draft.payload
 
 
 class TestDeprecateCandidate(BaseTest):

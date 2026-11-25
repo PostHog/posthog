@@ -15,6 +15,7 @@ from products.data_modeling.backend.facade.api import (
     SavedQueryFrequencyBounds,
     definition_database,
     dependent_saved_query_ids,
+    fits_the_unique_key_budget,
     get_saved_query_columns,
     propose_incremental_config,
     saved_query_target_bounds,
@@ -152,7 +153,10 @@ class _IncrementalProposer:
         if self._database is None:
             return None
         column_types = get_saved_query_columns(self._team_id, saved_query.id)
-        return propose_incremental_config(saved_query.hogql, column_types, database=self._database)
+        config = propose_incremental_config(saved_query.hogql, column_types, database=self._database)
+        if config is None or not fits_the_unique_key_budget(self._team_id, saved_query.hogql, config):
+            return None
+        return config
 
 
 class MaterializeCandidate(Candidate):
