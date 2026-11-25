@@ -6,6 +6,7 @@ use crate::{
     app_context::AppContext,
     error::EventError,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
+    modes::processing::batch_budget::BatchBudget,
     stages::{
         adaptive_ingestion::AdaptiveIngestionStage,
         alerting::AlertingStage,
@@ -55,25 +56,41 @@ impl Stage for ExceptionEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
-            // Resolve stack traces and the event-level release
-            .apply_stage(ResolutionStage::from(&self.app_context))
-            .await?
-            // Group events by fingerprint
-            .apply_stage(GroupingStage::from(&self.app_context))
-            .await?
-            // Link events to issues and suppress
-            .apply_stage(LinkingStage::from(&self.app_context))
-            .await?
-            // Drop rate-limited events as soon as issue_id is known — before
-            // alerting/enrichment, so spike detection never counts them.
-            .apply_stage(RateLimitingStage::from(&self.app_context))
-            .await?
-            .apply_stage(AdaptiveIngestionStage::from(&self.app_context))
-            .await?
-            // Send internal events for alerting
-            .apply_stage(AlertingStage::from(&self.app_context))
-            .await
+        let ctx = &self.app_context;
+        let mut budget = BatchBudget::start(ctx.main_lane_budget);
+        let budget_deadline = budget.deadline();
+
+        // Resolve stack traces and the event-level release
+        let batch = budget.end_stage(
+            "resolution",
+            batch.apply_stage(ResolutionStage::from(ctx)).await,
+        )?;
+        // Group events by fingerprint
+        let batch = budget.end_stage(
+            "grouping",
+            batch.apply_stage(GroupingStage::from(ctx)).await,
+        )?;
+        // Link events to issues and suppress
+        let linking = LinkingStage {
+            budget_deadline,
+            ..LinkingStage::from(ctx)
+        };
+        let batch = budget.end_stage("linking", batch.apply_stage(linking).await)?;
+        // Drop rate-limited events as soon as issue_id is known — before
+        // alerting/enrichment, so spike detection never counts them.
+        let batch = budget.end_stage(
+            "rate_limiting",
+            batch.apply_stage(RateLimitingStage::from(ctx)).await,
+        )?;
+        let batch = budget.end_stage(
+            "adaptive_ingestion",
+            batch.apply_stage(AdaptiveIngestionStage::from(ctx)).await,
+        )?;
+        // Send internal events for alerting
+        budget.end_stage(
+            "alerting",
+            batch.apply_stage(AlertingStage::from(ctx)).await,
+        )
     }
 }
 

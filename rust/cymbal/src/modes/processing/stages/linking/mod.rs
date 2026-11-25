@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 pub mod issue;
 pub mod rule_suppression;
@@ -34,6 +34,7 @@ pub struct LinkingStage {
     // single batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
     // concurrent misses for the same key inside the same batch.
     pub batch_issue_cache: Cache<(TeamId, String), Issue>,
+    pub budget_deadline: Option<Instant>,
 }
 
 impl Stage for LinkingStage {
@@ -72,6 +73,7 @@ impl From<&Arc<AppContext>> for LinkingStage {
             app_context: ctx.clone(),
             issue_cache: ctx.issue_cache.clone(),
             batch_issue_cache: CacheBuilder::new(10_000).build(),
+            budget_deadline: None,
         }
     }
 }

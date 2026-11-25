@@ -25,7 +25,7 @@ use crate::{
     metric_consts::{
         TEAM_DB_SLOTS_CALLS, TEAM_DB_SLOTS_HOT_EVENTS, TEAM_DB_SLOTS_IN_FLIGHT, TEAM_DB_SLOTS_TEAMS,
     },
-    modes::processing::config::ProcessingConfig,
+    modes::processing::config::{shadow_enabled, ProcessingConfig},
     types::operator::TeamId,
 };
 
@@ -97,14 +97,8 @@ pub async fn acquire_connection(
 
 impl TeamDbSlots {
     pub fn from_config(config: &ProcessingConfig) -> Result<Option<Arc<Self>>, UnhandledError> {
-        match config.team_db_slots_mode.as_str() {
-            "off" => return Ok(None),
-            "shadow" => {}
-            other => {
-                return Err(UnhandledError::Other(format!(
-                    "invalid CYMBAL_TEAM_DB_SLOTS_MODE: {other} (expected off or shadow)"
-                )))
-            }
+        if !shadow_enabled("CYMBAL_TEAM_DB_SLOTS_MODE", &config.team_db_slots_mode)? {
+            return Ok(None);
         }
         if config.team_db_slots == 0 {
             return Err(UnhandledError::Other(

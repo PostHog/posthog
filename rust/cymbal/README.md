@@ -105,6 +105,29 @@ A warning log names the team, at most once a minute for each team.
 | `cymbal_team_db_slots_hot_events_total` | exceptions that arrive for a hot team, by `team_id`. Only hot teams get a series, up to 50 teams per pod. Later hot teams share `team_id="other"`. |
 | `cymbal_team_db_slots_teams` | the teams that the pod tracks |
 
+## Batch time budget (processing mode)
+
+The batch time budget measures how often a `/process` batch takes longer than its budget, and where. It runs in shadow mode only: it never cuts a batch short.
+It is off by default.
+
+The budget starts when the batch enters the exception pipeline.
+Each stage runs over the whole batch before the next one starts, so a check after each stage finds the stage that was running when the budget ran out.
+Linking counts the events that get an issue after the budget ran out.
+A budget that cuts would return the ones among them that had not yet taken their database connection to Node for a retry.
+
+The budget applies to every `/process` call, because Cymbal does not yet know which lane sent a batch.
+During a flood, slow batches from the overflow lane count too.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CYMBAL_MAIN_LANE_BUDGET_MODE` | `off` | Set to `shadow` to record the budget. Any other value stops startup. |
+| `CYMBAL_MAIN_LANE_BUDGET_MS` | `5000` | The budget for each batch, in milliseconds. It must be at least 1. |
+
+| Metric | Records |
+| --- | --- |
+| `cymbal_main_lane_budget_exceeded_total` | batches over the budget, by the `stage` that was running when it ran out |
+| `cymbal_main_lane_budget_unfinished_events_total` | events that get an issue after the budget ran out |
+
 ## Issue-created rate limit (notifications mode)
 
 Notifications mode caps issue-created workflow starts per team. One Redis token

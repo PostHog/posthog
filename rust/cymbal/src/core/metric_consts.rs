@@ -147,6 +147,11 @@ pub const TEAM_DB_SLOTS_IN_FLIGHT_BUCKETS: &[f64] = &[
     1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 128.0,
 ];
 
+// Time budget per /process batch (see `batch_budget`)
+pub const MAIN_LANE_BUDGET_EXCEEDED: &str = "cymbal_main_lane_budget_exceeded_total";
+pub const MAIN_LANE_BUDGET_UNFINISHED_EVENTS: &str =
+    "cymbal_main_lane_budget_unfinished_events_total";
+
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";

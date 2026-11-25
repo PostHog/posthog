@@ -20,7 +20,7 @@ use crate::{
     },
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
-    modes::processing::team_db_slots::acquire_connection,
+    modes::processing::{batch_budget::record_linked_event, team_db_slots::acquire_connection},
     stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
@@ -115,6 +115,7 @@ impl IssueLinker {
         // all completed (or been dropped when moka deduped them), so we uniquely own the
         // event again and can reclaim it to write back the resolved issue.
         let input = Arc::into_inner(input).expect("input Arc uniquely held after cache resolution");
+        record_linked_event(ctx.budget_deadline);
         Ok(input.into_linked(issue))
     }
 }

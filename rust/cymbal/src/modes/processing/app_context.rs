@@ -13,6 +13,7 @@ use crate::modes::processing::redis_heal::HealGate;
 use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
+    modes::processing::batch_budget::budget_from_config,
     modes::processing::config::{init_global_state, ProcessingConfig},
     modes::processing::team_db_slots::TeamDbSlots,
     stages::adaptive_ingestion::AdaptiveIngestionRuntime,
@@ -66,6 +67,7 @@ pub struct AppContext {
     // for apps that never bound one. Lives here so it survives across batches.
     pub release_cache: ReleaseCache,
     pub team_db_slots: Option<Arc<TeamDbSlots>>,
+    pub main_lane_budget: Option<Duration>,
 }
 
 impl Drop for AppContext {
@@ -185,6 +187,7 @@ impl AppContext {
         let rate_limiter = build_rate_limiter(config).await?;
         let adaptive_ingestion = AdaptiveIngestionRuntime::from_config(config).await?;
         let team_db_slots = TeamDbSlots::from_config(config)?;
+        let main_lane_budget = budget_from_config(config)?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
         let drop_code_variables_team_ids = Arc::new(parse_strict_team_id_list(
@@ -211,6 +214,7 @@ impl AppContext {
             remote_resolution,
             remote_resolution_refresh_task,
             team_db_slots,
+            main_lane_budget,
         })
     }
 }

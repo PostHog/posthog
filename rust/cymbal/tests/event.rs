@@ -800,6 +800,26 @@ async fn a_batch_takes_one_team_db_slot_per_new_fingerprint(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn a_batch_over_its_shadow_budget_still_links_every_event(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event(vec![make_exception("Error", "a slow batch")]);
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&input, |config| {
+            config.main_lane_budget_mode = "shadow".to_string();
+            config.main_lane_budget_ms = 1;
+        })
+        .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.first_event().is_some(),
+        "shadow mode dropped the event"
+    );
+    assert!(!body.take_properties().issue_id().is_nil());
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);

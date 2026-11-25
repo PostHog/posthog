@@ -4,7 +4,7 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
-use crate::core::config::ResolverConfig;
+use crate::{core::config::ResolverConfig, error::UnhandledError};
 
 pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
@@ -237,6 +237,12 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_TEAM_HOT_WINDOW_SECS", default = "10")]
     pub team_hot_window_secs: u64,
 
+    #[envconfig(from = "CYMBAL_MAIN_LANE_BUDGET_MODE", default = "off")]
+    pub main_lane_budget_mode: String,
+
+    #[envconfig(from = "CYMBAL_MAIN_LANE_BUDGET_MS", default = "5000")]
+    pub main_lane_budget_ms: u64,
+
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------
@@ -352,4 +358,15 @@ impl ProcessingConfig {
 
 pub fn init_global_state(config: &ProcessingConfig) {
     BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
+}
+
+/// Reads an `off | shadow` mode variable. Any other value stops startup.
+pub fn shadow_enabled(var: &str, value: &str) -> Result<bool, UnhandledError> {
+    match value {
+        "off" => Ok(false),
+        "shadow" => Ok(true),
+        other => Err(UnhandledError::Other(format!(
+            "invalid {var}: {other} (expected off or shadow)"
+        ))),
+    }
 }
