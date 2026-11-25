@@ -357,8 +357,8 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 ### Git read adapter
 
 `internal/gitread` implements the first credential-aware adapter. It is a library;
-the deployed request listener still serves only the probe. Worker publication,
-regional credential storage and route wiring must land before a sandbox can use it.
+the deployed request listener still serves only the probe.
+Worker mint/refresh integration and route wiring must land before a sandbox can use it.
 
 ```text
 Verified run + repository -> read grant -> GitHub HTTPS with injected token
@@ -388,7 +388,7 @@ upstream errors have generic responses. Successful pack data streams to the gues
 The caller records admission before calling `Forward`, then records its outcome;
 only `CredentialVersion`, never the grant or token, belongs in audit metadata.
 It supplies the upstream transport, which must use the approved external egress path.
-No direct transport, registry client or credential service is selected by this library.
+The adapter does not select its upstream transport or credential source.
 
 Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
 and decoded sizes. The adapter buffers this bounded negotiation before forwarding
@@ -405,6 +405,44 @@ Tests run actual `git clone`, `fetch` and denied operations against a local
 [`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
 They exercise token replacement, scope checks, stripped headers and cancellation.
 They do not prove worker publication, cloud transport or sandbox credential removal.
+
+### Git grant publication
+
+`AgentEgressGitGrants.publish` stores one repository's read credential on an active execution.
+The existing Django encrypted field protects the payload at rest in the regional database.
+The trusted worker must authorize the repository, resolve the correct actor's token, and supply a validity deadline no later than the upstream token's expiry.
+Publication accepts at most one hour of validity; it does not infer expiry from token prefixes or change the minting identity.
+No worker calls it yet.
+
+```text
+Worker: publish(version, previous_version, repository, token, expiry)
+  -> active execution + matching previous version
+  -> encrypted grant
+Proxy: scoped HTTPS lookup
+  -> recheck execution and repository
+  -> credential + version + current lease
+```
+
+Retries with the same version and payload are idempotent.
+A delayed rotation cannot overwrite a newer version.
+`clear` removes the credential and advances its version, fencing earlier publishers.
+Execution revocation, replacement and sandbox cleanup erase the payload.
+Expiry denies access even when cleanup has not run; an abandoned row can retain expired ciphertext until cleanup.
+Registration metadata lookups do not load or return the credential.
+
+The grant endpoint has its own `posthog:agent_egress_credentials` audience and `AGENT_EGRESS_CREDENTIALS_JWT_SECRETS` key list, newest first.
+Provision separate values per region; there is no default or fallback to the registration key.
+Tokens last at most 30 seconds and bind team, run, execution, region, repository and the `git_read_grant` operation.
+The endpoint requires HTTPS and returns `Cache-Control: no-store` on every response.
+After authentication and claim validation, an atomic Redis budget limits each team's execution to a burst of 60 lookups, refilling at 600 per hour.
+Rotating the lookup JWT does not reset the budget. Exhaustion returns `429` with `Retry-After`; an unavailable budget store returns `503` without reading the grant.
+The Go client refuses HTTP and redirects, checks the returned binding, and distinguishes denial from unavailability.
+Neither endpoint nor client mints an upstream token.
+
+This slice supplies storage, a worker publication interface and a proxy client.
+It does not mount the adapter, provision the service key, or remove sandbox credentials.
+The credential client requires a verified TLS path to Django; the metadata client's optional cluster HTTP path does not apply.
+Before serving Git traffic, wire refresh into the existing worker lifecycle and maintain proxy state within its lease without a database lookup for every Git request.
 
 ## Registration and time
 
