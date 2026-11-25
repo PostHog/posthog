@@ -307,9 +307,11 @@ GROUP BY 1, 2
 ORDER BY 1, 2"""
 
     def build_exposure_rows_left_out(self) -> str:
-        """The exposure rows the experiment leaves out, counted by reason. A row whose variant the flag does not
-        serve is counted by the value seen, so the user can spot a misspelt variant. The customer's query runs
-        once: every reason comes from one pass over its rows, and the cap on the values is applied after."""
+        """The exposure rows in the experiment's window that it leaves out, counted by reason. A row whose variant
+        the flag does not serve is counted by the value seen, so the user can spot a misspelt variant. The window
+        bounds the scan as it does for the exposures statement, so a table with years of history is not read in
+        full. The customer's query runs once: every reason comes from one pass over its rows, and the cap on the
+        values is applied after."""
         rows = f"{self._prefix}exposure_rows"
         left_out = f"{self._prefix}left_out"
         counts = f"{self._prefix}left_out_counts"
@@ -323,11 +325,11 @@ ORDER BY 1, 2"""
         CASE
             WHEN {rows}.entity_id IS NULL OR {rows}.entity_id = '' THEN 'empty_id'
             WHEN {unknown_variant} THEN 'unknown_variant'
-            WHEN {rows}.exposure_time < {_timestamp_literal(self.date_from)} THEN 'before_window'
-            WHEN {rows}.exposure_time > {_timestamp_literal(self.date_to)} THEN 'after_window'
         END AS reason,
         COALESCE({rows}.variant, '') AS variant
     FROM {rows}
+    WHERE {rows}.exposure_time >= {_timestamp_literal(self.date_from)}
+        AND {rows}.exposure_time <= {_timestamp_literal(self.date_to)}
 ),
 {counts} AS (
     SELECT

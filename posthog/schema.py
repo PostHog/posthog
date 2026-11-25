@@ -6462,11 +6462,6 @@ class ExperimentWarehouseNativeRowsLeftOut(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after_window: int | None = Field(
-        default=None,
-        description=("Exposure rows after the end of the experiment, or after now while it runs."),
-    )
-    before_window: int | None = Field(default=None, description="Exposure rows before the start of the experiment.")
     empty_id: int | None = Field(default=None, description="Exposure rows with an empty entity_id.")
     exposed_without_rows: dict[str, int] | None = Field(
         default=None,

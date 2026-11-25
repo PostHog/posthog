@@ -31395,16 +31395,8 @@
         },
         "ExperimentWarehouseNativeRowsLeftOut": {
             "additionalProperties": false,
-            "description": "Rows of a warehouse-native query that a run left out, counted by reason. A warehouse-native run fills the fields its statements can count; every other run leaves the object out.",
+            "description": "Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run leaves the object out.",
             "properties": {
-                "after_window": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Exposure rows after the end of the experiment, or after now while it runs."
-                },
-                "before_window": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Exposure rows before the start of the experiment."
-                },
                 "empty_id": {
                     "$ref": "#/definitions/integer",
                     "description": "Exposure rows with an empty entity_id."

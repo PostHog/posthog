@@ -865,13 +865,13 @@ _RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
 def _exposure_rows_left_out(rows: list[Any]) -> ExperimentWarehouseNativeRowsLeftOut:
     """The rows of the diagnostic statement: one per reason, and one per value for an unknown variant."""
     unknown_variants: dict[str, int] = {}
-    counts = {"empty_id": 0, "before_window": 0, "after_window": 0}
+    empty_id = 0
     for reason, value, count in rows:
         if reason == "unknown_variant":
             unknown_variants[str(value)] = unknown_variants.get(str(value), 0) + int(count)
-        elif reason in counts:
-            counts[reason] += int(count)
-    return ExperimentWarehouseNativeRowsLeftOut(unknown_variants=unknown_variants, **counts)
+        elif reason == "empty_id":
+            empty_id += int(count)
+    return ExperimentWarehouseNativeRowsLeftOut(unknown_variants=unknown_variants, empty_id=empty_id)
 
 
 def _exposed_by_library(rows: list[Any]) -> dict[str, int]:

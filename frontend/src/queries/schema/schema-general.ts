@@ -6973,18 +6973,15 @@ export interface ExperimentQueryResponse {
 }
 
 /**
- * Rows of a warehouse-native query that a run left out, counted by reason. A warehouse-native run fills the
- * fields its statements can count; every other run leaves the object out.
+ * Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows
+ * in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run
+ * leaves the object out.
  */
 export interface ExperimentWarehouseNativeRowsLeftOut {
     /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
     unknown_variants?: Record<string, integer>
     /** Exposure rows with an empty entity_id. */
     empty_id?: integer
-    /** Exposure rows before the start of the experiment. */
-    before_window?: integer
-    /** Exposure rows after the end of the experiment, or after now while it runs. */
-    after_window?: integer
     /** Exposed entities with no row of the metric query that counted, by variant. */
     exposed_without_rows?: Record<string, integer>
 }

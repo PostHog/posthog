@@ -253,11 +253,11 @@ class TestWarehouseNativeQueryBuilder(SimpleTestCase):
 
         rows = self._rows(statement)
 
-        # The fixture has one row with no id, one for the holdout variant, and one from before the experiment.
+        # The fixture has one row with no id and one for the holdout variant. Its row from before the experiment
+        # is outside the window, which bounds the scan.
         assert {(reason, value, int(count)) for reason, value, count in rows} == {
             ("empty_id", None, 1),
             ("unknown_variant", "holdout", 1),
-            ("before_window", None, 1),
         }
 
     def test_ratio_metric_totals_per_variant(self) -> None:
