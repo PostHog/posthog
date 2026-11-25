@@ -18,6 +18,43 @@ describe('published viewer refreshes', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => jest.restoreAllMocks())
 
+    it('applies a list for this viewer and recognizes the published defaults when reselected', async () => {
+        const regions = { name: 'regions', type: 'list', value: ['North'] }
+        jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
+            revision: 2,
+            title: 'Regions',
+            markdown: '',
+            layout: {
+                ...emptyAppLayout(),
+                blocks: [
+                    { id: 'regions', kind: 'input', tab_id: 'overview', variable: 'regions', input_kind: 'select' },
+                ],
+            },
+            variables: [regions],
+            has_previous: false,
+            results_as_of: null,
+            published_at: null,
+        })
+        const plans = jest.spyOn(notebookApi, 'notebooksAppQueriesCreate').mockResolvedValue([])
+        const viewer = notebookAppViewerLogic({ project: '1', shortId: 'report', sessionId: 'viewer' })
+        viewer.mount()
+        try {
+            await waitFor(() => expect(viewer.values.variables).toEqual([regions]))
+            expect(viewer.values.dirty).toBe(false)
+            viewer.actions.setAuto(false)
+            viewer.actions.changeInput('regions', ['North', 'South'])
+            expect(viewer.values.dirty).toBe(true)
+            viewer.actions.changeInput('regions', ['North'])
+            expect(viewer.values.dirty).toBe(false)
+            viewer.actions.changeInput('regions', [])
+            viewer.actions.refresh()
+            await waitFor(() => expect(viewer.values.results?.variables).toEqual([{ ...regions, value: [] }]))
+            expect(plans.mock.calls[0][2].variables).toEqual([{ ...regions, value: [] }])
+        } finally {
+            viewer.unmount()
+        }
+    })
+
     it('bounds simultaneous queries, commits their results together, and cancels only the superseded viewer queries', async () => {
         const plans = Array.from({ length: 6 }, (_, i) => ({
             node_id: String(i),

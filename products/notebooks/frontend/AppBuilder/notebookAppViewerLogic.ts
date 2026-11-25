@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import {
     coerceNotebookVariableValue,
     parseNotebookVariables,
@@ -263,8 +264,11 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                             posthog.capture('notebook app viewer results updated', {
                                 short_id: props.shortId,
                                 revision: release.revision,
-                                filtered: variables.some(
-                                    (variable, index) => variable.value !== defaults[index]?.value
+                                filtered: !objectsEqual(variables, defaults),
+                                filtered_by_list: variables.some(
+                                    (variable, index) =>
+                                        variable.type === 'list' &&
+                                        !objectsEqual(variable.value, defaults[index]?.value)
                                 ),
                             })
                         }
@@ -306,7 +310,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                 release: NotebookAppReleaseApi | null
             ): boolean => {
                 const applied = results?.variables ?? (release ? exposedVariables(release) : [])
-                return variables.some((v, index) => v.value !== applied[index]?.value)
+                return !objectsEqual(variables, applied)
             },
         ],
     }),

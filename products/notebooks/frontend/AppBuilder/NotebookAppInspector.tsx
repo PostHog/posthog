@@ -26,6 +26,7 @@ export function NotebookAppInspector({
     onClose: () => void
     onSource: (id: string) => void
 }): JSX.Element {
+    const variableType = variables.find((variable) => variable.name === block?.variable)?.type
     return (
         <aside
             className="NotebookAppBuilder__inspector border rounded bg-surface-primary p-3 flex flex-col gap-3"
@@ -154,15 +155,15 @@ export function NotebookAppInspector({
                                 value={block.input_kind ?? 'auto'}
                                 options={[
                                     { value: 'auto', label: 'Match variable type' },
-                                    { value: 'select', label: 'Dropdown' },
+                                    {
+                                        value: 'select',
+                                        label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
+                                    },
                                     {
                                         value: 'slider',
                                         label: 'Slider',
                                         disabledReason:
-                                            variables.find((variable) => variable.name === block.variable)?.type !==
-                                            'number'
-                                                ? 'Select a number variable first'
-                                                : undefined,
+                                            variableType !== 'number' ? 'Select a number variable first' : undefined,
                                     },
                                 ]}
                                 onChange={(input_kind) => onBlock(block.id, { input_kind })}
@@ -175,6 +176,11 @@ export function NotebookAppInspector({
                                         onChange={(text) => onBlock(block.id, { options: text.split('\n') })}
                                         aria-label="Dropdown options"
                                     />
+                                    {variableType !== 'list' && (
+                                        <span className="text-xs text-secondary">
+                                            To allow multiple selections, choose List of text in the notebook variables.
+                                        </span>
+                                    )}
                                 </>
                             )}
                             {block.input_kind === 'slider' && (

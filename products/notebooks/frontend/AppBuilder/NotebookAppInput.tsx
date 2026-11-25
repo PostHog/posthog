@@ -8,6 +8,7 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 import { coerceNotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
+import { NotebookVariableListInput } from '../NotebookVariableListInput'
 
 export function NotebookAppInput({
     block,
@@ -30,7 +31,15 @@ export function NotebookAppInput({
             <label htmlFor={id} className="font-semibold">
                 {label}
             </label>
-            {block.input_kind === 'select' ? (
+            {variable.type === 'list' ? (
+                <NotebookVariableListInput
+                    id={id}
+                    value={variable.value}
+                    options={block.input_kind === 'select' ? (block.options ?? []) : undefined}
+                    disabled={disabled}
+                    onChange={onChange}
+                />
+            ) : block.input_kind === 'select' ? (
                 <LemonSelect
                     id={id}
                     fullWidth
