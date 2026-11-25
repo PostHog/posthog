@@ -236,9 +236,13 @@ def _report_posthog_alternative_changes(scan: WizardScan, changes: _ScanChanges)
 
 
 def _set_organization_email_providers(organization_id: str) -> None:
+    send_organization_email_providers(organization_id, organization_email_providers(organization_id))
+
+
+def organization_email_providers(organization_id: str) -> list[str]:
     # Removed tools count too, so a later scan that finds fewer providers keeps the ones found before. Matched by
     # kind rather than the stored `alternative_to`, which is empty on rows written before a provider was tagged.
-    providers = sorted(
+    return sorted(
         WizardDetectedTool.objects.unscoped()
         .using("default")
         .filter(team__organization_id=organization_id, kind__in=kinds_alternative_to(ProductKey.WORKFLOWS))
@@ -246,7 +250,14 @@ def _set_organization_email_providers(organization_id: str) -> None:
         .values_list("kind", flat=True)
         .distinct()
     )
-    posthoganalytics.group_identify("organization", organization_id, properties={"email_providers": providers})
+
+
+def send_organization_email_providers(
+    organization_id: str, providers: list[str], *, client: posthoganalytics.Client | None = None
+) -> str | None:
+    return (client or posthoganalytics).group_identify(
+        "organization", organization_id, properties={"email_providers": providers}
+    )
 
 
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
