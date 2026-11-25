@@ -27,6 +27,7 @@ from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ServerConfigurationQueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -2729,6 +2730,12 @@ class TestMaterializeViewPromptJev:
             [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]
 
         assert isinstance(error.value.__cause__, ResolutionCycleError)
+
+    async def test_a_server_without_native_clickhouse_still_reports_and_retries(self, ateam):
+        query = "SELECT jev(text, 'Is this a refund request?') AS is_refund FROM (SELECT 'refund' AS text)"
+
+        with override_settings(CLICKHOUSE_USE_HTTP=True), pytest.raises(ServerConfigurationQueryError):
+            [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
 
 class TestHogqlTableEmptyResults:

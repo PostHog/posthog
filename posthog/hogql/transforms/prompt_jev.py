@@ -17,7 +17,7 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
-from posthog.hogql.errors import QueryError, TransientQueryError
+from posthog.hogql.errors import QueryError, ServerConfigurationQueryError, TransientQueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_decision_call
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
@@ -260,7 +260,7 @@ class PromptJevRunner:
                 assert isinstance(client, GatewaySystemOneClient)
                 self.clients[spec.model] = client
             except SystemOneNotConfigured as error:
-                raise QueryError(
+                raise ServerConfigurationQueryError(
                     "Jev is not configured. Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY on the server."
                 ) from error
         batches: list[list[str]] = []
@@ -511,7 +511,9 @@ class PromptJevPlanner(CloningVisitor):
 
 def validate_prompt_jev_access(team: "Team") -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        raise QueryError("jev requires the native ClickHouse connection. Ask your administrator to configure it.")
+        raise ServerConfigurationQueryError(
+            "jev requires the native ClickHouse connection. Ask your administrator to configure it."
+        )
     if _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
 

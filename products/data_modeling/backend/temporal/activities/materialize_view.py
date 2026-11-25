@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, ParsingError, TransientQueryError
+from posthog.hogql.errors import ExposedHogQLError, ParsingError, ServerConfigurationQueryError, TransientQueryError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -304,7 +304,7 @@ class HogQLModelQueryError(NonReportableError):
 def _hogql_errors_as_customer_errors() -> Iterator[None]:
     try:
         yield
-    except TransientQueryError:
+    except (TransientQueryError, ServerConfigurationQueryError):
         raise
     except ExposedHogQLError as error:
         raise HogQLModelQueryError(str(error)) from error

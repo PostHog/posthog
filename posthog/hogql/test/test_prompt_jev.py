@@ -12,7 +12,7 @@ import httpx
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError, TransientQueryError
+from posthog.hogql.errors import QueryError, ServerConfigurationQueryError, TransientQueryError
 from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -260,7 +260,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             patch("posthog.hogql.query.sync_execute") as execute,
             patch("httpx.AsyncClient.post") as post,
-            self.assertRaisesRegex(QueryError, "native ClickHouse connection"),
+            self.assertRaisesRegex(ServerConfigurationQueryError, "native ClickHouse connection"),
         ):
             execute_hogql_query("SELECT jev('refund', 'Refund?') AS p", self.team, user=self.user)
         execute.assert_not_called()
@@ -420,6 +420,9 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     def test_missing_gateway_configuration(self) -> None:
-        with patch("httpx.AsyncClient.post") as post, self.assertRaisesRegex(QueryError, "not configured"):
+        with (
+            patch("httpx.AsyncClient.post") as post,
+            self.assertRaisesRegex(ServerConfigurationQueryError, "not configured"),
+        ):
             execute_hogql_query("SELECT jev('a', 'q') AS p", self.team, user=self.user)
         post.assert_not_called()
