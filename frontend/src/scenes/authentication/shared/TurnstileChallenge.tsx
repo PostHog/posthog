@@ -11,7 +11,6 @@ interface TurnstileChallengeProps {
     onSuccess: (token: string) => void
     // When set, a spinner with this label replaces the check, because the form submits again with the token
     pendingLabel?: string
-    // Shown before the support link after the challenge fails twice
     troublePrompt: string
     email?: string
 }

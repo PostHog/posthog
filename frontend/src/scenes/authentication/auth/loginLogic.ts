@@ -481,7 +481,6 @@ export const loginLogic = kea<loginLogicType>([
         resetLoginChallenge: true,
     }),
     reducers({
-        // The Turnstile challenge that WorkOS Radar asked for. Its nonce is good for one submit only.
         loginChallenge: [
             null as LoginChallenge | null,
             {
@@ -767,7 +766,6 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     selectors(() => ({
-        // A validation error before the request leaves the challenge unused, so the next submit sends it again
         solvedLoginChallenge: [
             (s) => [s.loginChallenge, s.loginTurnstileToken],
             (loginChallenge: LoginChallenge | null, loginTurnstileToken: string | null): SolvedLoginChallenge | null =>

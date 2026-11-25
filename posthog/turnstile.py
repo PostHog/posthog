@@ -24,7 +24,6 @@ logger = structlog.get_logger(__name__)
 TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_VERIFY_TIMEOUT = 5.0
 CHALLENGE_NONCE_TTL_SECONDS = 300
-# An IP with this many challenges left unsolved in the window gets a block in place of another challenge
 OPEN_CHALLENGE_LIMIT = 20
 OPEN_CHALLENGE_WINDOW_SECONDS = 600
 
@@ -93,8 +92,7 @@ def create_challenge_nonce(email: str, ip_address: str, *, action: str, radar_at
     identity_hash = _nonce_identity_hash(email, ip_address)
     nonce = f"challenge:{identity_hash}:{uuid.uuid4()}"
     redis_key = f"turnstile_nonce:{nonce}"
-    # The action and the ID stay on the server, so a solved login challenge cannot complete a signup
-    # and the browser cannot name another attempt to report as a success
+    # The action and the ID stay on the server, so the browser can change neither of them
     pipeline = get_client().pipeline(transaction=True)
     pipeline.setex(redis_key, CHALLENGE_NONCE_TTL_SECONDS, f"{action}:{radar_attempt_id or _NO_ATTEMPT_ID}")
     pipeline.zadd(_open_challenges_key(ip_address), {nonce: time.time()})
