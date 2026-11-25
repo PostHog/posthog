@@ -41,7 +41,7 @@
         "jest": "pnpm build:products && jest",
         "typescript:check": "node ./bin/typescript-check.mjs",
         "typescript:version": "tsc --version",
-        "lint": "cd .. && oxlint --quiet",
+        "lint": "cd .. && oxlint --quiet && node bin/lint-react-performance.mjs",
         "lint:fix": "cd .. && oxlint --fix --quiet",
         "format": "cd .. && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "format:check": "cd .. && oxfmt --check \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",

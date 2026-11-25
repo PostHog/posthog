@@ -1,0 +1,10 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": [],
+    "categories": { "correctness": "off" },
+    "jsPlugins": [{ "name": "react-performance", "specifier": "./bin/react-performance-rules.mjs" }],
+    "ignorePatterns": ["**/generated/**"],
+    "rules": {
+        "react-performance/no-repeated-array-lookup": "error"
+    }
+}

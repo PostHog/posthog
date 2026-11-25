@@ -45,7 +45,7 @@
         "start": "./bin/start",
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true; [ ! -f bin/fix-rdkafka-paths ] || bin/fix-rdkafka-paths",
         "lint": "pnpm lint:js && pnpm lint:css",
-        "lint:js": "oxlint --quiet",
+        "lint:js": "oxlint --quiet && node bin/lint-react-performance.mjs",
         "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\" --ignore-pattern \"products/desktop/**\"",
         "test:unit": "pnpm --filter=@posthog/frontend test"
     },
@@ -96,7 +96,10 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs,hog}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "{playwright,frontend,products,common,ee,services,docs,hog}/**/*.{js,jsx,mjs,mts,ts,tsx}": [
+            "bin/hogli format:js",
+            "bin/hogli lint:react-performance"
+        ],
         "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "products/mobile/**/*.{js,mjs,ts,tsx,json,jsonc}": "sh -c 'cd products/mobile && pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true \"$@\"' _",
         "packages/agent/**/*.{js,mjs,mts,ts,tsx,json,jsonc}": "pnpm --dir packages/agent exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
