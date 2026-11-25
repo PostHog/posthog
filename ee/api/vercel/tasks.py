@@ -21,6 +21,11 @@ def backfill_vercel_connectable_resources() -> None:
     )
 
     for installation in installations:
+        # A resource created without an import is skipped by every later run, so get the token first.
+        access_token = VercelIntegration._get_access_token(installation)
+        if not access_token or not installation.integration_id:
+            continue
+
         org = installation.organization
         org_team_ids = Team.objects.filter(organization=org).values_list("id", flat=True)
         teams_with_resources = {
@@ -34,10 +39,6 @@ def backfill_vercel_connectable_resources() -> None:
             try:
                 resource, created = get_or_create_connectable_resource(team)
                 if not created:
-                    continue
-
-                access_token = VercelIntegration._get_access_token(installation)
-                if not access_token or not installation.integration_id:
                     continue
 
                 client = VercelAPIClient(bearer_token=access_token)

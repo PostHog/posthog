@@ -1512,9 +1512,13 @@ def _safe_vercel_sync(
         if is_delete:
             return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation:
+        if not installation or not installation.integration_id:
             return
         try:
+            # A resource created without an import is never imported later, so get the token first.
+            access_token = VercelIntegration._get_access_token(installation)
+            if not access_token:
+                return
             resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
@@ -1522,16 +1526,14 @@ def _safe_vercel_sync(
                     team_id=team.pk,
                     integration="vercel",
                 )
-                access_token = VercelIntegration._get_access_token(installation)
-                if access_token and installation.integration_id:
-                    client = VercelAPIClient(bearer_token=access_token)
-                    client.import_resource(
-                        integration_config_id=installation.integration_id,
-                        resource_id=str(resource.id),
-                        product_id="posthog",
-                        name=team.name,
-                        secrets=VercelIntegration._build_secrets(team),
-                    )
+                client = VercelAPIClient(bearer_token=access_token)
+                client.import_resource(
+                    integration_config_id=installation.integration_id,
+                    resource_id=str(resource.id),
+                    product_id="posthog",
+                    name=team.name,
+                    secrets=VercelIntegration._build_secrets(team),
+                )
         except Exception as e:
             logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
             capture_exception(e)

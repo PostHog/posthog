@@ -266,7 +266,7 @@ def _validate_next_url(url: str) -> str:
 def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     """Return True if Vercel no longer recognises this installation.
 
-    Vercel shows this by refusing a token for it (`invalid_grant`), or with 401/403/404 on the installation.
+    Vercel shows this by refusing a token for it (400 `invalid_grant`), or with 401/403/404 on the installation.
 
     Returns False when Vercel confirms the installation is active, or when
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
@@ -279,7 +279,7 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
     try:
         client = VercelAPIClient.for_installation(installation_id)
     except InstallationTokenError as e:
-        return e.code == "invalid_grant"
+        return e.status_code == 400 and e.code == "invalid_grant"
     try:
         return not client.check_installation_active(installation_id)
     except APIError:

@@ -194,6 +194,21 @@ class OrganizationIntegrationViewSet(
         from ee.vercel.client import InstallationTokenError, VercelAPIClient
         from ee.vercel.integration import get_or_create_connectable_resource
 
+        # Vercel keeps the previous projects' secrets until the import below runs, so a mapping saved
+        # without a token would point Vercel and PostHog at different projects.
+        client: VercelAPIClient | None = None
+        if integration.integration_id:
+            try:
+                client = VercelAPIClient.for_installation(integration.integration_id)
+            except InstallationTokenError as e:
+                capture_exception(e, {"installation_id": integration.integration_id})
+                return Response(
+                    {
+                        "detail": "Couldn't reach Vercel, so the environment mapping is unchanged. Try again in a few minutes."
+                    },
+                    status=502,
+                )
+
         teams_by_id: dict[int, Team] = {}
         resources: dict[int, IntegrationRecord] = {}
         for tid in {production_id, preview_id, development_id}:
@@ -210,23 +225,18 @@ class OrganizationIntegrationViewSet(
         production_team = teams_by_id[production_id]
         production_resource = resources[production_id]
 
-        if integration.integration_id:
+        if client is not None and integration.integration_id:
             from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
 
             secrets = VercelConnectLinkViewSet._build_env_secrets(
                 teams_by_id, production_id, preview_id, development_id
             )
-            try:
-                client = VercelAPIClient.for_installation(integration.integration_id)
-            except InstallationTokenError as e:
-                capture_exception(e, {"installation_id": integration.integration_id})
-            else:
-                client.import_resource(
-                    integration_config_id=integration.integration_id,
-                    resource_id=str(production_resource.id),
-                    product_id="posthog",
-                    name=production_team.name,
-                    secrets=secrets,
-                )
+            client.import_resource(
+                integration_config_id=integration.integration_id,
+                resource_id=str(production_resource.id),
+                product_id="posthog",
+                name=production_team.name,
+                secrets=secrets,
+            )
 
         return Response(OrganizationIntegrationSerializer(integration).data)
