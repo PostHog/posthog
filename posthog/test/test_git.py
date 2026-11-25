@@ -1,17 +1,13 @@
+import os
+import sys
 import subprocess
+from pathlib import Path
 
 import pytest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.git import (
-    extract_explicit_repo,
-    extract_linked_repo,
-    extract_repo_from_scopes,
-    get_git_commit_full,
-    get_git_commit_short,
-)
+from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
 
 REPOS = ["posthog/posthog", "posthog/posthog-js", "posthog/posthog.com"]
 
@@ -134,76 +130,75 @@ class TestExtractRepoFromScopes:
         assert extract_repo_from_scopes(scopes, REPOS) == expected
 
 
-FULL_SHA = "0123456789abcdef0123456789abcdef01234567"
-CHECKED_OUT_SHA = "fedcba9876543210fedcba9876543210fedcba98"
-STALE_GIT_SHA = "1111111111222222222233333333334444444444"
+BAKED_IN_SHA = "0123456789abcdef0123456789abcdef01234567"
+INJECTED_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PRINT_COMMITS = "from posthog.git import get_git_commit_full as f, get_git_commit_short as s; print(f(), s())"
+FROM_GIT = "from git"
 
 
-def stale_git_rev_parse(args: list[str]) -> bytes:
-    sha = STALE_GIT_SHA[:7] if "--short" in args else STALE_GIT_SHA
-    return f"{sha}\n".encode()
+def hermetic_env(workdir: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "POSTHOG_GIT_COMMIT"))}
+    return env | {
+        "GIT_CEILING_DIRECTORIES": str(workdir.parent),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+
+def git(workdir: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=workdir, env=hermetic_env(workdir), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def make_checkout(workdir: Path, source: str) -> tuple[str, str]:
+    if source == "commit.txt":
+        (workdir / "commit.txt").write_text(f"{BAKED_IN_SHA}\n")
+    if source == "git":
+        git(workdir, "init", "--quiet")
+        git(
+            workdir,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "head",
+        )
+        return git(workdir, "rev-parse", "HEAD"), git(workdir, "rev-parse", "--short", "HEAD")
+    return "None", "None"
+
+
+def commits_seen_by_a_process_in(workdir: Path, injected: str | None) -> tuple[str, str]:
+    env = hermetic_env(workdir) | {"PYTHONPATH": str(REPO_ROOT)}
+    if injected is not None:
+        env["POSTHOG_GIT_COMMIT"] = injected
+    output = subprocess.run(
+        [sys.executable, "-c", PRINT_COMMITS], cwd=workdir, env=env, capture_output=True, text=True, check=True
+    ).stdout
+    full, short = output.split()
+    return full, short
 
 
 class TestGitCommit:
-    @pytest.fixture(autouse=True)
-    def isolate(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("POSTHOG_GIT_COMMIT", raising=False)
-        get_git_commit_full.cache_clear()
-        get_git_commit_short.cache_clear()
-        yield
-        get_git_commit_full.cache_clear()
-        get_git_commit_short.cache_clear()
-
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "source, injected, expected",
         [
-            ("injected_beats_git", None, CHECKED_OUT_SHA, CHECKED_OUT_SHA),
-            ("injected_is_stripped", None, f"  {CHECKED_OUT_SHA}\n", CHECKED_OUT_SHA),
-            ("baked_in_beats_injected", FULL_SHA, CHECKED_OUT_SHA, FULL_SHA),
-            ("blank_injected_falls_back_to_git", None, " \n ", STALE_GIT_SHA),
-        ]
+            pytest.param("commit.txt", None, (BAKED_IN_SHA, BAKED_IN_SHA[:10]), id="baked_in"),
+            pytest.param("commit.txt", INJECTED_SHA, (BAKED_IN_SHA, BAKED_IN_SHA[:10]), id="baked_in_beats_injected"),
+            pytest.param("git", INJECTED_SHA, (INJECTED_SHA, INJECTED_SHA[:10]), id="injected_beats_git"),
+            pytest.param("git", f"  {INJECTED_SHA}\n", (INJECTED_SHA, INJECTED_SHA[:10]), id="injected_is_stripped"),
+            pytest.param("git", " \n ", FROM_GIT, id="blank_injected_falls_back_to_git"),
+            pytest.param("git", None, FROM_GIT, id="unset_falls_back_to_git"),
+            pytest.param("nothing", None, ("None", "None"), id="unknown"),
+        ],
     )
-    def test_resolves_the_full_commit(self, _name: str, baked_in: str | None, injected: str, expected: str):
-        with (
-            patch("posthog.git._git_commit_baked_in", baked_in),
-            patch.dict("os.environ", {"POSTHOG_GIT_COMMIT": injected}),
-            patch("posthog.git.subprocess.check_output", side_effect=stale_git_rev_parse),
-        ):
-            assert get_git_commit_full() == expected
-
-    @parameterized.expand(
-        [
-            ("injected_is_cut_like_baked_in", None, CHECKED_OUT_SHA, CHECKED_OUT_SHA[:10]),
-            ("baked_in_beats_injected", FULL_SHA, CHECKED_OUT_SHA, FULL_SHA[:10]),
-            ("blank_injected_falls_back_to_git", None, "   ", STALE_GIT_SHA[:7]),
-        ]
-    )
-    def test_resolves_the_short_commit(self, _name: str, baked_in: str | None, injected: str, expected: str):
-        with (
-            patch("posthog.git._git_commit_baked_in", baked_in),
-            patch.dict("os.environ", {"POSTHOG_GIT_COMMIT": injected}),
-            patch("posthog.git.subprocess.check_output", side_effect=stale_git_rev_parse),
-        ):
-            assert get_git_commit_short() == expected
-
-    def test_returns_the_full_baked_in_commit(self):
-        with (
-            patch("posthog.git._git_commit_baked_in", FULL_SHA),
-            patch("posthog.git.subprocess.check_output") as check_output,
-        ):
-            assert get_git_commit_full() == FULL_SHA
-        check_output.assert_not_called()
-
-    def test_falls_back_to_git_when_nothing_is_baked_in(self):
-        with (
-            patch("posthog.git._git_commit_baked_in", None),
-            patch("posthog.git.subprocess.check_output", return_value=f"{FULL_SHA}\n".encode()) as check_output,
-        ):
-            assert get_git_commit_full() == FULL_SHA
-        check_output.assert_called_once_with(["git", "rev-parse", "HEAD"])
-
-    def test_returns_none_when_the_commit_is_unknown(self):
-        with (
-            patch("posthog.git._git_commit_baked_in", None),
-            patch("posthog.git.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git")),
-        ):
-            assert get_git_commit_full() is None
+    def test_resolves_the_running_commit(
+        self, tmp_path: Path, source: str, injected: str | None, expected: tuple[str, str] | str
+    ):
+        from_git = make_checkout(tmp_path, source)
+        assert commits_seen_by_a_process_in(tmp_path, injected) == (from_git if expected == FROM_GIT else expected)
