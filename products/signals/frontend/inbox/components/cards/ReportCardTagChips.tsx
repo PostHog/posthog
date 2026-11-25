@@ -5,6 +5,7 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { SignalReport } from '../../types'
 import { fitReportTagCount } from '../../utils/reportTagFit'
+import { reportTagChipClassName } from '../badges/reportTagChipClassName'
 import { ReportTagToggle, useReportTagToggle } from '../badges/useReportTagToggle'
 
 // Matches the `gap-1` between the chips.
@@ -12,15 +13,8 @@ const CHIP_GAP_PX = 4
 
 // The negative margin cancels the padding, so the chips give a larger tap target without making the
 // line taller than the meta text beside them.
-const CHIP_CLASS_NAME = '-my-1 inline-flex min-w-0 max-w-40 items-center rounded px-1 py-1 text-xs leading-none'
-
 function chipClassName(selected: boolean): string {
-    return clsx(
-        CHIP_CLASS_NAME,
-        selected
-            ? 'bg-accent-highlight-secondary font-medium text-accent'
-            : 'text-tertiary hover:bg-fill-button-tertiary-hover hover:text-primary'
-    )
+    return clsx(reportTagChipClassName(selected), '-my-1')
 }
 
 // The card is a link, and the wrapper around it starts a multi-select hold on pointer down.
@@ -57,7 +51,7 @@ function TagChip({ tag, toggle }: { tag: string; toggle: ReportTagToggle }): JSX
  * width, and a `+n` chip opens the rest in a popover, so the card never grows a row for its tags.
  */
 export function ReportCardTagChips({ report }: { report: SignalReport }): JSX.Element | null {
-    const toggle = useReportTagToggle(report, 'card')
+    const toggle = useReportTagToggle(report)
     const { orderedTags, selectedCount } = toggle
     // Callback refs, because the measure only runs once both elements are in the DOM.
     const [container, setContainer] = useState<HTMLDivElement | null>(null)

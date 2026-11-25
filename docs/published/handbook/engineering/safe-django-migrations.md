@@ -48,6 +48,8 @@ The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in
 Changes to the hot-table acknowledgment list, `atomic_false_acknowledged_migrations.txt`, and `.github/scripts/migration-deletion-allowlist.txt` require DevEx code-owner approval before merge.
 This review gate does not enforce deployment timing; coordinate the window separately.
 
+The acknowledgment removes the block, but the analyzer still reports the migration as Needs Review, not Safe, because the lock queue risk is unchanged.
+
 ### Foreign Keys to Hot Tables
 
 **Problem:** The hazard above also fires from the _referencing_ side, and from **any** app — a plain `CreateModel` or `AddField` in a product app with a `ForeignKey(to="posthog.team", ...)` (or `to=settings.AUTH_USER_MODEL`, which resolves to `posthog_user`). Creating the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the _referenced parent_ table, even though the child table is brand new. That lock conflicts with the `ROW EXCLUSIVE` lock every `INSERT`/`UPDATE`/`DELETE` on the parent holds, so under write traffic the lock request queues behind in-flight writes, `lock_timeout` cancels it, and each `bin/migrate` retry repeats the stall. A `CreateModel` with an FK to `posthog_team` has blocked a deploy this way.

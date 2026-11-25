@@ -9,6 +9,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
 import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { laneActivity } from './releaseChanges'
 import { ReleaseFlagActions, ReleaseVariantWarning, emptyVariantWarning } from './ReleaseFlagActions'
 import { ReleaseLaneRemoveButton } from './ReleaseLaneRemoveButton'
 import { ReleaseLinkedInsights } from './ReleaseLinkedInsights'
@@ -167,9 +168,65 @@ function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<Lane>[] {
     ]
 }
 
+function HistoryRetry({
+    message,
+    onRetry,
+    dataAttr,
+}: {
+    message: string
+    onRetry: () => void
+    dataAttr: string
+}): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            <Text size="xs" variant="muted">
+                {message}
+            </Text>
+            <Button size="xs" variant="outline" onClick={onRetry} data-attr={dataAttr}>
+                Try again
+            </Button>
+        </div>
+    )
+}
+
+function ReleaseHistoryFailures({ row, lanes }: { row: ReleaseRow; lanes: Lane[] }): JSX.Element {
+    const { failedFlagIds, failedObjectKeys } = useValues(releaseCalendarLogic)
+    const { loadFlagActivity, loadObjectActivity } = useActions(releaseCalendarLogic)
+    const failedFlags = row.flags.filter((flag) => failedFlagIds.includes(flag.id))
+    const failedLanes = lanes.flatMap((lane) => {
+        const key = laneActivity(lane)?.key
+        return key && failedObjectKeys.includes(key) ? [{ key, title: lane.title }] : []
+    })
+    return (
+        <>
+            {failedFlags.length > 0 && (
+                <HistoryRetry
+                    message={
+                        failedFlags.length === 1
+                            ? `Couldn't load the rollout history of ${failedFlags[0].key}.`
+                            : `Couldn't load the rollout history of ${failedFlags.length} flags.`
+                    }
+                    onRetry={() => loadFlagActivity(failedFlags.map((flag) => flag.id))}
+                    dataAttr="release-track-history-retry"
+                />
+            )}
+            {failedLanes.length > 0 && (
+                <HistoryRetry
+                    message={
+                        failedLanes.length === 1
+                            ? `Couldn't load the change history of ${failedLanes[0].title}.`
+                            : `Couldn't load the change history of ${failedLanes.length} experiments and surveys.`
+                    }
+                    onRetry={() => loadObjectActivity(failedLanes.map((lane) => lane.key))}
+                    dataAttr="release-track-change-history-retry"
+                />
+            )}
+        </>
+    )
+}
+
 export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
-    const { failedFlagIds } = useValues(releaseCalendarLogic)
     const { loadFlagActivity } = useActions(releaseCalendarLogic)
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
     const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
@@ -196,7 +253,6 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
         return warning ? [{ audience, warning }] : []
     })
     const openEarlyAccess = row.earlyAccess.find(isEnrollingEarlyAccess)
-    const failedFlags = row.flags.filter((flag) => failedFlagIds.includes(flag.id))
 
     const state = useMemo(
         () => ({ row, labelWidth, stickyOffset, width, stacked, scale, color, lanesByKey, loadFlagActivity }),
@@ -211,36 +267,18 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
                     Who gets each part of this release, day by day. Change who gets a flag in its release conditions.
                 </CardDescription>
             </CardHeader>
-            {(warnings.length > 0 || openEarlyAccess || failedFlags.length > 0 || row.missingFlagIds.length > 0) && (
-                <div className="flex flex-col gap-2 px-4 pb-3">
-                    <ReleaseMissingFlagsWarning row={row} />
-                    {failedFlags.length > 0 && (
-                        <div className="flex items-center gap-2">
-                            <Text size="xs" variant="muted">
-                                {failedFlags.length === 1
-                                    ? `Couldn't load the rollout history of ${failedFlags[0].key}.`
-                                    : `Couldn't load the rollout history of ${failedFlags.length} flags.`}
-                            </Text>
-                            <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => loadFlagActivity(failedFlags.map((flag) => flag.id))}
-                                data-attr="release-track-history-retry"
-                            >
-                                Try again
-                            </Button>
-                        </div>
-                    )}
-                    {warnings.map(({ audience, warning }) => (
-                        <ReleaseVariantWarning key={audience.flag.id} flag={audience.flag} warning={warning} />
-                    ))}
-                    {openEarlyAccess && (
-                        <Text size="xs" variant="muted">
-                            {`Users can also opt in through ${openEarlyAccess.name}, now in ${openEarlyAccess.stage}.`}
-                        </Text>
-                    )}
-                </div>
-            )}
+            <div className="flex flex-col gap-2 px-4 pb-3 empty:hidden">
+                <ReleaseMissingFlagsWarning row={row} />
+                <ReleaseHistoryFailures row={row} lanes={track.lanes} />
+                {warnings.map(({ audience, warning }) => (
+                    <ReleaseVariantWarning key={audience.flag.id} flag={audience.flag} warning={warning} />
+                ))}
+                {openEarlyAccess && (
+                    <Text size="xs" variant="muted">
+                        {`Users can also opt in through ${openEarlyAccess.name}, now in ${openEarlyAccess.stage}.`}
+                    </Text>
+                )}
+            </div>
             {track.lanes.length > 0 ? (
                 <div
                     ref={setContainer}

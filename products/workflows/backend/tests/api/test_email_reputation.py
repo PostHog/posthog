@@ -122,8 +122,12 @@ class TestEmailReputationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         return response.json()
 
-    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
+    @parameterized.expand([("delivery_answered", set()), ("delivery_query_failed", {"DELIVERY"})])
+    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(
+        self, _name: str, failing_metrics: set[str]
+    ):
         with FakeSesEndpoint().installed() as ses:
+            ses.failing_metrics.update(failing_metrics)
             ses.account_metrics.update(
                 {
                     "SEND": 4_276_310,
@@ -139,7 +143,6 @@ class TestEmailReputationAPI(APIBaseTest):
 
         assert first == {
             "emails_sent_at_least": 4_000_000,
-            "delivery_rate": 0.994,
             "bounce_rate": 0.0031,
             "complaint_rate": 0.0003,
         }
@@ -149,7 +152,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
         with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
             ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
-            ses.failing_metrics.add("DELIVERY")
+            ses.failing_metrics.add("PERMANENT_BOUNCE")
             during_the_failure = self._get_reputation_from_ses()["infrastructure"]
 
             ses.failing_metrics.clear()

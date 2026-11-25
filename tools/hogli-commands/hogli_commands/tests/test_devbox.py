@@ -2807,6 +2807,7 @@ class TestResolveWorkspaceName:
                 ["devbox:sync", "@test-user", "--status"], "hogli-workspace=devbox-test-user", id="sync-status"
             ),
             pytest.param(["devbox:cleanup:disk", "@test-user"], "devbox-test-user", id="cleanup-disk"),
+            pytest.param(["devbox:cleanup:disk"], "devbox-test-user-feat", id="cleanup-disk-picks-the-worktrees-box"),
             pytest.param(["devbox:cleanup:disk", "@alice"], None, id="cleanup-disk-refuses-another-user"),
         ],
     )
@@ -2821,8 +2822,9 @@ class TestResolveWorkspaceName:
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
-        monkeypatch.setattr(devbox_cli, "exec_replace", lambda name, command: targets.append(name))
+        monkeypatch.setattr(devbox_cli, "exec_replace", lambda name, command, **kwargs: targets.append(name))
         monkeypatch.setattr(devbox_sync.mutagen, "sync_list", list_sessions)
+        monkeypatch.delenv("CODER_WORKSPACE_NAME", raising=False)
         monkeypatch.chdir(worktree_with_box)
 
         result = runner.invoke(cli, args)

@@ -1,6 +1,6 @@
 """How a person feels about the PostHog assistant, read from the message an answer replies to.
 
-Behind ``slack-app-frustration-response``, every answered message is classified, and each verdict is captured.
+Every answered message is classified, and each verdict is captured.
 A ``not_happy`` or ``frustrated`` message gets ``UNHAPPY_REACTION``. A ``frustrated`` message also gets a private
 GIF when ``slack-app-frustration-gif`` is on. The interview invitation reuses the verdict, so the model runs once
 per answer.
@@ -22,10 +22,7 @@ from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_frustration_response_enabled,
-    slack_app_frustration_gif_urls,
-)
+from products.slack_app.backend.feature_flags import slack_app_frustration_gif_urls
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY
@@ -201,13 +198,13 @@ class SentimentResponseRequest:
 
 
 def respond_to_sentiment(request: SentimentResponseRequest) -> SentimentResult | None:
-    """React to how the person feels. ``None`` means no attempt, because the flag is off or there is no message."""
+    """React to how the person feels. ``None`` means no attempt, because there is no message."""
     # Deferred like the other ee imports in this product, so ee stays off the import path of every caller.
     from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
     integration = request.integration
     distinct_id = request.posthog_user.distinct_id if request.posthog_user is not None else None
-    if not request.person_message or not is_slack_app_frustration_response_enabled(integration, distinct_id):
+    if not request.person_message:
         return None
     try:
         verdict = classify_sentiment(

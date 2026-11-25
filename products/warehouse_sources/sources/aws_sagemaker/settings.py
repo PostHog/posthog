@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from products.warehouse_sources.sources.sdk import IncrementalField, frozen, incremental_field
@@ -12,6 +13,20 @@ class SageMakerParent:
     list_operation: str
     result_key: str
     name_field: str
+    sort_by: str = "Name"
+    # The list operation of this parent itself requires a parent name.
+    parent: "SageMakerParent | None" = None
+
+
+PIPELINES = SageMakerParent(list_operation="ListPipelines", result_key="PipelineSummaries", name_field="PipelineName")
+
+
+def add_step_key(row: dict[str, Any]) -> None:
+    # Iterations of a ForEach step can share a step name, so the iteration index makes the key unique.
+    iteration = row.get("iteration_context")
+    index = iteration.get("Index") if isinstance(iteration, dict) else None
+    step_name = row.get("step_name")
+    row["step_key"] = step_name if index is None or not step_name else f"{step_name}[{index}]"
 
 
 @frozen
@@ -27,6 +42,12 @@ class SageMakerEndpoint:
     list_filters: tuple[tuple[str, str], ...] = ()
     # The list operation requires a parent name, so the source lists each parent's children.
     parent: SageMakerParent | None = None
+    # Some list operations do not accept SortBy and sort only by creation time.
+    sort_by: str | None = "CreationTime"
+    partition_key: str = "creation_time"
+    # Rows without their parent identifier get it in this column.
+    parent_column: str | None = None
+    shape_row: Callable[[dict[str, Any]], None] | None = None
 
     def describe_payload(self, item: dict[str, Any]) -> dict[str, Any]:
         return {self.name_field: item[self.describe_key or self.name_field]}
@@ -108,11 +129,30 @@ ENDPOINTS: dict[str, SageMakerEndpoint] = {
         describe_operation="DescribePipelineExecution",
         name_field="PipelineExecutionArn",
         primary_keys=("pipeline_execution_arn",),
+        parent=PIPELINES,
+    ),
+    "pipelines": SageMakerEndpoint(
+        list_operation="ListPipelines",
+        result_key="PipelineSummaries",
+        describe_operation="DescribePipeline",
+        name_field="PipelineName",
+        primary_keys=("pipeline_arn",),
+    ),
+    "pipeline_execution_steps": SageMakerEndpoint(
+        list_operation="ListPipelineExecutionSteps",
+        result_key="PipelineExecutionSteps",
+        primary_keys=("pipeline_execution_arn", "step_key"),
         parent=SageMakerParent(
-            list_operation="ListPipelines",
-            result_key="PipelineSummaries",
-            name_field="PipelineName",
+            list_operation="ListPipelineExecutions",
+            result_key="PipelineExecutionSummaries",
+            name_field="PipelineExecutionArn",
+            sort_by="CreationTime",
+            parent=PIPELINES,
         ),
+        sort_by=None,
+        partition_key="start_time",
+        parent_column="pipeline_execution_arn",
+        shape_row=add_step_key,
     ),
     "experiments": SageMakerEndpoint(
         list_operation="ListExperiments",
@@ -159,6 +199,8 @@ ENDPOINT_DESCRIPTIONS = {
     "automl_jobs": "AutoML jobs with problem type, objective, status, and best candidate.",
     "transform_jobs": "Batch transform jobs with status, model, input and output settings, and run times.",
     "pipeline_executions": "Pipeline executions with status, failure reason, and run times for every pipeline.",
+    "pipelines": "Pipelines with their definition, execution role, status, and creation and run times.",
+    "pipeline_execution_steps": "Steps of every pipeline execution with status, run times, failure reason, and the jobs they ran.",
     "experiments": "Experiments with source, display name, and creation details.",
     "trials": "Experiment trials with their experiment, source, and metadata.",
     "trial_components": "Trial components with status, parameters, artifacts, and metric summaries.",

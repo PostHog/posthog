@@ -133,6 +133,28 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertEqual(execute.call_count, failures + 1)
         self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
 
+    def test_process_query_task_ignores_tags_from_a_newer_release(self):
+        from posthog.tasks.tasks import process_query_task
+
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                args=(
+                    self.team_id,
+                    None,
+                    self.query_id,
+                    build_query("SELECT 1"),
+                    {"tag_from_a_newer_release": "x", "dashboard_id": 7},
+                    False,
+                ),
+                throw=False,
+            )
+
+        self.assertTrue(result.successful())
+        execute.assert_called_once()
+
     @parameterized.expand([False, True])
     def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
         from posthog.tasks.tasks import process_query_task
@@ -462,6 +484,24 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
+
+    def test_enqueued_query_tags_leave_out_traceparent_for_older_workers(self):
+        from posthog.clickhouse.query_tagging import tags_context
+
+        with (
+            patch("posthog.tasks.tasks.process_query_task.si") as signature,
+            patch("posthog.clickhouse.client.execute_async.add_task_to_on_commit"),
+            tags_context(
+                client_query_id="dashboard-v2-batch-1",
+                traceparent="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+            ),
+        ):
+            client.enqueue_process_query_task(self.team, self.user.id, build_query("SELECT 1"))
+
+        # A worker on the previous release has no traceparent field and would reject the task.
+        sent_tags = signature.call_args.args[4]
+        self.assertEqual(sent_tags["client_query_id"], "dashboard-v2-batch-1")
+        self.assertNotIn("traceparent", sent_tags)
 
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")

@@ -5,6 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 
+import { insightQuery } from './promptReportQueries'
+
 /** Opens the tile's query as a new insight, where it can be saved and added to a dashboard. */
 export const ContentAutopilotOpenInsightButton = ({
     query,
@@ -16,7 +18,7 @@ export const ContentAutopilotOpenInsightButton = ({
     <LemonButton
         size="small"
         icon={<IconOpenInNew />}
-        to={urls.insightNew({ query })}
+        to={urls.insightNew({ query: insightQuery(query) })}
         targetBlank
         tooltip="Open as a new insight to save it or add it to a dashboard"
         data-attr={dataAttr}

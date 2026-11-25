@@ -1616,7 +1616,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                   <LemonField.Pure
                                                                       label="Link to a specific flag variant"
                                                                       info="Choose which variant of the feature flag to link to this survey.
-                                                              Requires posthog-js v1.259.0 or greater or posthog-react-native v4.4.0 or greater"
+                                                              Requires at least posthog-js 1.259.0, posthog-react-native 4.4.0, posthog-ios 3.78.0, posthog-android 3.67.0, or posthog_flutter 5.47.0."
                                                                   >
                                                                       <div className="flex flex-col gap-2">
                                                                           <LemonSegmentedButton

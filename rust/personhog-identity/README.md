@@ -25,13 +25,26 @@ A worker takes one queued call and every call already queued behind it, up to `S
 Calls share a transaction only when they would otherwise wait for a worker, so latency does not change while a worker is free.
 Calls that share a distinct id never share a transaction, so each call gets the outcome its own transaction would give.
 When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
+The reruns run at the same time, so a rerun that waits on a lock delays only its own call.
 A connection error or an exhausted pool fails every call in the batch, and callers retry as they do for any storage error.
-The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`; startup warns when it is not.
+The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`.
 At most `STUB_CREATE_MAX_QUEUED_CALLS` calls (default 1000) wait for a worker, and a call that no worker has started stops waiting after `HEAVY_ACQUIRE_TIMEOUT_SECS`.
 A call refused either way gets the error a heavy-pool acquire timeout gives: UNAVAILABLE from get-or-create, so the caller retries on another pod, and INTERNAL from the merge target path.
 The default, `STUB_CREATE_WORKERS=0`, runs each call in its own transaction on the calling task.
 With workers on, pool and query metrics for stub creation carry `client="batched"` and `method="StubCreateBatch"` in place of the caller's labels.
 `personhog_identity_stub_create_callers_per_batch` shows how many calls share each transaction, `personhog_identity_stub_create_queue_wait_ms` shows how long a call waits for a worker, `personhog_identity_stub_create_batch_reruns_total` counts shared transactions that fell back to one transaction per call, and `personhog_identity_stub_create_rejected_total{reason}` counts calls refused for a full queue or a long wait.
+
+### Coalesced attaches
+
+A MergePersons call that attaches personless distinct ids writes them in one autocommit statement, so each call pays its own commit.
+`ATTACH_WORKERS` above 0 runs every attach on its own set of worker tasks, with the same batching, rerun and refusal rules as stub creation: `ATTACH_MAX_BATCH_DISTINCT_IDS` (default 50) caps the distinct ids of one statement, and `ATTACH_MAX_QUEUED_CALLS` (default 1000) caps the calls that wait.
+A batch of more than one call runs as one `attach_batch_mappings` statement (`attach_batch_mappings_with_outbox` with outbox writes on), with the same per-row guards and outcomes as a lone attach.
+That statement waits at most 100 ms for one row lock and runs at most 250 ms in total, because every row's guards read the snapshot from when the statement started; a batch that times out reruns each call alone.
+A batch of one runs the lone `attach_mappings` statement.
+A refused attach fails its MergePersons call with INTERNAL, as a heavy-pool acquire timeout does.
+The default, `ATTACH_WORKERS=0`, runs each attach on the calling task.
+With workers on, attach pool and query metrics carry `client="batched"` and `method="AttachBatch"`, and the coalescer metrics are the stub-creation ones with `attach` in place of `stub_create`, for example `personhog_identity_attach_callers_per_batch`.
+`STUB_CREATE_WORKERS` plus `ATTACH_WORKERS` caps the heavy connections the two can hold; startup warns when the sum reaches `HEAVY_MAX_PG_CONNECTIONS`.
 
 ## Layout
 
