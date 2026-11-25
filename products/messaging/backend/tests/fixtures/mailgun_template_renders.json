@@ -228,5 +228,15 @@
     },
     "liquid": "<title>Hi {{ variables.x | join: \",\" }}</title><script>a</script><p>{{ variables.x | join: \",\" }}</p>",
     "expected": "<title>Hi &lt;/title&gt;&lt;b&gt;&amp;</title><script>a</script><p>&lt;/title&gt;&lt;b&gt;&amp;</p>"
+  },
+  {
+    "name": "a whole unquoted link",
+    "engine": "handlebars",
+    "template": "<a href={{x}} title=y>z</a>",
+    "variables": {
+      "x": "https://example.com/?a=1&b=\" onclick=\"c"
+    },
+    "liquid": "<a href=\"{{ variables.x | join: &quot;,&quot; }}\" title=y>z</a>",
+    "expected": "<a href=\"https://example.com/?a=1&amp;b=&quot; onclick=&quot;c\" title=y>z</a>"
   }
 ]
