@@ -154,16 +154,35 @@ def trace_cost(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     return aggregate("sumIf", [columns.total_cost, _event_in(columns, BILLED_EVENT_NAMES)])
 
 
-def trace_person_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
-    """The person the traces list shows for a trace: from the events with a distinct id, the root `$ai_trace` event's,
-    else the earliest one's, and the smallest distinct id among events at the same time. Feedback and metric events
-    never name it. NULL when no trace event has a distinct id."""
-    has_person = ast.And(
+def event_names_person(columns: TraceColumns) -> ast.Expr:
+    """Whether the event names a person of its trace: a trace event with a distinct id. Feedback and metric events never
+    do."""
+    return ast.And(
         exprs=[
             _event_in(columns, TRACE_EVENT_NAMES),
             _compare(ast.CompareOperationOp.NotEq, columns.distinct_id, _constant("")),
         ]
     )
+
+
+def trace_identified_person_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """The one person a trace counts as a user: the earliest whom an event names under a distinct id other than the
+    trace id, as People lists them identified, OpenTelemetry events included, and the smallest distinct id among events
+    at the same time. NULL when every event that names a person is anonymous. An anonymous root `$ai_trace` event never
+    hides the user its other events name, and an identified root counts like any other event."""
+    identified = ast.And(exprs=[event_names_person(columns), ast.Not(expr=event_anonymous(columns))])
+    return _if(
+        _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [identified]), _constant(0)),
+        aggregate("argMinIf", [columns.person, ast.Tuple(exprs=[columns.timestamp, columns.distinct_id]), identified]),
+        _constant(None),
+    )
+
+
+def trace_person_id(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
+    """The person the traces list shows for a trace: from the events that name a person, the root `$ai_trace` event's,
+    else the earliest one's, and the smallest distinct id among events at the same time. NULL when no event names
+    one."""
+    has_person = event_names_person(columns)
     not_root = _compare(ast.CompareOperationOp.NotEq, columns.event, _constant("$ai_trace"))
     return _if(
         _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [has_person]), _constant(0)),

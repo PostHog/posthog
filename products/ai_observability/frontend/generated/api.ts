@@ -20,6 +20,9 @@ import type {
     AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityPeopleListParams,
+    AiObservabilityPeopleNewCountRetrieveParams,
+    AiObservabilityPeopleRetrieveParams,
     AiObservabilitySessionsListParams,
     AiObservabilitySessionsRetrieveParams,
     AiObservabilitySessionsTurnsRetrieveParams,
@@ -166,6 +169,9 @@ import type {
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
     PatchedTraceReviewUpdateApi,
+    PeopleNewCountApi,
+    PersonListApi,
+    PersonListItemApi,
     PersonalSpendAnalysisResponseApi,
     ProviderKeyDependentConfigsApi,
     ReviewQueueApi,
@@ -952,6 +958,106 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     options?: RequestInit
 ): Promise<OfflineHistoryPageApi> => {
     return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityPeopleListUrl = (projectId: string, params?: AiObservabilityPeopleListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/people/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/people/`
+}
+
+/**
+ * The people with AI events in a date range, a page at a time, with how many of them are new and how many
+ * are anonymous. Labels use the project's display name properties.
+ */
+export const aiObservabilityPeopleList = async (
+    projectId: string,
+    params?: AiObservabilityPeopleListParams,
+    options?: RequestInit
+): Promise<PersonListApi> => {
+    return apiMutator<PersonListApi>(getAiObservabilityPeopleListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityPeopleRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityPeopleRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/people/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/people/${id}/`
+}
+
+/**
+ * One person's row in a date range, as the people list shows it, whether or not they are anonymous.
+ */
+export const aiObservabilityPeopleRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityPeopleRetrieveParams,
+    options?: RequestInit
+): Promise<PersonListItemApi> => {
+    return apiMutator<PersonListItemApi>(getAiObservabilityPeopleRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityPeopleNewCountRetrieveUrl = (
+    projectId: string,
+    params?: AiObservabilityPeopleNewCountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/people/new_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/people/new_count/`
+}
+
+/**
+ * How many of the people the list shows for these parameters are new to the project's AI. Read apart from
+ * the list, after its rows, because it reads the days before the range.
+ */
+export const aiObservabilityPeopleNewCountRetrieve = async (
+    projectId: string,
+    params?: AiObservabilityPeopleNewCountRetrieveParams,
+    options?: RequestInit
+): Promise<PeopleNewCountApi> => {
+    return apiMutator<PeopleNewCountApi>(getAiObservabilityPeopleNewCountRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

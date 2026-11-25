@@ -23,6 +23,7 @@ from products.ai_observability.backend.logic.traces.trace_metrics import (
     NO_TRACES,
     BucketSize,
     MetricKey,
+    TileStatus,
     bucket_starts,
     tiles_of,
 )
@@ -160,6 +161,56 @@ class TestTraceMetricsQueries(ClickhouseTestMixin, BaseTest):
             identified_generations=4,
             non_otel_generations=5,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "the earliest identified of two people under an anonymous root",
+                [
+                    ("$ai_trace", "shared", PERSON_ANONYMOUS_ROOT, {}),
+                    ("$ai_generation", "user-a", PERSON_A, {}),
+                    ("$ai_generation", "user-b", PERSON_B, {"$ai_ingestion_source": "otel"}),
+                ],
+            ),
+            (
+                "identified only by OpenTelemetry",
+                [
+                    ("$ai_generation", "shared", PERSON_ANONYMOUS_ROOT, {}),
+                    ("$ai_generation", "user-a", PERSON_A, {"$ai_ingestion_source": "otel"}),
+                ],
+            ),
+            (
+                "identified only by a span",
+                [
+                    ("$ai_generation", "shared", PERSON_ANONYMOUS_ROOT, {}),
+                    ("$ai_span", "user-a", PERSON_A, {}),
+                ],
+            ),
+        ]
+    )
+    def test_users_counts_one_person_per_trace_and_sets_the_tile_up(
+        self, _name: str, events: list[tuple[str, str, str, dict[str, Any]]]
+    ) -> None:
+        seed(
+            self.team,
+            [
+                {
+                    "event": event,
+                    "trace_id": "shared",
+                    "minutes": 10 + minute,
+                    "distinct_id": distinct_id,
+                    "person_id": person_id,
+                    "properties": properties,
+                }
+                for minute, (event, distinct_id, person_id, properties) in enumerate(events)
+            ],
+        )
+        selection = self._selection()
+
+        current = self._load(selection).current
+        [users] = [tile for tile in tiles_of(current, None, {}, [], selection.window) if tile.key == MetricKey.USERS]
+
+        assert (current.users, users.status) == (1, TileStatus.OK)
 
     def test_metrics_p95_uses_trace_latency(self) -> None:
         seed(

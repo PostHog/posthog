@@ -43,9 +43,11 @@ posthog/temporal/ai_observability/trace_summarization/tests/test_workflow.py
 ee/clickhouse
 ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
+products/ai_observability/backend/tests/logic/people
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_facade_list_traces.py
+products/ai_observability/backend/tests/test_facade_people.py
 products/ai_observability/backend/tests/test_facade_sessions.py
 products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views

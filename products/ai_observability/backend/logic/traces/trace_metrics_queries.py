@@ -24,7 +24,6 @@ from posthog.models import Team, User
 
 from products.ai_observability.backend.logic.instrumentation.signal_queries import (
     event_declines_session,
-    identified_generation_person,
     sdk_generation_identified,
 )
 
@@ -34,6 +33,7 @@ from .trace_expression_queries import (
     grouped,
     trace_cost,
     trace_errored,
+    trace_identified_person_id,
     trace_latency,
     trace_session_id,
 )
@@ -91,7 +91,7 @@ def _per_trace_values() -> dict[str, ast.Expr]:
         "has_error": trace_errored(EVENTS_COLUMNS, grouped),
         "trace_session_id": trace_session_id(EVENTS_COLUMNS, grouped),
         "trace_session_declines": ast.Call(name="countIf", args=[event_declines_session(EVENTS_COLUMNS)]),
-        "trace_user_id": identified_generation_person(EVENTS_COLUMNS, grouped),
+        "trace_user_id": trace_identified_person_id(EVENTS_COLUMNS, grouped),
         "trace_identified_generations": ast.Call(name="countIf", args=[sdk_generation_identified(EVENTS_COLUMNS)]),
         "trace_non_otel_generations": parse_expr(
             "countIf(event = '$ai_generation' AND NOT {otel})", placeholders={"otel": event_is_otel(EVENTS_COLUMNS)}

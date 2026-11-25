@@ -12,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceListApi } from '../../generated/api.schemas'
+import { PERSON_URL, makePersonListItem } from '../people/testFixtures'
 import { traceDrawerLogic } from '../trace/traceDrawerLogic'
 import type { TraceListRow } from '../trace/traceListRows'
 import {
@@ -61,6 +62,7 @@ describe('TracesListHost', () => {
                     requests.push(Object.fromEntries(new URL(request.url).searchParams))
                     return answer
                 },
+                [PERSON_URL]: () => [404, { detail: 'Person not found in this range.' }],
             },
             post: traceCellsMocks(),
         })
@@ -219,6 +221,24 @@ describe('TracesListHost', () => {
         expect(view.container.querySelector('[data-attr="list-scope-chip"]')).toBeNull()
         expect(router.values.searchParams).toEqual({ view: 'errors' })
         expect(requests[1]).toEqual({ ...FIRST_PAGE_PARAMS, view: 'errors' })
+    })
+
+    it("names the person scope by the person's label once the person is read", async () => {
+        const personId = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+        useMocks({
+            get: {
+                [PERSON_URL]: () => [
+                    200,
+                    makePersonListItem({
+                        id: personId,
+                        person: { distinctId: 'ana@example.com', label: 'Ana Example' },
+                    }),
+                ],
+            },
+        })
+        const view = renderHost({ url: `${LIST_PATH}?person=${personId}` })
+
+        await waitFor(() => expect(attr(view, 'list-scope-chip').textContent).toBe('Person:Ana Example'))
     })
 
     it('shows what is being typed in the search box while the list still reads the applied search', async () => {

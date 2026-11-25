@@ -351,8 +351,12 @@ def _trace_exists_query() -> ast.SelectQuery:
     )
 
 
-def _display_name(team: Team) -> ast.Expr:
-    property_keys = team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+def person_display_name_properties(team: Team) -> list[str]:
+    return team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+
+def person_display_name(team: Team) -> ast.Expr:
+    property_keys = person_display_name_properties(team)
     # An empty string becomes null, so the coalesce falls through to the next property as core's display name does.
     return ast.Call(
         name="coalesce",
@@ -584,7 +588,7 @@ def load_people(
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(name=name)
         response = execute_hogql_query(
-            query=_people_query(requested, _display_name(team)),
+            query=_people_query(requested, person_display_name(team)),
             team=team,
             user=user,
             query_type=name,

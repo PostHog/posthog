@@ -1,4 +1,7 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from parameterized import parameterized
 
@@ -10,6 +13,7 @@ from products.ai_observability.backend.logic.traces.lookback import (
     lookback_selection,
     lookback_window,
     seen_before,
+    unscoped_selection,
 )
 from products.ai_observability.backend.logic.traces.trace_selection import TraceGroupScope, TraceSelection, TraceWindow
 
@@ -23,7 +27,16 @@ def test_lookback_window_ends_at_the_range_start_and_spans_thirty_days():
     assert LOOKBACK == timedelta(days=30)
 
 
-def test_lookback_selection_keeps_only_the_test_account_and_support_switches():
+@pytest.mark.parametrize(
+    "build, window",
+    [
+        pytest.param(lookback_selection, lookback_window(WINDOW), id="lookback"),
+        pytest.param(lambda selection: unscoped_selection(selection, WINDOW), WINDOW, id="the range itself"),
+    ],
+)
+def test_person_reads_keep_only_the_test_account_and_support_switches(
+    build: Callable[[TraceSelection], TraceSelection], window: TraceWindow
+):
     selection = TraceSelection(
         window=WINDOW,
         properties=(EventPropertyFilter(key="plan", value="pro", operator=PropertyOperator.EXACT),),
@@ -38,9 +51,7 @@ def test_lookback_selection_keeps_only_the_test_account_and_support_switches():
         quick_filter="errors",
     )
 
-    assert lookback_selection(selection) == TraceSelection(
-        window=lookback_window(WINDOW), filter_test_accounts=True, include_support_traces=True
-    )
+    assert build(selection) == TraceSelection(window=window, filter_test_accounts=True, include_support_traces=True)
 
 
 def test_seen_before_is_the_lookback_start():

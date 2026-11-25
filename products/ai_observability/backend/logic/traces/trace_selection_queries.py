@@ -306,6 +306,15 @@ def period_membership(
     return query
 
 
+def matching_events_condition(team: Team, selection: TraceSelection) -> ast.Expr:
+    """The events that match the selection each on their own: AI trace events in the window's read bounds, under the
+    selection's test-account switch, support rule and event-level narrowing, that match every property filter and
+    every scope. A read that groups events by something other than the trace applies the filters and scopes with it."""
+    return _all(
+        [_event_condition(team, selection), *_property_filters(team, selection), *_trace_scope_events(selection)]
+    )
+
+
 def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.Expr]) -> ast.SelectQuery:
     """One row per trace the selection holds, with `trace_id`, `first_timestamp`, `last_timestamp` and the `extra`
     per-trace aggregates. A trace belongs when it overlaps the window, so every read over it counts the same traces.

@@ -11,12 +11,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { AiObservabilityTracesListView, type TraceListItemApi } from '../../generated/api.schemas'
 import { ListEmptyState } from '../lists/components/ListEmptyState'
 import { ListErrorState } from '../lists/components/ListErrorState'
-import { ListScopeChip } from '../lists/components/ListScopeChip'
 import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { QuickFilterChips } from '../lists/components/QuickFilterChips'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
-import { scopeLabel } from '../lists/listScopes'
+import { ListScopeChipHost } from '../lists/ListScopeChipHost'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
 import { TraceDrawerListId } from '../trace/traceDrawerLists'
@@ -89,11 +88,7 @@ export function TracesListHost(): JSX.Element {
                 search={searchDraft}
                 onSearchChange={searchEnabled ? setSearchDraft : undefined}
                 searchPlaceholder="Search inputs and outputs"
-                scope={
-                    filters.scope ? (
-                        <ListScopeChip scope={filters.scope} label={scopeLabel(filters.scope)} onClear={clearScope} />
-                    ) : null
-                }
+                scope={<ListScopeChipHost scope={filters.scope} onClear={clearScope} />}
                 filters={
                     <PropertyFilters
                         propertyFilters={filters.propertyFilters}

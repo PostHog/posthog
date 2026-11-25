@@ -120,21 +120,27 @@ class TraceSelection:
             if value is not None and not value.strip():
                 raise InvalidTraceSelectionError(f"The {label} scope can't be blank. Send a value or leave it out.")
 
+    @property
+    def narrowed(self) -> bool:
+        """Whether a list filter, the search, a scope or a quick filter narrows the window's traces. The test-account
+        switch does not count."""
+        return any(
+            (
+                self.properties,
+                self.search,
+                self.person_id,
+                self.error,
+                self.tool,
+                self.failed_tool,
+                self.group,
+                self.quick_filter,
+            )
+        )
+
     def _check_session_scope(self) -> None:
         if self.session_id is None:
             return
-        narrowed_by_list_filters = (
-            self.properties
-            or self.search
-            or self.person_id
-            or self.error
-            or self.tool
-            or self.failed_tool
-            or self.group
-            or self.quick_filter
-            or self.filter_test_accounts
-        )
-        if narrowed_by_list_filters:
+        if self.narrowed or self.filter_test_accounts:
             raise InvalidTraceSelectionError("A session reads on its own. Remove the list filters.")
 
 

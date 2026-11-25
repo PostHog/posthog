@@ -101830,6 +101830,11 @@ export namespace Schemas {
       rows: PeopleImportCreateRowsItem[];
     }
 
+    export interface PeopleNewCount {
+      /** How many of the people the list shows have no AI activity in the 30 days before the range starts, under the test-account filter only. The new people view lists them. */
+      count: number;
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
@@ -101868,6 +101873,56 @@ export namespace Schemas {
     export interface PersonDeletePropertyRequest {
       /** A property key, or a list of property keys, to remove from this person. */
       $unset: string | string[];
+    }
+
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
+    }
+
+    /**
+     * A person with AI events in range. Every field reads only their events in range that match the property filters
+     * and scopes. Whether they are new comes from the first seen sub-resource.
+     */
+    export interface PersonListItem {
+      /** The person's UUID. */
+      id: string;
+      /** The latest identified distinct id among the person's events in range, or their latest anonymous one when they are anonymous, labeled by the project's display name properties, else by the distinct id. An anonymous person is labeled Anonymous and the first 8 characters of their distinct id. */
+      person: TracePerson;
+      /** Whether every event of the person in range has the trace id as its distinct id, which is what an SDK sends when no user was identified. */
+      anonymous: boolean;
+      /** How many sessions the person's events in range carry. */
+      sessionCount: number;
+      /** How many traces have an event of the person in range. */
+      traceCount: number;
+      /** The summed cost in USD of the person's own events in range. A trace shared with other people adds only the person's events. Null when none of their events reports a cost. */
+      cost: number | null;
+      /** The time of the person's earliest event in range. */
+      firstSeenInRange: string;
+      /** The time of the person's latest event in range. */
+      lastSeen: string;
+    }
+
+    export interface PersonListCounts {
+      /** How many people in range are anonymous, whether or not they are listed. */
+      anonymous: number;
+    }
+
+    export interface PersonList {
+      /** How many people the list holds across every page, only new ones in the new view. */
+      count: number;
+      /** A page of people in the requested order. */
+      results: PersonListItem[];
+      /** How many people in range are anonymous, the same on every page and in the new people view. The number of new people is its own sub-resource, because only it and the new people view read the lookback. */
+      counts: PersonListCounts;
+      /** How many days before the range starts a person's AI activity makes them not new, the same for the new people view and the new people count. */
+      lookbackDays: number;
+      /** Whether the people in range are all anonymous, so hiding anonymous people lists nobody until users are identified. False while a person search, the new people view, a scope or a property filter narrows the list. */
+      needsIdentification: boolean;
+      /** URL of the next page, or null on the last page. */
+      next: string | null;
+      /** URL of the previous page, or null on the first page. */
+      previous: string | null;
     }
 
     /**
@@ -120151,11 +120206,6 @@ export namespace Schemas {
          * @items.maxLength 400
          */
       session_ids: string[];
-    }
-
-    export interface TracePerson {
-      distinctId: string;
-      label: string;
     }
 
     export interface SessionPersonItem {
@@ -139723,6 +139773,162 @@ export namespace Schemas {
       Any: 'any',
       All: 'all',
     } as const;
+
+    export type AiObservabilityPeopleListParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only people whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * Whether to list anonymous people, whose events carry the trace id as their distinct id.
+     */
+    include_anonymous?: boolean;
+    /**
+     * How many people a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many people to skip before the page starts, from 0 to 10000. Defaults to 0.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number;
+    /**
+     * last_seen lists the most recently seen people first, and cost lists the people whose events cost the most first, with unknown costs last. Ties go by person id.
+     *
+     * * `last_seen` - Last seen
+     * * `cost` - Cost
+     * @minLength 1
+     */
+    order?: AiObservabilityPeopleListOrder;
+    /**
+     * Lists only the person with this UUID.
+     */
+    person_id?: string;
+    /**
+     * Text to look for in the distinct ids of each person's AI events in the date range and in their display name properties, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    person_search?: string;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A person is listed when one of their events in range matches every filter, and their row counts only such events. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    /**
+     * Lists only people with no AI activity in the 30 days before the range starts, a slower read. The response's count follows the view, and its counts field does not.
+     *
+     * * `new` - New
+     * @minLength 1
+     */
+    view?: AiObservabilityPeopleListView;
+    };
+
+    export type AiObservabilityPeopleListOrder = typeof AiObservabilityPeopleListOrder[keyof typeof AiObservabilityPeopleListOrder];
+
+
+    export const AiObservabilityPeopleListOrder = {
+      LastSeen: 'last_seen',
+      Cost: 'cost',
+    } as const;
+
+    export type AiObservabilityPeopleListView = typeof AiObservabilityPeopleListView[keyof typeof AiObservabilityPeopleListView];
+
+
+    export const AiObservabilityPeopleListView = {
+      New: 'new',
+    } as const;
+
+    export type AiObservabilityPeopleRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. The person's row counts only their events that match every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    };
+
+    export type AiObservabilityPeopleNewCountRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only people whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * Whether to list anonymous people, whose events carry the trace id as their distinct id.
+     */
+    include_anonymous?: boolean;
+    /**
+     * Lists only the person with this UUID.
+     */
+    person_id?: string;
+    /**
+     * Text to look for in the distinct ids of each person's AI events in the date range and in their display name properties, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    person_search?: string;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A person is listed when one of their events in range matches every filter, and their row counts only such events. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    };
 
     export type AiObservabilitySessionsListParams = {
     /**

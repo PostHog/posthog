@@ -10,12 +10,19 @@ def lookback_window(window: TraceWindow) -> TraceWindow:
     return TraceWindow(start=shift(window.start, -LOOKBACK), end=window.start)
 
 
-def lookback_selection(selection: TraceSelection) -> TraceSelection:
+def unscoped_selection(selection: TraceSelection, window: TraceWindow) -> TraceSelection:
+    """Every trace in the window under the selection's test-account switch and support rule, without its filters,
+    search or scopes. A read that describes a person rather than picking them reads this, so a filter never hides their
+    activity."""
     return TraceSelection(
-        window=lookback_window(selection.window),
+        window=window,
         filter_test_accounts=selection.filter_test_accounts,
         include_support_traces=selection.include_support_traces,
     )
+
+
+def lookback_selection(selection: TraceSelection) -> TraceSelection:
+    return unscoped_selection(selection, lookback_window(selection.window))
 
 
 def seen_before(window: TraceWindow) -> datetime:

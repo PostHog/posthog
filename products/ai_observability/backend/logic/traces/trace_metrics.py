@@ -292,8 +292,11 @@ def _status(totals: PeriodTotals, key: MetricKey) -> TileStatus:
                 with_session=totals.traces_with_session, declining_session=totals.session_declines
             )
         case MetricKey.USERS:
+            # Users counted in the range show identification works, also where the SDK signal reads it as missing,
+            # such as when only OpenTelemetry events or spans name the user.
             missing = (
-                grade_signal(
+                totals.users == 0
+                and grade_signal(
                     events=totals.non_otel_generations,
                     floor=FIRST_EVENT_FLOOR,
                     has_signal=totals.identified_generations > 0,

@@ -2,6 +2,7 @@ import base64
 from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
@@ -183,8 +184,8 @@ class QuerySlotRecorder:
             self.holding = False
 
     @contextmanager
-    def recording(self, load_name: str) -> Iterator["QuerySlotRecorder"]:
-        load = getattr(api, load_name)
+    def recording(self, load_name: str, facade: ModuleType = api) -> Iterator["QuerySlotRecorder"]:
+        load = getattr(facade, load_name)
 
         def loading(*args: Any, **kwargs: Any) -> Callable[[], object]:
             self.loaded_while_holding.append(self.holding)
@@ -198,6 +199,6 @@ class QuerySlotRecorder:
 
         with (
             patch.object(trace_resource, "query_concurrency_slots", self.slot),
-            patch.object(api, load_name, side_effect=loading),
+            patch.object(facade, load_name, side_effect=loading),
         ):
             yield self

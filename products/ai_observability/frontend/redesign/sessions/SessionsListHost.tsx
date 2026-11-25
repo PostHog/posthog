@@ -12,11 +12,10 @@ import { groupsModel } from '~/models/groupsModel'
 import type { SessionListItemApi } from '../../generated/api.schemas'
 import { ListEmptyState } from '../lists/components/ListEmptyState'
 import { ListErrorState } from '../lists/components/ListErrorState'
-import { ListScopeChip } from '../lists/components/ListScopeChip'
 import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
-import { scopeLabel } from '../lists/listScopes'
+import { ListScopeChipHost } from '../lists/ListScopeChipHost'
 import { TraceCellLoad } from '../shared/cellLoads'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
@@ -112,11 +111,7 @@ export function SessionsListHost(): JSX.Element {
                 search={searchDraft}
                 onSearchChange={searchEnabled ? setSearchDraft : undefined}
                 searchPlaceholder="Search inputs and outputs"
-                scope={
-                    filters.scope ? (
-                        <ListScopeChip scope={filters.scope} label={scopeLabel(filters.scope)} onClear={clearScope} />
-                    ) : null
-                }
+                scope={<ListScopeChipHost scope={filters.scope} onClear={clearScope} />}
                 filters={
                     <PropertyFilters
                         propertyFilters={filters.propertyFilters}

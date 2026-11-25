@@ -208,13 +208,18 @@ def test_users_status_ok_when_every_generation_is_otel() -> None:
     assert tile(totals_tiles(totals, None), MetricKey.USERS).status == TileStatus.OK
 
 
-def test_users_not_set_up_when_no_generation_is_identified() -> None:
-    totals = replace(FULL, identified_generations=0, non_otel_generations=3)
+def test_users_not_set_up_when_no_generation_is_identified_and_no_user_is_counted() -> None:
+    totals = replace(FULL, users=0, identified_generations=0, non_otel_generations=3)
     users = tile(totals_tiles(totals, None), MetricKey.USERS)
     assert (users.status, users.setup) == (
         TileStatus.NOT_SET_UP,
         SetupGuide(label="Identify users", docs_url=INSTALLATION_DOCS_URL),
     )
+
+
+def test_users_set_up_when_users_are_counted_without_an_identified_generation() -> None:
+    totals = replace(FULL, users=2, identified_generations=0, non_otel_generations=3)
+    assert tile(totals_tiles(totals, None), MetricKey.USERS).status == TileStatus.OK
 
 
 @parameterized.expand(
