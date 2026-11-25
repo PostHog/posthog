@@ -6,10 +6,26 @@ export type HrefAnchor = {
 }
 
 // Outlook renders the links inside `<!--[if mso]>` blocks, so those are read as markup.
-const COMMENT_START = /<!--(?!\[if\b[^<>]*\]>)/y
+const COMMENT_START = /<!--(?!\[if\b[^<>]*\]>)/iy
 const COMMENT_END = /(?<=--!?)>/g
 const TAG_NAME = /<(\/?)([A-Za-z][^\t\n\f\r />]*)/y
 const JAVASCRIPT_SCHEME = /^javascript:/i
+const RAW_TEXT_ELEMENTS = ['script', 'style', 'textarea', 'title']
+
+// Once an element's end tag is missing, later searches for it return at once, so repeated
+// unclosed elements stay linear. Their text is then scanned as markup, as before.
+const rawTextEndFinder = (html: string): ((name: string, from: number) => number) => {
+    const unclosed = new Set<string>()
+    return (name, from) => {
+        const endTag = new RegExp(`</${name}[\\t\\n\\f\\r />]`, 'gi')
+        endTag.lastIndex = from
+        const end = unclosed.has(name) ? -1 : (endTag.exec(html)?.index ?? -1)
+        if (end === -1) {
+            unclosed.add(name)
+        }
+        return end
+    }
+}
 
 const trackableHref = (tag: OpeningTag): string | null =>
     tag.attributes.findLast(({ name, value }) => name === 'href' && value !== null && !JAVASCRIPT_SCHEME.test(value))
@@ -23,6 +39,7 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
     let open: { start: number; href: string } | null = null
     let commentsCanClose = true
     let quotesCanClose = true
+    const rawTextEnd = rawTextEndFinder(html)
 
     for (let position = html.indexOf('<'); position !== -1; position = html.indexOf('<', position)) {
         COMMENT_START.lastIndex = position
@@ -53,8 +70,14 @@ export const replaceHrefAnchors = (html: string, replace: (anchor: HrefAnchor) =
             const { attributes } = readOpeningTag(html.slice(position, cut + 1), attributesStart - position)
             tag = { attributes: attributes.filter(({ end }) => end <= cut - position), end: cut }
         }
-        const isAnchor = tagName[2].toLowerCase() === 'a'
+        const name = tagName[2].toLowerCase()
         const isEndTag = tagName[1] === '/'
+        if (!isEndTag && RAW_TEXT_ELEMENTS.includes(name)) {
+            const end = rawTextEnd(name, tag.end + 1)
+            position = end === -1 ? tag.end + 1 : end
+            continue
+        }
+        const isAnchor = name === 'a'
         if (isAnchor && isEndTag && open) {
             pieces.push(
                 html.slice(copiedUpTo, open.start),

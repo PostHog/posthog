@@ -307,6 +307,11 @@ describe('EmailTrackingService', () => {
                     `<a title="a > ses:tags='x'" href="https://example.com/a" ses:tags="phl:0">a</a>`,
                 ],
                 [
+                    'an uppercase Outlook conditional',
+                    '<!--[IF mso]><a href="https://example.com/a">a</a><![endif]-->',
+                    '<!--[IF mso]><a href="https://example.com/a" ses:tags="phl:0">a</a><![endif]-->',
+                ],
+                [
                     'a comment that only starts like an Outlook conditional',
                     '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b">b</a>',
                     '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -434,6 +439,12 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com/reset"><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
                     sensitiveInvocation,
                     `<a href="https://example.com/reset" ses:no-track><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
+                ],
+                [
+                    'a sensitive template with tag-like text in a style block',
+                    `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset">x</a>`,
+                    sensitiveInvocation,
+                    `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset" ses:no-track>x</a>`,
                 ],
                 [
                     'a sensitive template whose link names ses:no-track only in a title',
@@ -605,6 +616,11 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
+                [
+                    'an empty unquoted href after a valid one',
+                    '<a href="https://example.com/a" href=>x</a>',
+                    'https://example.com/a',
+                ],
                 [
                     'a title quoting an href after a >',
                     `<a href="https://example.com/a" title="x > href='https://example.org/'">x</a>`,

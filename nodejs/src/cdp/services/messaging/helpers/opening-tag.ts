@@ -22,7 +22,7 @@ export const readOpeningTag = (html: string, attributesStart: number): OpeningTa
         if (!match) {
             return { attributes, end: -1 }
         }
-        const value = match[2] ?? match[3] ?? match[4] ?? null
+        const value = match[2] ?? match[3] ?? (match[4] || null)
         attributes.push({ name: match[1].toLowerCase(), value, start, end: ATTRIBUTE.lastIndex })
         position = ATTRIBUTE.lastIndex
     }
