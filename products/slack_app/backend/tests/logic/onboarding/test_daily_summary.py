@@ -258,18 +258,16 @@ def test_the_index_holds_the_newest_roots_and_skips_a_batch_jev_refuses(workspac
     client.users_conversations.return_value = {"channels": [{"id": "C1"}, {"id": "C2"}]}
     client.conversations_history.side_effect = lambda channel, **_: history[channel]
     slack = _patched_slack(client)
-    answers = [
-        SystemOneRequestFailed("The ai-gateway returned HTTP 400", status_code=400),
-        lambda questions: SystemOneResult(
-            model="jev", answers={key: NoulAnswer(probability=0.9) for key in questions}, input_tokens=None
-        ),
-    ]
+    calls = 0
 
     def decide(*, state: dict[str, Any], questions: dict[str, Any]) -> SystemOneResult:
-        answer = answers.pop(0)
-        if isinstance(answer, Exception):
-            raise answer
-        return answer(questions)
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise SystemOneRequestFailed("The ai-gateway returned HTTP 400", status_code=400)
+        return SystemOneResult(
+            model="jev", answers={key: NoulAnswer(probability=0.9) for key in questions}, input_tokens=None
+        )
 
     try:
         with (
