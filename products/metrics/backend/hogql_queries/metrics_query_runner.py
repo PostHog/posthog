@@ -36,7 +36,7 @@ from posthog.clickhouse.client.limit import QueryLane
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import dashboard_v2_enabled, posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -101,7 +101,7 @@ from products.metrics.backend.variables import (
 if TYPE_CHECKING:
     from posthog.models import User
 
-DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
+
 # `query executed` reports a tile answered wholly from stored buckets as `derived`, the value that the precompute
 # measurement queries filter on.
 _EVENT_PROVENANCE = {
@@ -377,7 +377,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
 
     @cached_property
     def _precompute_enabled(self) -> bool:
-        return precompute_enabled(self.team)
+        return self._dashboard_v2_enabled and precompute_enabled(self.team)
 
     @property
     def _viewer_is_member(self) -> bool:
@@ -418,14 +418,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
 
     @cached_property
     def _dashboard_v2_enabled(self) -> bool:
-        # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
-        return posthog_feature_flag_enabled(
-            DASHBOARD_V2_FEATURE_FLAG,
-            str(getattr(self.user, "distinct_id", None) or self.team.uuid),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        )
+        return dashboard_v2_enabled(self.team, self.user)
 
     def _load_all_options(self, dashboard_id: int | None = None) -> dict[str, Variable]:
         if self._loaded_variables is None:

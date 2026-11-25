@@ -454,6 +454,7 @@ class TestVerifyTeamMetadata(BaseTest):
             # TeamFeatureFlagsConfig fields are tracked separately from TEAM_METADATA_FIELDS.
             ("minimal_flag_called_events", True),
             ("property_matching_version", 2),
+            ("null_counts_as_not_set", True),
             ("flags_blocked_hosts", ["example.com"]),
             ("flags_blocked_ips", ["203.0.113.7"]),
             ("realtime_cohort_level", "serving"),
@@ -478,7 +479,11 @@ class TestVerifyTeamMetadata(BaseTest):
     @parameterized.expand(
         [
             ("team_without_values", False, []),
-            ("team_with_values", True, ["flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"]),
+            (
+                "team_with_values",
+                True,
+                ["flags_blocked_hosts", "flags_blocked_ips", "null_counts_as_not_set", "realtime_cohort_level"],
+            ),
         ]
     )
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
@@ -487,6 +492,7 @@ class TestVerifyTeamMetadata(BaseTest):
     ) -> None:
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(null_counts_as_not_set=team_has_values)
         if team_has_values:
             TeamFeatureFlagPolicyConfig.objects.create(
                 team=self.team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.7"]
@@ -495,7 +501,7 @@ class TestVerifyTeamMetadata(BaseTest):
                 team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.PILOT
             )
         cached_data = _serialize_team_to_metadata(self.team)
-        for key in ("flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"):
+        for key in ("flags_blocked_hosts", "flags_blocked_ips", "null_counts_as_not_set", "realtime_cohort_level"):
             del cached_data[key]
         mock_get_metadata.return_value = cached_data
 
@@ -520,10 +526,13 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
     def test_defaults_to_false_for_ungated_team(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
+
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], False)
         self.assertEqual(metadata["property_matching_version"], 1)
+        self.assertIs(metadata["null_counts_as_not_set"], False)
         self.assertEqual(metadata["flags_blocked_hosts"], [])
         self.assertEqual(metadata["flags_blocked_ips"], [])
 
@@ -532,13 +541,18 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
 
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=self.team,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": False,
+            },
         )
 
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], True)
         self.assertEqual(metadata["property_matching_version"], 2)
+        self.assertIs(metadata["null_counts_as_not_set"], False)
 
     def test_batch_load_matches_single_team_load(self):
         from posthog.storage.team_metadata_cache import _batch_load_team_metadata, _serialize_team_to_metadata
@@ -546,7 +560,11 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
         gated_team = self.organization.teams.create(name="Gated team")
         TeamFeatureFlagsConfig.objects.update_or_create(
             team=gated_team,
-            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+            defaults={
+                "minimal_flag_called_events": True,
+                "property_matching_version": 2,
+                "null_counts_as_not_set": True,
+            },
         )
         TeamFeatureFlagPolicyConfig.objects.create(
             team=gated_team, blocked_hosts=["example.com"], blocked_ips=["203.0.113.0/24"]
@@ -574,9 +592,16 @@ class TestFeatureFlagsConfigInMetadata(BaseTest):
         self.assertEqual(batch_result[gated_team.id]["property_matching_version"], 2)
         self.assertIs(batch_result[ungated_team.id]["minimal_flag_called_events"], False)
         self.assertEqual(batch_result[ungated_team.id]["property_matching_version"], 1)
+        self.assertIs(batch_result[gated_team.id]["null_counts_as_not_set"], True)
+        self.assertIs(batch_result[ungated_team.id]["null_counts_as_not_set"], False)
         for team in (gated_team, ungated_team):
             single_result = _serialize_team_to_metadata(team)
-            for field in ("flags_blocked_hosts", "flags_blocked_ips", "realtime_cohort_level"):
+            for field in (
+                "null_counts_as_not_set",
+                "flags_blocked_hosts",
+                "flags_blocked_ips",
+                "realtime_cohort_level",
+            ):
                 self.assertEqual(batch_result[team.id][field], single_result[field])
         self.assertEqual(batch_result[gated_team.id]["flags_blocked_hosts"], ["example.com"])
         self.assertEqual(batch_result[gated_team.id]["flags_blocked_ips"], ["203.0.113.0/24"])
