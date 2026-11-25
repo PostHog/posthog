@@ -482,11 +482,6 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         # url: ...").
         ("DataForSEO", "401 Client Error: Unknown for url: https://api.dataforseo.com/v3/backlinks/summary/live"),
         ("DataForSEO", "402 Client Error: Unknown for url: https://api.dataforseo.com/v3/backlinks/summary/live"),
-        # The experience id is unique per project, so the key matches only the stable text around it.
-        (
-            "Expo",
-            "Expo API error: Experience with id '00000000-0000-4000-8000-000000000000' does not exist.",
-        ),
         ("IP2Whois", "IP2WHOIS API error [10000]: Invalid API key."),
         ("IP2Whois", "IP2WHOIS API error: unexpected status 418"),
         ("Marketo", "Marketo authentication failed: status=401, body={}"),

@@ -53,9 +53,8 @@ class ExpoSource(ResumableSource[ExpoSourceConfig, ExpoResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.expo.dev": "Expo rejected this access token. Create a new one at expo.dev under Access tokens and reconnect the source.",
             "Expo API error: Entity not authorized": "This access token cannot read the configured project. Check the project ID and the token's account.",
-            # Expo's own text already names the configured project ID, so show it verbatim instead
-            # of a fixed message that would hide which project (of possibly several) is affected.
-            "Expo API error: Experience with id": None,
+            # Expo's GraphQL error when the project ID is wrong or the project was deleted.
+            "Expo API error: Experience with id": unknown_project,
             PROJECT_NOT_FOUND_ERROR: unknown_project,
         }
 

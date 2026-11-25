@@ -42,11 +42,9 @@ class TestExpoSourceClass:
     @pytest.mark.parametrize(
         "payload, expected_message_fragment",
         [
-            # Expo's own text already names the project id, so the finalizer shows it raw (`None`)
-            # instead of hiding it behind a fixed message.
             (
                 {"errors": [{"message": "Experience with id '00000000-0000-0000-0000-000000000000' does not exist."}]},
-                None,
+                "eas project:info",
             ),
             ({"data": {"app": {"byId": None}}}, "eas project:info"),
             ({"errors": [{"message": "Entity not authorized"}]}, "token's account"),
@@ -54,17 +52,14 @@ class TestExpoSourceClass:
         ids=["unknown_project_id", "project_returns_null", "project_not_authorized"],
     )
     def test_a_project_config_error_is_non_retryable(
-        self, payload: dict[str, Any], expected_message_fragment: str | None
+        self, payload: dict[str, Any], expected_message_fragment: str
     ) -> None:
         error = _sync_error(payload)
         non_retryable = ExpoSource().get_non_retryable_errors()
 
         matched = [message for pattern, message in non_retryable.items() if error_message_matches(error, [pattern])]
         assert len(matched) == 1, error
-        if expected_message_fragment is None:
-            assert matched[0] is None
-        else:
-            assert expected_message_fragment in (matched[0] or "")
+        assert expected_message_fragment in (matched[0] or "")
 
     @pytest.mark.parametrize(
         "message",
