@@ -194,6 +194,48 @@ describe('sessionConversationLogic', () => {
         expect(sidesStatuses()).toEqual(['ready', 'ready'])
     })
 
+    it('a retry reads the failed batches one after another', async () => {
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const page = makeSessionTurnPage([1, 2])
+        page.items[1] = { ...page.items[1], createdAt: '2026-11-01T10:15:00.000Z' }
+        answerPage = () => [200, page]
+        answerSides = () => [500, { detail: 'boom' }]
+        await mount()
+        const reads: string[] = []
+        answerSides = async (body) => {
+            reads.push(`asked ${body.trace_ids}`)
+            // Yields, so a batch sent at the same time would be asked for before this one answers.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            reads.push(`answered ${body.trace_ids}`)
+            return answerEveryTurn(body)
+        }
+
+        logic.actions.retrySides()
+        expect(sidesStatuses()).toEqual(['loading', 'loading'])
+        await settle()
+
+        expect(reads).toEqual(['asked trace-1', 'answered trace-1', 'asked trace-2', 'answered trace-2'])
+        expect(sidesStatuses()).toEqual(['ready', 'ready'])
+    })
+
+    it('unmounting aborts the messages still loading, and reports no failure', async () => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const fetched = jest.spyOn(window, 'fetch')
+        answerSides = () => new Promise<SidesAnswer>(() => {})
+        logic = sessionConversationLogic(PROPS)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['sidesRequested'])
+        const sidesSignal = fetched.mock.calls.find(([url]) => String(url).includes('/traces/turns/'))?.[1]?.signal
+
+        logic.unmount()
+        await new Promise(process.nextTick)
+
+        expect(sidesSignal?.aborted).toBe(true)
+        expect(captureException).not.toHaveBeenCalled()
+        answerSides = answerEveryTurn
+        await mount()
+    })
+
     it('shows a turn the messages read leaves out as read, with nothing in it', async () => {
         answerSides = () => [200, { items: [makeTraceTurn('trace-1')] }]
         await mount()
@@ -365,6 +407,27 @@ describe('sessionConversationLogic', () => {
         await settle()
 
         expect(pageRequests).toEqual([FIRST_PAGE_PARAMS, { ...FIRST_PAGE_PARAMS, before_cursor: 'cursor-before' }])
+        expect(turnIds()).toEqual(['trace-0', 'trace-1', 'trace-2'])
+        expect(router.values.searchParams).toMatchObject({ session: SESSION_ID, trace: 'trace-0' })
+    })
+
+    it('a step up reads the earlier page again after that read failed', async () => {
+        silenceKeaLoadersErrors()
+        answerPage = (params) =>
+            params.has('before_cursor')
+                ? [500, { detail: 'boom' }]
+                : [200, makeSessionTurnPage([1, 2], { previousCursor: 'cursor-before' })]
+        await mountOnSessionsPath()
+        await openTurnAt('trace-1')
+        const drawer = traceDrawerLogic({ listId: SESSION_TURNS_LIST })
+        drawer.actions.stepTo('previous')
+        await settle()
+        expect(logic.values.olderEdge).toEqual('failed')
+
+        answerPage = () => [200, makeSessionTurnPage([0])]
+        drawer.actions.stepTo('previous')
+        await settle()
+
         expect(turnIds()).toEqual(['trace-0', 'trace-1', 'trace-2'])
         expect(router.values.searchParams).toMatchObject({ session: SESSION_ID, trace: 'trace-0' })
     })
