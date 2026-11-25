@@ -86,8 +86,7 @@ class CustomerIOImportProvider(ImportProvider):
         "delivery history stay in Customer.io."
     )
     next_steps = (
-        "Upload the opt-out preferences CSV, so people who left a single topic stay out of it. Importing Contacts does "
-        "that too.",
+        "Upload the opt-out preferences CSV, so people who left a single topic stay out of it.",
         "Import your automations from the Workflows page. They arrive as drafts.",
         "Add your sending domain in PostHog and publish its DNS records.",
         "Run the import and upload a fresh CSV right before you stop sending from Customer.io, so late unsubscribes "
@@ -436,8 +435,8 @@ def _save_contacts(context: ImportContext, people: _People) -> SavedPage:
     if people.unreadable_preferences:
         warnings = (
             *warnings,
-            f"{people.unreadable_preferences:,} people have subscription preferences PostHog can't read, so they're "
-            "opted out of all marketing messages.",
+            f"Subscription preferences PostHog can't read: {people.unreadable_preferences:,}. The people they belong to "
+            "are opted out of all marketing messages.",
         )
     return replace(
         saved,

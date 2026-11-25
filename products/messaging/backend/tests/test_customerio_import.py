@@ -178,7 +178,7 @@ class TestCustomerIOContacts(ClickhouseTestMixin, _CustomerIOTestCase):
             assert preferences[left] == everything
         assert preferences["shared@example.com"] == everything
         assert "stays@example.com" not in preferences
-        assert "2 people have subscription preferences" in run.progress["contacts"]["warnings"][0]
+        assert "can't read: 2." in run.progress["contacts"]["warnings"][0]
 
     def test_importing_again_takes_out_who_unsubscribed_or_was_deleted(self) -> None:
         self.workspace.people = [person(1), person(2), person(3)]
