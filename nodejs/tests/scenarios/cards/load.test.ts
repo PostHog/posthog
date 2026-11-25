@@ -281,10 +281,10 @@ describe('load', () => {
             'valves.0: exactly one of at, when',
         ],
         [
-            'a when predicate other than running_on_queue',
+            'a when predicate the runner does not know',
             { ...card, valves: [{ ...emailWorkerKill, when: { ...emailWorkerKill.when, name: 'queue_empty' } }] },
             undefined,
-            'valves.0.when.name: running_on_queue is the only predicate',
+            'valves.0.when.name: the predicates are running_on_queue and edge_accepted',
         ],
         [
             'running_on_queue without its queue',

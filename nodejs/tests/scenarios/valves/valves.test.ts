@@ -555,14 +555,15 @@ describe('valves', () => {
             },
         })
 
-        const send = (): Promise<string> =>
+        const send = (abortSignal?: AbortSignal): Promise<string> =>
             ses
                 .send(
                     new SendEmailCommand({
                         FromEmailAddress: 'flows@www.example.com',
                         Destination: { ToAddresses: ['run-1-1@www.example.com'] },
                         Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
-                    })
+                    }),
+                    { abortSignal }
                 )
                 .then(
                     () => 'sent',
@@ -636,6 +637,88 @@ describe('valves', () => {
                 }).toEqual({ outcomes: ['Error', 'sent'], sends, error: undefined })
             }
         )
+
+        const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
+
+        const withWorker = (running: boolean) => {
+            const worker = new AbortController()
+            const sentWhenKilled: number[] = []
+            let boundaryHeld = (): void => undefined
+            const held = new Promise<void>((resolve) => (boundaryHeld = resolve))
+            const context: ValveContext = {
+                ...onEdge(),
+                environment: {
+                    actuate: (action) => {
+                        if (action.kind === 'edge.fault') {
+                            boundaryHeld()
+                            return Promise.resolve(edge.hold(action.rule))
+                        }
+                        if (action.kind !== 'kill' || !running) {
+                            return Promise.reject(new Error(`${EMAIL_WORKER} is not running`))
+                        }
+                        sentWhenKilled.push(edge.sent.length)
+                        worker.abort()
+                        return Promise.resolve({
+                            observed: () => Promise.resolve(true),
+                            release: () => Promise.resolve(),
+                        })
+                    },
+                },
+            }
+            return { context, held, worker: worker.signal, sentWhenKilled }
+        }
+
+        it.each<[string, boolean, string, number[], string | undefined]>([
+            [
+                'kills the worker after SES took its send, so the send never hears the answer',
+                true,
+                'AbortError',
+                [1],
+                undefined,
+            ],
+            [
+                'answers the held send on release when the kill fails',
+                false,
+                'sent',
+                [],
+                `${EMAIL_WORKER} is not running`,
+            ],
+        ])('edge_accepted on ses %s', async (_story, running, outcome, sentWhenKilled, error) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(running)
+
+            await valves.start([killAfterAccept], stack.context)
+            await stack.held
+            const answered = await send(stack.worker)
+            await valves.releaseAll()
+
+            expect({
+                answered,
+                sentWhenKilled: stack.sentWhenKilled,
+                error: valves.timeline()[0].error,
+                observed: valves.timeline()[0].observedAt !== undefined,
+                next: await send(),
+            }).toEqual({ answered: outcome, sentWhenKilled, error, observed: running, next: 'sent' })
+        })
+
+        it('kills nothing and lifts its boundary when SES took no send before the drive ended', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = withWorker(true)
+
+            await valves.start([killAfterAccept], stack.context)
+            await stack.held
+            await valves.releaseAll()
+
+            expect({
+                error: valves.timeline()[0].error,
+                next: await send(),
+                sentWhenKilled: stack.sentWhenKilled,
+            }).toEqual({
+                error: 'never applied: edge_accepted on ses did not happen before the drive ended',
+                next: 'sent',
+                sentWhenKilled: [],
+            })
+        })
 
         it.each<[string, string, boolean]>([
             ['its hold ends', '100ms', true],
