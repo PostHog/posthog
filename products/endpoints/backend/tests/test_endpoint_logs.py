@@ -4,6 +4,9 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 from rest_framework import status
 
@@ -146,8 +149,14 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
 
     def test_successful_run_returns_execution_id_matching_log(self):
         endpoint = self._create_hogql_endpoint("logs_exec_id", "SELECT 1")
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
 
-        with mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log:
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.log_endpoint_execution") as mock_log,
+            provider.get_tracer("test").start_as_current_span("test-request-root"),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
             )
@@ -157,6 +166,12 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(execution_id)
         # The id returned to the client must be the same one written to the logs, so it can be traced.
         self.assertEqual(execution_id, mock_log.call_args.kwargs["instance_id"])
+        # The request span carries the same keys as the run log, so a span joins to its log line.
+        (span,) = [s for s in exporter.get_finished_spans() if s.name == "test-request-root"]
+        self.assertEqual(span.attributes["log_source_id"], str(endpoint.id))
+        self.assertEqual(span.attributes["instance_id"], execution_id)
+        self.assertEqual(span.attributes["endpoint.name"], endpoint.name)
+        self.assertEqual(span.attributes["endpoint.execution_type"], "inline")
 
     def test_invalid_refresh_mode_emits_error_log_and_clean_message(self):
         endpoint = self._create_hogql_endpoint("logs_bad_refresh", "SELECT 1")

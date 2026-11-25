@@ -23,6 +23,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import Error as ClickHouseDriverError
 from dateutil.parser import isoparse
+from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import status
 from rest_framework.exceptions import APIException, Throttled, ValidationError
@@ -606,6 +607,11 @@ class EndpointExecutionService(PydanticModelMixin):
         # A cache hit runs no query, and a fallback or a stale cache runs two. This tag is the
         # only key that joins the queries of a run to its log_entries row.
         tag_queries(endpoint_execution_id=execution_id)
+        # Same keys as the run's log_entries row, so a request span joins to its log line.
+        span = trace.get_current_span()
+        span.set_attributes(
+            {"log_source_id": str(endpoint.id), "instance_id": execution_id, "endpoint.name": endpoint.name}
+        )
         request_shape = self._request_shape(data, limit=limit, offset=offset)
         error_label: str | None = None
         _start_time = time.monotonic()
@@ -730,6 +736,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 raise APIException(clickhouse_error_message(e), code=error_code_from_type(e)) from e
             raise
         finally:
+            span.set_attribute("endpoint.execution_type", execution_type)
             self._track_last_executed(endpoint, version_obj)
             if execution_status is not None:
                 _duration = time.monotonic() - _start_time
