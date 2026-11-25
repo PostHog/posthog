@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import type { ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { absolutePath, canonical, isInside } from '@/core/paths'
 
 import { discover, isHermesBundlePath, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
@@ -53,6 +54,20 @@ export async function select(ctx: Context, paths: string[], options: ErrorTracki
                 EXIT_USAGE
             )
         }
+        // posthog.json can come from someone else, and hog rewrites and can delete files under these
+        // folders. A folder on the command line is the person's own choice, so it can be anywhere.
+        const project = canonical(loaded.root)
+        for (const source of sources) {
+            const folder = canonical(absolutePath(loaded.root, source.path))
+            if (folder !== project && !isInside(project, folder)) {
+                throw new HogError(
+                    'unsafe_source_path',
+                    `posthog.json lists ${source.path} under errorTracking.sources, which resolves outside the project, so hog won't read it.`,
+                    'Pass that folder on the command line instead, or list a folder inside the project in posthog.json.'
+                )
+            }
+        }
+
         roots = sources.map((source) => ({ ...source, kind: options.kind ?? source.kind }))
         cwd = loaded.root
     }
