@@ -222,28 +222,30 @@ def _keep_live_sensitivity(before: HogFlow, validated_data: dict) -> dict:
         action["id"]: action.get("config") or {} for action in live_steps if isinstance(action.get("id"), str)
     }
     if live_configs:
-        sensitive = any(config.get("sensitive") is True for config in live_configs)
+        fallback_sensitive = any(config.get("sensitive") is True for config in live_configs)
         fallback_click_tracking = _fallback_click_tracking(live_configs) if step_type == "function_email" else None
     elif step_type == "function_email":
         template_tracking = get_transactional_template_tracking(before.team_id, before.id)
         if template_tracking is None:
             return validated_data
-        sensitive = template_tracking.sensitive
+        fallback_sensitive = template_tracking.sensitive
         fallback_click_tracking = template_tracking.click_tracking_enabled
     else:
-        sensitive = False
+        fallback_sensitive = False
         fallback_click_tracking = None
     actions = []
     for action in validated_data["actions"] or []:
         if isinstance(action, dict) and action.get("type") == step_type:
-            config = {**(action.get("config") or {}), "sensitive": sensitive}
+            action_id = action.get("id")
+            if isinstance(action_id, str) and action_id in live_by_id:
+                step_sensitive = live_by_id[action_id].get("sensitive") is True
+                step_live = live_by_id[action_id].get("click_tracking_enabled")
+                click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
+            else:
+                step_sensitive = fallback_sensitive
+                click_tracking = fallback_click_tracking
+            config = {**(action.get("config") or {}), "sensitive": step_sensitive}
             if step_type == "function_email":
-                action_id = action.get("id")
-                if isinstance(action_id, str) and action_id in live_by_id:
-                    step_live = live_by_id[action_id].get("click_tracking_enabled")
-                    click_tracking: bool | None = step_live if isinstance(step_live, bool) else None
-                else:
-                    click_tracking = fallback_click_tracking
                 if click_tracking is None:
                     config.pop("click_tracking_enabled", None)
                 else:

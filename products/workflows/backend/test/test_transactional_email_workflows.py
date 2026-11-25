@@ -25,7 +25,7 @@ from products.workflows.backend.facade.transactional_emails import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer, set_workflow_enabled
+from products.workflows.backend.presentation.views.hog_flow import set_workflow_enabled
 from products.workflows.backend.services.hog_flow_writes import save_validated_workflow
 
 
@@ -219,15 +219,16 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
         assert reloaded.status == HogFlow.State.ACTIVE
         assert reloaded.actions[1]["config"]["click_tracking_enabled"] is False
 
-    def test_resuming_multi_step_workflow_preserves_each_steps_click_tracking_setting(self):
+    def test_resuming_multi_step_workflow_preserves_each_steps_tracking_and_sensitivity(self):
         flow_id = create_transactional_email_workflow(
             team_id=self.team.id,
             user_id=self.user.id,
-            content=_content(sensitive=False, click_tracking_enabled=True),
+            content=_content(sensitive=True, click_tracking_enabled=True),
         )
         flow = HogFlow.objects.get(id=flow_id)
         second_email = deepcopy(flow.actions[1])
         second_email["id"] = "action-send-email-2"
+        second_email["config"]["sensitive"] = False
         second_email["config"]["click_tracking_enabled"] = False
         actions = [flow.actions[0], flow.actions[1], second_email, flow.actions[2]]
         edges = [
@@ -241,7 +242,9 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
 
         reloaded = HogFlow.objects.get(id=flow_id)
         by_id = {action["id"]: action["config"] for action in reloaded.actions if action["type"] == "function_email"}
+        assert by_id[flow.actions[1]["id"]]["sensitive"] is True
         assert by_id[flow.actions[1]["id"]]["click_tracking_enabled"] is True
+        assert by_id["action-send-email-2"]["sensitive"] is False
         assert by_id["action-send-email-2"]["click_tracking_enabled"] is False
 
     def test_the_stored_workflow_passes_the_workflows_api_validation(self):
@@ -253,15 +256,18 @@ class TestTransactionalEmailWorkflows(APIBaseTest):
             )
         )
 
-        serializer = HogFlowSerializer(
-            data=deepcopy({"name": flow.name, "status": "active", "actions": flow.actions, "edges": flow.edges}),
-            context={"team_id": self.team.id, "get_team": lambda: self.team, "is_draft": False},
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            deepcopy({"name": flow.name, "status": "active", "actions": flow.actions, "edges": flow.edges}),
+            format="json",
         )
-
-        assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
-        assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
-        assert serializer.validated_data["actions"][1]["config"]["click_tracking_enabled"] is True
+        assert created.status_code == 201, created.json()
+        fetched = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/")
+        assert fetched.status_code == 200, fetched.json()
+        body = fetched.json()
+        assert body["trigger"] == flow.trigger == {"type": "api"}
+        assert body["billable_action_types"] == flow.billable_action_types
+        assert body["actions"][1]["config"]["click_tracking_enabled"] is True
 
     @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
     def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
