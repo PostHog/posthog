@@ -6935,8 +6935,12 @@ describe('CDP API', () => {
             expect(produced()).toEqual([])
         })
 
-        const claim = async (flowId: string, keyed: TransactionalPushRequest, runId: string): Promise<void> => {
-            const [fingerprint] = transactionalPushFingerprints(api['fingerprintSigner'], flowId, keyed)
+        const claim = async (
+            flowId: string,
+            keyed: TransactionalPushRequest,
+            runId: string,
+            fingerprint = transactionalPushFingerprints(api['fingerprintSigner'], flowId, keyed)[0]
+        ): Promise<void> => {
             const run = { id: runId } as CyclotronJobInvocation
             await api['hogflowQueue'].queueInvocationsIdempotently([{ invocation: run, fingerprint }])
         }
@@ -6956,6 +6960,27 @@ describe('CDP API', () => {
             expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
             expect(other.status).toEqual(422)
             expect(produced()).toHaveLength(1)
+        })
+
+        it('answers a retry of a send claimed with an older key with the first send', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            const first = await send(hogFlow.id, keyed)
+            const older = transactionalPushFingerprints(api['fingerprintSigner'], hogFlow.id, keyed)[1]
+            await claim(hogFlow.id, keyed, first.body.invocation_id, older)
+
+            const retry = await send(hogFlow.id, keyed)
+
+            expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
+        })
+
+        it('answers 413 for a push too large for the intake topic', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+
+            const res = await send(hogFlow.id, { ...body, variables: { order_id: 'x'.repeat(2 * 1024 * 1024) } })
+
+            expect([res.status, res.body]).toEqual([413, { error: 'message_too_large' }])
+            expect(produced()).toEqual([])
         })
 
         it('answers a retry with the first send after the workflow is turned off', async () => {
@@ -7023,6 +7048,23 @@ describe('CDP API', () => {
             expect(res.status).toEqual(status)
             expect(produced()).toHaveLength(count)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('refuses a push marked sensitive after the workflow was cached, while the seal key is missing', async () => {
+            api['config'].CDP_SEALED_STATE_KEYS = ''
+            const hogFlow = await insertHogFlow(sensitive(pushFlow()))
+            const actions = hogFlow.actions.map((action) =>
+                action.type === 'function_push' ? { ...action, config: { ...action.config, sensitive: false } } : action
+            ) as HogFlow['actions']
+            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockResolvedValue({
+                ...hogFlow,
+                actions,
+            })
+
+            const res = await send(hogFlow.id)
+
+            expect([res.status, res.body]).toEqual([503, { error: 'not_sealing' }])
+            expect(produced()).toEqual([])
         })
 
         it('produces nothing for a sensitive push whose seal key cannot encrypt', async () => {

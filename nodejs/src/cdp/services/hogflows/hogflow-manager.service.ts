@@ -161,6 +161,11 @@ export class HogFlowManagerService {
         return Object.fromEntries(ids.map((id) => [id, remembered[id] ?? cached[id] ?? fromPrimary[id] ?? null]))
     }
 
+    // For a check that an edit made moments ago must not slip past. Reads the primary on every call.
+    public async getHogFlowFromPrimary(id: HogFlow['id']): Promise<HogFlow | null> {
+        return (await this.fetchHogFlows([id], PostgresUse.COMMON_WRITE))[id] ?? null
+    }
+
     private async readPrimary(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         const unread = ids.filter((id) => !this.primaryReads.has(id))
         if (unread.length > 0) {

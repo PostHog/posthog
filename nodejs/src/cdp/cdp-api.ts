@@ -1939,7 +1939,7 @@ export class CdpApi {
 
             const { seal, sealing } = createInvocationSanitizer(this.config)
             // Checked before the claim, because claims made with the missing key would read as another request's.
-            if (!sealing && hasSensitiveMessageStep(hogFlow)) {
+            if (!sealing && (await this.isSensitiveNow(hogFlow))) {
                 logger.error('🔑', 'Sensitive transactional push refused: CDP_SEALED_STATE_KEYS is unset')
                 return reply('not_sealing', 503, { error: 'not_sealing' })
             }
@@ -2014,12 +2014,19 @@ export class CdpApi {
         }
     }
 
+    // A cached workflow can miss that its push was just marked sensitive.
+    private async isSensitiveNow(cached: HogFlow): Promise<boolean> {
+        const current = await this.hogFlowManager.getHogFlowFromPrimary(cached.id)
+        return hasSensitiveMessageStep(cached) || !current || hasSensitiveMessageStep(current)
+    }
+
     private transactionalPushIntakeForRequest(seal: ReturnType<typeof createInvocationSanitizer>['seal']): RunIntake {
         return new RunIntake({
             hogflowQueue: this.hogflowQueue,
             producer: new IntakeProducer(this.outputs, undefined, seal, intakeClusterOf(this.config)),
         })
     }
+
     private refusalDeadline?: () => Promise<void>
 
     private transactionalSendsForRequest(): TransactionalSends {

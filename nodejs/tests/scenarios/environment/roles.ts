@@ -36,6 +36,7 @@ export const MODES_WITHOUT_A_ROLE: Partial<Record<PluginServerMode, string>> = {
     [PluginServerMode.cdp_rerun_worker]: 'an operator runs it to rerun failed runs, and no card reruns',
     [PluginServerMode.cdp_dlq_replay]: 'an operator runs it to drain the events dead-letter topic',
     [PluginServerMode.cdp_hogflow_scheduler]: 'no card runs a scheduled workflow',
+    [PluginServerMode.cdp_intake_transactional_push]: 'no card sends a transactional push',
 }
 
 export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'

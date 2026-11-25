@@ -124,7 +124,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         )
     }
 
-    // Both intake consumers park on one topic, so each drains only the records its own group parked.
+    // The intake consumers can park on one topic, so each drains only the records its own group parked.
     public async drainBatch(messages: Message[]): Promise<void> {
         const replays: Message[] = []
         for (const message of messages) {
