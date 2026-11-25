@@ -1,15 +1,18 @@
 from uuid import UUID
 
+from django.utils import timezone
+
 import posthoganalytics
 from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.models.message_recipient_erasure import MessageRecipientErasure
 from products.messaging.backend.provider_imports.runs import close_stale_runs
 from products.messaging.backend.services.code_email_source import RETRIED_OUTCOMES, detect_code_email_source
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
-from products.messaging.backend.services.erasure import delete_expired_erasures
+from products.messaging.backend.services.erasure import PREFERENCE_LINK_MAX_AGE
 
 
 @shared_task(ignore_result=True, name="products.messaging.backend.tasks.sync_preferences_to_customerio_task")
@@ -51,7 +54,6 @@ def close_stale_provider_import_runs() -> None:
 
 
 @shared_task(ignore_result=True, name="products.messaging.backend.tasks.delete_expired_recipient_erasures")
-@skip_team_scope_audit  # One sweep deletes the expired records of every team
 def delete_expired_recipient_erasures() -> None:
     """Delete erasure records once every preference link they revoke has expired, so the address hashes go too."""
-    delete_expired_erasures()
+    MessageRecipientErasure.objects.unscoped().filter(erased_at__lt=timezone.now() - PREFERENCE_LINK_MAX_AGE).delete()

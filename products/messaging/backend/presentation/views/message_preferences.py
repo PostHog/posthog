@@ -304,7 +304,8 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         },
         summary="Erase a recipient's preferences and suppression entries",
     )
-    @action(detail=False, methods=["post"])
+    # person:read as well, like removing a suppression, because the response tells whether the address reported spam.
+    @action(detail=False, methods=["post"], required_scopes=["hog_flow:write", "person:read"])
     def erase_recipient(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         """Permanently delete an email address's preferences and suppression list entries, matching it in any
         case. Preference links in emails sent before the erase stop working. Deleting the opt-outs means a later

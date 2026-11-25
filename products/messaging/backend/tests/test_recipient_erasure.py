@@ -12,10 +12,12 @@ class TestDeleteExpiredRecipientErasures(BaseTest):
     def test_deletes_only_erasures_older_than_every_link_they_revoke(self):
         now = timezone.now()
         for identifier_hash, age_days in (("expired", 61), ("live", 59)):
-            MessageRecipientErasure.objects.create(
-                team=self.team, identifier_hash=identifier_hash, erased_at=now - timedelta(days=age_days)
+            MessageRecipientErasure.objects.for_team(self.team.id).create(
+                team_id=self.team.id, identifier_hash=identifier_hash, erased_at=now - timedelta(days=age_days)
             )
 
         delete_expired_recipient_erasures()
 
-        self.assertEqual(list(MessageRecipientErasure.objects.values_list("identifier_hash", flat=True)), ["live"])
+        self.assertEqual(
+            list(MessageRecipientErasure.objects.unscoped().values_list("identifier_hash", flat=True)), ["live"]
+        )

@@ -1,7 +1,8 @@
 import json
-import time
+from datetime import UTC, datetime
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -487,23 +488,35 @@ class TestMessagePreferencesViews(BaseTest):
 
     @parameterized.expand(
         [
-            (entry_point, minted, expected_status)
+            (entry_point, minted, iat_offset_seconds, expected_status)
             for entry_point in ("page_view", "one_click_unsubscribe", "save")
-            for minted, expected_status in (("before_erase", 400), ("after_erase", 200))
+            for minted, iat_offset_seconds, expected_status in (
+                ("before_erase", -60, 400),
+                ("same_second_as_erase", 0, 400),
+                ("after_erase", 60, 200),
+            )
         ]
     )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_erase_revokes_links_minted_before_it(self, entry_point, minted, expected_status, mock_validate):
+    def test_erase_revokes_links_minted_before_it(
+        self, entry_point, _minted, iat_offset_seconds, expected_status, mock_validate
+    ):
+        erased_at = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
         mock_validate.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        erase_recipient(self.team.id, self.recipient.identifier.upper(), confirm_complaints=False)
-        offset = -60 if minted == "before_erase" else 60
         token = jwt.encode(
-            {"team_id": self.team.id, "identifier": self.recipient.identifier, "iat": int(time.time()) + offset},
+            {
+                "team_id": self.team.id,
+                "identifier": self.recipient.identifier,
+                "aud": "posthog:messaging:subscription_preferences",
+                "iat": int(erased_at.timestamp()) + iat_offset_seconds,
+            },
             "test-signing-key",
             algorithm="HS256",
         )
+        with time_machine.travel(erased_at, tick=False):
+            erase_recipient(self.team.id, self.recipient.identifier.upper(), confirm_complaints=False)
 
         page_url = reverse("message_preferences", kwargs={"token": token})
         if entry_point == "page_view":
@@ -1288,8 +1301,8 @@ class TestMessagePreferencesAPIKeyAccess(APIBaseTest):
             (["hog_flow:read"], "post", "remove_opt_out", status.HTTP_403_FORBIDDEN),
             (["hog_flow:write"], "post", "add_opt_out", status.HTTP_201_CREATED),
             (["hog_flow:write"], "post", "remove_opt_out", status.HTTP_201_CREATED),
-            (["hog_flow:read"], "post", "erase_recipient", status.HTTP_403_FORBIDDEN),
-            (["hog_flow:write"], "post", "erase_recipient", status.HTTP_200_OK),
+            (["hog_flow:write"], "post", "erase_recipient", status.HTTP_403_FORBIDDEN),
+            (["hog_flow:write", "person:read"], "post", "erase_recipient", status.HTTP_200_OK),
         ]
     )
     def test_personal_api_key_access(self, scopes, http_method, endpoint, expected_status):

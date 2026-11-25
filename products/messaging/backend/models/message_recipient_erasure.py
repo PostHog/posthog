@@ -1,9 +1,10 @@
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 
-class MessageRecipientErasure(UUIDTModel):
+class MessageRecipientErasure(TeamScopedRootMixin, UUIDModel):
     """
     Records that a team erased a recipient, so preference links minted before the erase stop working.
 
@@ -12,6 +13,7 @@ class MessageRecipientErasure(UUIDTModel):
     not the address, and is deleted once every link minted before it has expired.
     """
 
+    # db_constraint=False so CreateModel takes no lock on posthog_team (see HotTableAlterPolicy).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # SHA-256 hex digest of the team id and the lower-cased address.
     identifier_hash = models.CharField(max_length=64)

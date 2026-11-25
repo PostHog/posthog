@@ -328,6 +328,7 @@ rules:
                               |Meeting
                               |MeetingParticipant
                               |MessageCategory
+                              |MessageRecipientErasure
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
@@ -884,6 +885,7 @@ rules:
                         |Meeting
                         |MeetingParticipant
                         |MessageCategory
+                        |MessageRecipientErasure
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
