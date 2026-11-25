@@ -223,11 +223,11 @@ describe('reading the counters', () => {
             { counted: counted({ email_sent: 4 }) },
         ],
         [
-            'waits a full quiet window again after reads fail',
+            'waits a full quiet window from the first read that succeeds after reads fail',
             [
                 counted({ email_sent: 1 }),
-                ...Array.from({ length: 4 }, () => new Error('ClickHouse answered the counter read with 503')),
-                counted({ email_sent: 1 }),
+                ...Array.from({ length: 2 }, () => new Error('ClickHouse answered the counter read with 503')),
+                ...Array.from({ length: 3 }, () => counted({ email_sent: 1 })),
                 counted({ email_sent: 2 }),
             ],
             { counted: counted({ email_sent: 2 }) },

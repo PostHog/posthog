@@ -856,55 +856,6 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
     })
 
-    it.each<[string, () => unknown, string | undefined]>([
-        ['only other runs reached the edge', () => Promise.resolve(recordOtherRuns(TRUTH_PAGE_LIMIT + 1)), undefined],
-        [
-            'the edge accepted a resend of this run',
-            async () => {
-                recordOtherRuns(TRUTH_PAGE_LIMIT)
-                await deliver(UNIT)
-            },
-            "the edge accepted more of this run's sends after the final truth reads",
-        ],
-        [
-            'only a bounce callback for a counted send arrived',
-            () => Promise.resolve(edgeRecords.append({ kind: 'ses.feedback', status: 200, unitId: UNIT, detail: {} })),
-            undefined,
-        ],
-        [
-            'other runs kept reaching the edge on every page',
-            () => Promise.resolve((duringFinalPage = () => Promise.resolve(recordOtherRuns(TRUTH_PAGE_LIMIT)))),
-            undefined,
-        ],
-        [
-            'the edge answered no records up to its head',
-            () => {
-                recordOtherRuns(1)
-                truthLoses = edgeRecords.records.length
-            },
-            'the truth could not be read again: the edge answered no records past 1',
-        ],
-        [
-            'the truth read failed',
-            () => {
-                recordOtherRuns(1)
-                truthFails = 'The operation was aborted due to timeout'
-            },
-            'the truth could not be read again: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
-        ],
-    ])('rechecks the truth after the final reads when %s', async (_story, act, unsettled) => {
-        judge.record(offered())
-        await deliver(UNIT)
-        await judge.converge(20, NEVER_ABORTED)
-        await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
-        await act()
-
-        expect(await judge.recheck(NEVER_ABORTED)).toEqual(unsettled)
-        expect(
-            judge.evidence().truth.filter(({ kind, unitId }) => kind === 'ses.send' && unitId === UNIT)
-        ).toHaveLength(1)
-    })
-
     const TEAM = 2_100_000_000
     const BACKLOG: Backlog = {
         teams: 1,

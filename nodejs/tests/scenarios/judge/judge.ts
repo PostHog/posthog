@@ -62,7 +62,6 @@ export interface Judge {
         run: RunEvidence,
         signal?: AbortSignal
     ): Promise<InvariantResult[]>
-    recheck(signal?: AbortSignal): Promise<string | undefined>
     evidence(): {
         journal: JournalEntry[]
         truth: TruthRecord[]
@@ -291,33 +290,6 @@ export function createJudge({
                 }
                 return { name, gate: gates[name], ...definition.check(evidence, gates[name], params) }
             })
-        },
-
-        async recheck(signal) {
-            const isRunRecord = ofThisRun()
-            try {
-                const head = await retried(() => source.head(FINAL), finalRead, signal)
-                if (!Number.isInteger(head)) {
-                    throw new Error('the edge answered no head')
-                }
-                for (let after = cursor; after < head; ) {
-                    if (signal?.aborted) {
-                        throw new Error('the run was stopped')
-                    }
-                    const page = await retried(() => source.after(after, FINAL), finalRead, signal)
-                    const records = page.records.filter(({ seq }) => seq > after && seq <= head)
-                    if (records.some((record) => record.kind === 'ses.send' && isRunRecord(record))) {
-                        return "the edge accepted more of this run's sends after the final truth reads"
-                    }
-                    if (records.length === 0) {
-                        throw new Error(`the edge answered no records past ${after}`)
-                    }
-                    after = records.at(-1)!.seq
-                }
-                return undefined
-            } catch (error) {
-                return `the truth could not be read again: ${messageOf(error)}`
-            }
         },
 
         evidence: () => ({

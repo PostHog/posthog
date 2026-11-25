@@ -54,8 +54,9 @@ export async function readCounters(
     while (!signal?.aborted) {
         try {
             const counted = await probe.counted(query)
+            const recovered = failure !== undefined
             failure = undefined
-            if (last === undefined || !same(counted, last)) {
+            if (recovered || last === undefined || !same(counted, last)) {
                 last = counted
                 changedAt = now()
             } else if (now() - changedAt >= quietMs) {
@@ -63,7 +64,6 @@ export async function readCounters(
             }
         } catch (error) {
             failure = messageOf(error)
-            changedAt = now()
         }
         if (now() - startedAt >= withinMs) {
             break

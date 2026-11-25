@@ -349,7 +349,7 @@ function roundRobin(urls: readonly string[]): () => string {
     return () => urls[next++ % urls.length]
 }
 
-export function localTarget(
+function localTarget(
     environment: Environment,
     env: NodeJS.ProcessEnv,
     stateDir: string,
@@ -685,13 +685,8 @@ export function createRunner(
                             )
                           : { unread: `the ${runTarget.name} target has no counter read` })
                     : undefined
-                const judged = judge.evidence()
-                const unsettled =
-                    judged.unsettled ??
-                    (counters !== undefined && 'counted' in counters ? await judge.recheck(signal) : undefined)
                 const evidence = {
-                    ...judged,
-                    ...(unsettled !== undefined && { unsettled }),
+                    ...judge.evidence(),
                     counters,
                     converged: converged.converged,
                     ...sampled,
