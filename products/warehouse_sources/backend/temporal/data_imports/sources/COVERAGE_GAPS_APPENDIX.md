@@ -11268,16 +11268,16 @@ Note (2026-11-19): Read the v5 overview page and the per-object guide pages. Eac
 
 ## Particle — **thin**
 
-Today (2): `devices`, `events`
+Today (6): `device_diagnostics`, `device_groups`, `devices`, `events`, `sim_data_usage`, `sims`
 
 Diffed against: <https://docs.particle.io/reference/cloud-apis/api.md>
 
-- [ ] `SIMs (GET /v1/sims)` — cellular SIM inventory with status and last activity, for fleet connectivity and cost tracking (high)
-- [ ] `SIM data usage (GET /v1/sims/:iccid/data_usage; GET /v1/products/:productIdOrSlug/sims/data_usage)` — daily cellular data usage per SIM, the main cost driver for a device fleet (high)
+- [x] `SIMs (GET /v1/sims)` — cellular SIM inventory with status and last activity, for fleet connectivity and cost tracking (high)
+- [x] `SIM data usage (GET /v1/sims/:iccid/data_usage; GET /v1/products/:productIdOrSlug/sims/data_usage)` — daily cellular data usage per SIM, the main cost driver for a device fleet (high)
 - [ ] `Product firmware releases (GET /v1/products/:productIdOrSlug/firmware)` — firmware versions per product, resolves the firmware version on synced devices (medium)
-- [ ] `Device groups (GET /v1/products/:productIdOrSlug/groups)` — device group names used to segment the product fleet (medium)
+- [x] `Device groups (GET /v1/products/:productIdOrSlug/groups)` — device group names used to segment the product fleet (medium)
 - [ ] `Device locations (GET /v1/products/:productIdOrSlug/locations)` — last known location per device in a product fleet (medium)
-- [ ] `Last device diagnostics (GET /v1/diagnostics/:deviceId/last)` — latest health vitals per device such as signal and battery, for fleet health analysis (medium)
+- [x] `Last device diagnostics (GET /v1/diagnostics/:deviceId/last)` — latest health vitals per device such as signal and battery, for fleet health analysis (medium)
 - [ ] `Product customers (GET /v1/products/:productIdOrSlug/customers)` — customer accounts that own devices in a product (low)
 - [ ] `Logic functions (GET /v1/logic/functions; GET /v1/logic/functions/:logicFunctionId/runs)` — Logic function definitions and their execution history (low)
 - [ ] `Product device orders (GET /v1/products/:productIdOrSlug/device_orders)` — orders of devices added to a product (low)
