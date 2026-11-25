@@ -64,6 +64,7 @@ from posthog.tasks.tasks import (
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     report_upcoming_events_deletions,
+    send_delayed_org_usage_reports,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -119,6 +120,7 @@ from products.feature_flags.backend.tasks import (
     compute_feature_flag_metrics,
     drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
+    maintain_flag_definitions_v2_cache_entries,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     report_django_local_evaluation_usage_task,
@@ -135,6 +137,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
     enqueue_signals_rated_usage,
+    expire_dangling_report_pointers_task,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -191,14 +194,6 @@ from products.workflows.backend.facade.tasks import (
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
-
-# Organizations with delayed data ingestion that need delayed usage report re-runs
-# This is a temporary solution until we switch event usage queries from timestamp to created_at
-DELAYED_ORGS_EU: list[str] = [
-    "018beddd-5eb1-0000-7953-5a5b982e80bf",
-    "01975ab3-7ec5-0000-9751-a89cbc971419",
-]
-DELAYED_ORGS_US: list[str] = []
 
 
 def estimate_crontab_interval_seconds(schedule: crontab) -> int:
@@ -476,6 +471,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune expired signals scratchpad entries",
     )
 
+    # Expire signals scratchpad report pointers whose report is gone - daily at 6:30 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="30"),
+        expire_dangling_report_pointers_task.s(),
+        name="expire dangling signals scratchpad report pointers",
+    )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -560,6 +563,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    # Flag definitions v2 cache upkeep - hourly at minute 5
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="5"),
+        maintain_flag_definitions_v2_cache_entries.s(),
+        name="maintain flag definitions v2 cache entries",
+        expires_seconds=60 * 60,
+    )
+
     # Flag definitions self-heal - every minute. Drains the queue the Rust
     # /flags/definitions endpoint fills on cache miss and rebuilds those caches,
     # so a missing entry heals in ~1 min instead of waiting for the hourly verifier.
@@ -605,11 +617,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send usage reports for specific orgs with delayed data ingestion
-    delayed_orgs = DELAYED_ORGS_EU if get_instance_region() == "EU" else DELAYED_ORGS_US
-    if delayed_orgs:
+    if get_instance_region() in ("US", "EU"):
         sender.add_periodic_task(
-            crontab(hour="10", minute="00"),
-            send_org_usage_reports.s(organization_ids=delayed_orgs),
+            crontab(hour="12", minute="00"),
+            send_delayed_org_usage_reports.s(),
             name="send delayed org usage reports",
         )
 

@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import contextlib
 
 import pytest
@@ -17,10 +18,12 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
     IMPORT_ACTIVITY_TYPE,
     RAILWAY_PROXY_CONNECTION_MESSAGE,
+    SSH_GATEWAY_KEPT_CLOSING_MESSAGE,
     SYNC_RUN_STALLED_MESSAGE,
     SYNC_RUN_TOO_LONG_MESSAGE,
     TRANSIENT_CONNECT_DROPPED_MESSAGE,
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
     TRANSIENT_SOURCE_ERROR_MESSAGE,
+    TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
     TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
@@ -496,6 +500,76 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 # database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
 @parameterized.expand(
     [
+        # A busy server refuses only part of a burst, so a new source's first close stays retryable.
+        ("first_run", [], False),
+        ("short_streak", [TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE] * 3, False),
+        # A wrong port or a blocked address closes on every run, so a full streak disables the schema.
+        ("full_streak", [TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE] * 4, True),
+        # Newest first: a run that failed for another reason ends the streak of closes.
+        ("streak_broken_by_another_error", ["timeout", *[TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE] * 4], False),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_ssh_gateway_closed_before_banner_disables_the_schema_only_after_a_full_streak(
+    _name: str, earlier_errors_newest_first: list[str], expect_disabled: bool
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    now = dt.datetime.now(dt.UTC)
+    for minutes_ago, earlier_error in enumerate(earlier_errors_newest_first, start=1):
+        earlier_job = ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.FAILED,
+            rows_synced=0,
+            latest_error=earlier_error,
+        )
+        # `created_at` is auto_now_add, so the order is set after the insert.
+        ExternalDataJob.objects.filter(id=earlier_job.id).update(created_at=now - dt.timedelta(minutes=minutes_ago))
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+    internal_error = str(ApplicationError(SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR, type="NonReportableError"))
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert mock_update_should_sync.called is expect_disabled
+    assert mock_update_job_status.call_args.kwargs["latest_error"] == (
+        SSH_GATEWAY_KEPT_CLOSING_MESSAGE if expect_disabled else TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE
+    )
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
         # Our own bucket's 403 body says "not authorized", which the Postgres row-level security
         # entry and the MongoDB role entry both match. Neither source caused it.
         (
@@ -715,6 +789,24 @@ def test_warehouse_bucket_error_never_disables_the_schema_or_shows_source_copy(
             "Acme kept returning temporary errors.",
             {"Acme API error (retryable)": "Acme kept returning temporary errors."},
         ),
+        # An SSH server at its limit of new connections closes the excess ones before its banner.
+        # The schemas of one source connect at the same time, so the server serves some and refuses
+        # the others. Every SQL source that tunnels must keep the schema enabled.
+        *[
+            (
+                f"ssh_gateway_closed_before_banner_{source_type.value.lower()}",
+                source_type,
+                str(ApplicationError(SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR, type="NonReportableError")),
+                TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
+            )
+            for source_type in (
+                ExternalDataSourceType.POSTGRES,
+                ExternalDataSourceType.MYSQL,
+                ExternalDataSourceType.MSSQL,
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSourceType.REDSHIFT,
+            )
+        ],
         # A Redshift cluster that never answered the connect keeps its schedule.
         (
             "redshift_connect_timeout",

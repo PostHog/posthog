@@ -6,17 +6,21 @@ from dateutil import parser as dateutil_parser
 
 from products.warehouse_sources.sources.cloudzero.settings import (
     DEFAULT_START_DATE,
+    INSIGHT_COMMENTS_PATH,
     LIST_ENDPOINTS,
     RESTATEMENT_WINDOW_DAYS,
 )
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
     JSONResponseCursorPaginatorConfig,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     make_tracked_session,
     rest_api_resource,
+    rest_api_resources,
     validate_via_probe,
 )
 
@@ -25,7 +29,9 @@ CLOUDZERO_BASE_URL = "https://api.cloudzero.com"
 
 @dataclasses.dataclass(frozen=False)
 class CloudzeroResumeConfig:
-    next_cursor: str
+    next_cursor: str | None = None
+    # The framework's fan-out bookmark for `InsightComments`, stored as received.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _to_datetime(value: Any) -> datetime:
@@ -75,6 +81,34 @@ def _get_list_resource(name: str) -> EndpointResource:
         "endpoint": endpoint,
         "table_format": "delta",
     }
+
+
+def _inject_insight_id(row: dict[str, Any]) -> dict[str, Any]:
+    row["insight_id"] = str(row.pop("_Insights_id"))
+    return row
+
+
+def _insight_comments_resources(client: ClientConfig) -> RESTAPIConfig:
+    parent = _get_list_resource("Insights")
+    child: EndpointResource = {
+        "name": "InsightComments",
+        "table_name": "insight_comments",
+        "write_disposition": "replace",
+        "include_from_parent": ["id"],
+        "data_map": _inject_insight_id,
+        "endpoint": {
+            "path": INSIGHT_COMMENTS_PATH,
+            "params": {"insight_id": {"type": "resolve", "resource": "Insights", "field": "id"}},
+            "data_selector": "comments",
+            "data_selector_required": True,
+            "paginator": "single_page",
+            # An insight deleted between the listing and its comment fetch 404s; its comments are gone too.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "table_format": "delta",
+        "resume_parent_pagination": True,
+    }
+    return {"client": client, "resource_defaults": {}, "resources": [parent, child]}
 
 
 def get_resource(
@@ -136,18 +170,23 @@ def cloudzero_source(
     granularity: str = "daily",
     cost_type: str = "real_cost",
     group_by: Optional[list[str]] = None,
-):
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": CLOUDZERO_BASE_URL,
-            "auth": {
-                # CloudZero puts the raw API key in `Authorization` — no `Bearer` prefix.
-                "type": "api_key",
-                "name": "Authorization",
-                "api_key": api_key,
-                "location": "header",
-            },
+) -> Resource:
+    client: ClientConfig = {
+        "base_url": CLOUDZERO_BASE_URL,
+        "auth": {
+            # CloudZero puts the raw API key in `Authorization` — no `Bearer` prefix.
+            "type": "api_key",
+            "name": "Authorization",
+            "api_key": api_key,
+            "location": "header",
         },
+    }
+
+    if endpoint == "InsightComments":
+        return _insight_comments_source(client, team_id, job_id, resumable_source_manager)
+
+    config: RESTAPIConfig = {
+        "client": client,
         "resource_defaults": {
             "write_disposition": {
                 "disposition": "merge",
@@ -178,6 +217,33 @@ def cloudzero_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def _insight_comments_source(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[CloudzeroResumeConfig],
+) -> Resource:
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.fanout_state is not None:
+            initial_paginator_state = resume_config.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(CloudzeroResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        _insight_comments_resources(client),
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return next(resource for resource in resources if resource.name == "InsightComments")
 
 
 # Shared with `CloudzeroSource.get_non_retryable_errors` so the same rejection reads the same way

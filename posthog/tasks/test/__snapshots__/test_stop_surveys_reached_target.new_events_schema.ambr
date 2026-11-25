@@ -4,7 +4,7 @@
   SELECT CAST(events.properties.`$survey_id`, 'Nullable(String)') AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(CAST(events.properties.`$survey_submission_id`, 'Nullable(String)'), ''), ''), 1), CAST(events.properties.`$survey_submission_id`, 'Nullable(String)'), toString(events.uuid))) AS unique_responses
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')), in(CAST(events.properties.`$survey_id`, 'Nullable(String)'), ['00000000-0000-0000-0000-000000000003']))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.`$survey_id`, 'Nullable(String)'), ['00000000-0000-0000-0000-000000000003']), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('today', 6, 'UTC')))
   GROUP BY survey_id
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
@@ -27,7 +27,7 @@
   SELECT CAST(events.properties.`$survey_id`, 'Nullable(String)') AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(CAST(events.properties.`$survey_submission_id`, 'Nullable(String)'), ''), ''), 1), CAST(events.properties.`$survey_submission_id`, 'Nullable(String)'), toString(events.uuid))) AS unique_responses
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('2021-12-29 20:00:00.000000', 6, 'UTC')), in(CAST(events.properties.`$survey_id`, 'Nullable(String)'), ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']))
+  WHERE and(equals(events.team_id, 99999), in(CAST(events.properties.`$survey_id`, 'Nullable(String)'), ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']), equals(events.event, 'survey sent'), greaterOrEquals(events.timestamp, toDateTime64('2021-12-29 20:00:00.000000', 6, 'UTC')))
   GROUP BY survey_id
   LIMIT 2 SETTINGS readonly=2,
                    max_execution_time=60,

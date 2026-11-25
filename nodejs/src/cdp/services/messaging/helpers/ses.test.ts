@@ -570,6 +570,65 @@ describe('SesWebhookHandler', () => {
         ])
     })
 
+    it.each([
+        ['mail has no To header', { subject: 'Hi' }, ['to@example.com']],
+        ['mail names no address in its To header', { to: ['"Jane Doe"'] }, ['to@example.com']],
+        ['delivery names no recipients', { to: ['to@example.com'] }, undefined],
+    ])('records email_delivered for a Delivery whose %s', async (_desc, commonHeaders, recipients) => {
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: { ...baseMail, commonHeaders },
+                delivery: { timestamp: '2025-10-03T12:03:00Z', recipients },
+            },
+        ]
+
+        const result = await handler.handleWebhook({ body, headers: {} })
+
+        expect(result.metrics?.filter((m) => m.metricName === 'email_delivered')).toHaveLength(1)
+    })
+
+    describe('a send with cc and bcc set', () => {
+        const ccMail = {
+            ...baseMail,
+            destination: ['to@example.com', 'cc@example.com', 'bcc@example.com'],
+            commonHeaders: { to: ['"Jane Doe" <To@Example.com>'], cc: ['cc@example.com'] },
+        }
+        const deliveries = (recipientsPerRecord: string[][]) =>
+            recipientsPerRecord.map((recipients) => ({
+                eventType: 'Delivery',
+                mail: ccMail,
+                delivery: { timestamp: '2025-10-03T12:03:00Z', recipients },
+            }))
+
+        it.each([
+            [
+                'a cc and a bcc copy, each in its own record',
+                [['to@example.com'], ['cc@example.com'], ['bcc@example.com']],
+                1,
+            ],
+            ['the To and a cc address in one record', [['to@example.com', 'cc@example.com']], 1],
+            ['only the cc copy', [['cc@example.com']], 0],
+        ])('records email_delivered only for the To copy, given %s', async (_desc, recipientsPerRecord, delivered) => {
+            const result = await handler.handleWebhook({ body: deliveries(recipientsPerRecord), headers: {} })
+
+            expect(result.metrics?.filter((m) => m.metricName === 'email_delivered')).toHaveLength(delivered)
+        })
+
+        it('resets suppression for every address it reached', async () => {
+            const result = await handler.handleWebhook({
+                body: deliveries([['to@example.com'], ['cc@example.com'], ['bcc@example.com']]),
+                headers: {},
+            })
+
+            expect(result.deliveredRecipients?.flatMap((d) => d.emailAddresses)).toEqual([
+                'to@example.com',
+                'cc@example.com',
+                'bcc@example.com',
+            ])
+        })
+    })
+
     it('parses a raw Bounce event and surfaces permanent bounces for suppression', async () => {
         const body = [
             {

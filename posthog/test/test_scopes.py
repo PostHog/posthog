@@ -450,9 +450,11 @@ class TestClampScopesToCeiling(SimpleTestCase):
 
     def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
         # Narrowing `*` under an empty ceiling would strip the legacy client's full access,
-        # so it is kept verbatim where the caller grandfathers it and dropped where it doesn't.
+        # so it is kept verbatim where the caller grandfathers it and expands to the default where it doesn't.
         assert clamp_scopes_to_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) == ["*"]
-        assert clamp_scopes_to_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) == []
+
+        narrowed = clamp_scopes_to_ceiling(["openid", "*"], [], allow_wildcard_under_empty_ceiling=False)
+        assert narrowed == sorted(UNPRIVILEGED_SCOPES | {"openid"})
 
     def test_never_grants_outside_the_ceiling(self) -> None:
         # The ceiling stays the sole authority on what a token may hold: clamping may only

@@ -68,6 +68,7 @@ rules:
                               |AccountView
                               |Action
                               |AEOBrand
+                              |AEOCheckBrand
                               |AEOCheckCitation
                               |AEOCheckSearch
                               |AEOCitationCheck
@@ -75,6 +76,7 @@ rules:
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
+                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -230,6 +232,7 @@ rules:
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
@@ -267,6 +270,7 @@ rules:
                               |HogFlow
                               |HogFlowBatchJob
                               |HogFlowBatchJobAudienceMember
+                              |HogFlowConversionGoal
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -355,6 +359,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppRelease
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -498,7 +503,6 @@ rules:
                               |SurveyResponseArchive
                               |TableCertification
                               |Tag
-                              |Tagger
                               |Task
                               |TaskActivity
                               |TaskArtifact
@@ -824,6 +828,7 @@ rules:
                         |HogFlow
                         |HogFlowBatchJob
                         |HogFlowBatchJobAudienceMember
+                        |HogFlowConversionGoal
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -903,6 +908,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppRelease
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
@@ -1046,7 +1052,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |Tag
-                        |Tagger
                         |Task
                         |TaskActivity
                         |TaskArtifact
@@ -1390,7 +1395,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |TaggedItem
-                        |Tagger
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig
@@ -1511,6 +1515,7 @@ rules:
                               |OrganizationIPRestrictions
                               |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1522,6 +1527,7 @@ rules:
                               |RoleExternalReference
                               |RoleMembership
                               |SandboxSenderOrganizationBlock
+                              |SlackChannelSettings
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1597,6 +1603,7 @@ rules:
                         |OrganizationIPRestrictions
                         |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -1608,6 +1615,7 @@ rules:
                         |RoleExternalReference
                         |RoleMembership
                         |SandboxSenderOrganizationBlock
+                        |SlackChannelSettings
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)

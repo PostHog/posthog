@@ -180,6 +180,8 @@ class GitHubRecorder:
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
+        # Answer the team lookup with GraphQL errors, as GitHub does when the App lacks "Members: read".
+        self.team_lookup_refused = False
         # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
         # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
         self.merge_base_sha = "mergebase000"
@@ -200,6 +202,8 @@ class GitHubRecorder:
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
         self.default_branch_blob_shas: dict[str, str] = {}
         self.shed_batch = False
+        # (path, priority) of every request, in order, so a test can check the egress lane of each read.
+        self.request_priorities: list[tuple[str, Priority | None]] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -214,6 +218,9 @@ class GitHubRecorder:
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
+        # The bearer token of the request being served, recorded on its write, so a test can tell
+        # which App made the write.
+        self._request_token = ""
         self._next_id = 90000
 
     def _alloc_id(self) -> int:
@@ -241,6 +248,8 @@ class GitHubRecorder:
         path = url[len(_API_PREFIX) :] if url.startswith(_API_PREFIX) else url
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
+        self.request_priorities.append((path, kwargs.get("priority")))
+        self._request_token = (kwargs.get("headers") or {}).get("Authorization", "").removeprefix("Bearer ")
 
         if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
             raise GitHubEgressBudgetExhausted("the installation budget is spent")
@@ -303,7 +312,14 @@ class GitHubRecorder:
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
         if method == "DELETE" and (m := _COMMENT_PATCH_RE.match(path)):
-            self.github_writes.append({"kind": "delete_comment", "repo": m.group("repo"), "id": int(m.group("cid"))})
+            self.github_writes.append(
+                {
+                    "kind": "delete_comment",
+                    "repo": m.group("repo"),
+                    "id": int(m.group("cid")),
+                    "token": self._request_token,
+                }
+            )
             return FakeResponse(204)
         if method == "POST" and (m := _REQUESTED_REVIEWERS_RE.match(path)):
             return self._request_reviewers(m.group("repo"), int(m.group("number")), json_body or {})
@@ -411,6 +427,8 @@ class GitHubRecorder:
                 }
             }
             return FakeResponse(200, json_data=data)
+        if self.team_lookup_refused:
+            return FakeResponse(200, json_data={"errors": [{"message": "Resource not accessible by integration"}]})
         login = str(variables.get("login") or "")
         slugs = self.teams_by_login.get(login, [])
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
@@ -475,7 +493,16 @@ class GitHubRecorder:
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
-        self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
+        self.github_writes.append(
+            {
+                "kind": kind,
+                "repo": repo,
+                "number": number,
+                "body": body or {},
+                "id": new_id,
+                "token": self._request_token,
+            }
+        )
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
 
     def _add_reaction(self, repo: str, number: int, body: dict | None) -> FakeResponse:

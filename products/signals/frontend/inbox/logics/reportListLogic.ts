@@ -57,6 +57,7 @@ import { setReportState } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { appliedInboxSearch, buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
+import type { InboxSourceSelection } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
@@ -330,8 +331,8 @@ export interface reportListLogicActions {
         direction: InboxSortDirection
         field: InboxSortField
     } // inboxFiltersLogic
-    setSourceFilter: (selection: null | import('./inboxFiltersLogic').InboxSourceSelection) => {
-        selection: null | import('./inboxFiltersLogic').InboxSourceSelection
+    setSourceFilter: (selection: InboxSourceSelection | null) => {
+        selection: InboxSourceSelection | null
     } // inboxFiltersLogic
     setTagFilter: (tags: string[]) => {
         tags: string[]

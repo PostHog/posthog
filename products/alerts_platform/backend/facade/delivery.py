@@ -14,6 +14,7 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     refusal_notices,
     subscribers,
+    team_flags,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -24,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LateImageResult,
     LegacyEventEmitter,
     LegacyWebhookBody,
+    LinkedHogFunctionRetirer,
     LiveHogFunctionLookup,
     SourceAlertCreator,
     SourceDescriber,
@@ -46,6 +48,11 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
     """The product that owns HogFunctions says which still exist, so a destination row that copies one waits for it to go."""
     destinations.register_live_hog_function_lookup(lookup)
+
+
+def register_linked_hog_function_retirer(retirer: LinkedHogFunctionRetirer) -> None:
+    """The product that owns HogFunctions retires the ones a deleted destination row links to."""
+    alert_destinations.register_linked_hog_function_retirer(retirer)
 
 
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
@@ -117,6 +124,11 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
     )
 
     return add_late_image_to_evaluation(request, late_detail)
+
+
+def team_flag_enabled(flag: str, team: Team) -> bool | None:
+    """Whether a PostHog feature flag is on for the team. None when the flag could not be evaluated."""
+    return team_flags.team_flag_enabled(flag, team)
 
 
 def delivery_test_destination_ids(*, team_id: int, public_id: UUID) -> frozenset[UUID]:

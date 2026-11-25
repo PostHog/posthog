@@ -535,6 +535,12 @@ html[data-today-transition]::view-transition-new(root) {
     line-height: 20px;
     color: var(--today-muted);
     text-wrap: pretty;
+
+    &[data-single-line] {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 }
 
 .TodayRow__end {
@@ -601,6 +607,15 @@ html[data-today-transition]::view-transition-new(root) {
     font-size: 14px;
     line-height: 21px;
     color: var(--today-body-text);
+    text-wrap: pretty;
+}
+
+.TodayRow__detailReason {
+    max-width: 62ch;
+    margin: 0;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--today-muted);
     text-wrap: pretty;
 }
 
@@ -819,6 +834,7 @@ html[data-today-transition]::view-transition-new(root) {
     display: block;
     overflow: hidden;
     font-size: 14px;
+    font-weight: 500;
     line-height: 20px;
     color: var(--today-ink);
     text-overflow: ellipsis;
@@ -1130,85 +1146,21 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 .TodayPrimaryDashboard {
-    position: relative;
-
-    // Fixed rather than a max, so the card holds its space while the dashboard chunk and tiles load.
-    height: 240px;
-    overflow: hidden;
     border: 1px solid var(--today-line);
-    border-radius: 8px;
 
-    &::after {
-        position: absolute;
-        inset: auto 0 0;
-        z-index: 1;
-        height: 160px;
-        pointer-events: none;
-        content: '';
-        background: linear-gradient(to top, var(--today-paper) 15%, transparent);
-
-        // Opacity rather than the gradient itself, because gradients don't interpolate.
-        transition: opacity 200ms ease;
-    }
-
-    &:has(.TodayPrimaryDashboard__link:focus-visible)::after {
-        opacity: 0.7;
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover::after {
-            opacity: 0.7;
-        }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        &::after {
-            transition: none;
-        }
+    // One step below the For you today rows, in line with the Jump back in titles.
+    .TodayRow__title {
+        font-size: 14px;
+        line-height: 20px;
     }
 }
 
-.TodayPrimaryDashboard__preview {
-    // Laid out at twice the card's width and scaled to half, so the grid uses its wide layout and more tiles fit.
-    width: 200%;
-    padding: 32px 24px 24px;
-    pointer-events: none;
-    user-select: none;
-
-    // Keeps the grid's own z-indexes below the fade and the link.
-    isolation: isolate;
-    transform: scale(0.5);
-    transform-origin: top left;
-}
-
-.TodayPrimaryDashboard__link {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding-bottom: 16px;
-    border-radius: 8px;
-
-    &:focus-visible {
-        outline: 2px solid var(--today-focus-border);
-        outline-offset: 2px;
-    }
-}
-
-.TodayPrimaryDashboard__cta {
+// Sized like the At a glance metric names.
+.TodayPrimaryDashboard__description {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 3;
     font-size: 13px;
-    font-weight: 500;
-    color: var(--today-muted);
-    transition: color 200ms ease;
-
-    .TodayPrimaryDashboard__link:hover &,
-    .TodayPrimaryDashboard__link:focus-visible & {
-        color: var(--today-ink);
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        transition: none;
-    }
+    line-height: 18px;
+    -webkit-box-orient: vertical;
 }

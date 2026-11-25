@@ -34,7 +34,7 @@ class TestTokenAuthCacheNotConfigured(TestCase):
 
     def test_invalidate_team_tokens_skips_when_not_configured(self):
         counts = self.cache.invalidate_team_tokens(team_id=99999)
-        assert counts == {"secret_tokens": 0, "project_secret_keys": 0, "personal_keys": 0, "total": 0}
+        assert counts == {"project_secret_keys": 0, "personal_keys": 0, "total": 0}
 
 
 class TestTokenAuthCache(TestCase):
@@ -87,7 +87,7 @@ class TestTokenAuthCache(TestCase):
         self.redis.setex(cache_key, DEFAULT_CACHE_TTL, json.dumps(data))
 
     def test_invalidate_token_deletes_cache_entry(self):
-        self._seed_token_cache(self.token_hash, {"type": "secret", "team_id": self.team_id})
+        self._seed_token_cache(self.token_hash, {"type": "project_secret", "team_id": self.team_id})
 
         assert self.redis.exists(f"{TOKEN_CACHE_PREFIX}{self.token_hash}")
 
@@ -170,37 +170,12 @@ class TestTokenAuthCache(TestCase):
     def test_invalidate_tokens_noop_on_empty_list(self):
         self.cache.invalidate_tokens([])  # should not raise
 
-    def test_invalidate_team_tokens_deletes_secret_tokens(self):
-        from posthog.models.team.team import Team
-        from posthog.models.utils import generate_random_token_secret, hash_key_value
-
-        team = Team.objects.create(
-            organization=self._get_or_create_org(),
-            name="Secret Token Test Team",
-            secret_api_token=generate_random_token_secret(),
-            secret_api_token_backup=generate_random_token_secret(),
-        )
-        primary_hash = hash_key_value(team.secret_api_token, mode="sha256")
-        backup_hash = hash_key_value(team.secret_api_token_backup, mode="sha256")
-        self._seed_token_cache(primary_hash, {"type": "secret", "team_id": team.id})
-        self._seed_token_cache(backup_hash, {"type": "secret", "team_id": team.id})
-
-        counts = self.cache.invalidate_team_tokens(team.id)
-
-        assert counts["secret_tokens"] == 2
-        assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{primary_hash}")
-        assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{backup_hash}")
-
     def test_invalidate_team_tokens_deletes_psak_entries(self):
         from posthog.models.project_secret_api_key import ProjectSecretAPIKey
         from posthog.models.team.team import Team
-        from posthog.models.utils import generate_random_token_secret, hash_key_value
+        from posthog.models.utils import hash_key_value
 
-        team = Team.objects.create(
-            organization=self._get_or_create_org(),
-            name="PSAK Test Team",
-            secret_api_token=generate_random_token_secret(),
-        )
+        team = Team.objects.create(organization=self._get_or_create_org(), name="PSAK Test Team")
         psak = ProjectSecretAPIKey.objects.create(
             team=team,
             label="Test PSAK",
@@ -218,12 +193,10 @@ class TestTokenAuthCache(TestCase):
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.team.team import Team
         from posthog.models.user import User
-        from posthog.models.utils import generate_random_token_secret, hash_key_value
+        from posthog.models.utils import hash_key_value
 
         org = self._get_or_create_org()
-        team = Team.objects.create(
-            organization=org, name="PAK Include Test Team", secret_api_token=generate_random_token_secret()
-        )
+        team = Team.objects.create(organization=org, name="PAK Include Test Team")
         user = User.objects.create(email="pak_include_test@example.com", is_active=True)
         user.join(organization=org)
 
@@ -249,20 +222,16 @@ class TestTokenAuthCache(TestCase):
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.team.team import Team
         from posthog.models.user import User
-        from posthog.models.utils import generate_random_token_secret, hash_key_value
+        from posthog.models.utils import hash_key_value
 
         org = self._get_or_create_org()
-        team = Team.objects.create(
-            organization=org, name="PAK Scope Test", secret_api_token=generate_random_token_secret()
-        )
+        team = Team.objects.create(organization=org, name="PAK Scope Test")
         user = User.objects.create(email="pak_scope_test@example.com", is_active=True)
         user.join(organization=org)
 
         # Resolve sentinel values to real IDs
         if scoped_teams == "other_team":
-            other_team = Team.objects.create(
-                organization=org, name="Other Team", secret_api_token=generate_random_token_secret()
-            )
+            other_team = Team.objects.create(organization=org, name="Other Team")
             scoped_teams = [other_team.id]
         elif scoped_teams == "target_team":
             scoped_teams = [team.id]

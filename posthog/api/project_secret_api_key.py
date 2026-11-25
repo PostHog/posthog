@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -26,6 +26,7 @@ from posthog.permissions import (
     DenyIDJagAccessToken,
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
+    request_subject,
     scopes_caller_lacks,
 )
 from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
@@ -36,9 +37,15 @@ from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_
 from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
+
+if TYPE_CHECKING:
+    from products.conversations.backend.services.signing_secrets import SigningSecretRetirement
 
 if EE_AVAILABLE:
     from ee.billing.grants import BillingEntitlement, effective_billing_grants
@@ -46,6 +53,7 @@ if EE_AVAILABLE:
 logger = structlog.get_logger(__name__)
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
+AI_OBSERVABILITY_GRANT_RESOURCES = (ResourceType.DATASET, ResourceType.EVALUATION, ResourceType.LLM_ANALYTICS)
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -98,6 +106,21 @@ def _mirrors_legacy_team_token(key: ProjectSecretAPIKey) -> bool:
     team = key.team
     tokens = (team.secret_api_token, team.secret_api_token_backup)
     return any(token and key.secure_value == hash_key_value(token) for token in tokens)
+
+
+def _enforce_caller_may_grant_scopes(request: Request, view: "ProjectSecretAPIKeyViewSet", scopes: list[str]) -> None:
+    _enforce_caller_holds_scopes(request, scopes)
+    _enforce_caller_may_grant_billing_read(request, view.team.organization, scopes)
+    _enforce_caller_may_grant_business_knowledge_read(request, view.team, scopes)
+    for resource_type in AI_OBSERVABILITY_GRANT_RESOURCES:
+        for scope_action, required_action, level in (("read", Action.VIEW, "viewer"), ("write", Action.EDIT, "editor")):
+            scope = f"{resource_type}:{scope_action}"
+            if scope in scopes and not authorization.check(
+                resource=Resource(type=resource_type, project_id=view.team.id),
+                action=required_action,
+                subject=request_subject(request),
+            ):
+                raise PermissionDenied(f"You need {level} access in this project to grant {scope}.")
 
 
 def _enforce_gateway_bans(request: Request, team) -> None:
@@ -201,12 +224,19 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         # An update may keep or remove a scope the caller lacks, because only an added scope widens the key.
         existing = set(self.instance.scopes or []) if self.instance is not None else set()
         added = [scope for scope in scopes if scope not in existing]
-        _enforce_caller_holds_scopes(self.context["request"], added)
-        _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
-        _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
+        _enforce_caller_may_grant_scopes(self.context["request"], self.context["view"], added)
         # Every project member can read the legacy secret token, so the check on the person who grants
         # the scope does not limit who ends up holding this key.
-        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        restricted_legacy_scopes = set(added) & {
+            "business_knowledge:read",
+            "person:write",
+            "dataset:read",
+            "dataset:write",
+            "evaluation:read",
+            "evaluation:write",
+            "llm_analytics:read",
+            "llm_analytics:write",
+        }
         if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
             raise serializers.ValidationError(
                 "This key is the project's legacy secret token, which every project member can read. "
@@ -277,10 +307,10 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     )
 
 
-def retire_leaked_team_secret_token(team_id: int, token: str) -> bool:
+def retire_leaked_team_secret_token(team_id: int, token: str) -> "SigningSecretRetirement":
     """Record a leaked legacy token's hash and replace a widget signing secret still
     carrying it. The hash keeps the pre-drop rerun of the #63111 backfill from minting a
-    fresh mirror row for the value. Returns whether the signing secret was replaced."""
+    fresh mirror row for the value. Returns what changed on the signing secret row."""
     # Lazy: conversations imports posthog.api modules at load time.
     from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
 
@@ -307,9 +337,13 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
                 project_secret_api_key.delete()
                 # In the same transaction: once the row is gone a retried report finds no
                 # PSAK and would never retire a signing secret still mirroring the value.
-                signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+                retirement = retire_leaked_team_secret_token(team.id, token)
             send_feature_flags_secure_api_key_exposed(
-                team.id, mask_key_value(token), more_info, signing_secret_replaced
+                team.id,
+                mask_key_value(token),
+                more_info,
+                signing_secret_replaced=retirement.replaced,
+                grace_window_ended=retirement.grace_window_ended,
             )
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
@@ -353,10 +387,8 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
-        _enforce_caller_holds_scopes(request, instance.scopes or [])
         # Rolling hands back a usable secret, so it needs what granting the scopes needs.
-        _enforce_caller_may_grant_billing_read(request, self.team.organization, instance.scopes or [])
-        _enforce_caller_may_grant_business_knowledge_read(request, self.team, instance.scopes or [])
+        _enforce_caller_may_grant_scopes(request, self, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

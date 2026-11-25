@@ -349,7 +349,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
                 value[0] for value in Team.objects.filter(organization_id=organization.id).values_list("id")
             ]
 
-            billing_res = billing_manager.get_billing(organization)
+            billing_res = billing_manager.get_billing_read_only(organization)
 
             rows_synced_in_billing_period = 0
 

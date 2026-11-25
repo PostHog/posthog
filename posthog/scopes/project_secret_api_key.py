@@ -22,6 +22,12 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    ("dataset", "read"),
+    ("dataset", "write"),
+    ("evaluation", "read"),
+    ("evaluation", "write"),
+    ("llm_analytics", "read"),
+    ("llm_analytics", "write"),
     # A project's own usage and share of spend, for a service that watches one project's billing.
     # Only someone with full billing access may grant it (see the key serializer).
     ("billing", "read"),
@@ -41,6 +47,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
     ("logs", "read"),
+    # Lets a service send logs with its key as the ingestion token. No logs route lists a write action for these keys.
+    ("logs", "write"),
     # Lets a customer's own agent search and read business knowledge without a credential tied
     # to one person's account. Every write, and the sources, settings and playground routes, stay closed.
     ("business_knowledge", "read"),

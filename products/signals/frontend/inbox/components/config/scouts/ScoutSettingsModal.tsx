@@ -6,8 +6,8 @@ import { LemonButton, type LemonButtonProps, LemonModal, Tooltip } from '@postho
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutSurface } from '../../../inboxAnalytics'
+import { scoutDetailActionsLogic } from '../../../logics/scoutDetailActionsLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { ScoutConfigForm } from './ScoutConfigControls'
@@ -55,41 +55,28 @@ export function ScoutSettingsModal({
     )
 }
 
-/** The gear that opens {@link ScoutSettingsModal}, owning the open state so hosts don't each repeat it. */
 export function ScoutSettingsButton({
     config,
-    surface,
     size = 'small',
     showLabel = false,
 }: {
     config: SignalScoutConfig
-    surface: ScoutSurface
     size?: LemonButtonProps['size']
     showLabel?: boolean
 }): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
+    const { openDialog } = useActions(scoutDetailActionsLogic({ skillName: config.skill_name }))
 
     return (
-        <>
-            <Tooltip title={showLabel ? undefined : 'Scout settings'}>
-                <LemonButton
-                    type={showLabel ? 'secondary' : undefined}
-                    size={size}
-                    icon={<IconGear />}
-                    onClick={() => {
-                        captureScoutAction({
-                            actionType: 'open_settings',
-                            surface,
-                            skillName: config.skill_name,
-                        })
-                        setIsOpen(true)
-                    }}
-                    aria-label={`${config.skill_name} settings`}
-                >
-                    {showLabel ? 'Settings' : null}
-                </LemonButton>
-            </Tooltip>
-            {isOpen && <ScoutSettingsModal config={config} surface={surface} isOpen onClose={() => setIsOpen(false)} />}
-        </>
+        <Tooltip title={showLabel ? undefined : 'Scout settings'}>
+            <LemonButton
+                type={showLabel ? 'secondary' : undefined}
+                size={size}
+                icon={<IconGear />}
+                onClick={() => openDialog('settings')}
+                aria-label={`${scoutDisplayName(config)} settings`}
+            >
+                {showLabel ? 'Settings' : null}
+            </LemonButton>
+        </Tooltip>
     )
 }

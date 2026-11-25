@@ -1,5 +1,6 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -84,6 +85,7 @@ function useTraceMocks(firstTraceReply: TraceReply, nextTraceReply: TraceReply =
             [`${TRACE_BASE_URL}/clusters/`]: () => [200, { clusters: [] }],
             [`${TRACE_BASE_URL}/feedback/`]: () => [200, makeFeedback({ scores: [], responses: [] })],
             [`${TRACE_BASE_URL}/summary/`]: () => [404, { detail: 'No summary yet.' }],
+            [`${TRACE_BASE_URL}/search/`]: () => [200, { total: 0, matches: [] }],
         },
     })
 }
@@ -120,7 +122,7 @@ function headerName(view: RenderResult): string | null {
     return view.container.querySelector('h1')?.textContent ?? null
 }
 
-const PARTIAL_HINT = /come from its earliest steps only/
+const PARTIAL_HINT = /covers those steps only/
 
 function hover(element: HTMLElement): void {
     fireEvent.pointerEnter(element, { pointerType: 'mouse' })
@@ -175,7 +177,7 @@ describe('TraceDrawerHost', () => {
     })
 
     it("shows the row's name, person and partial totals while the trace loads, then the trace's", async () => {
-        const totals = { ...makeTraceResource().totals, latencyMs: 2310 }
+        const totals = { ...makeTraceResource().totals, inputTokens: 1840 }
         const row: TraceListRow = {
             ...makeSeededRow({ id: 'a', name: 'row-a', totals, totalsPartial: true }),
             person: { distinctId: 'row-person', label: 'row-person@example.com' },
@@ -188,16 +190,22 @@ describe('TraceDrawerHost', () => {
         expect(await view.findByText('row-a')).toBeTruthy()
         expect(view.getByText('row-person@example.com')).toBeTruthy()
         expect(view.getByLabelText('Loading trace')).toBeTruthy()
-        expect(view.container.querySelector('[data-attr="trace-view-search-input"]')).toBeNull()
-        hover(view.getByText('2.31s'))
+        expect(attr(view.container, 'trace-view-copy').getAttribute('aria-disabled')).toBe('true')
+        expect(attr(view.container, 'trace-view-export').getAttribute('aria-disabled')).toBe('true')
+        fireEvent.change(attr(view.container, 'trace-view-search-input'), { target: { value: 'weather' } })
+        expect(await view.findByText('Searching…')).toBeTruthy()
+        hover(view.getByText('1,840 in'))
         expect(await view.findByText(PARTIAL_HINT)).toBeTruthy()
 
         release()
         expect((await view.findAllByText('answer-a')).length).toBeGreaterThan(0)
+        expect(attr(view.container, 'trace-view-copy').getAttribute('aria-disabled')).toBe('false')
+        expect(attr(view.container, 'trace-view-export').getAttribute('aria-disabled')).toBe('false')
+        expect(await view.findByText('No matches')).toBeTruthy()
         expect(view.queryByText('row-a')).toBeNull()
         expect(view.queryByText('row-person@example.com')).toBeNull()
         expect(view.getByText('ada@example.com')).toBeTruthy()
-        hover(view.getByText('2.31s'))
+        hover(view.getByText('1,840 in'))
         // Longer than the tooltip's open delay, so a marker that survived the answer would show its hint again.
         await expect(view.findByText(PARTIAL_HINT)).rejects.toThrow()
     })
@@ -329,6 +337,41 @@ describe('TraceDrawerHost', () => {
 
         fireEvent.keyDown(document.body, { key: 'p' })
         await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
+
+    it.each<[string, () => void]>([
+        ['Previous', () => fireEvent.click(attr(document.body, 'trace-drawer-previous'))],
+        ['p', () => fireEvent.keyDown(document.body, { key: 'p' })],
+    ])('steps up from the first row with %s when the list has rows before it', async (_name, stepUp) => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        const drawer = traceDrawerLogic({ listId: LIST_ID })
+        act(() => drawer.actions.setRowsBefore(true))
+        await view.findAllByText('answer-a')
+
+        expect(attr(view.container, 'trace-drawer-previous').getAttribute('aria-disabled')).not.toBe('true')
+        await expectLogic(drawer, stepUp).toDispatchActions([drawer.actionCreators.stepTo('previous')])
+    })
+
+    it('steps through the tree with j and k, but not with a modal open, and its legend names the trace keys', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findByText('span-1')
+        expect(attr(view.container, 'trace-view-tree-key-legend').textContent).toContain('traces')
+
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.keyDown(modal.getByText('Save'), { key: 'j' })
+        modal.unmount()
+        expect(router.values.searchParams.step).toBeUndefined()
+
+        fireEvent.keyDown(document.body, { key: 'k' })
+        await waitFor(() => expect(router.values.searchParams.step).toBe('span-1'))
     })
 
     it('reads no node when it closes on a step other than the default', async () => {

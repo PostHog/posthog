@@ -56,6 +56,19 @@ BASETEN_GLM53_FLASH_COST: Final[ModelCost] = {
     "supports_prompt_caching": True,
 }
 
+# Cloudflare Workers AI list price for GLM 5.3, from its Workers AI model page.
+CLOUDFLARE_GLM53_COST_MODEL: Final[str] = "cloudflare/@cf/zai-org/glm-5.3"
+CLOUDFLARE_GLM53_COST: Final[ModelCost] = {
+    "litellm_provider": "cloudflare",
+    "mode": "chat",
+    "max_input_tokens": 1_048_576,
+    "input_cost_per_token": 1.4e-06,
+    "output_cost_per_token": 4.4e-06,
+    "cache_read_input_token_cost": 2.6e-07,
+    "supports_function_calling": True,
+    "supports_prompt_caching": True,
+}
+
 BASETEN_DEEPSEEK_COST: Final[ModelCost] = {
     "litellm_provider": "baseten",
     "mode": "chat",
@@ -108,6 +121,7 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     BASETEN_GLM53_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_COST)),
     BASETEN_GLM53_FLASH_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_FLASH_COST)),
     "moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
+    CLOUDFLARE_GLM53_COST_MODEL: cast("ModelCost", dict(CLOUDFLARE_GLM53_COST)),
     "claude-fable-5": {
         **CLAUDE_5_CAPABILITIES,
         "litellm_provider": "anthropic",

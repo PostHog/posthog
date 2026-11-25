@@ -341,6 +341,8 @@ QUERIES: list[QuerySpec] = [
             "unreal_events": "teams_with_unreal_events_count_in_period",
             "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
+            "rust_ffi_events": "teams_with_rust_ffi_events_count_in_period",
+            "electron_events": "teams_with_electron_events_count_in_period",
         },
         timeout_minutes=30,
     ),

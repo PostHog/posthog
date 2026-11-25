@@ -40,7 +40,9 @@ import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFla
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
-import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { sessionPageIdFromPath } from './redesign/sessions/sessionPagePath'
+import { buildAiObservabilityStorageConfig } from './redesign/shared/preferenceStorage'
+import { shellHref, shellLinkParams } from './redesign/shell/shellNavigation'
 import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
@@ -144,12 +146,23 @@ export function buildApplyUrlStatePayload({
     }
 }
 
-// Under the navigation flag the traces list keeps its own filters, dates and search in the URL, and two writers would
-// fight over them.
-function tracesListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
+const SHELL_LIST_PATH = new RegExp(`^(${urls.aiObservabilityTraces()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`)
+
+// Under the navigation flag the traces list, the sessions list and the session page keep their own filters, dates and
+// search in the URL, and two writers would fight over them.
+export function shellListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
-        removeProjectIdIfPresent(router.values.location.pathname) === urls.aiObservabilityTraces()
+        SHELL_LIST_PATH.test(removeProjectIdIfPresent(router.values.location.pathname))
+    )
+}
+
+// Home keeps its own dates in the URL under the navigation flag too.
+function shellBodyOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
+    return (
+        shellListOwnsUrl(featureFlags) ||
+        (!!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
+            removeProjectIdIfPresent(router.values.location.pathname) === urls.aiObservabilityDashboard())
     )
 }
 
@@ -185,6 +198,7 @@ export interface aiObservabilitySharedLogicValues {
         dateTo: string | null
     }
     searchQuery: string
+    sessionPageId: string | null
     shouldFilterSupportTraces: boolean
     shouldFilterTestAccounts: boolean
 }
@@ -286,6 +300,16 @@ export interface aiObservabilitySharedLogicMeta {
             },
             shouldFilterTestAccounts: boolean
         ) => (windowDays: number | null) => boolean
+        sessionPageId: (
+            activeTab: AIObservabilityTabId,
+            featureFlags: FeatureFlagsSet,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
+        breadcrumbs: (sessionPageId: string | null, searchParams: Record<string, any>) => Breadcrumb[]
     }
 }
 
@@ -565,15 +589,41 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             },
         ],
 
+        // The session page shares this scene under the navigation flag.
+        sessionPageId: [
+            (s) => [s.activeTab, s.featureFlags, router.selectors.location],
+            (
+                activeTab: AIObservabilityTabId,
+                featureFlags: FeatureFlagsSet,
+                location: { pathname: string }
+            ): string | null =>
+                featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] && activeTab === 'sessions'
+                    ? sessionPageIdFromPath(location.pathname)
+                    : null,
+        ],
+
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.sessionPageId, router.selectors.searchParams],
+            (sessionPageId: string | null, searchParams: Record<string, unknown>): Breadcrumb[] => {
+                if (sessionPageId === null) {
+                    return [{ key: 'llm_analytics', name: 'AI observability', iconType: 'llm_analytics' }]
+                }
+                // A fixed name, because the session's title is the customer's first prompt, and the crumbs become the
+                // page title that browser history and pageview analytics record.
                 return [
                     {
                         key: 'llm_analytics',
                         name: 'AI observability',
+                        path: shellHref(urls.aiObservabilityDashboard(), shellLinkParams(searchParams)),
                         iconType: 'llm_analytics',
                     },
+                    {
+                        key: 'AIObservabilitySessions',
+                        name: 'Sessions',
+                        path: shellHref(urls.aiObservabilitySessions(), shellLinkParams(searchParams)),
+                        iconType: 'llm_analytics',
+                    },
+                    { key: ['AIObservabilitySession', sessionPageId], name: 'Session', iconType: 'llm_analytics' },
                 ]
             },
         ],
@@ -686,6 +736,20 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             applySearchParams(searchParams)
         }
 
+        function enterShellList(): void {
+            clearDashboardTimer()
+            markTrackCostsTaskCompleted()
+        }
+
+        // Session links carry `timestamp`, so unlike the traces path nothing is stripped here.
+        function applySessions(searchParams: Record<string, unknown>): void {
+            if (shellBodyOwnsUrl(values.featureFlags)) {
+                enterShellList()
+                return
+            }
+            applyNonDashboard(searchParams)
+        }
+
         function applyDashboard(searchParams: Record<string, unknown>): void {
             applySearchParams(searchParams, false)
 
@@ -716,6 +780,12 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         return {
             [urls.aiObservabilityDashboard()]: (_, searchParams) => {
+                if (shellBodyOwnsUrl(values.featureFlags)) {
+                    markTrackCostsTaskCompleted()
+                    stripStaleParams(searchParams)
+                    startDashboardTimer()
+                    return
+                }
                 applyDashboard(searchParams)
                 startDashboardTimer()
             },
@@ -729,9 +799,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyNonDashboard(searchParams)
             },
             [urls.aiObservabilityTraces()]: (_, searchParams) => {
-                if (tracesListOwnsUrl(values.featureFlags)) {
-                    clearDashboardTimer()
-                    markTrackCostsTaskCompleted()
+                if (shellBodyOwnsUrl(values.featureFlags)) {
+                    enterShellList()
                     stripStaleParams(searchParams)
                     return
                 }
@@ -741,8 +810,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilitySessions()]: (_, searchParams) => applyNonDashboard(searchParams),
-            '/ai-observability/sessions/:id': (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilitySessions()]: (_, searchParams) => applySessions(searchParams),
+            '/ai-observability/sessions/:id': (_, searchParams) => applySessions(searchParams),
             [urls.aiObservabilityPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.
@@ -794,12 +863,12 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         type UrlWrite = [string, Record<string, unknown>, Record<string, unknown>]
 
-        function unlessTracesListOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
-            return (payload) => (tracesListOwnsUrl(values.featureFlags) ? undefined : write(payload))
+        function unlessShellBodyOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
+            return (payload) => (shellBodyOwnsUrl(values.featureFlags) ? undefined : write(payload))
         }
 
         return {
-            applyUrlState: unlessTracesListOwnsUrl(
+            applyUrlState: unlessShellBodyOwnsUrl(
                 ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts, searchQuery }) => [
                     router.values.location.pathname,
                     {
@@ -814,7 +883,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     router.values.hashParams,
                 ]
             ),
-            setPropertyFilters: unlessTracesListOwnsUrl(({ propertyFilters }) => [
+            setPropertyFilters: unlessShellBodyOwnsUrl(({ propertyFilters }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -822,7 +891,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setDates: unlessTracesListOwnsUrl(({ dateFrom, dateTo }) => [
+            setDates: unlessShellBodyOwnsUrl(({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -831,7 +900,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setDashboardDates: unlessTracesListOwnsUrl(({ dateFrom, dateTo }) => [
+            setDashboardDates: unlessShellBodyOwnsUrl(({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -840,15 +909,21 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setShouldFilterTestAccounts: unlessTracesListOwnsUrl(({ shouldFilterTestAccounts }) => [
+            setShouldFilterTestAccounts: unlessShellBodyOwnsUrl(({ shouldFilterTestAccounts }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
-                    filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                    // The redesigned shell keeps one choice across its tabs and reads it from the URL, where a
+                    // missing param leaves its previous choice in place, so turning filtering off is written too.
+                    filter_test_accounts: shouldFilterTestAccounts
+                        ? 'true'
+                        : values.featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN]
+                          ? 'false'
+                          : undefined,
                 },
                 router.values.hashParams,
             ]),
-            setSearchQuery: unlessTracesListOwnsUrl(({ searchQuery }) => [
+            setSearchQuery: unlessShellBodyOwnsUrl(({ searchQuery }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),

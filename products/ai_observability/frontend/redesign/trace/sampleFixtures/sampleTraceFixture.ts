@@ -22,7 +22,8 @@ export interface SampleTraceFixture {
     tree: TraceNodeApi[]
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
-    trace: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial'> & NodeDetailProps['trace']
+    trace: Pick<TraceApi, 'id' | 'createdAt' | 'person' | 'totals' | 'totalsPartial' | 'costAndLatencyPartial'> &
+        NodeDetailProps['trace']
     initialNodeId: string
     details: Record<string, SampleNodeDetail>
     evaluationResults: TraceEvaluationResultApi[]

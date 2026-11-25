@@ -242,6 +242,7 @@ export class ToolDomainExtractor {
         'publish',
         'record',
         'refresh',
+        'remove',
         'rename',
         'reset',
         'restore',

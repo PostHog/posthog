@@ -103,7 +103,7 @@ You can generate an API token in your Skio dashboard: click **API** in the left 
         schemas = [
             SourceSchema(
                 name=endpoint_config.name,
-                supports_incremental=True,
+                supports_incremental=bool(INCREMENTAL_FIELDS[endpoint_config.name]),
                 # Every collection is mutable (orders cancel, subscriptions change status), so only
                 # merge keeps one row per id; append would materialize each update as a duplicate.
                 supports_append=False,

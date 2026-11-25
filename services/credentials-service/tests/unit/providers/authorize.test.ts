@@ -30,7 +30,7 @@ const GOLDEN: Record<string, string> = {
     hubspot: `https://app.hubspot.com/oauth/authorize?${standard(
         'hubspot',
         'tickets+crm.objects.contacts.write+sales-email-read+crm.objects.companies.read+crm.objects.deals.read+crm.objects.contacts.read+crm.objects.quotes.read+crm.objects.companies.write'
-    )}&optional_scope=analytics.behavioral_events.send+behavioral_events.event_definitions.read_write+crm.objects.leads.read+crm.objects.owners.read+crm.objects.line_items.read+crm.objects.products.read+crm.objects.invoices.read+crm.objects.orders.read+crm.objects.subscriptions.read+crm.objects.commercepayments.read+crm.objects.forecasts.read+conversations.read`,
+    )}&optional_scope=analytics.behavioral_events.send+behavioral_events.event_definitions.read_write+crm.objects.leads.read+crm.objects.owners.read+crm.objects.line_items.read+crm.objects.products.read+crm.objects.invoices.read+crm.objects.orders.read+crm.objects.subscriptions.read+crm.objects.commercepayments.read+crm.objects.forecasts.read+conversations.read+crm.objects.users.read+settings.users.teams.read+marketing.campaigns.read`,
     'google-ads': `https://accounts.google.com/o/oauth2/v2/auth?${standard(
         'google-ads',
         'https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email'

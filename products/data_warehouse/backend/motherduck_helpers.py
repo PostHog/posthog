@@ -90,6 +90,7 @@ def reproject_direct_motherduck_table(
             schema_row.incremental_field,
             # Direct-MotherDuck columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         ),
         source_catalog=source_catalog,
         source_schema=source_schema,
@@ -252,6 +253,7 @@ def reconcile_motherduck_schemas(
             # guarded helper falls back to all columns when a projection would empty out,
             # so a stale selection can't leave the live table unqueryable.
             normalize=False,
+            fall_back_to_all_columns=False,
         )
         table_model = upsert_direct_motherduck_table(
             matched.table,

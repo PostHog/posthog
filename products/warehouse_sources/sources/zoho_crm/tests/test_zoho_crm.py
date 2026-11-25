@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
+    error_message_matches,
     scripted_network,
     source_inputs,
 )
@@ -33,6 +34,8 @@ from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     ZohoCRMResumeConfig,
     chunk_fields,
     format_modified_since,
+    get_rows,
+    list_custom_modules,
     readable_field_names,
     resolve_hosts,
     validate_credentials,
@@ -172,6 +175,25 @@ class TestZohoCRMClient:
             with pytest.raises(RESTClientNonRetryableError):
                 client.mint_access_token()
 
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_retries_a_transient_5xx(self, status: int) -> None:
+        with scripted_network(_script([], tokens=[_response(status), _token_response()])) as network:
+            token = _client().mint_access_token()
+
+        assert token == "access-token"
+        assert [request.path for request in network.requests_log].count(_TOKEN_PATH) == 2
+
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_5xx_after_retries_is_retryable_not_non_retryable(self, status: int) -> None:
+        source = ZohoCRMSource()
+        with scripted_network(_script([], tokens=[_response(status)] * 4)):
+            with pytest.raises(HTTPError) as exc_info:
+                _client().mint_access_token()
+
+        message = str(exc_info.value)
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, source.get_non_retryable_errors())
+
     def test_remints_once_on_401_and_replays_the_request(self) -> None:
         with scripted_network(
             _script([_response(401), _response(200, {"data": []})], tokens=[_token_response(), _token_response()])
@@ -187,7 +209,10 @@ class TestZohoCRMClient:
         with scripted_network(_script([])) as network:
             ZohoCRMClient("us", "cid", "secret-value", "refresh-value")
 
-        assert network.session_options == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
+        assert [
+            {"redact_values": options["redact_values"], "capture": options["capture"]}
+            for options in network.session_options
+        ] == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
 
 
 class TestReadableFieldNames:
@@ -236,12 +261,33 @@ class TestReadableFieldNames:
             with pytest.raises(ZohoCRMApiError, match=expected_detail):
                 readable_field_names(_client(), "v8", "Vendors")
 
-    def test_400_without_a_structured_body_stays_a_plain_http_error(self) -> None:
-        with scripted_network(_script([ScriptedResponse(status=400, body=b"not json")])):
+    @pytest.mark.parametrize(
+        ("call", "responses"),
+        [
+            pytest.param(lambda: readable_field_names(_client(), "v8", "Leads"), [], id="fields_metadata"),
+            pytest.param(lambda: list_custom_modules(_client(), "v8"), [], id="modules_metadata"),
+            pytest.param(
+                lambda: list(
+                    get_rows(
+                        _client(), "v8", "Leads", mock.MagicMock(**{"can_resume.return_value": False}), mock.MagicMock()
+                    )
+                ),
+                [_fields_response(1)],
+                id="records_page",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("body", [b"not json", b""])
+    def test_400_without_a_structured_body_stays_a_plain_http_error(
+        self, call: Callable[[], Any], responses: list[ScriptedResponse], body: bytes
+    ) -> None:
+        with scripted_network(_script([*responses, ScriptedResponse(status=400, body=body)])):
             with pytest.raises(HTTPError) as ctx:
-                readable_field_names(_client(), "v8", "Leads")
+                call()
 
         assert not isinstance(ctx.value, ZohoCRMApiError)
+        # A self-referencing cause sends Temporal's failure converter into a RecursionError.
+        assert ctx.value.__cause__ is not ctx.value
 
     def test_invalid_module_error_matches_get_non_retryable_errors(self) -> None:
         body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}
@@ -354,18 +400,30 @@ class TestGetRows:
         assert requests_made[0].param("sort_by") is None
         assert requests_made[0].param("fields") is None
 
-    def test_discovered_custom_module_reads_through_get_records(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "module_api_name"),
+        [
+            ("Custom_Projects", "Projects"),
+            ("Appointments", "Appointments__s"),
+            ("Services", "Services__s"),
+        ],
+    )
+    def test_modules_named_apart_from_their_table_read_through_get_records(
+        self, endpoint: str, module_api_name: str
+    ) -> None:
         result = _run(
-            "Custom_Projects",
+            endpoint,
             [_fields_response(1), _records_response([{"id": "p1"}])],
             incremental_field="Modified_Time",
             db_incremental_field_last_value=datetime(2024, 6, 1, tzinfo=UTC),
         )
 
-        records_request = _crm_requests(result)[1]
+        fields_request, records_request = _crm_requests(result)
         assert result.items == [[{"id": "p1"}]]
-        assert records_request.path == "/crm/v8/Projects"
+        assert fields_request.param("module") == module_api_name
+        assert records_request.path == f"/crm/v8/{module_api_name}"
         assert records_request.headers["if-modified-since"] == "2024-06-01T00:00:00+00:00"
+        assert records_request.param("sort_by") == "Modified_Time"
 
     def test_empty_records_body_stops_pagination_without_crashing(self) -> None:
         result = _run(
@@ -527,6 +585,43 @@ class TestDealTimeline:
 
         assert result.saved_states[0] == ZohoCRMResumeConfig(page=1, parent_id="D1", child_page_token="tl-2")
         assert result.saved_states[1] == ZohoCRMResumeConfig(page=1, parent_id="D1")
+
+
+def _contact_roles_response(ids: list[str]) -> ScriptedResponse:
+    rows = [{"id": contact_id, "Contact_Role": {"id": f"role-{contact_id}", "name": "Evaluator"}} for contact_id in ids]
+    return _records_response(rows)
+
+
+class TestDealContactRoles:
+    def test_reads_the_contact_roles_of_every_deal(self) -> None:
+        result = _run(
+            "Deal_Contact_Roles",
+            [
+                _deals_response(["D1", "D2"], more_records=True, next_page_token="deals-2"),
+                _contact_roles_response(["C1", "C2"]),
+                _no_content_response(204),
+                _deals_response(["D3"]),
+                _contact_roles_response(["C1"]),
+            ],
+        )
+
+        requests_made = _crm_requests(result)
+        assert result.raised is None
+        assert [(row["deal_id"], row["id"]) for row in result.rows] == [("D1", "C1"), ("D1", "C2"), ("D3", "C1")]
+        assert [request.path for request in requests_made] == [
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D1/Contact_Roles",
+            "/crm/v8/Deals/D2/Contact_Roles",
+            "/crm/v8/Deals",
+            "/crm/v8/Deals/D3/Contact_Roles",
+        ]
+        # Zoho rejects a contact roles request that names no fields.
+        role_requests = [request for request in requests_made if request.path.endswith("/Contact_Roles")]
+        assert [request.param("fields") for request in role_requests] == ["Full_Name,Email"] * 3
+        assert "if-modified-since" not in requests_made[0].headers
+        assert result.final_state is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["deal_id", "id"]
 
 
 class TestValidateCredentials:

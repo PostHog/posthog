@@ -18,7 +18,9 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
-use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
+use crate::storage::types::{
+    AttachOutcome, DistinctIdMapping, Person, PersonAttach, PersonStub, StubOutcome,
+};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 /// Decode a person from a row whose SELECT list uses the canonical aliases
@@ -142,6 +144,15 @@ impl IdentityStorage for PostgresIdentityStorage {
             self.outbox_writes,
         )
         .await
+    }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        attaches: &[PersonAttach],
+    ) -> StorageResult<Vec<HashMap<String, AttachOutcome>>> {
+        let labels = Self::query_labels("attach_distinct_ids", Lane::Heavy);
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        attach::attach_batch(&self.pools, &self.tables, attaches, self.outbox_writes).await
     }
 }
 

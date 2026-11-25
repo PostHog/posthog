@@ -19,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersBulkObserveCreate, visionScannersObservationsList } from '../generated/api'
 import type { EstimateResponseApi, ReplayObservationApi } from '../generated/api.schemas'
+import type { ReplayScannerApi } from '../generated/api.schemas'
 import { visionScannersBulkObserveCreateBodySessionIdsMax } from '../generated/api.zod'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
@@ -137,8 +138,8 @@ export interface scannerRunTabLogicActions {
     toggleEnabledFailure: () => {
         value: true
     } // replayScannerLogic
-    toggleEnabledSuccess: (saved: import('../generated/api.schemas').ReplayScannerApi) => {
-        saved: import('../generated/api.schemas').ReplayScannerApi
+    toggleEnabledSuccess: (saved: ReplayScannerApi) => {
+        saved: ReplayScannerApi
     } // replayScannerLogic
     triggerOnDemandObservation: (
         sessionId: string,

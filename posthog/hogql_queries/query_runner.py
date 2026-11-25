@@ -239,6 +239,7 @@ from posthog.query_cache.failures import (
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
     QUERY_SINGLE_FLIGHT_FLAG,
+    FlightOutcome,
     FlightWait,
     QuerySingleFlight,
     query_single_flight_skipped,
@@ -250,7 +251,7 @@ from posthog.query_scan.trigger import (
     is_analyzable_principal,
     maybe_trigger_query_scan,
 )
-from posthog.schema_helpers import to_dict
+from posthog.schema_helpers import strip_null_defaults, to_dict
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
@@ -299,7 +300,6 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
-DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -323,6 +323,11 @@ def _contains_user_hogql_label() -> str:
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
+
+FOLLOWER_RAN_ALONE_ACTIONS: dict[FlightOutcome, str] = {
+    "unavailable": "follower_ran_alone",
+    "timeout": "follower_ran_alone_after_timeout",
+}
 
 QUERY_HASH_VERSION = 1
 
@@ -2284,8 +2289,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
         if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
-            return with_pinned_events_route(query_json, self.modifiers)
-        return query_json
+            query_json = with_pinned_events_route(query_json, self.modifiers)
+        # Strip after pinning, because the pin goes only into a source whose payload has a `modifiers` key.
+        return strip_null_defaults(self.query, query_json)
 
     def enqueue_async_calculation(
         self,
@@ -2547,12 +2553,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
         """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        # Imported here so that loading query runners doesn't load the DRF permission stack.
+        from posthog.permissions import dashboard_v2_enabled
+
         # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
         if (
             dashboard_id is None
             or is_api_key_access
             or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
-            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+            or not dashboard_v2_enabled(self.team, self.user)
         ):
             return None
         return QueueWait()
@@ -2877,10 +2886,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self._phase = RunPhase(name="flight_wait")
                 with self.timings.measure("flight_wait"):
                     wait = flight.wait()
-                if wait.outcome != "unavailable":
+                ran_alone_action = FOLLOWER_RAN_ALONE_ACTIONS.get(wait.outcome)
+                if ran_alone_action is None:
                     return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
-                # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
-                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
+                # The flight cannot be read, or its leader held the lock past the follower wait, so this run goes
+                # alone, as it does when acquire hits a storage error.
+                self._raise_if_breaker_forbids(cache_manager, query_run.user)
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action=ran_alone_action).inc()
                 flight = None
 
         try:
@@ -3071,6 +3083,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             accumulator_scope() as warnings_accumulator,
             query_stats_scope(retain_ast=query_scan_flag is not None) as query_stats,
         ):
+            if flight is not None:
+                query_stats.query_start_listeners.append(flight.mark_querying)
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
 

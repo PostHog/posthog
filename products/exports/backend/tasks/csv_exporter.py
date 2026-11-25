@@ -655,7 +655,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 
 
 def _query_supports_limit(query: dict) -> bool:
-    if not query.get("kind"):
+    # A HogQL export runs as one query up to the export cap. Paging it by offset would rerun an
+    # unordered query per page, which can skip or repeat rows.
+    if not query.get("kind") or query.get("kind") == NodeKind.HOG_QL_QUERY:
         return False
     try:
         QuerySchemaRoot.model_validate({**query, "limit": 1})

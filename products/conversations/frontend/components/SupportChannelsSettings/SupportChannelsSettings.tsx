@@ -1,11 +1,20 @@
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { ChannelsSection } from '../../scenes/settings/ChannelsSection'
+import { QuillSupportChannelsSettings } from '../QuillSupportChannelsSettings/QuillSupportChannelsSettings'
 import { WebAndApiAccessSettings } from '../WebAndApiAccessSettings/WebAndApiAccessSettings'
 
 export function SupportChannelsSettings(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillSupportChannelsSettings />
+    }
+
     return (
         <>
             <SceneSection

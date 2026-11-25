@@ -41,6 +41,7 @@ USER_KEYED_GATES = [
     feature_flags.is_slack_app_connect_tool_from_chat_enabled,
     feature_flags.is_slack_app_daily_work_focus_enabled,
     feature_flags.is_slack_app_slack_mcp_enabled,
+    feature_flags.is_slack_app_daily_summary_enabled,
 ]
 
 

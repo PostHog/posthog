@@ -50,7 +50,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops', 'transactional_emails'])
+        .enum(['broadcasts', 'loops', 'transactional_emails', 'transactional_push'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -145,15 +145,21 @@ export const HogFlowsCreateBody = () => zod
         origin_product: zod
             .union([
                 zod
-                    .enum(['loops', 'broadcasts', 'transactional_emails', 'transactional_email_keys'])
+                    .enum([
+                        'loops',
+                        'broadcasts',
+                        'transactional_emails',
+                        'transactional_email_keys',
+                        'transactional_push',
+                    ])
                     .describe(
-                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
             ),
         source_record: zod
             .string()

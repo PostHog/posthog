@@ -42,6 +42,11 @@ class TestBuildkiteSource:
             ("test_suites", False, False),
             ("test_suite_runs", False, False),
             ("test_suite_tests", False, False),
+            ("team_suites", False, False),
+            ("audit_events", False, False),
+            ("build_tests", True, False),
+            # The current month restates until it ends, so append would duplicate it.
+            ("organization_usage", True, False),
         ]
     )
     def test_incremental_support_per_endpoint(self, endpoint: str, incremental: bool, append: bool) -> None:
