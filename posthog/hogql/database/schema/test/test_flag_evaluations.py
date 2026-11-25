@@ -1465,6 +1465,16 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [],
             ),
             (
+                "mode_2_flag_calls_and_other_events_under_an_enclosing_cte_named_posthog_events",
+                {
+                    "calls": "SELECT distinct_id FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
+                    "AND timestamp >= now() - INTERVAL 7 DAY"
+                },
+                "WITH `posthog.events` AS (SELECT 1 AS x) SELECT distinct_id FROM calls",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ["probe-distinct-id"],
+            ),
+            (
                 "mode_2_under_an_enclosing_cte_named_events",
                 {"calls": "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"},
                 "WITH events AS (SELECT distinct_id, event FROM posthog.flag_evaluations) SELECT distinct_id FROM calls",
@@ -1525,6 +1535,36 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         with self.assertRaisesRegex(QueryError, "it reads the saved view calls, which reads them from events"):
             self._query_events("SELECT distinct_id FROM calls")
+
+    def test_view_under_an_enclosing_cte_named_posthog_events_matches_its_action_on_the_events_table(self):
+        for distinct_id, url in (
+            ("shadow-distinct-id", "https://other.example.com"),
+            ("probe-distinct-id", "https://example.com"),
+        ):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=self.occurred_at,
+                properties={"$current_url": url},
+            )
+        flush_persons_and_events()
+        action = create_action(
+            team=self.team, steps_json=[{"event": "$pageview", "url": "https://example.com", "url_matching": "exact"}]
+        )
+        self._create_view(
+            "pageviews",
+            "SELECT e.distinct_id FROM posthog.events AS shadow CROSS JOIN events AS e "
+            f"WHERE matchesAction({action.id}) AND e.event != '$feature_flag_called'",
+        )
+        query = (
+            "WITH `posthog.events` AS (SELECT properties FROM events WHERE distinct_id = 'shadow-distinct-id') "
+            "SELECT distinct_id FROM pageviews"
+        )
+
+        results = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
+
+        assert [row[0] for row in results] == ["probe-distinct-id"]
 
     def test_view_read_under_a_cte_with_the_same_name_and_another_body_decides_its_swap_again(self):
         self._create_view(
