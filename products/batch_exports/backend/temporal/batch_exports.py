@@ -45,11 +45,11 @@ from products.batch_exports.backend.temporal.metrics import get_export_finished_
 from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
-    EXTRACTED_FIELD_EXPRESSIONS,
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
+    build_select_list,
     native_events_export_query,
     native_recent_events_export_query,
 )
@@ -384,10 +384,7 @@ def iter_records(
                 team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
             )
 
-        query_fields = ",".join(
-            f"{EXTRACTED_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
-            for field in select_fields
-        )
+        query_fields = build_select_list(select_fields)
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

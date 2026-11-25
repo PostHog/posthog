@@ -84,7 +84,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-    EXTRACTED_FIELD_EXPRESSIONS,
+    build_select_list,
     native_events_export_query,
     native_recent_events_export_query,
 )
@@ -681,9 +681,7 @@ async def _get_legacy_events_query(
             filters, team_id=team_id, values=parameters, use_new_events_schema=False
         )
 
-    query_fields = _select_list(
-        with_inserted_at_field(fields), extracts_ip=query_template is not EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
-    )
+    query_fields = build_select_list(with_inserted_at_field(fields))
     query = query_template.safe_substitute(
         fields=query_fields,
         filters=f"AND {filters_str}" if filters_str else "",
@@ -806,13 +804,6 @@ async def _get_query(
 
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters, reads_recent_events
-
-
-def _select_list(fields: list[BatchExportField], *, extracts_ip: bool) -> str:
-    field_expressions = EXTRACTED_FIELD_EXPRESSIONS if extracts_ip else {}
-    return ",".join(
-        f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
-    )
 
 
 def get_base_s3_staging_folder(
