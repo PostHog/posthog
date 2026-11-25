@@ -522,8 +522,11 @@ class TestFrameConverters(SimpleTestCase):
 
     @parameterized.expand([("Metric",), ("CalendarHeatmap",), ("BoxPlot",), ("SlopeGraph",)])
     def test_trends_displays_without_an_aggregate_keep_the_raw_result(self, display: str) -> None:
-        query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
-        query["trendsFilter"] = {"display": display}
+        query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "trendsFilter": {"display": display},
+        }
         result = {"results": [{"label": "$pageview", "data": [1, 2], "days": ["2026-09-18", "2026-09-19"]}]}
 
         assert frames_for(QueryBatchLanguage.QUERY, query, result) is None
