@@ -11,6 +11,12 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
+
 
 class TestTextReprAPI(APIBaseTest):
     """Test text repr API endpoints."""
@@ -829,6 +835,39 @@ class TestCachingBehavior(APIBaseTest):
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
         self.assertEqual(response2.data["text"], first_text)
         self.assertEqual(response2.data["metadata"]["char_count"], first_metadata["char_count"])
+
+    def test_restricted_member_does_not_read_unrestricted_cached_rendering(self):
+        url = f"/api/environments/{self.team.id}/llm_analytics/text_repr/"
+        event = {"id": "gen_restricted", "event": "$ai_generation", "properties": {"$ai_input": "private-input"}}
+        unrestricted = self.client.post(url, {"event_type": "$ai_generation", "data": event}, format="json")
+        self.assertEqual(unrestricted.status_code, status.HTTP_200_OK)
+        self.assertIn("private-input", unrestricted.data["text"])
+
+        reader = self._create_user("text-repr-reader@example.com")
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+            ),
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        self.client.force_login(reader)
+        restricted = self.client.post(
+            url,
+            {
+                "event_type": "$ai_generation",
+                "data": {"id": "gen_restricted", "event": "$ai_generation", "properties": {}},
+            },
+            format="json",
+        )
+
+        self.assertEqual(restricted.status_code, status.HTTP_200_OK)
+        self.assertNotIn("private-input", restricted.data["text"])
 
     def test_cache_key_differs_by_options(self):
         """Should use different cache keys for different options."""

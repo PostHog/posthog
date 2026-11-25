@@ -15,6 +15,8 @@ Endpoint:
 import json
 import time
 import hashlib
+from collections.abc import Collection
+from typing import TYPE_CHECKING, cast
 
 from django.core.cache import cache
 
@@ -32,6 +34,8 @@ from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import AIObservabilityTextReprBurstThrottle, AIObservabilityTextReprSustainedThrottle
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.text_repr.formatters import (
     format_event_text_repr,
@@ -39,6 +43,11 @@ from products.ai_observability.backend.text_repr.formatters import (
     reduce_by_uniform_sampling,
 )
 from products.ai_observability.backend.text_repr.formatters.constants import DEFAULT_MAX_LENGTH
+
+if TYPE_CHECKING:
+    from posthog.hogql.property_access_types import RestrictedProperty
+
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -138,17 +147,27 @@ class AIObservabilityTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
         return [AIObservabilityTextReprBurstThrottle(), AIObservabilityTextReprSustainedThrottle()]
 
-    def _get_cache_key(self, event_type: str, entity_id: str, options: dict) -> str:
+    def _get_cache_key(
+        self,
+        event_type: str,
+        entity_id: str,
+        options: dict,
+        restricted_properties: Collection["RestrictedProperty"] = (),
+    ) -> str:
         """Generate cache key for text repr results.
 
-        Since options can vary widely, we hash them to create a stable key.
+        Since options can vary widely, we hash them to create a stable key. Members with different
+        property restrictions get separate entries, so a restricted member never reads a full rendering.
         """
         # Sort options dict for consistent hashing
         options_str = json.dumps(options, sort_keys=True)
         # this hash has no security impact
         # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         options_hash = hashlib.md5(options_str.encode()).hexdigest()[:8]
-        return f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
+        cache_key = f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
+        if not restricted_properties:
+            return cache_key
+        return f"{cache_key}:properties:{restriction_fingerprint(restricted_properties)}"
 
     @extend_schema(
         request=TextReprRequestSerializer,
@@ -302,7 +321,14 @@ The response includes the formatted text and metadata about the rendering.
                 entity_id = data["id"]
 
             # Check cache
-            cache_key = self._get_cache_key(event_type, entity_id, options)
+            cache_key = self._get_cache_key(
+                event_type,
+                entity_id,
+                options,
+                restricted_properties=get_restricted_properties_with_group_type_index_for_team(
+                    user=cast("User", request.user), team_id=self.team_id
+                ),
+            )
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 logger.info(
