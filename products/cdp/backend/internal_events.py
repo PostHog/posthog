@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
 MANAGED_ALERT_EVENT_PATTERN = (
-    r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match|incident_opened|incident_closed)$"
+    r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|broken|match|incident_opened|incident_closed)$"
 )
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
@@ -59,24 +59,30 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
 
 
 # Alert products whose destinations stay editable through the generic hog functions API, keyed by
-# the prefix of their alert events and valued by the API scope object their own alert API checks.
-# An edit through the generic API requires that product's write scope and editor access on top of
-# the hog function ones, so a token or member that cannot touch the alert cannot touch its
-# destination either. The other alert products stay read-only there.
-GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, str] = {"$logs_alert_": "logs"}
+# the prefix of their alert events and valued by the API scope objects their own alert API checks.
+# An edit through the generic API requires each of those write scopes and editor access on each,
+# on top of the hog function ones, so a token or member that cannot touch the alert cannot touch its
+# destination either. Metrics and traces alerts are served by the platform alerts API, which also
+# checks `alert`. The other alert products stay read-only there.
+GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, tuple[str, ...]] = {
+    "$logs_alert_": ("logs",),
+    "$metrics_alert_": ("metrics", "alert"),
+    "$traces_alert_": ("tracing", "alert"),
+}
 
 
-def generic_api_editable_alert_scope(event_name: object) -> str | None:
-    """Return the scope object that guards generic-API edits of a managed alert event's destinations."""
+def generic_api_editable_alert_scopes(event_name: object) -> tuple[str, ...]:
+    """Return the scope objects that guard generic-API edits of a managed alert event's destinations,
+    or nothing when the generic API cannot edit them."""
     if not is_managed_alert_internal_event(event_name):
-        return None
+        return ()
     return next(
         (
-            scope
-            for prefix, scope in GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES.items()
+            scopes
+            for prefix, scopes in GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES.items()
             if str(event_name).startswith(prefix)
         ),
-        None,
+        (),
     )
 
 

@@ -743,7 +743,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 // Mirrors RESERVED_NEW_VARIANT_KEYS in products/feature_flags/backend/reserved_variant_keys.py.
-const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null']
+const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null', 'true', 'false']
 
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
  * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume

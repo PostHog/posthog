@@ -48,7 +48,7 @@ def migrate_custom_bot_rules_op(context: dagster.OpExecutionContext, config: Mig
         "shape. Without run config this is a dry run that lists affected teams; set "
         "`execute: true` to apply the rewrite."
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_migrate_custom_bot_rules_job() -> None:
     migrate_custom_bot_rules_op()

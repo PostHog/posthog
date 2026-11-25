@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { ApiError } from 'lib/api-error'
 import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -251,6 +253,23 @@ describe('scoutFleetLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, later)
+    })
+
+    it('shows the refusal the API gives and keeps the saved grant when a report action grant is rejected', async () => {
+        // Only the person a scout's runs act as may grant report actions, and the client cannot tell
+        // who that is, so the API's message is the only place a person learns who can.
+        const refusal =
+            "Only the person this scout's runs act as can grant it report actions. A project admin can only remove them."
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        mockSignalsScoutConfigUpdate.mockRejectedValueOnce(
+            new ApiError(refusal, 403, new Headers(), { detail: refusal, code: 'permission_denied' })
+        )
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { report_actions: ['make_it_green'] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith(refusal)
+        expect(logic.values.scoutConfigs?.[0].report_actions).toEqual([])
     })
 
     it('publishes a scout against its canonical project and preserves its tags', async () => {

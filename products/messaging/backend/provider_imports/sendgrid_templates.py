@@ -195,6 +195,11 @@ _LIQUID_TAG = re.compile(
     r"|\{%(?>\"[^\"]{0,2000}\"|'[^']{0,2000}'|(?!\{%).){0,2000}?%\}",
     re.DOTALL,
 )
+# A string is one piece here too. Entities make a tag up to six times longer than what `_LIQUID_TAG` reads after them.
+_ATTRIBUTE_LIQUID = re.compile(
+    r"\{\{(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}\}\}|\{%(?>&quot;(?:(?!&quot;).){0,2000}&quot;|[^{}]){0,2000}%\}",
+    re.DOTALL,
+)
 _LIQUID_SLOT = re.compile("\x01(\\d+)\x01")
 _LIQUID_SLOT_SPLIT = re.compile("(\x01\\d+\x01)")
 _RAW_OPEN = re.compile(r"\{%-?\s*raw\s*-?%\}")
@@ -251,6 +256,8 @@ def plain_text_from_html(html: str) -> str:
         tags.append(match.group(0))
         return f"\x01{len(tags) - 1}\x01"
 
+    # In a double-quoted attribute the converter writes a tag's quotes as entities.
+    html = _ATTRIBUTE_LIQUID.sub(lambda match: match.group(0).replace("&quot;", '"'), html)
     # Source text can't hold the slot marker, or it could stand in for a tag held here.
     text = _hold_raw_blocks(html.replace("\x01", ""), tags)
     text = _LIQUID_TAG.sub(hold, text)

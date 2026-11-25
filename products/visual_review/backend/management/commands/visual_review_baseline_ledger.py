@@ -1,4 +1,4 @@
-"""Seed, repair, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
+"""Seed, repair, adopt renders, export and inspect one repo's baseline ledger, and switch which record decides its runs."""
 
 import re
 import time
@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Count, Exists, OuterRef, Q
@@ -74,7 +75,7 @@ def _add_repo_arguments(parser: CommandParser) -> None:
 
 
 class Command(BaseCommand):
-    help = "Seed, repair, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
+    help = "Seed, repair, adopt renders, export and inspect a visual review repo's baseline ledger, and set its baseline mode"
 
     def add_arguments(self, parser: CommandParser) -> None:
         subcommands = parser.add_subparsers(dest="subcommand", required=True)
@@ -102,6 +103,25 @@ class Command(BaseCommand):
         _add_repo_arguments(repair)
         repair.add_argument("--run-type", type=str, required=True)
         repair.add_argument("--apply", action="store_true", help="Write the entries. Without it, only print the plan.")
+
+        adopt_renders = subcommands.add_parser(
+            "adopt-renders",
+            help="Set the ledger to what a full default-branch run rendered, for the named identifiers. "
+            "Ledger mode only.",
+        )
+        _add_repo_arguments(adopt_renders)
+        adopt_renders.add_argument("--run-type", type=str, required=True)
+        adopt_renders.add_argument("--run", type=UUID, required=True, dest="run_id", help="ID of the run to take from.")
+        adopt_renders.add_argument(
+            "--identifier",
+            action="append",
+            dest="identifiers",
+            required=True,
+            help="Snapshot identifier to adopt the render of. Repeat for more.",
+        )
+        adopt_renders.add_argument(
+            "--apply", action="store_true", help="Write the entries. Without it, only print the plan."
+        )
 
         export = subcommands.add_parser("export", help="Print the signed baseline file for the ledger's newest commit.")
         _add_repo_arguments(export)
@@ -166,6 +186,8 @@ class Command(BaseCommand):
                     self._seed(repo, options)
                 case "repair":
                     self._repair(repo, options["run_type"], options["apply"])
+                case "adopt-renders":
+                    self._adopt_renders(repo, options)
                 case "export":
                     self._export(repo, options["run_type"], options.get("output"))
                 case "mode":
@@ -268,6 +290,34 @@ class Command(BaseCommand):
             self.stdout.write(f"Wrote {len(plan.entries)} entries.")
             return
         self.stdout.write("Dry run, nothing written. Pass --apply to write.")
+
+    def _print_adoption_plan(self, plan: contracts.BaselineLedgerAdoption) -> None:
+        self.stdout.write(
+            f"{plan.run_type}: adopt renders at position {plan.cursor_position}, commit {plan.cursor_sha}, "
+            f"from run {plan.run_id} at position {plan.run_position}"
+        )
+        rows = [("Identifier", "Ledger", "Render", "Action", "Open approvals")]
+        for item in plan.items:
+            action = "already matches" if item.already_matches else "append"
+            rows.append(
+                (item.identifier, item.ledger_hash or "absent", item.render_hash, action, str(item.open_approvals))
+            )
+        widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+        for row in rows:
+            self.stdout.write("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
+
+    def _adopt_renders(self, repo: Repo, options: dict[str, Any]) -> None:
+        apply = options["apply"]
+        try:
+            adopt = api.adopt_ledger_renders if apply else api.plan_ledger_adoption
+            plan = adopt(repo.id, repo.team_id, options["run_type"], options["run_id"], options["identifiers"])
+        except api.BaselineAdoptionError as e:
+            raise CommandError(str(e)) from e
+        self._print_adoption_plan(plan)
+        if apply:
+            self.stdout.write(f"Wrote {len(plan.to_append)} entries.")
+            return
+        self.stdout.write("Dry run, nothing was written. Pass --apply to write.")
 
     def _export(self, repo: Repo, run_type: str, output: str | None) -> None:
         head = ledger.cursor(repo.id)

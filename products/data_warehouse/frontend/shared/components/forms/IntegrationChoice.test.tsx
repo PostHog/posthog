@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -49,6 +50,37 @@ describe('SourceIntegrationChoice', () => {
             expect(redirect.pathname).toBe(pathname)
         }
     )
+
+    describe('OAuth callback error banner', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/integrations': { results: [] },
+                    '/api/projects/:team_id/integrations': { results: [] },
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        // The source name (`BingAds`) and the integration kind (`bing-ads`) differ, and the provider
+        // copy is keyed by the integration kind.
+        it('describes the error with the integration kind, not the source name', async () => {
+            router.actions.push('/data-warehouse/new-source', { kind: 'BingAds', integration_error: 'invalid_client' })
+            const sourceConfig = { name: 'BingAds', fields: [] } as unknown as SourceConfigResponseApi
+            render(
+                <Provider>
+                    <SourceIntegrationChoice sourceConfig={sourceConfig} integration="bing-ads" />
+                </Provider>
+            )
+            expect(
+                await screen.findByText(/Your Microsoft organization has not enabled the Microsoft Advertising API/)
+            ).toBeInTheDocument()
+        })
+    })
 
     describe('pending GitHub install request', () => {
         const pendingRequest = {
