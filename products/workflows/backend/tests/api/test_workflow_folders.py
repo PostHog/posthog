@@ -1048,7 +1048,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(filed.status_code, 400, filed.content)
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
 
-    def test_disabled_files_hide_by_type_and_leave_their_unfiled_folders(self) -> None:
+    def _file_a_template_in_unfiled_folders(self) -> dict[str, FileSystem]:
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {"name": "Synthetic email", "type": "email"},
@@ -1060,8 +1060,13 @@ class TestWorkflowFolders(APIBaseTest):
                 team=self.team, type="message_template", path="Unfiled/Email templates/Synthetic email"
             ).exists()
         )
-        for path in ("Unfiled", "Unfiled/Email templates"):
-            FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
+        return {
+            path: FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
+            for path in ("Unfiled", "Unfiled/Email templates")
+        }
+
+    def test_disabled_files_hide_by_type_and_leave_their_unfiled_folders(self) -> None:
+        self._file_a_template_in_unfiled_folders()
         with patch("posthoganalytics.feature_enabled", return_value=False):
             searched = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
             listed = self.client.get(
@@ -1072,6 +1077,28 @@ class TestWorkflowFolders(APIBaseTest):
             [("Unfiled", "folder"), ("Unfiled/Email templates", "folder")],
         )
         self.assertEqual(listed.json()["results"], [])
+
+    @parameterized.expand(
+        [
+            ("move", "post", "move/", {"new_path": "Archive/Email templates"}),
+            ("rename", "patch", "", {"path": "Archive/Email templates"}),
+            ("delete", "delete", "", None),
+            ("recursive_delete", "delete", "?recursive=true", None),
+            ("link", "post", "link/", {"new_path": "Archive/Email templates"}),
+        ]
+    )
+    def test_writes_with_the_flag_off_cannot_reach_an_unfiled_folder_of_only_workflow_files(
+        self, _name: str, method: str, suffix: str, payload: dict | None
+    ) -> None:
+        folder = self._file_a_template_in_unfiled_folders()["Unfiled/Email templates"]
+        tree_before = sorted(FileSystem.objects.filter(team=self.team).values_list("path", "type"))
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/{suffix}", payload, format="json"
+            )
+
+        self.assertEqual(response.status_code, 404, response.content)
+        self.assertEqual(sorted(FileSystem.objects.filter(team=self.team).values_list("path", "type")), tree_before)
 
     def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
         self.client.post(

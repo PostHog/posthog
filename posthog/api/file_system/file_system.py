@@ -114,6 +114,10 @@ logger = logging.getLogger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
+UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
+
+FOLDER_WRITE_ACTIONS = frozenset({"update", "partial_update", "destroy", "move", "link"})
+
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
 TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
     ("dashboard", "dashboards", "Dashboard", "id"),
@@ -959,7 +963,29 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _visible_files(self, queryset: QuerySet) -> QuerySet:
         if self._workflow_files_enabled:
             return queryset
-        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+        queryset = queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+        if self.action in FOLDER_WRITE_ACTIONS:
+            # Reads show an Unfiled folder that holds only workflow files, empty. Writing it would carry a teammate's
+            # star away from those files or leave them without a parent folder, so writes still cannot reach it.
+            queryset = queryset.exclude(self._only_workflow_files_folders())
+        return queryset
+
+    def _only_workflow_files_folders(self) -> Q:
+        # Each check matches a constant path prefix, so Postgres runs it at most once per statement. A prefix built
+        # from the outer row's path cannot use an index and scans the project once per row.
+        files = self._scope_by_project(FileSystem.objects.all())
+        only_workflow_files = Q()
+        for folder in ("Unfiled", *UNFILED_WORKFLOW_FOLDERS):
+            under = files.filter(path__startswith=f"{folder}/")
+            other_files = under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
+                type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
+            )
+            only_workflow_files |= (
+                Q(type="folder", path=folder)
+                & Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
+                & ~Exists(other_files)
+            )
+        return only_workflow_files
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
