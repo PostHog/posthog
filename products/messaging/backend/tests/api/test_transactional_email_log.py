@@ -745,7 +745,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
-            # Every other recipient has no person yet, so their send and purchase meet on the distinct ID.
             if minutes_ago % 2:
                 create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
@@ -775,7 +774,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_names_the_type_of_every_query_impact_runs(self, _flag):
         query_types = self._impact_query_types_after_adding_sends([], 2)
 
-        assert query_types and "" not in query_types, query_types
+        assert set(query_types) == {
+            "transactional_email_impact_funnel",
+            "transactional_email_impact_sends",
+            "message_assets_for_invocations",
+            "transactional_email_impact_conversions",
+        }
 
     def _impact_query_types_after_adding_sends(self, welcomed: list[str], count: int) -> list[str]:
         for _ in range(count):

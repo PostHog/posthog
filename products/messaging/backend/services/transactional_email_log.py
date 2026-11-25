@@ -14,6 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -763,51 +764,6 @@ def _escaped_literal_bytes(value: str) -> int:
     return 2 * len(value.encode()) + len("'', ")
 
 
-# HogQL types, escapes and prints every element of a constant list in Python, so a batch's values appear once, in the
-# `sends` CTE, and the query refers to them from there. A send comes back as its 1-based position in the batch.
-_IMPACT_CONVERSIONS = """
-    WITH
-        sends AS (
-            SELECT
-                tupleElement(send, 1) AS position,
-                tupleElement(send, 2) AS distinct_id,
-                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
-            FROM (
-                SELECT arrayJoin(arrayZip(arrayEnumerate(batch_distinct_ids), batch_distinct_ids, batch_since_ms)) AS send
-                FROM (SELECT {distinct_ids} AS batch_distinct_ids, {since_ms} AS batch_since_ms)
-            )
-        ),
-        persons AS (
-            SELECT distinct_id, person_id FROM person_distinct_ids
-            WHERE distinct_id IN (SELECT distinct_id FROM sends)
-        ),
-        recipients AS (
-            SELECT
-                sends.position AS position,
-                sends.since AS since,
-                if(persons.distinct_id != '', toString(persons.person_id), concat('distinct:', sends.distinct_id))
-                    AS recipient
-            FROM sends
-            LEFT JOIN persons ON persons.distinct_id = sends.distinct_id
-        )
-    SELECT DISTINCT recipients.position
-    FROM (
-        SELECT
-            if(person_id IN (SELECT person_id FROM persons), toString(person_id), concat('distinct:', distinct_id))
-                AS recipient,
-            timestamp
-        FROM events
-        WHERE event = {event}
-          AND timestamp >= {start} AND timestamp < {end}
-          AND (distinct_id IN (SELECT distinct_id FROM sends) OR person_id IN (SELECT person_id FROM persons))
-    ) AS conversions
-    INNER JOIN recipients ON conversions.recipient = recipients.recipient
-    WHERE conversions.timestamp >= recipients.since
-      AND conversions.timestamp <= recipients.since + toIntervalSecond({window_seconds})
-    LIMIT {limit}
-"""
-
-
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[int]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
@@ -820,7 +776,9 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
             "event": ast.Constant(value=event),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "distinct_ids": ast.Constant(value=[send.distinct_id for send in sends]),
+            "revenue": ast.Constant(value=None),
+            "send_distinct_ids": ast.Constant(value=[send.distinct_id for send in sends]),
+            "distinct_ids": parse_select("SELECT distinct_id FROM sends"),
             "since_ms": ast.Constant(value=[int(send.since.timestamp() * 1000) for send in sends]),
             "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(sends)),
@@ -872,6 +830,43 @@ _RECIPIENT_EVENTS = """
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
+
+
+_IMPACT_CONVERSIONS = (
+    """
+    WITH
+        sends AS (
+            SELECT
+                tupleElement(send, 1) AS position,
+                tupleElement(send, 2) AS distinct_id,
+                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
+            FROM (
+                SELECT arrayJoin(arrayZip(arrayEnumerate(batch_distinct_ids), batch_distinct_ids, batch_since_ms)) AS send
+                FROM (SELECT {send_distinct_ids} AS batch_distinct_ids, {since_ms} AS batch_since_ms)
+            )
+        ),
+        recipients AS (
+            SELECT
+                sends.position AS position,
+                sends.since AS since,
+                if(persons.distinct_id != '', toString(persons.person_id), concat('distinct:', sends.distinct_id))
+                    AS recipient
+            FROM sends
+            LEFT JOIN (
+                SELECT distinct_id, person_id FROM person_distinct_ids
+                WHERE distinct_id IN (SELECT distinct_id FROM sends)
+            ) AS persons ON persons.distinct_id = sends.distinct_id
+        )
+    SELECT DISTINCT recipients.position
+    FROM ("""
+    + _RECIPIENT_EVENTS
+    + """) AS conversions
+    INNER JOIN recipients ON conversions.recipient = recipients.recipient
+    WHERE conversions.timestamp >= recipients.since
+      AND conversions.timestamp <= recipients.since + toIntervalSecond({window_seconds})
+    LIMIT {limit}
+    """
+)
 
 
 @frozen
