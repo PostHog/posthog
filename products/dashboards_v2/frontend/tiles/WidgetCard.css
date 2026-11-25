@@ -7,6 +7,13 @@
 
 .dash-WidgetCard--no-background {
     background-color: transparent;
+}
+
+.dash-WidgetCard--no-border > .quill-card__footer {
+    border-top: 0;
+}
+
+:is(.dash-WidgetCard--no-background, .dash-WidgetCard--no-border) {
     box-shadow: none;
 
     /* Without an outline the tile is hard to find while editing, so it shows one on hover. */
@@ -31,7 +38,7 @@
 
 /* A touch screen has no hover, so a tile without a background always shows its outline while editing. */
 @media (hover: none) {
-    .TileGrid--editable .dash-WidgetCard--no-background {
+    .TileGrid--editable :is(.dash-WidgetCard--no-background, .dash-WidgetCard--no-border) {
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }
