@@ -618,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
