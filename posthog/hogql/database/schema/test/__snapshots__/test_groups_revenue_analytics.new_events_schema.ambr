@@ -1,7 +1,6 @@
 # serializer version: 1
 # name: TestGroupsRevenueAnalytics.test_get_mrr_via_lazy_join_for_events[new_events_schema]
   '''
-  /* request:test */
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.mrr AS mrr
@@ -227,7 +226,6 @@
 # ---
 # name: TestGroupsRevenueAnalytics.test_get_revenue_for_events[new_events_schema]
   '''
-  /* request:test */
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
@@ -434,7 +432,6 @@
 # ---
 # name: TestGroupsRevenueAnalytics.test_query_revenue_analytics_table_events[new_events_schema]
   '''
-  /* request:test */
   SELECT groups_revenue_analytics.group_key AS group_key,
          groups_revenue_analytics.revenue AS revenue,
          groups_revenue_analytics.mrr AS mrr

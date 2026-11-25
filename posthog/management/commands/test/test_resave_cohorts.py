@@ -697,7 +697,7 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-@patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+@patch("django.db.transaction.on_commit", lambda fn: fn())
 @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
 @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
@@ -879,7 +879,7 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
         access.save()
 
         with (
-            patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func()),
+            patch("django.db.transaction.on_commit", side_effect=lambda func: func()),
             patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
             call_command("resave_cohorts", team_id=[self.team.id], no_backfill_triggers=no_backfill_triggers)

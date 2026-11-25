@@ -195,7 +195,7 @@ class TestLLMPromptCache(BaseTest):
 
         with patch(
             "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
-            side_effect=lambda callback, using=None, robust=False: None,
+            side_effect=lambda callback: None,
         ):
             self.create_prompt_version(name="new-prompt", version=1, is_latest=True)
 
@@ -233,7 +233,7 @@ class TestLLMPromptCache(BaseTest):
 
         with patch(
             "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
-            side_effect=lambda callback, using=None, robust=False: None,
+            side_effect=lambda callback: None,
         ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True, is_latest=False
@@ -257,7 +257,7 @@ class TestLLMPromptCache(BaseTest):
 
         with patch(
             "products.ai_observability.backend.models.llm_prompt.transaction.on_commit",
-            side_effect=lambda callback, using=None, robust=False: None,
+            side_effect=lambda callback: None,
         ):
             LLMPrompt.objects.filter(team=self.team, name="reused-prompt", deleted=False).update(
                 deleted=True,
@@ -347,7 +347,7 @@ class TestLLMPromptCacheSignals(BaseTest):
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_latest_cache") as mock_invalidate_latest,
             patch("posthog.storage.llm_prompt_cache.invalidate_prompt_version_cache") as mock_invalidate_version,
         ):
-            mock_on_commit.side_effect = lambda callback, using=None, robust=False: callback()
+            mock_on_commit.side_effect = lambda callback: callback()
 
             LLMPrompt.objects.create(
                 team=self.team,

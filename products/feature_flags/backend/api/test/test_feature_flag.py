@@ -14333,8 +14333,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Mock on_commit to execute callbacks immediately (Django test transactions don't commit)
         # Patch at source module since the import happens inside the function
         with patch(
-            "products.feature_flags.backend.api.feature_flag.transaction.on_commit",
-            side_effect=lambda fn, using=None, robust=False: fn(),
+            "products.feature_flags.backend.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()
         ):
             with patch("products.feature_flags.backend.tasks.update_team_service_flags_cache") as mock_cache_task:
                 response = self.client.post(

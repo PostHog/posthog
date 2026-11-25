@@ -32,7 +32,7 @@ def _customer_user_info() -> dict:
     return {"name": "Customer", "email": "customer@example.com", "avatar": None}
 
 
-def immediate_on_commit(func, using=None, robust=False):
+def immediate_on_commit(func):
     func()
 
 

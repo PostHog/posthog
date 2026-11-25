@@ -20,7 +20,7 @@ from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 
 
-def immediate_on_commit(func, using=None, robust=False):
+def immediate_on_commit(func):
     func()
 
 

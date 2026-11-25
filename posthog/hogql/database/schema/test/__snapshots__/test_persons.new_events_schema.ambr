@@ -1,7 +1,6 @@
 # serializer version: 1
 # name: TestArgMaxNonNullableSimplification.test_event_person_override_person_id_is_simplified[new_events_schema]
   '''
-  /* request:test */
   SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
   FROM
     (SELECT events.distinct_id AS distinct_id,
@@ -83,7 +82,6 @@
 # ---
 # name: TestPersonOptimization.test_joins_are_left_alone_for_now[new_events_schema]
   '''
-  /* request:test */
   SELECT events.uuid AS uuid
   FROM events_json AS events
   INNER JOIN

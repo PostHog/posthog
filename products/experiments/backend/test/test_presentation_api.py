@@ -1485,7 +1485,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_creating_experiment_reports_user_action(self, mock_report_user_action, _mock_on_commit):
         ff_key = "tracked-experiment"
@@ -5127,7 +5127,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ("copy_to_project", "copy_to_project", True),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_clone_experiment_reports_creation_mode(
         self,
@@ -7529,7 +7529,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -7619,7 +7619,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             ("after_cutoff", "2026-09-10T10:00"),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_flag_evaluations_only_org(
         self, _name: str, start_date: str, patch_on_commit: MagicMock
     ):
@@ -7675,7 +7675,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["exposed"], [res["name"] for res in response.json()["results"]])
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
         self.maxDiff = None
 
@@ -7858,7 +7858,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None, robust=False: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(
         self, patch_on_commit: MagicMock
     ):

@@ -327,8 +327,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         )
 
         with patch("posthog.tasks.activity_log.produce_internal_event") as mock_produce:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.create_personal_api_key(label="Org Level Key", scoped_organizations=[str(self.organization.id)])
+            self.create_personal_api_key(label="Org Level Key", scoped_organizations=[str(self.organization.id)])
 
             self.assertEqual(mock_produce.call_count, 1)
             call_team_ids = [call.kwargs["team_id"] for call in mock_produce.call_args_list]

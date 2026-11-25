@@ -912,7 +912,7 @@ class TestServiceFlagsSignals(BaseTest):
         clear_flags_cache(self.team, kinds=["redis", "s3"])
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_flag_create(self, mock_task):
         """Test that signal fires when a flag is created."""
         FeatureFlag.objects.create(
@@ -926,7 +926,7 @@ class TestServiceFlagsSignals(BaseTest):
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_flag_update(self, mock_task):
         """Test that signal fires when a flag is updated."""
         flag = FeatureFlag.objects.create(
@@ -947,7 +947,7 @@ class TestServiceFlagsSignals(BaseTest):
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_flag_delete(self, mock_task):
         """Test that signal fires when a flag is deleted."""
         flag = FeatureFlag.objects.create(
@@ -968,7 +968,7 @@ class TestServiceFlagsSignals(BaseTest):
 
     @parameterized.expand(EXPERIMENT_CHANGES)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_experiment_change(self, action, mock_task):
         change = seed_experiment_change(action, team=self.team, user=self.user)
         mock_task.reset_mock()
@@ -977,7 +977,7 @@ class TestServiceFlagsSignals(BaseTest):
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_team_create(self, mock_task):
         """Test that signal fires when a team is created."""
         # Create a new team
@@ -1045,7 +1045,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_off_routes_to_celery_only(self, mock_task, mock_gate, mock_produce):
         FeatureFlag.objects.create(
             team=self.team,
@@ -1059,7 +1059,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_on_routes_to_kafka_only(self, mock_task, mock_gate, mock_producer_scope):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
@@ -1099,7 +1099,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_on_kafka_failure_does_not_raise_or_fall_back_to_celery(
         self, mock_task, mock_gate, mock_producer_scope
     ):
@@ -1121,7 +1121,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_off_celery_broker_failure_propagates(self, mock_task, mock_gate, mock_produce):
         mock_task.delay.side_effect = RuntimeError("celery broker unreachable")
 
@@ -1144,7 +1144,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         side_effect=RuntimeError("posthoganalytics borked"),
     )
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_gate_exception_falls_back_to_celery_only(self, mock_task, mock_feature_enabled, mock_produce):
         FeatureFlag.objects.create(
             team=self.team,
@@ -1162,7 +1162,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         return_value=None,
     )
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_gate_cache_cold_falls_back_to_celery_and_increments_tombstone(
         self, mock_task, mock_feature_enabled, mock_produce, mock_tombstone
     ):
@@ -1184,7 +1184,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_team_create_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
         new_team = Team.objects.create(organization=self.organization, name="Kafka Routing Team")
         mock_task.delay.assert_not_called()
@@ -1193,7 +1193,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_evaluation_context_save_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -4577,7 +4577,7 @@ class TestSerializeCohort(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestCohortChangedFlagsCacheSignal(BaseTest):
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_fires_on_cohort_definition_change(self, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4595,7 +4595,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("last_import_unmatched_count", "last_import_unmatched_count", 3),
         ]
     )
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_skips_recalculation_only_save(self, _name, field, value, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4604,7 +4604,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.save(update_fields=[field])
         mock_task.delay.assert_not_called()
 
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_skips_cohort_type_only_save(self, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4613,7 +4613,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.save(update_fields=["cohort_type"])
         mock_task.delay.assert_not_called()
 
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_fires_on_mixed_recalculation_and_definition_fields(self, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4623,7 +4623,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.save(update_fields=["name", "count"])
         mock_task.delay.assert_called_with(self.team.id)
 
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_fires_on_cohort_delete(self, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4632,7 +4632,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         mock_task.delay.assert_called_with(self.team.id)
 
     @override_settings(FLAGS_REDIS_URL=None)
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_skips_when_no_flags_redis_url(self, mock_task):
         cohort = Cohort.objects.create(team=self.team, name="test")
@@ -4649,7 +4649,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("finalizer_task", lambda cohort: invalidate_team_flags_cache_for_cohorts(cohort.team_id)),
         ]
     )
-    @patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
@@ -4680,7 +4680,7 @@ def _save_inside_coalescing_block(cohort: Cohort) -> None:
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-@patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+@patch("django.db.transaction.on_commit", lambda fn: fn())
 @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
 @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestCoalescedFlagsCacheRebuilds(BaseTest):
@@ -4851,7 +4851,7 @@ def _failed_result() -> ProduceResult:
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-@patch("django.db.transaction.on_commit", lambda fn, using=None, robust=False: fn())
+@patch("django.db.transaction.on_commit", lambda fn: fn())
 @patch("products.feature_flags.backend.flags_cache.get_producer")
 @patch("products.feature_flags.backend.flags_cache.producer_scope")
 @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
