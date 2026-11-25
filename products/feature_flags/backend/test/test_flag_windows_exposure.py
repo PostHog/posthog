@@ -325,7 +325,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
     def test_a_flag_above_the_exact_count_takes_the_unexposed_from_the_sample_of_its_people(self) -> None:
         candidates = [str(UUID(int=number)) for number in range(1, 200)]
         rows = sync_execute(
-            "SELECT id FROM (SELECT arrayJoin(%(ids)s) AS id) WHERE cityHash64(toUUID(id)) % 16 = 0",
+            "SELECT id FROM (SELECT arrayJoin(%(ids)s) AS id) WHERE modulo(cityHash64(toUUID(id)), 16) = 0",
             {"ids": candidates},
         )
         sampled = [row[0] for row in rows][:3]
