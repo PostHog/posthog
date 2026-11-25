@@ -52,6 +52,7 @@ from posthog.models.identity_provider_email_verification import IdentityProvider
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import UserType
 from posthog.redis import get_client
 from posthog.session.activity import session_public_id
 from posthog.tasks.email import login_from_new_device_notification
@@ -2074,7 +2075,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
     @parameterized.expand([("email_match", False), ("linked_identity", True)])
     def test_google_login_refuses_service_account(self, _name: str, linked: bool) -> None:
         self.client.logout()
-        User.objects.filter(pk=self.user.pk).update(type="service_account", is_email_verified=False)
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT, is_email_verified=False)
         if linked:
             UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-new")
         original_password = self.user.password
@@ -2590,7 +2591,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         user = User.objects.create(
             email="engineering@posthog.com",
             distinct_id=str(uuid.uuid4()),
-            type="service_account" if service_account else "human",
+            type=UserType.SERVICE_ACCOUNT if service_account else UserType.HUMAN,
         )
         if linked:
             config = self.organization_domain.saml_identity_provider_configs.get()

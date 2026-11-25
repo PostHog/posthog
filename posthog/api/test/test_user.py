@@ -47,6 +47,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -3831,7 +3832,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
     def test_email_verification_refuses_service_account(self) -> None:
         code = self._request_code()
-        User.objects.filter(pk=self.user.pk).update(type="service_account")
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
         original_verified = self.user.is_email_verified
 
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
