@@ -93,6 +93,9 @@ export interface actionsLogicActions {
         }
         payload?: ActionType
     }
+    reloadAfterDelete: (undo: boolean) => {
+        undo: boolean
+    }
     setFilters: (filters: Partial<ActionsFilters>) => {
         filters: Partial<ActionsFilters>
     }
@@ -157,6 +160,7 @@ export const actionsLogic = kea<actionsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<ActionsFilters>) => ({ filters }),
         setPage: (page: number) => ({ page }),
+        reloadAfterDelete: (undo: boolean) => ({ undo }),
     }),
     reducers({
         searchTerm: [
@@ -280,9 +284,18 @@ export const actionsLogic = kea<actionsLogicType>([
             }),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: () => actions.loadActions(),
         setPage: () => actions.loadActions(),
+        reloadAfterDelete: ({ undo }) => {
+            // The quill table shows no pager when the remaining actions fit on one page, so reloading
+            // a page that the delete emptied would leave the person on an empty page with no way back.
+            if (!undo && values.page > 1 && values.actionsList.length === 1) {
+                actions.setPage(values.page - 1)
+            } else {
+                actions.loadActions()
+            }
+        },
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadActions()

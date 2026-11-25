@@ -62,7 +62,8 @@ export function QuillActionsTable(): JSX.Element {
         filters,
         searchTerm,
     } = useValues(actionsLogic)
-    const { setSearchTerm, setFilters, setPage, pinAction, unpinAction, loadActions } = useActions(actionsLogic)
+    const { setSearchTerm, setFilters, setPage, pinAction, unpinAction, loadActions, reloadAfterDelete } =
+        useActions(actionsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
 
@@ -71,7 +72,7 @@ export function QuillActionsTable(): JSX.Element {
             if (currentProjectId === null) {
                 return
             }
-            void deleteActionWithWarning(currentProjectId, action, loadActions, (referenceCount, performDelete) =>
+            void deleteActionWithWarning(currentProjectId, action, reloadAfterDelete, (referenceCount, performDelete) =>
                 setPendingDelete({ referenceCount, performDelete })
             )
         }
@@ -195,7 +196,7 @@ export function QuillActionsTable(): JSX.Element {
                 ),
             },
         ]
-    }, [currentProjectId, loadActions, pinAction, unpinAction])
+    }, [currentProjectId, reloadAfterDelete, pinAction, unpinAction])
 
     const ordering = filters.ordering || DEFAULT_ORDERING
     const tableSorting: SortingState = [{ id: ordering.replace(/^-/, ''), desc: ordering.startsWith('-') }]
