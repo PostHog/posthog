@@ -82,7 +82,7 @@ __all__ = [
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
-    "can_view_workflow",
+    "users_who_can_view_workflow",
     "get_viewable_workflow_ids",
     "get_workflow_access_levels",
     "get_workflow_view_access",
@@ -274,14 +274,20 @@ def get_viewable_workflow_ids(
     }
 
 
-def can_view_workflow(*, team_id: int, workflow_id: str, user_access_control: UserAccessControl) -> bool:
-    """The check the workflow detail route runs: viewer access to workflows, then to this workflow."""
-    flow = HogFlow.objects.filter(team_id=team_id, id=workflow_id).first()
-    return (
-        flow is not None
-        and user_access_control.check_access_level_for_resource("hog_flow", "viewer")
-        and user_access_control.check_access_level_for_object(flow, "viewer")
-    )
+def users_who_can_view_workflow(*, team: Team, workflow_id: str, users: Iterable[User]) -> list[User]:
+    """The `users` that the workflow detail route lets view this workflow, checked the way that route checks them."""
+    flow = HogFlow.objects.filter(team_id=team.id, id=workflow_id).only("id", "team_id", "created_by_id").first()
+    if flow is None:
+        return []
+    viewers = []
+    for user in users:
+        access = UserAccessControl(user=user, team=team)
+        if (
+            access.check_access_level_for_resource("hog_flow", "viewer")
+            or access.has_any_specific_access_for_resource("hog_flow", "viewer")
+        ) and access.check_access_level_for_object(flow, "viewer"):
+            viewers.append(user)
+    return viewers
 
 
 def get_workflow_access_levels(

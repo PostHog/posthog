@@ -1030,17 +1030,10 @@ def send_workflow_email_sender_unusable(
     creator = User.objects.filter(id=created_by_id, is_active=True).first() if created_by_id else None
     if creator and creator not in recipients and _can_open_project(creator, team):
         recipients.add(creator)
-    # Loaded here so that every importer of this module does not also load the workflows product.
-    from products.workflows.backend.facade.api import can_view_workflow  # noqa: PLC0415
+    from products.workflows.backend.facade.api import users_who_can_view_workflow  # noqa: PLC0415
 
-    recipients = {
-        user
-        for user in recipients
-        if can_view_workflow(
-            team_id=team.id, workflow_id=hog_flow_id, user_access_control=UserAccessControl(user, team)
-        )
-    }
-    if not recipients:
+    viewers = users_who_can_view_workflow(team=team, workflow_id=hog_flow_id, users=recipients)
+    if not viewers:
         return
     senders_digest = hashlib.sha256("|".join(sorted(str(sender_id) for sender_id in sender_ids)).encode()).hexdigest()
     workflow_label = single_line(hog_flow_name or "an unnamed workflow")
@@ -1056,7 +1049,7 @@ def send_workflow_email_sender_unusable(
             "channels_path": f"/project/{team.id}/workflows/channels",
         },
     )
-    for user in recipients:
+    for user in viewers:
         message.add_user_recipient(user)
     message.send()
 

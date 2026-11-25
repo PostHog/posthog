@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.core import mail
 from django.core.mail import EmailMultiAlternatives
 
+import posthoganalytics
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
@@ -39,10 +40,13 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
         super().setUp()
         self.rolled_out: bool | None = True
         self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        evaluate = posthoganalytics.feature_enabled
         self.enterContext(
             patch(
                 "posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key != SENDER_UNUSABLE_NOTICE_FLAG or self.rolled_out,
+                side_effect=lambda key, *args, **kwargs: (
+                    self.rolled_out if key == SENDER_UNUSABLE_NOTICE_FLAG else evaluate(key, *args, **kwargs)
+                ),
             )
         )
         self.verified = self.verified_sender(f"hello@{DOMAIN}")
@@ -54,7 +58,12 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
     def workflow(
         self, name: str, *steps: dict[str, Any], state: str = HogFlow.State.ACTIVE, creator: User | None = None
     ) -> HogFlow:
-        trigger = {"id": "trigger_node", "type": "trigger", "config": {"type": "event", "filters": {}}}
+        trigger = {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "type": "trigger",
+            "config": {"type": "event", "filters": {}},
+        }
         return HogFlow.objects.create(
             team=self.team, name=name, status=state, actions=[trigger, *steps], created_by=creator or self.user
         )
@@ -130,46 +139,63 @@ class TestWorkflowEmailSenderNotices(EmailDomainApiTestCase):
 
     @parameterized.expand(
         [
-            ("workflow_private_creator_left", "workflow", ["creator", "project-admin"]),
-            ("creator_lost_workflows_access", "resource", ["creator"]),
+            ("workflow_private_creator_left", True, [("everyone", "this_workflow", "none")], ["org_admin"]),
+            (
+                "creator_lost_workflows_access",
+                False,
+                [("creator", "workflows", "none")],
+                ["org_admin", "project_admin"],
+            ),
+            (
+                "creator_kept_a_grant_on_this_workflow",
+                False,
+                [("creator", "workflows", "none"), ("creator", "this_workflow", "viewer")],
+                ["org_admin", "project_admin", "creator"],
+            ),
         ]
     )
-    def test_emails_only_the_people_who_can_open_the_workflow(
-        self, _name: str, locked: str, left_out: list[str]
+    def test_emails_exactly_the_people_who_can_open_the_workflow(
+        self, _name: str, creator_leaves: bool, rules: list[tuple[str, str, str]], emailed: list[str]
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        admin = User.objects.create_and_join(self.organization, "project-admin@example.com", None)
-        creator = User.objects.create_and_join(self.organization, "creator@example.com", None)
-        flow = self.workflow("Onboarding", email_step("welcome", "Welcome email", self.deleted), creator=creator)
+        people = {
+            "org_admin": self.user,
+            "project_admin": User.objects.create_and_join(self.organization, "project-admin@example.com", None),
+            "creator": User.objects.create_and_join(self.organization, "creator@example.com", None),
+        }
+        members = {name: OrganizationMembership.objects.get(user=user) for name, user in people.items()}
+        flow = self.workflow(
+            "Onboarding", email_step("welcome", "Welcome email", self.deleted), creator=people["creator"]
+        )
         AccessControl.objects.create(
             team=self.team,
             resource="project",
             resource_id=str(self.team.id),
             access_level="admin",
-            organization_member=OrganizationMembership.objects.get(user=admin),
+            organization_member=members["project_admin"],
         )
-        if locked == "workflow":
-            OrganizationMembership.objects.filter(user=creator).delete()
-            AccessControl.objects.create(
-                team=self.team, resource="hog_flow", resource_id=str(flow.id), access_level="none"
-            )
-        else:
+        for who, scope, level in rules:
             AccessControl.objects.create(
                 team=self.team,
                 resource="hog_flow",
-                access_level="none",
-                organization_member=OrganizationMembership.objects.get(user=creator),
+                resource_id=str(flow.id) if scope == "this_workflow" else None,
+                access_level=level,
+                organization_member=members.get(who),
             )
+        if creator_leaves:
+            members["creator"].delete()
 
         notify_unusable_workflow_email_senders()
 
-        everyone = {"project-admin": admin.email, "creator": creator.email}
-        assert sorted(address for message in mail.outbox for address in message.to) == sorted(
-            [self.user.email, *(email for name, email in everyone.items() if name not in left_out)]
-        )
+        recipients = {address for message in mail.outbox for address in message.to}
+        assert recipients == {people[name].email for name in emailed}
+        for user in people.values():
+            self.client.force_login(user)
+            opened = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}").status_code == 200
+            assert opened == (user.email in recipients), user.email
 
     def test_a_project_that_fails_does_not_stop_the_others(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other project")
