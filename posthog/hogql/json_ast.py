@@ -206,18 +206,7 @@ def _deserialize_constant_value(value: Any, value_type: str | None) -> Any:
             return [_deserialize_constant_item(item) for item in value]
         return value
     if value_type == "number":
-        if not isinstance(value, str):
-            return value
-        # Numeric Constants emitted as strings: non-finite floats
-        # (Infinity / NaN) and integer literals too wide to round-trip
-        # as a native JSON number.
-        special = _SPECIAL_FLOATS.get(value)
-        if special is not None:
-            return special
-        int_value = _parse_large_int_literal(value)
-        if int_value is not None:
-            return int_value
-        raise ValueError(f"Unknown numeric constant value: {value!r}")
+        return _deserialize_number(value)
     if value_type == "datetime":
         return datetime.fromisoformat(value)
     if value_type == "date":
@@ -227,6 +216,21 @@ def _deserialize_constant_value(value: Any, value_type: str | None) -> Any:
     if value_type == "tuple":
         return tuple(_deserialize_constant_item(item) for item in value)
     raise ValueError(f"Unknown constant value_type: {value_type!r}")
+
+
+def _deserialize_number(value: Any) -> Any:
+    """Numeric Constants emitted as strings: non-finite floats
+    (Infinity / NaN) and integer literals too wide to round-trip
+    as a native JSON number."""
+    if not isinstance(value, str):
+        return value
+    special = _SPECIAL_FLOATS.get(value)
+    if special is not None:
+        return special
+    int_value = _parse_large_int_literal(value)
+    if int_value is not None:
+        return int_value
+    raise ValueError(f"Unknown numeric constant value: {value!r}")
 
 
 def _deserialize_constant_item(item: Any) -> Any:
@@ -294,16 +298,8 @@ def _serialize_value(value: Any) -> Any:
 def _serialize_constant_value(value: Any) -> tuple[Any, str | None]:
     if value is None or isinstance(value, str | bool):
         return value, None
-    if isinstance(value, int):
-        if _INT64_MIN <= value <= _INT64_MAX:
-            return value, None
-        return str(value), "number"
-    if isinstance(value, float):
-        if math.isfinite(value):
-            return value, None
-        if math.isnan(value):
-            return "NaN", "number"
-        return ("Infinity" if value > 0 else "-Infinity"), "number"
+    if isinstance(value, int | float):
+        return _serialize_number(value)
     if isinstance(value, datetime):
         return value.isoformat(), "datetime"
     if isinstance(value, date):
@@ -315,6 +311,18 @@ def _serialize_constant_value(value: Any) -> tuple[Any, str | None]:
     if isinstance(value, tuple):
         return [_serialize_constant_item(item) for item in value], "tuple"
     raise TypeError(f"Cannot serialize a constant of type {type(value).__name__}")
+
+
+def _serialize_number(value: int | float) -> tuple[Any, str | None]:
+    if isinstance(value, int):
+        if _INT64_MIN <= value <= _INT64_MAX:
+            return value, None
+        return str(value), "number"
+    if math.isfinite(value):
+        return value, None
+    if math.isnan(value):
+        return "NaN", "number"
+    return ("Infinity" if value > 0 else "-Infinity"), "number"
 
 
 def _serialize_constant_item(item: Any) -> Any:
