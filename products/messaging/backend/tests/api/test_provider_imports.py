@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
@@ -74,6 +75,29 @@ class TestProviderImportsAPI(APIBaseTest):
             {"provider": "resend", "steps": steps, "api_key": "re_key"},
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
+
+        assert response.status_code == expected, response.json()
+        start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("restricted_automations", "restricted", "automations", 403),
+            ("granted_automations", "granted", "automations", 400),
+            ("restricted_suppressions", "restricted", "suppressions", 400),
+        ]
+    )
+    def test_importing_automations_follows_property_access(
+        self,
+        _mock_client_class: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        access: PropertyAccess,
+        step: str,
+        expected: int,
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        response = self.client.post(self._url(), {"provider": "resend", "steps": [step], "api_key": "re_key"})
 
         assert response.status_code == expected, response.json()
         start_workflow.assert_not_called()
