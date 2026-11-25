@@ -1,6 +1,7 @@
 import './EmailDocumentEditor.scss'
 
-import type { EditorEvents, EditorOptions } from '@tiptap/core'
+import type { EditorEvents, EditorOptions, JSONContent } from '@tiptap/core'
+import type { Schema } from '@tiptap/pm/model'
 import { EditorContent, useEditor } from '@tiptap/react'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -59,6 +60,15 @@ function backgroundImageStyle(image: EmailBackgroundImage): React.CSSProperties 
         backgroundRepeat: image.repeat ? 'repeat' : 'no-repeat',
         backgroundSize: image.size ?? 'auto',
         backgroundPosition: image.position ?? 'center top',
+    }
+}
+
+/** A saved document as the editor holds it, with every attribute filled in. Null when there is none it can hold. */
+function normalizedDoc(schema: Schema, doc: JSONContent | undefined): JSONContent | null {
+    try {
+        return doc ? schema.nodeFromJSON(safeEmailDoc(doc)).toJSON() : null
+    } catch {
+        return null
     }
 }
 
@@ -351,7 +361,10 @@ export function EmailDocumentEditor(): JSX.Element {
         mode === 'preview'
             ? sentEmailHtml(doc, {
                   html: logicProps.value?.html,
-                  doc: emailDocumentFromValue(logicProps.value).document?.doc ?? convertedEmailDocument?.doc,
+                  doc: normalizedDoc(
+                      editor.schema,
+                      emailDocumentFromValue(logicProps.value).document?.doc ?? convertedEmailDocument?.doc
+                  ),
               })
             : ''
 

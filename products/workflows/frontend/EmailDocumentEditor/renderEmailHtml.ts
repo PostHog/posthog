@@ -1,5 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import {
     EmailBackgroundImage,
     EmailBlockStyle,
@@ -538,7 +540,7 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
     return `<${tag}${start > 1 ? ` start="${start}"` : ''} style="${listCss}">${items}</${tag}>`
 }
 
-function headingSize(level: number, page: EmailPageStyle): number {
+export function headingSize(level: number, page: EmailPageStyle): number {
     return level === 1 ? page.h1Size : level === 2 ? page.h2Size : page.h3Size
 }
 
@@ -1085,8 +1087,10 @@ export function sentEmailHtml(
     doc: JSONContent,
     saved: { html: string | null | undefined; doc: JSONContent | null | undefined }
 ): string {
-    const rendered = renderEmailHtml(doc)
-    return saved.html && saved.doc && renderEmailHtml(saved.doc) === rendered ? saved.html : rendered
+    const blocks = (node: JSONContent): JSONContent[] => withoutTrailingEmptyParagraphs(node.content ?? [])
+    const unedited =
+        saved.doc && objectsEqual(doc.attrs, saved.doc.attrs) && objectsEqual(blocks(doc), blocks(saved.doc))
+    return saved.html && unedited ? saved.html : renderEmailHtml(doc)
 }
 
 function inlineNodeText(node: JSONContent): string {

@@ -52,20 +52,29 @@ describe('email style fields', () => {
     })
 
     it('keeps each imported line height in step when the selected size changes', () => {
-        const text = (lineHeight: string | null): JSONContent => ({
+        const text = (lineHeight: string | null, fontSize: number | null): JSONContent => ({
             type: 'text',
             text: 'Big',
-            marks: [{ type: 'textStyle', attrs: { fontSize: 14, lineHeight } }],
+            marks: [{ type: 'textStyle', attrs: { fontSize, lineHeight } }],
         })
-        open({ type: 'paragraph', content: [text('21px'), text('200%'), text('28px'), text(null)] })
-        editor!.commands.setTextSelection({ from: 1, to: 13 })
-        setSelectedSize(editor!, 40, 16)
+        open({ type: 'paragraph', content: [text('21px', 14), text('200%', 14), text(null, 14)] })
+        editor!.commands.insertContentAt(editor!.state.doc.content.size, [
+            { type: 'heading', attrs: { level: 1 }, content: [text('40px', null)] },
+            { type: 'paragraph', attrs: { emailStyle: { fontSize: 20 } }, content: [text('30px', null)] },
+        ])
+        editor!.commands.selectAll()
+        setSelectedSize(editor!, 40)
 
-        const marks = editor!.getJSON().content![0].content!.map((node) => node.marks![0].attrs!)
-        expect(marks.map(({ fontSize, lineHeight }) => [fontSize, lineHeight])).toEqual([
+        const lineHeights = editor!
+            .getJSON()
+            .content!.flatMap((block) => block.content ?? [])
+            .map((node) => node.marks![0].attrs!)
+        expect(lineHeights.map(({ fontSize, lineHeight }) => [fontSize, lineHeight])).toEqual([
             [40, '150%'],
             [40, '200%'],
             [40, null],
+            [40, '125%'],
+            [40, '150%'],
         ])
     })
 

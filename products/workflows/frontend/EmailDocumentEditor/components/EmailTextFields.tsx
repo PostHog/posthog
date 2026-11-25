@@ -140,7 +140,7 @@ export function EmailTextFields({
                         limit={NUMBER_LIMITS.textSize}
                         value={editor.getAttributes('textStyle').fontSize ?? undefined}
                         placeholder={style.fontSize ?? size}
-                        onChange={(fontSize) => setSelectedSize(editor, fontSize, style.fontSize ?? size)}
+                        onChange={(fontSize) => setSelectedSize(editor, fontSize)}
                         attr="email-editor-selection-size"
                     />
                 </>

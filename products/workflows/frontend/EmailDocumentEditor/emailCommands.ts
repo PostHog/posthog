@@ -2,7 +2,8 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 
-import { EmailBlockStyle, EmailPageStyle } from './emailDocument'
+import { EmailBlockStyle, EmailPageStyle, resolvePageStyle } from './emailDocument'
+import { headingSize } from './renderEmailHtml'
 
 export interface EmailBlockAt {
     node: ProseMirrorNode
@@ -74,19 +75,34 @@ export function setBlockAttribute(editor: Editor, pos: number, name: string, val
     }
 }
 
+function inheritedSize(doc: ProseMirrorNode, pos: number): number {
+    const $pos = doc.resolve(pos)
+    const page = resolvePageStyle(doc.attrs.page)
+    for (let depth = $pos.depth; depth > 0; depth--) {
+        const { type, attrs } = $pos.node(depth)
+        if (attrs.emailStyle?.fontSize) {
+            return attrs.emailStyle.fontSize
+        }
+        if (type.name === 'heading') {
+            return headingSize(attrs.level, page)
+        }
+    }
+    return page.fontSize
+}
+
 /** An imported line height in pixels was worked out from its text's old size, so it keeps its share of the new one. */
-export function setSelectedSize(editor: Editor, fontSize: number | undefined, blockSize: number): void {
+export function setSelectedSize(editor: Editor, fontSize: number | undefined): void {
     const { doc, selection } = editor.state
     const { from, to } = selection
     editor
         .chain()
         .setMark('textStyle', { fontSize: fontSize ?? null })
         .command(({ tr }) => {
-            doc.nodesBetween(from, to, (node, pos, parent) => {
+            doc.nodesBetween(from, to, (node, pos) => {
                 const mark = node.marks.find(({ type }) => type.name === 'textStyle')
                 const pixels = Number(/^([\d.]+)px$/.exec(mark?.attrs.lineHeight ?? '')?.[1])
                 if (mark && pixels) {
-                    const oldSize = mark.attrs.fontSize ?? parent?.attrs.emailStyle?.fontSize ?? blockSize
+                    const oldSize = mark.attrs.fontSize ?? inheritedSize(doc, pos)
                     const lineHeight = `${Math.round((pixels / oldSize) * 100)}%`
                     tr.addMark(
                         Math.max(from, pos),

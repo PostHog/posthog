@@ -261,6 +261,8 @@ describe('renderEmailHtml', () => {
         const stored = { html, doc: saved }
 
         expect(sentEmailHtml({ ...saved, content: [...saved.content!, { type: 'paragraph' }] }, stored)).toBe(html)
+        const sameLook = doc({ ...paragraph('Saved'), attrs: { emailStyle: { fontSize: 16 } } })
+        expect(sentEmailHtml(sameLook, stored)).toBe(renderEmailHtml(sameLook))
         expect(sentEmailHtml(doc(paragraph('Edited')), stored)).toBe(renderEmailHtml(doc(paragraph('Edited'))))
     })
 
