@@ -409,6 +409,8 @@ describe('stepReadingsOf', () => {
         unjudged: why,
     })
 
+    const apiSample = { ...scrapedEvery5s(0, prompt)[0], role: 'cdp-api' }
+
     it.each<[string, Partial<BarEvidence>, StepReading[][]]>([
         [
             'reads every bar in every step it held',
@@ -423,11 +425,7 @@ describe('stepReadingsOf', () => {
             {
                 samples: [
                     ...scrapedEvery5s(120, prompt),
-                    ...Array.from({ length: 200_000 }, (_, replica) => ({
-                        ...scrapedEvery5s(0, prompt)[0],
-                        role: 'cdp-api',
-                        replica,
-                    })),
+                    ...Array.from({ length: 200_000 }, (_, replica) => ({ ...apiSample, replica })),
                 ],
             },
             [
@@ -452,6 +450,14 @@ describe('stepReadingsOf', () => {
                     unread(0, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
                     unread(1, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
                 ],
+            ],
+        ],
+        [
+            'takes the final reading over a live reading of a step both held',
+            { settled: new Map([[0, [{ ...HELD[0], reading: { value: 55, part: 'db:cyclotron' } }]]]) },
+            [
+                [writer(40), pickup(1, 'hogflow')],
+                [writer(65), pickup(1, 'hogflow')],
             ],
         ],
         [
