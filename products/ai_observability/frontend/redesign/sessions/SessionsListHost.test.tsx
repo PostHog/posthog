@@ -68,7 +68,7 @@ describe('SessionsListHost', () => {
 
         fireEvent.click(view.getByText('Reload'))
 
-        await view.findByText('Answer of trace-3')
+        expect(await view.findByText('Answer of trace-3')).toBeTruthy()
     })
 
     it('opens a session from a click on its row', async () => {
