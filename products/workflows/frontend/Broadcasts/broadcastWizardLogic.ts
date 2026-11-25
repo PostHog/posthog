@@ -369,13 +369,15 @@ function readAudience(broadcast: HogFlowApi): AnyPropertyFilter[] | undefined {
 }
 
 // The wizard never edits this setting, but a broadcast created through the API can carry it, and the send applies it.
+export function readFilterTestAccounts(broadcast: HogFlowApi | null): boolean {
+    return !!broadcast && findAction(broadcast, 'trigger')?.config?.filters?.filter_test_accounts === true
+}
+
 function previewFilters(
     properties: AnyPropertyFilter[],
     broadcast: HogFlowApi | null
 ): BlastRadiusRequestApi['filters'] {
-    const filterTestAccounts =
-        !!broadcast && findAction(broadcast, 'trigger')?.config?.filters?.filter_test_accounts === true
-    return filterTestAccounts ? { properties, filter_test_accounts: true } : { properties }
+    return readFilterTestAccounts(broadcast) ? { properties, filter_test_accounts: true } : { properties }
 }
 
 // Compares two server copies, so derived keys the server adds (such as bytecode) match on both sides.

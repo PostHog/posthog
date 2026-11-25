@@ -24,7 +24,7 @@ import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
-import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
+import { broadcastWizardLogic, rateLimitedReachSentence, readFilterTestAccounts } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
 import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
@@ -162,7 +162,7 @@ function MessageCategoryPicker(): JSX.Element {
 }
 
 function AudienceListTable(): JSX.Element {
-    const { audienceProperties } = useValues(broadcastWizardLogic)
+    const { audienceProperties, broadcast } = useValues(broadcastWizardLogic)
     const [query, setQuery] = useState<DataTableNode>(() => ({
         kind: NodeKind.DataTableNode,
         source: {
@@ -170,6 +170,7 @@ function AudienceListTable(): JSX.Element {
             tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
             select: ['person_display_name -- Person', 'properties.email -- Email', 'created_at'],
             properties: audienceProperties as AnyPersonScopeFilter[],
+            filterTestAccounts: readFilterTestAccounts(broadcast),
             orderBy: ['created_at DESC'],
         } as ActorsQuery,
         full: false,
