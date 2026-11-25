@@ -393,7 +393,7 @@ export function InboxDetailFrame({
             )}
             <div className="flex flex-col gap-2">
                 {titleHeading}
-                {tagFilterAvailable && <ReportTagChips report={report} surface="detail" />}
+                {tagFilterAvailable && <ReportTagChips report={report} />}
                 {claimPill}
             </div>
 

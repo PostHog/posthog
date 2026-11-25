@@ -1,6 +1,7 @@
 //! Split a stage batch into errored / empty / remote buckets.
 
-use crate::error::UnhandledError;
+use crate::error::{contain_failure, UnhandledError};
+use crate::metric_consts::RESOLUTION_STAGE;
 use crate::stages::pipeline::ParsedPipelineItem;
 use crate::types::{
     batch::Batch,
@@ -36,7 +37,10 @@ pub(super) fn partition_batch(
             continue;
         }
 
-        remote.push(prepare_remote_event(batch_index, evt)?);
+        match contain_failure(RESOLUTION_STAGE, prepare_remote_event(batch_index, evt))? {
+            Ok(event) => remote.push(event),
+            Err(err) => errors.push((batch_index, Err(err))),
+        }
     }
 
     Ok(Partition {

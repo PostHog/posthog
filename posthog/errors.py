@@ -1,4 +1,5 @@
 import re
+import sys
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Optional
@@ -82,8 +83,39 @@ class ErrorCodeMeta:
         return self.name.replace("_", " ").title().replace(" ", "")
 
 
+_HTTP_CLIENT_ERROR_CODE = re.compile(r"\b[Cc]ode: ([0-9]{1,6})\b")
+_HTTP_CLIENT_RESPONSE_PREFIX = "server response: "
+_HTTP_CLIENT_URL_SUFFIX = re.compile(r"\s*\(for url [^)]*\)\s*$")
+_SERVER_CODE_PREFIX = re.compile(r"^Code: [0-9]{1,6}\.\s*")
+
+
+def _server_exception_from_http_client_error(err: Exception) -> ServerException | None:
+    """Rebuild a clickhouse_connect error as the native driver's ServerException.
+
+    The HTTP client (ProxyClient) raises clickhouse_connect errors that carry the ClickHouse code only
+    in the message text, for example "Received ClickHouse exception, code: 394, server response: Code:
+    394. DB::Exception: ...". Rebuilding them lets both clients share one code mapping.
+    """
+    # Importing clickhouse_connect loads pandas, so do not import it here. If the module is not
+    # loaded, no HTTP client ran and the error cannot come from it.
+    exceptions = sys.modules.get("clickhouse_connect.driver.exceptions")
+    if exceptions is None or not isinstance(err, (exceptions.DatabaseError, exceptions.StreamFailureError)):
+        return None
+    text = str(err)
+    code_match = _HTTP_CLIENT_ERROR_CODE.search(text)
+    if code_match is None:
+        return None
+    _, has_prefix, response = text.partition(_HTTP_CLIENT_RESPONSE_PREFIX)
+    if not has_prefix:
+        response = text
+    # The URL holds the cluster host, so it stays out of the message.
+    message = _SERVER_CODE_PREFIX.sub("", _HTTP_CLIENT_URL_SUFFIX.sub("", response).strip())
+    return ServerException(message, int(code_match.group(1)))
+
+
 def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
+    e = _server_exception_from_http_client_error(e) or e
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
@@ -109,6 +141,14 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "yourself). Contact support if that doesn't fix it."
 )
 
+S3_ACCESS_DENIED_MESSAGE = (
+    "Access was denied when reading a file from the bucket. "
+    "Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again."
+)
+# A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+# A bare "Access Denied" would also match a denied bucket listing, which needs s3:ListBucket instead.
+_S3_ACCESS_DENIED_NEEDLES = ("Access Denied: while reading key:", "HTTP response code: 403")
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     return CHQueryErrorS3FileChangedDuringRead(
@@ -116,6 +156,16 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
         code=err.code,
         code_name=CHQueryErrorS3FileChangedDuringRead.public_code,
     )
+
+
+def _wrap_s3_access_denied_error(err: ServerException) -> "CHQueryErrorS3AccessDenied":
+    wrapped = CHQueryErrorS3AccessDenied(
+        CHQueryErrorS3AccessDenied.public_message,
+        code=err.code,
+        code_name=CHQueryErrorS3AccessDenied.public_code,
+    )
+    wrapped.raw_message = err.message
+    return wrapped
 
 
 def _wrap_malformed_csv_row_error(err: ServerException) -> "CHQueryErrorMalformedCsvRow":
@@ -253,6 +303,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
         return _wrap_unknown_type_error(err)
+    err = _server_exception_from_http_client_error(err) or err
     if not isinstance(err, ServerException):
         return err
 
@@ -297,6 +348,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "S3_ERROR":
         if "The requested range is not satisfiable" in raw_message:
             return _wrap_storage_file_changed_error(err)
+        if any(needle in raw_message for needle in _S3_ACCESS_DENIED_NEEDLES):
+            return _wrap_s3_access_denied_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({raw_message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in raw_message and "(in file/uri" in raw_message:
         return _wrap_storage_file_changed_error(err)
@@ -355,6 +408,7 @@ def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCod
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    e = _server_exception_from_http_client_error(e) or e
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has
@@ -403,6 +457,18 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
         "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
         "upload new files and delete old ones instead."
     )
+
+
+class CHQueryErrorS3AccessDenied(ExposedCHQueryError):
+    """The bucket behind a warehouse table refused to let ClickHouse read a file."""
+
+    public_code = "s3_access_denied"
+    public_message = S3_ACCESS_DENIED_MESSAGE
+    # The message is replaced with fixed copy, so warehouse table checks match on this instead.
+    raw_message: str | None = None
+
+
+_EXPOSED_S3_ERRORS = (CHQueryErrorS3FileChangedDuringRead, CHQueryErrorS3AccessDenied)
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
@@ -1515,8 +1581,9 @@ def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Translate a stored status code. Statuses from other query engines share this field."""
     if not code_name:
         return None
-    if code_name.lower() == CHQueryErrorS3FileChangedDuringRead.public_code:
-        return CHQueryErrorS3FileChangedDuringRead.public_message
+    for exposed_s3_error in _EXPOSED_S3_ERRORS:
+        if code_name.lower() == exposed_s3_error.public_code:
+            return exposed_s3_error.public_message
     meta = _CH_ERRORS_BY_NAME.get(code_name.upper())
     if meta is None:
         if not re.fullmatch(r"clickhouse_[0-9]{1,10}", code_name):
@@ -1549,7 +1616,7 @@ def error_code_from_type(error: BaseException) -> str:
 
     A ClickHouse error gets its error name. Any other error gets `unhandled_<exception class>`.
     """
-    if isinstance(error, CHQueryErrorS3FileChangedDuringRead):
+    if isinstance(error, _EXPOSED_S3_ERRORS):
         return error.public_code
     if isinstance(error, ClickHouseDriverError):
         meta = look_up_clickhouse_error_code_meta(error)

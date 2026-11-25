@@ -12,7 +12,6 @@ import json
 import zlib
 import errno
 import shlex
-import shutil
 import socket
 import tempfile
 import functools
@@ -2846,153 +2845,52 @@ def devbox_forward(workspace: str | None, port: int | None) -> None:
     port_forward_replace(name, port, _BOX_APP_PORT)
 
 
-def _gib(nbytes: int) -> str:
-    return f"{nbytes / 1024**3:.1f}G"
-
-
-def _snapshot_free(paths: list[Path]) -> dict[int, int]:
-    """Return free bytes keyed by device ID, deduplicating paths on the same filesystem."""
-    seen: dict[int, int] = {}
-    for path in paths:
-        try:
-            dev = path.stat().st_dev
-            if dev not in seen:
-                seen[dev] = shutil.disk_usage(path).free
-        except OSError:
-            pass
-    return seen
-
-
-def _sum_freed(before: dict[int, int], after: dict[int, int]) -> int:
-    """Sum free-space gains across all watched devices."""
-    return sum(max(0, after[dev] - before[dev]) for dev in after if dev in before)
-
-
-def _run_cleanup_step(label: str, cmd: list[str]) -> None:
-    """Run a cleanup command and print its label."""
-    click.echo(f"  {label}...", nl=False)
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
-        click.echo(" done")
-    except FileNotFoundError:
-        click.echo(" skipped (command unavailable)")
-    except subprocess.CalledProcessError as e:
-        click.echo(f" warning: exited with code {e.returncode}")
-
-
-def _rm_dir(label: str, path: Path) -> None:
-    """Delete a directory and print its label."""
-    if not path.exists():
-        click.echo(f"  {label}... skipped (not found)")
-        return
-    click.echo(f"  {label}...", nl=False)
-    try:
-        shutil.rmtree(path)
-        click.echo(" done")
-    except OSError as e:
-        click.echo(f" warning: partial deletion ({e})")
-
-
 @click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
 @workspace_argument
-@click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
+@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
+@click.option("--yes", "-y", is_flag=True, help="Auto-confirm all cleanup operations")
 @click.option(
-    "--cargo",
-    "prune_cargo",
-    is_flag=True,
-    help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
+    "--area",
+    multiple=True,
+    help="Cleanup area to run, as in `hogli doctor:disk --area`. Can be specified multiple times.",
 )
-def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: bool) -> None:
-    """Free disk space by removing caches and build artifacts that are safe to delete.
+def devbox_cleanup_disk(workspace: str | None, dry_run: bool, yes: bool, area: tuple[str, ...]) -> None:
+    """Run `hogli doctor:disk` on a devbox, so a box gets the same cleanup as a laptop.
 
-    The default run is safe: it only removes orphaned packages, download caches,
-    and old Nix generations — none of which force a full rebuild on next use.
-    Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
-    Use --docker to also prune stopped containers.
+    Without a WORKSPACE it picks the box the other devbox commands pick: this
+    worktree's box, or your default box. Run inside a devbox, it cleans that box.
 
-    Runs locally by default. Pass a WORKSPACE (or --name/-n) to run it remotely
-    on that devbox over ssh instead.
+    Stale worktrees are not part of doctor:disk. Clean them on the box with
+    `hogli worktrees:clean`.
     """
-    if workspace:
-        ensure_runtime_ready()
-        # Cleanup is destructive (removes caches and build artifacts), so refuse
-        # to run it against someone else's shared `@user[/label]` devbox.
-        if workspace.startswith("@") and not is_own_default_target(workspace):
-            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
-        name, workspaces = resolve_workspace_name(workspace)
-        _get_workspace_or_fail(name, workspaces)
-        if not coder_ssh_alias_configured(name):
-            _fail(
-                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
-            )
-        remote_cmd = ["./bin/hogli", "devbox:cleanup:disk"]
-        if prune_docker:
-            remote_cmd.append("--docker")
-        if prune_cargo:
-            remote_cmd.append("--cargo")
-        # `hogli` is not on the devbox PATH, even in a login shell, so run the
-        # checkout's copy from inside the repo.
-        exec_replace(name, ["bash", "-lc", f"cd ~/posthog && {shlex.join(remote_cmd)}"])
-        return  # unreachable; exec_replace replaces the process
+    doctor_args = ["doctor:disk"]
+    if dry_run:
+        doctor_args.append("--dry-run")
+    if yes:
+        doctor_args.append("--yes")
+    for name in area:
+        doctor_args.extend(["--area", name])
 
-    home = Path.home()
-    # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
-    # (may be a separate volume); / covers Docker storage and anything else.
-    watch_paths = [p for p in [home, Path("/nix"), Path("/")] if p.exists()]
-    before = _snapshot_free(watch_paths)
+    # Coder sets this in every workspace.
+    if workspace is None and os.environ.get("CODER_WORKSPACE_NAME"):
+        result = subprocess.run([sys.executable, "-P", "-m", "hogli", *doctor_args], check=False)
+        raise SystemExit(result.returncode)
 
-    click.echo("Cleaning caches and build artifacts...")
-    click.echo()
-
-    # uv wheel/sdist cache
-    _run_cleanup_step("uv cache (~/.cache/uv)", ["uv", "cache", "clean"])
-
-    # sccache compiler cache
-    _rm_dir("sccache (~/.cache/sccache)", home / ".cache" / "sccache")
-
-    # pnpm orphaned store entries
-    _run_cleanup_step("pnpm store (orphaned packages)", ["pnpm", "store", "prune"])
-
-    click.echo("  Nix garbage collection (old generations)...", nl=False)
-    try:
-        subprocess.run(["nix-collect-garbage", "-d"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
-        click.echo(" done")
-    except FileNotFoundError:
-        click.echo(" skipped (nix-collect-garbage unavailable)")
-    except subprocess.CalledProcessError as e:
-        click.echo(f" warning: exited with code {e.returncode}")
-
-    # Cargo build artifacts — opt-in because removing them forces a full Rust recompile
-    if prune_cargo:
-        _rm_dir("Cargo build artifacts (~/.cargo/target)", home / ".cargo" / "target")
-
-    if prune_docker:
-        click.echo("  Docker stopped containers...", nl=False)
-        try:
-            subprocess.run(
-                ["docker", "container", "prune", "-f"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )  # noqa: S603
-            click.echo(" done")
-        except FileNotFoundError:
-            click.echo(" skipped (docker unavailable)")
-        except subprocess.CalledProcessError as e:
-            click.echo(f" warning: exited with code {e.returncode}")
-
-    actually_freed = _sum_freed(before, _snapshot_free(watch_paths))
-
-    click.echo()
-    if actually_freed > 0:
-        click.echo(click.style(f"Freed {_gib(actually_freed)} of disk space.", fg="green"))
-    else:
-        click.echo("Nothing significant was freed (caches may already be empty).")
-
-    tips = []
-    if not prune_cargo:
-        tips.append("  hogli devbox:cleanup:disk --cargo  (rm ~/.cargo/target, forces recompile)")
-    if not prune_docker:
-        tips.append("  hogli devbox:cleanup:disk --docker  (prune stopped containers)")
-    if tips:
-        click.echo()
-        click.echo("Tips for more space:")
-        for tip in tips:
-            click.echo(tip)
+    ensure_runtime_ready()
+    # Cleanup is destructive (removes caches and build artifacts), so refuse
+    # to run it against someone else's shared `@user[/label]` devbox.
+    if workspace and workspace.startswith("@") and not is_own_default_target(workspace):
+        _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+    name, workspaces = resolve_workspace_name(workspace)
+    _get_workspace_or_fail(name, workspaces)
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+        )
+    # Put the flox tools on PATH without `flox activate`: its hook writes files and fails on a full disk,
+    # and it trims flox logs even on a dry run. `hogli` is not on the devbox PATH, so run the checkout's copy.
+    # doctor:disk prompts, so it needs a terminal.
+    remote_command = 'cd ~/posthog && for bin in .flox/run/*/bin; do PATH="$PWD/$bin:$PATH"; done && ' + shlex.join(
+        ["./bin/hogli", *doctor_args]
+    )
+    exec_replace(name, ["bash", "-lc", remote_command], tty=True)

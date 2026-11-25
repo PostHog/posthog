@@ -14,10 +14,11 @@ BASE_URLS = {
 
 # The documented maximum page size on the entity tables.
 TABLE_PAGE_SIZE = 2000
-# Everflow does not state a maximum for the conversions report or the invoices table, so these stay well
-# under the table limit.
+# Everflow does not state a maximum for the conversions report, the invoices table or the adjustments
+# table, so these stay well under the table limit.
 CONVERSIONS_PAGE_SIZE = 500
 INVOICES_PAGE_SIZE = 500
+ADJUSTMENTS_PAGE_SIZE = 500
 
 # Everflow's timezone id for UTC. Response timestamps are always UTC; this pins how `from`/`to` dates read.
 UTC_TIMEZONE_ID = 67
@@ -30,6 +31,9 @@ HISTORY_DAYS = 365
 # pipeline's lookback skips, so the source applies that table's re-read itself.
 REREAD_DAYS = 30
 LOOKBACK_SECONDS = REREAD_DAYS * 24 * 60 * 60
+# An adjustment can be entered for any earlier day, so each run re-reads the full year and merges. Rows
+# older than the window stay in the table.
+ADJUSTMENTS_LOOKBACK_SECONDS = HISTORY_DAYS * 24 * 60 * 60
 
 
 @frozen
@@ -177,6 +181,45 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "labels": EverflowEndpointConfig(
+        name="labels",
+        path="/networks/labels",
+        method="GET",
+        data_selector="labels",
+        primary_keys=("label",),
+        page_size=None,
+    ),
+    "traffic_sources": EverflowEndpointConfig(
+        name="traffic_sources",
+        path="/networks/trafficsource",
+        method="GET",
+        data_selector="traffic_sources",
+        primary_keys=("network_traffic_source_id",),
+        page_size=None,
+    ),
+    "creatives": EverflowEndpointConfig(
+        name="creatives",
+        path="/networks/creativestable",
+        data_selector="creatives",
+        primary_keys=("network_offer_creative_id",),
+    ),
+    "reporting_adjustments": EverflowEndpointConfig(
+        name="reporting_adjustments",
+        path="/networks/reportingadjustments/table",
+        data_selector="adjustments",
+        primary_keys=("network_reporting_adjustment_id",),
+        page_size=ADJUSTMENTS_PAGE_SIZE,
+        float_columns=("gross_sales", "media_buying_cost", "payout", "revenue"),
+        incremental_fields=(
+            {
+                "label": "date_adjustment",
+                "type": IncrementalFieldType.Date,
+                "field": "date_adjustment",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ),
+        default_incremental_lookback_seconds=ADJUSTMENTS_LOOKBACK_SECONDS,
+    ),
 }
 
 ENDPOINTS = tuple(EVERFLOW_ENDPOINTS)
@@ -192,4 +235,7 @@ LOOKBACK: dict[str, int] = {
 }
 
 # These tables re-read a trailing window each run. Appending would write those rows again.
-MERGE_ONLY = ("conversions", "daily_performance")
+MERGE_ONLY = ("conversions", "daily_performance", "reporting_adjustments")
+
+# Report tables that require a `from`/`to` date window in the request body.
+WINDOWED_ENDPOINTS = ("conversions", "reporting_adjustments")

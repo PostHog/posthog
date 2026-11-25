@@ -21,6 +21,8 @@ describe('analyticsBackLink', () => {
         ["a flag's usage dashboard link", { backUrl: '/feature_flags/12', backName: 'my-flag' }, FLAG_ON, null],
         ['an external address', { backUrl: 'https://example.com/analytics' }, FLAG_ON, null],
         ['a protocol-relative address', { backUrl: '//example.com/analytics' }, FLAG_ON, null],
+        ['a dot-segment escape to another origin', { backUrl: '/analytics/..//example.com' }, FLAG_ON, null],
+        ['a dot-segment escape out of Analytics', { backUrl: '/analytics/../feature_flags/12' }, FLAG_ON, null],
         ['an Analytics link for someone without the flag', { backUrl: '/analytics/all' }, {}, null],
         ['no link at all', {}, FLAG_ON, null],
     ])('trusts %s: %s', (_, searchParams, featureFlags, expected) => {

@@ -611,6 +611,27 @@ class TestModalSandboxAgentShWrapping(TestCase):
         else:
             self.assertNotIn("--autoPublish", cmd)
 
+    @parameterized.expand([("modal",), ("docker",)])
+    def test_command_passes_the_run_policy_to_the_agent(self, provider):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            run_policy='{"finish_tool":true}',
+        )
+        self.assertIn("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""", cmd)
+
     @parameterized.expand(
         [
             ("modal", True),

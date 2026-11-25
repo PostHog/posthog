@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.tasks.backend.agent_run_policy import agent_policy_for_origin
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -26,7 +27,11 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_refusal, resolve_sandbox_ai_product
+from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    MINTABLE_PRODUCTS,
+    mint_refusal,
+    resolve_sandbox_ai_product,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     USER_AUTHORABLE_ORIGIN_PRODUCTS,
     get_pr_authorship_mode,
@@ -45,6 +50,7 @@ PROFILES_BY_REPOSITORY = [
     for has_repository in (True, False)
 ]
 MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+SERVER_FUNDED_BILLING_PRODUCTS = ("background_agents", "account_audit", "autoresearch")
 
 
 def _task(profile: TaskProfile) -> Task:
@@ -118,9 +124,10 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         self.assertEqual(profile.billing_product, master)
 
     @parameterized.expand(
-        [(key, profile) for key, profile in PROFILES if profile.billing_product == "background_agents"]
+        [(key, profile) for key, profile in PROFILES if profile.billing_product in SERVER_FUNDED_BILLING_PRODUCTS]
     )
-    def test_background_agents_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
+    def test_server_funded_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
+        self.assertIn(profile.billing_product, MINTABLE_PRODUCTS)
         refusal = mint_refusal(
             profile.billing_product,
             team_id=1,
@@ -198,3 +205,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     @parameterized.expand(PROFILES)
     def test_default_sandbox_template_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.sandbox_templates[0], parse_requested_sandbox_template(None).value)
+
+    @parameterized.expand(PROFILES)
+    def test_agent_policy_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.agent_policy, agent_policy_for_origin(profile.origin_product))

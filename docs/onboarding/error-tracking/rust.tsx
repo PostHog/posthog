@@ -16,7 +16,10 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             Install the PostHog Rust SDK. Error tracking is enabled by its default \`error-tracking\` feature.
                         `}
                     </Markdown>
-                    <CodeBlock language="bash" code="cargo add posthog@1" />
+                    <CodeBlock
+                        language="bash"
+                        code="cargo add posthog@1 tokio --features tokio/rt-multi-thread,tokio/macros"
+                    />
                     <Markdown>
                         {dedent`
                             If you disable default features, add \`error-tracking\` and \`tls\` explicitly in your dependency configuration. Without \`tls\`, the SDK can't send to an HTTPS host.
@@ -39,10 +42,19 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                 <CodeBlock
                     language="rust"
                     code={dedent`
-                        let client = posthog::client((
-                            "<ph_project_token>",
-                            "<ph_client_api_host>",
-                        )).await;
+                        #[tokio::main]
+                        async fn main() {
+                            let client = posthog::client((
+                                "<ph_project_token>",
+                                "<ph_client_api_host>",
+                            )).await;
+
+                            // Capture events and exceptions here
+
+                            // Shut down last, before the process exits. It flushes queued
+                            // events, and the client drops anything captured after it.
+                            client.shutdown().await;
+                        }
                     `}
                 />
             ),

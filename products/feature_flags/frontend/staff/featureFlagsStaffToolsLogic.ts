@@ -56,6 +56,7 @@ export const FLAG_EVALUATIONS_MODE_LABELS: Record<FlagEvaluationsModeEnumApi, st
 export interface FlagEvaluationsModeRequest {
     mode: FlagEvaluationsModeEnumApi
     allowDowngrade: boolean
+    keepWritingFlagCallsToEvents: boolean
 }
 
 export type FlagEvaluationsModeBody = Omit<StaffFlagEvaluationsModeMutationApi, 'dry_run'>
@@ -76,6 +77,7 @@ export interface FlagEvaluationsModePreviewSummary {
 const DEFAULT_FLAG_EVALUATIONS_MODE_REQUEST: FlagEvaluationsModeRequest = {
     mode: 1,
     allowDowngrade: false,
+    keepWritingFlagCallsToEvents: false,
 }
 
 const MIN_SEARCH_LENGTH = 2
@@ -654,6 +656,8 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             (request: FlagEvaluationsModeRequest, selectedTeamIds: number[]): FlagEvaluationsModeBody => ({
                 flag_evaluations_mode: request.mode,
                 allow_downgrade: request.allowDowngrade,
+                keep_writing_flag_calls_to_events:
+                    request.mode === FlagEvaluationsModeEnumApi.Number2 && request.keepWritingFlagCallsToEvents,
                 team_ids: selectedTeamIds,
             }),
         ],
@@ -668,7 +672,9 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     ).length,
                     organizationsLoweredFromFlagEvaluationsOnly: preview.response.organizations.filter(
                         (organization) =>
-                            organization.changed && organization.current_mode === FlagEvaluationsModeEnumApi.Number2
+                            organization.changed &&
+                            organization.current_mode === FlagEvaluationsModeEnumApi.Number2 &&
+                            organization.target_mode !== FlagEvaluationsModeEnumApi.Number2
                     ).length,
                     experimentsNeedingFlagCallsInEvents:
                         preview.response.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2

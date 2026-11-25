@@ -895,9 +895,12 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
         """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
 
-        While one is missing the webhook accepts and drops every delivery. Override where the
-        provider stores the credential under another input, so a configured webhook is not reported.
+        While one is missing the webhook accepts and drops every delivery, unless the signature check is
+        bypassed. Override where the provider stores the credential under another input, so a configured
+        webhook is not reported.
         """
+        if (inputs.get("bypass_signature_check") or {}).get("value"):
+            return []
         return [
             field.name
             for field in (self.get_source_config.webhookFields or [])
