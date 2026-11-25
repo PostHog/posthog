@@ -60,15 +60,17 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
         )
         invalidate_published_days(EventsHealthDaily)
 
-    def _define_events(self, events: list[tuple[str, bool]]) -> None:
+    def _define_events(self, events: list[tuple[str, int | None]]) -> None:
         self.team.ingested_event = True
         self.team.save()
-        for event, seen in events:
+        for event, last_seen_days_ago in events:
             EventDefinition.objects.create(
                 team=self.team,
                 project_id=self.team.project_id,
                 name=event,
-                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
+                last_seen_at=None
+                if last_seen_days_ago is None
+                else dt.datetime.now(dt.UTC) - dt.timedelta(days=last_seen_days_ago),
             )
 
     def _flagged(self, check: RollupHealthCheck, rows: list[Row]) -> bool:
@@ -109,7 +111,7 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
     def test_no_live_events_probes_the_hours_after_the_rollup(
         self, _name: str, send_event_today: bool, expected: bool
     ) -> None:
-        self._define_events([("$pageview", True)])
+        self._define_events([("$pageview", 40)])
         if send_event_today:
             _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=dt.datetime.now(dt.UTC))
             flush_persons_and_events()
@@ -118,16 +120,24 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("web_project_gone_silent", True, [("$pageview", True)], [], HealthIssue.Severity.CRITICAL, ["$pageview"]),
-            ("app_project_gone_silent", True, [("$screen", True)], [], HealthIssue.Severity.CRITICAL, ["$screen"]),
+            ("web_project_gone_silent", True, [("$pageview", 40)], [], HealthIssue.Severity.CRITICAL, ["$pageview"]),
+            ("app_project_gone_silent", True, [("$screen", 40)], [], HealthIssue.Severity.CRITICAL, ["$screen"]),
+            (
+                "web_project_dark_past_horizon",
+                True,
+                [("$pageview", 120)],
+                [],
+                HealthIssue.Severity.CRITICAL,
+                ["$pageview"],
+            ),
             ("nothing_ingested_yet", False, [], [], HealthIssue.Severity.CRITICAL, ["$pageview", "$screen"]),
-            ("server_only_project", True, [("$mcp_tool_call", True)], [], None, None),
-            ("pageview_placeholder_never_seen", True, [("$pageview", False)], [], None, None),
-            ("app_project_sending_screens", True, [("$screen", True)], [SCREENS], None, None),
+            ("server_only_project", True, [("$mcp_tool_call", 40)], [], None, None),
+            ("pageview_placeholder_never_seen", True, [("$pageview", None)], [], None, None),
+            ("app_project_sending_screens", True, [("$screen", 1)], [SCREENS], None, None),
             (
                 "mixed_project_sending_both",
                 True,
-                [("$pageview", True), ("$screen", True)],
+                [("$pageview", 1), ("$screen", 1)],
                 [PAGEVIEWS, SCREENS],
                 None,
                 None,
@@ -135,18 +145,19 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             (
                 "mixed_project_web_gone_silent",
                 True,
-                [("$pageview", True), ("$screen", True)],
+                [("$pageview", 40), ("$screen", 1)],
                 [SCREENS],
                 HealthIssue.Severity.WARNING,
                 ["$pageview"],
             ),
+            ("mixed_project_web_past_horizon", True, [("$pageview", 120), ("$screen", 1)], [SCREENS], None, None),
         ]
     )
     def test_no_live_events_judges_each_event_type_the_project_sends(
         self,
         _name: str,
         ingested_event: bool,
-        defined_events: list[tuple[str, bool]],
+        defined_events: list[tuple[str, int | None]],
         rows: list[Row],
         expected_severity: str | None,
         expected_events: list[str] | None,
