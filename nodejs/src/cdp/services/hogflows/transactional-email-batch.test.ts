@@ -15,15 +15,28 @@ describe('transactional email batch', () => {
     describe('BatchCapacity', () => {
         it('refuses a request over the cap until an admitted one releases', () => {
             const capacity = new BatchCapacity(1)
-            const release = capacity.admit()
+            const release = capacity.admit(1)
 
             expect(release).not.toBeNull()
-            expect(capacity.admit()).toBeNull()
+            expect(capacity.admit(2)).toBeNull()
 
             release!()
 
-            expect(capacity.admit()).not.toBeNull()
-            expect(capacity.admit()).toBeNull()
+            expect(capacity.admit(2)).not.toBeNull()
+            expect(capacity.admit(1)).toBeNull()
+        })
+
+        it('admits another team while one team holds its share of the cap', () => {
+            const capacity = new BatchCapacity(4)
+            const held = [capacity.admit(1), capacity.admit(1)]
+
+            expect(held).not.toContain(null)
+            expect(capacity.admit(1)).toBeNull()
+            expect(capacity.admit(2)).not.toBeNull()
+
+            held[0]!()
+
+            expect(capacity.admit(1)).not.toBeNull()
         })
     })
 
