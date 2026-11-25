@@ -637,6 +637,7 @@ class TestVercelIntegration(TestCase):
                 for account in ("existing", "mapped")
             ),
             ("sso_new", "sso", "new"),
+            ("domain_new", "domain", "new"),
         ]
     )
     @override_settings(
