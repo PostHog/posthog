@@ -743,8 +743,8 @@ path**: the Django side _sets_ the knobs and the `@posthog/agent` package _appli
   `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`, and the pure
   checks `get_provider_for_runtime_adapter` /
   `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. Which models exist and what efforts each takes
-  comes from `products/tasks/backend/model_catalog.py`, the one definition both the backend and the generated
-  TypeScript projections read. A new model/effort must be added there or the combo is rejected.
+  comes from the AI gateway listing, read through `products/tasks/backend/logic/services/model_catalogue.py`.
+  A model the gateway does not list, or an effort its row does not name, is rejected.
   `test_constants.py` locks the ReviewHog combo to this registry at unit time.
 - **Transport into the sandbox:** `Task._build_task` writes `extra_state[{runtime_adapter, provider, model,
 reasoning_effort}]` → `get_task_processing_context` reads it back → `start_agent_server` →
@@ -774,8 +774,8 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
 
 **Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` to a catalog id, and an effort that model
 supports; provider auto-derives to `anthropic`. The same applies to a Codex model with `runtime_adapter = "codex"`.
-Every id and its efforts live in `model_catalog.py`; run `hogli build:projections` after editing it, which
-updates the TypeScript projections the desktop app and the web composer read.
+Every id and its efforts come from the AI gateway listing, so a model the gateway serves in one of ReviewHog's
+families needs no change here before it can be selected.
 
 ---
 

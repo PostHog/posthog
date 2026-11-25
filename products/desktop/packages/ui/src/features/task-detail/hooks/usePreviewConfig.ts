@@ -24,6 +24,7 @@ import {
   adapterForModelId,
   FAST_MODE_FLAG,
   getCloudUrlFromRegion,
+  rememberGatewayListingFrom,
 } from "@posthog/shared";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
@@ -143,6 +144,7 @@ export function usePreviewConfig(
       )
       .then((options) => {
         if (abort.signal.aborted) return;
+        rememberGatewayListingFrom(options);
         setFetched({ adapter, options });
       })
       .catch((error) => {

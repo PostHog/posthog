@@ -1449,6 +1449,17 @@ export const TasksModelsRetrieveParams = () => zod.object({
         ),
 })
 
+export const tasksModelsRetrieveQueryIncludeUnofferedDefault = false
+
+export const TasksModelsRetrieveQueryParams = () => zod.object({
+    include_unoffered: zod
+        .boolean()
+        .default(tasksModelsRetrieveQueryIncludeUnofferedDefault)
+        .describe(
+            "Also list the models a run may still use that no picker offers, such as older versions of a model family. Each row's `offered` field tells the two apart. Defaults to false."
+        ),
+})
+
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *

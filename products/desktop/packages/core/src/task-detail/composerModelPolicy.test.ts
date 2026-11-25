@@ -1,6 +1,7 @@
 import {
   type Adapter,
   type CloudTaskConfigOption,
+  DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
   restrictedModelMeta,
   type SupportedReasoningEffort,
@@ -14,7 +15,12 @@ import {
 it.each([
   [
     "claude",
-    { adapter: "codex", mode: "auto", model: "gpt-6-sol", reasoning: "high" },
+    {
+      adapter: "codex",
+      mode: "auto",
+      model: DEFAULT_CODEX_MODEL,
+      reasoning: "high",
+    },
   ],
   [
     "codex",
@@ -40,7 +46,7 @@ const modelOption: CloudTaskConfigOption = {
   options: [
     { value: DEFAULT_GATEWAY_MODEL, name: "Claude" },
     { value: "restricted", name: "Restricted", _meta: restrictedModelMeta() },
-    { value: "gpt-5.3-codex", name: "Codex" },
+    { value: "gpt-5.1", name: "Codex" },
   ],
   category: "model",
   description: "Choose a model",
@@ -50,7 +56,7 @@ it.each([
   ["claude", DEFAULT_GATEWAY_MODEL, "high", DEFAULT_GATEWAY_MODEL, "high"],
   ["claude", "restricted", "high", DEFAULT_GATEWAY_MODEL, "high"],
   ["claude", "missing", "high", DEFAULT_GATEWAY_MODEL, "high"],
-  ["codex", "gpt-5.3-codex", "xhigh", "gpt-5.3-codex", "high"],
+  ["codex", "gpt-5.1", "xhigh", "gpt-5.1", "high"],
 ] as const)(
   "resolves %s model %s with %s reasoning",
   (adapter, requestedModel, reasoning, expectedModel, expectedReasoning) => {

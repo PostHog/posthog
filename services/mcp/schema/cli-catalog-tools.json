@@ -50546,7 +50546,13 @@
             "path": "/api/projects/{project_id}/tasks/models/",
             "pathParams": [],
             "fallbacks": [],
-            "query": null,
+            "query": [
+                {
+                    "param": "include_unoffered",
+                    "key": "include_unoffered",
+                    "csv": false
+                }
+            ],
             "body": null,
             "injectBody": {},
             "softDelete": null,

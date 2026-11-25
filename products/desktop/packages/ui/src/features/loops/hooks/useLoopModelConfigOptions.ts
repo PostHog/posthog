@@ -1,6 +1,9 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import { getCloudUrlFromRegion } from "@posthog/shared";
+import {
+  getCloudUrlFromRegion,
+  rememberGatewayListingFrom,
+} from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { useQuery } from "@tanstack/react-query";
@@ -17,12 +20,14 @@ export function useLoopModelConfigOptions(
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { data } = useQuery({
     queryKey: ["loops", "model-config-options", cloudRegion, adapter],
-    queryFn: ({ signal }) => {
+    queryFn: async ({ signal }) => {
       if (!cloudRegion) return [];
-      return hostClient.agent.getPreviewConfigOptions.query(
+      const options = await hostClient.agent.getPreviewConfigOptions.query(
         { apiHost: getCloudUrlFromRegion(cloudRegion), adapter },
         { signal },
       );
+      rememberGatewayListingFrom(options);
+      return options;
     },
     enabled: !!cloudRegion,
     staleTime: 5 * 60_000,

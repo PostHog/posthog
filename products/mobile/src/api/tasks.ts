@@ -88,7 +88,6 @@ export type TaskCreateRequestApi = ReportImplementationTaskCreateApi | ChatTaskC
 
 export type RuntimeAdapterApi = 'claude' | 'codex'
 
-/** `REASONING_EFFORTS` in `products/tasks/backend/model_catalog.py`. */
 export type ReasoningEffortApi = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode'
 
 /** `INITIAL_PERMISSION_MODE_CHOICES` (Claude) and `CODEX_INITIAL_PERMISSION_MODE_CHOICES` (Codex). */
@@ -138,6 +137,13 @@ export interface ModelChoiceApi {
     supported_efforts: ReasoningEffortApi[]
     /** Ready to display, such as `2×`. Null when the catalogue quotes no rate. */
     cost_multiplier?: string | null
+    cost_summary?: string | null
+    offered: boolean
+}
+
+export interface ModelCatalogueApi {
+    costBaseline: string | null
+    models: ModelChoiceApi[]
 }
 
 /** `TasksResolvedAIRunDefaultsSerializer`: what a run uses when it pins no runtime. */
@@ -301,10 +307,16 @@ export async function deleteTask(taskId: string, signal?: AbortSignal): Promise<
     await apiJson<unknown>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), { method: 'DELETE', signal })
 }
 
-/** Every model a run may use, from the live gateway catalogue. Empty when the gateway is unreachable. */
-export async function getTaskModels(scope: ProjectScope | null, signal?: AbortSignal): Promise<ModelChoiceApi[]> {
-    const body = await apiJson<{ models?: ModelChoiceApi[] }>(scopedPath(scope, 'tasks/models/'), { signal })
-    return body.models ?? []
+/** Every model a run may use, including ones no longer offered. Empty when the gateway is unreachable. */
+export async function getTaskModels(scope: ProjectScope | null, signal?: AbortSignal): Promise<ModelCatalogueApi> {
+    const body = await apiJson<{
+        cost_baseline?: string | null
+        models?: (Omit<ModelChoiceApi, 'offered'> & { offered?: boolean })[]
+    }>(scopedPath(scope, 'tasks/models/?include_unoffered=true'), { signal })
+    return {
+        costBaseline: body.cost_baseline ?? null,
+        models: (body.models ?? []).map((model) => ({ ...model, offered: model.offered ?? true })),
+    }
 }
 
 export function getMyTaskConfig(scope: ProjectScope | null, signal?: AbortSignal): Promise<TaskUserConfigApi> {

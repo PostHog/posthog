@@ -17,6 +17,7 @@ describe("resolvePosthogPiModelCatalog", () => {
         {
           id: "claude-opus-5",
           owned_by: "anthropic",
+          family: "claude-opus",
           context_window: 1_000_000,
           supports_vision: true,
           allowed: true,
@@ -24,6 +25,7 @@ describe("resolvePosthogPiModelCatalog", () => {
         {
           id: "claude-haiku-4-5",
           owned_by: "anthropic",
+          family: "claude-haiku",
           context_window: 200_000,
           supports_vision: true,
           allowed: true,
@@ -31,6 +33,7 @@ describe("resolvePosthogPiModelCatalog", () => {
         {
           id: "gpt-5.6-sol",
           owned_by: "openai",
+          family: "gpt-sol",
           context_window: 1_000_000,
           supports_vision: true,
           allowed: false,
@@ -39,7 +42,6 @@ describe("resolvePosthogPiModelCatalog", () => {
       "us",
     );
 
-    // Haiku is served here but absent from the catalog, so the picker does not offer it.
     expect(models).toEqual([
       expect.objectContaining({
         provider: "posthog",
@@ -140,7 +142,7 @@ describe("resolvePosthogPiModelCatalog", () => {
     ["gpt-6.1-sol", "GPT-6.1 Sol"],
     ["zai-org/glm-5.3", "GLM-5.3"],
     ["moonshotai/kimi-k3.1-pro", "Kimi K3.1 Pro"],
-    ["deepseek-ai/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash"],
+    ["deepseek-ai/deepseek-v4.1-flash-1017", "Deepseek V4.1 Flash 1017"],
   ])("formats %s for Pi", (id, name) => {
     const models = resolvePosthogPiModelCatalog(
       [
@@ -157,42 +159,31 @@ describe("resolvePosthogPiModelCatalog", () => {
     expect(models).toEqual([expect.objectContaining({ id, name })]);
   });
 
-  it("leaves a model the catalog does not list out of the picker", () => {
+  it.each([
+    ["new-model", "new-family", ["claude-opus-5"]],
+    ["claude-opus-4-7", "claude-opus", ["claude-opus-5", "claude-opus-5-5"]],
+    ["gpt-5.4", "gpt", ["gpt-5.5"]],
+  ])("leaves %s out of the Pi catalog", (id, family, others) => {
+    const row = (modelId: string, modelFamily: string, month: number) => ({
+      id: modelId,
+      family: modelFamily,
+      release_date: `2026-0${month}-01`,
+      context_window: 200_000,
+      supports_vision: true,
+      allowed: true,
+    });
+    const otherFamily = others[0].startsWith("claude") ? "claude-opus" : "gpt";
+
     const models = resolvePosthogPiModelCatalog(
       [
-        {
-          id: "new-model",
-          context_window: 200_000,
-          supports_vision: true,
-          allowed: true,
-        },
+        row(id, family, 1),
+        ...others.map((other, index) => row(other, otherFamily, index + 2)),
       ],
       "us",
     );
 
-    expect(models).toEqual([]);
+    expect(models.map((model) => model.id)).toEqual(others);
   });
-
-  // One retired model and one the catalog never listed. `isOfferedModel` owns the full table,
-  // in packages/agent-contracts/src/model-catalog.test.ts; these two prove the filter is wired up here.
-  it.each(["claude-opus-4-7", "gpt-5.4"])(
-    "excludes %s from the Pi catalog",
-    (id) => {
-      const models = resolvePosthogPiModelCatalog(
-        [
-          {
-            id,
-            context_window: 200_000,
-            supports_vision: true,
-            allowed: true,
-          },
-        ],
-        "us",
-      );
-
-      expect(models).toEqual([]);
-    },
-  );
 
   // Pi hid both while the two hide lists disagreed; every other picker offered them throughout.
   it.each(["claude-opus-4-8", "gpt-5.5"])(

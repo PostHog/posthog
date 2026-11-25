@@ -48,25 +48,22 @@ export function LoopModelFields({
   const modelOptions = useMemo(
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
-      ...loopModelOptions(adapter, configOptions, {
+      ...loopModelOptions(configOptions, {
         flags: modelFlags,
         pinnedModel: model,
       }),
     ],
-    [adapter, configOptions, modelFlags, model],
+    [configOptions, modelFlags, model],
   );
 
   // A workflow only stores the effort next to a pinned model, so offering
   // efforts for the default model would confirm a value that is never saved.
   const effortNeedsModel = !model;
 
-  const reasoningOptions = useMemo(
-    () => [
-      { value: AUTO_REASONING_VALUE, label: "Auto" },
-      ...(effortNeedsModel ? [] : loopReasoningEffortOptions(adapter, model)),
-    ],
-    [adapter, model, effortNeedsModel],
-  );
+  const reasoningOptions = [
+    { value: AUTO_REASONING_VALUE, label: "Auto" },
+    ...(effortNeedsModel ? [] : loopReasoningEffortOptions(adapter, model)),
+  ];
 
   const handleModelChange = (value: string) => {
     const nextModel = value === DEFAULT_MODEL_VALUE ? "" : value;

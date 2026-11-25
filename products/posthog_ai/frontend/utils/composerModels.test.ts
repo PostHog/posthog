@@ -7,8 +7,9 @@ import {
     RuntimeAdapterEnumApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER, MODELS } from 'products/tasks/frontend/modelCatalog.generated'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from 'products/tasks/frontend/modelCatalog.generated'
 
+import { TEST_MODEL_LISTING } from '../logics/modelCatalogueFixture'
 import {
     buildRunCreateRequest,
     getCapabilityLadder,
@@ -30,12 +31,14 @@ describe('composerModels', () => {
             model: 'claude-opus-4-8',
             display_name: 'Claude Opus 4.8',
             supported_efforts: ['low', 'medium', 'high'],
+            offered: true,
         },
         {
             runtime_adapter: 'codex',
             model: 'gpt-5.6-luna',
             display_name: 'GPT-5.6 Luna',
             supported_efforts: ['low', 'medium', 'high'],
+            offered: true,
         },
     ]
 
@@ -53,18 +56,21 @@ describe('composerModels', () => {
                 model: 'gpt-6-sol',
                 display_name: 'GPT-6 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6.1-sol',
                 display_name: 'GPT-6.1 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6.2-sol',
                 display_name: 'GPT-6.2 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
         ]
 
@@ -74,13 +80,7 @@ describe('composerModels', () => {
     it.each([RuntimeAdapterEnumApi.Claude, RuntimeAdapterEnumApi.Codex])(
         'selects the shared default for %s before the capability ladder',
         (adapter) => {
-            const catalogue: ModelChoiceApi[] = MODELS.map((model) => ({
-                runtime_adapter: model.runtimeAdapter as RuntimeAdapterEnumApi,
-                model: model.id,
-                display_name: model.label,
-                supported_efforts: [...model.reasoningEfforts] as ReasoningEffortEnumApi[],
-            }))
-            const model = getDefaultModelForRuntimeAdapter(catalogue, adapter, null)
+            const model = getDefaultModelForRuntimeAdapter(TEST_MODEL_LISTING.models, adapter, null)
 
             expect(model).toBe(DEFAULT_MODEL_BY_RUNTIME_ADAPTER[adapter])
         }
@@ -145,22 +145,39 @@ describe('composerModels', () => {
         ['anthropic/claude-opus-5', '2.5×'],
         ['gpt-5', null],
         ['some-unreleased-model', null],
-    ])('reads the cost of %s off the catalog', (model, expected) => {
-        expect(getModelCost(model)?.multiplier ?? null).toBe(expected)
+    ])('reads the cost of %s off the catalogue', (model, expected) => {
+        const priced: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5',
+                display_name: 'Claude Opus 5',
+                supported_efforts: [],
+                cost_multiplier: '2.5×',
+                cost_summary: 'Input $5 · Output $25 per 1M tokens',
+                offered: true,
+            },
+            { runtime_adapter: 'codex', model: 'gpt-5', display_name: 'GPT-5', supported_efforts: [], offered: true },
+        ]
+        expect(getModelCost(priced, model)?.multiplier ?? null).toBe(expected)
     })
 
-    // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
-    // sendable request rather than an undefined adapter.
-    it('falls back to the claude adapter for an unknown model', () => {
+    it.each([
+        ['some-unreleased-model', {}, 'claude', undefined],
+        ['some-unreleased-model', { adapter: 'codex', effort: 'max' }, 'codex', 'max'],
+        ['some-unreleased-model', { adapter: 'codex' }, 'codex', undefined],
+        ['some-unreleased-model', { adapter: 'not-a-runtime', effort: 'not-an-effort' }, 'claude', undefined],
+        ['gpt-5.6-luna', { adapter: 'claude', effort: 'max' }, 'codex', 'high'],
+    ])('builds a request for %s with running selection %j on %s at %s', (model, running, adapter, effort) => {
         const request = buildRunCreateRequest(
             CATALOGUE,
-            'some-unreleased-model',
+            model,
             ReasoningEffortEnumApi.High,
             InitialPermissionModeEnumApi.Auto as PermissionMode,
-            {}
+            {},
+            running
         )
 
-        expect(request).toMatchObject({ runtime_adapter: 'claude' })
+        expect(request).toMatchObject({ runtime_adapter: adapter, reasoning_effort: effort })
     })
 
     // Some models take no reasoning effort at all, and the backend rejects any value for them
@@ -174,6 +191,7 @@ describe('composerModels', () => {
                     model: 'moonshotai/kimi-k3',
                     display_name: 'Moonshotai Kimi K3',
                     supported_efforts: [],
+                    offered: true,
                 },
             ],
             'moonshotai/kimi-k3',
@@ -195,12 +213,14 @@ describe('composerModels', () => {
                 model: 'claude-sonnet-5-5',
                 display_name: 'Claude Sonnet 5.5',
                 supported_efforts: ['low', 'medium'],
+                offered: true,
             },
             {
                 runtime_adapter: 'claude',
                 model: 'claude-opus-5-5',
                 display_name: 'Claude Opus 5.5',
                 supported_efforts: ['medium', 'high', 'xhigh'],
+                offered: true,
             },
         ]
 
@@ -220,12 +240,14 @@ describe('composerModels', () => {
                 model: 'gpt-5.6-sol',
                 display_name: 'GPT-5.6 Sol',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
             {
                 runtime_adapter: 'codex',
                 model: 'gpt-6-astra',
                 display_name: 'GPT-6 Astra',
                 supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+                offered: true,
             },
         ]
 
@@ -253,6 +275,7 @@ describe('composerModels', () => {
             model: 'claude-opus-4-7',
             display_name: 'Claude Opus 4.7',
             supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+            offered: false,
         }
         const FULL = [...CATALOGUE, RETIRED]
 

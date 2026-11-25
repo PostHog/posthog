@@ -558,5 +558,5 @@ A new chat gets a demo task id, echoes the message and plays `DEMO_REPLY` throug
 Demo sessions replay the run logs in `src/demo/sessionThreads.ts`:
 "Fix the flaky checkout test" ended with a PR, "Add dark mode to settings" waits on a question,
 and "Migrate billing webhooks" failed. A send plays `DEMO_REPLY`, an answer plays `DEMO_ANSWER_REPLY`, and Stop cuts the reply short.
-The model list is the static catalogue, and the options change nothing about the reply.
+The model list is the canned demo catalogue in `src/demo/models.ts`, and the options change nothing about the reply.
 Archiving a demo chat hides it in the demo store until the demo refreshes or resets.

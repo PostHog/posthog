@@ -3,7 +3,6 @@ import type {
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
 import { restrictedModelMeta } from "@posthog/shared";
-import { MODELS } from "@posthog/shared/model-catalog";
 import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { describe, expect, it } from "vitest";
 import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
@@ -38,18 +37,9 @@ const claudeOptions = modelConfigOption([
 ]);
 
 describe("loopModelOptions", () => {
-  it("includes GPT-6 Astra in the offline Codex fallback", () => {
-    expect(
-      loopModelOptions("codex", [], {
-        flags: noFlags,
-        pinnedModel: "",
-      }),
-    ).toContainEqual({ value: "gpt-6-astra", label: "GPT-6 Astra" });
-  });
-
   it("maps served model options to value/label pairs", () => {
     expect(
-      loopModelOptions("claude", claudeOptions, {
+      loopModelOptions(claudeOptions, {
         flags: noFlags,
         pinnedModel: "",
       }),
@@ -68,7 +58,7 @@ describe("loopModelOptions", () => {
       },
     ]);
     expect(
-      loopModelOptions("claude", grouped, {
+      loopModelOptions(grouped, {
         flags: noFlags,
         pinnedModel: "",
       }),
@@ -85,7 +75,7 @@ describe("loopModelOptions", () => {
       },
     ]);
     expect(
-      loopModelOptions("claude", withRestricted, {
+      loopModelOptions(withRestricted, {
         flags: noFlags,
         pinnedModel: "",
       }),
@@ -106,7 +96,7 @@ describe("loopModelOptions", () => {
       { value: id, name },
     ]);
 
-    const values = loopModelOptions("claude", options, {
+    const values = loopModelOptions(options, {
       flags: noFlags,
       pinnedModel: "",
     }).map((option) => option.value);
@@ -115,74 +105,17 @@ describe("loopModelOptions", () => {
 
   it("keeps a pinned model that the catalog no longer serves", () => {
     expect(
-      loopModelOptions("claude", claudeOptions, {
+      loopModelOptions(claudeOptions, {
         flags: noFlags,
         pinnedModel: "claude-opus-4-1",
       }),
     ).toContainEqual({ value: "claude-opus-4-1", label: "Claude Opus 4.1" });
   });
 
-  it.each<{
-    name: string;
-    adapter: LoopSchemas.LoopRuntimeAdapterEnum;
-    expectedValues: string[];
-  }>([
-    {
-      name: "falls back to the known claude models when the config has no model select",
-      adapter: "claude",
-      expectedValues: [
-        "claude-opus-4-8",
-        "claude-opus-5",
-        "claude-opus-5-5",
-        "claude-sonnet-5",
-        "claude-sonnet-5-5",
-        "claude-fable-5",
-        "claude-fable-5-1",
-        "claude-fable-5-2",
-        "zai-org/glm-5.3",
-        "zai-org/glm-5.3-flash",
-        "moonshotai/kimi-k3.1-pro",
-      ],
-    },
-    {
-      name: "falls back to the known codex models when the config has no model select",
-      adapter: "codex",
-      expectedValues: [
-        "gpt-5",
-        "gpt-5.5",
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gpt-6-astra",
-        "gpt-6-sol",
-        "gpt-6.1-sol",
-        "gpt-6-luna",
-      ],
-    },
-  ])("$name", ({ adapter, expectedValues }) => {
-    const values = loopModelOptions(adapter, [], {
-      flags: noFlags,
-      pinnedModel: "",
-    }).map((option) => option.value);
-    expect(values).toEqual(expectedValues);
-  });
-
-  // The loops serializer rejects a model the catalog no longer serves, so a retired id
-  // in the fallback list is a save the user cannot make. The cases above assert the
-  // fallback against hardcoded ids, so only this notices a catalog removal.
-  it("every fallback model is one the catalog still serves", () => {
-    for (const adapter of ["claude", "codex"] as const) {
-      const served = MODELS.filter((m) => m.runtimeAdapter === adapter).map(
-        (m) => m.id,
-      );
-      const fallback = loopModelOptions(adapter, [], {
-        flags: noFlags,
-        pinnedModel: "",
-      })
-        .map((o) => o.value)
-        .filter((v) => v !== "");
-      expect(served).toEqual(expect.arrayContaining(fallback));
-    }
+  it("offers no model until the config lists some", () => {
+    expect(loopModelOptions([], { flags: noFlags, pinnedModel: "" })).toEqual(
+      [],
+    );
   });
 });
 
@@ -211,9 +144,10 @@ describe("loopReasoningEffortOptions", () => {
     },
     {
       adapter: "claude",
-      model: "@cf/zai-org/glm-5.2",
-      expectedValues: ["high", "max"],
+      model: "zai-org/glm-5.3",
+      expectedValues: ["low", "high", "max"],
     },
+    { adapter: "claude", model: "@cf/zai-org/glm-5.2", expectedValues: [] },
     { adapter: "claude", model: "unknown-model", expectedValues: [] },
     {
       adapter: "codex",

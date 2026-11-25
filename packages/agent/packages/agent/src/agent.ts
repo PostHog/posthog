@@ -4,7 +4,7 @@ import {
   mergePrUrls,
   readPrUrls,
 } from "@posthog/agent-contracts";
-import { isRetiredModel } from "@posthog/agent-contracts/model-catalog";
+import { listedModelFor } from "@posthog/agent-contracts/model-catalog";
 import {
   buildPosthogDistinctIdHeaderLines,
   buildPosthogDistinctIdHeaderRecord,
@@ -197,10 +197,7 @@ export class Agent {
         : undefined;
 
     let codexModels: ModelInfo[] | undefined;
-    let sanitizedModel =
-      options.model && !isRetiredModel(options.model)
-        ? options.model
-        : undefined;
+    let sanitizedModel = options.model;
     if (codexSubscription) {
       const looksOpenAi =
         sanitizedModel?.startsWith("gpt-") ||
@@ -229,7 +226,11 @@ export class Agent {
         codexModels = gatewayCodexModels;
       }
 
-      if (!sanitizedModel || !allowedModelIds.includes(sanitizedModel)) {
+      const savedModelIsServed =
+        sanitizedModel !== undefined &&
+        (allowedModelIds.includes(sanitizedModel) ||
+          listedModelFor(sanitizedModel)?.allowed === true);
+      if (!savedModelIsServed) {
         sanitizedModel = allowedModelIds.includes(DEFAULT_CODEX_MODEL)
           ? DEFAULT_CODEX_MODEL
           : (allowedModelIds[0] ?? sanitizedModel);

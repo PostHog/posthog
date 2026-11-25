@@ -23,6 +23,7 @@ import type { StoredLogEntry } from '../types/wireTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
+import { loadTestModelCatalogue } from './modelCatalogueFixture'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
@@ -234,6 +235,7 @@ describe('runInteractionLogic', () => {
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
         window.localStorage.clear()
         initKeaTests()
+        loadTestModelCatalogue()
         project = projectLogic()
         project.mount()
         toolEvents = toolStreamEventsLogic()
@@ -1444,6 +1446,28 @@ describe('runInteractionLogic', () => {
         ])
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.composerForm.draft).toBe('also check the result')
+    })
+
+    it('resumes a finished run on its own harness when the model list does not describe its model', async () => {
+        runInteractionLogic({
+            taskId: TASK_ID,
+            runId: RUN_ID,
+            onRunStarted,
+            currentModel: 'gpt-5.5-codex',
+            currentRuntimeAdapter: 'codex',
+            currentEffort: 'xhigh',
+        })
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ runtime_adapter: 'codex', model: 'gpt-5.5-codex', reasoning_effort: 'xhigh' }),
+            expect.anything()
+        )
     })
 
     it.each(['failure', 'missing run'])(

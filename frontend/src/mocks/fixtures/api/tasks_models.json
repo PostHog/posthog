@@ -1,0 +1,605 @@
+{
+    "models": [
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-fable-5",
+            "display_name": "Claude Fable 5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "5×",
+            "cost_summary": "Input $10 · Output $50 per 1M tokens",
+            "offered": false,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-fable-5-1",
+            "display_name": "Claude Fable 5.1",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "5×",
+            "cost_summary": "Input $10 · Output $50 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-fable-5-2",
+            "display_name": "Claude Fable 5.2",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "4×",
+            "cost_summary": "Input $8 · Output $40 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-4-5",
+            "display_name": "Claude Opus 4.5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high"
+            ],
+            "cost_multiplier": "2.5×",
+            "cost_summary": "Input $5 · Output $25 per 1M tokens",
+            "offered": false,
+            "context_window": 200000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-4-6",
+            "display_name": "Claude Opus 4.6",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "max"
+            ],
+            "cost_multiplier": "2.5×",
+            "cost_summary": "Input $5 · Output $25 per 1M tokens",
+            "offered": false,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-4-7",
+            "display_name": "Claude Opus 4.7",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "2.5×",
+            "cost_summary": "Input $5 · Output $25 per 1M tokens",
+            "offered": false,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-4-8",
+            "display_name": "Claude Opus 4.8",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "2.5×",
+            "cost_summary": "Input $5 · Output $25 per 1M tokens",
+            "offered": false,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-5",
+            "display_name": "Claude Opus 5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "2.5×",
+            "cost_summary": "Input $5 · Output $25 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-opus-5-5",
+            "display_name": "Claude Opus 5.5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "2×",
+            "cost_summary": "Input $4 · Output $20 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-4-6",
+            "display_name": "Claude Sonnet 4.6",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "max"
+            ],
+            "cost_multiplier": "1.5×",
+            "cost_summary": "Input $3 · Output $15 per 1M tokens",
+            "offered": false,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-5",
+            "display_name": "Claude Sonnet 5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-5-5",
+            "display_name": "Claude Sonnet 5.5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode"
+            ],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "deepseek-ai/deepseek-v4-flash-0731",
+            "display_name": "Deepseek V4 Flash 0731",
+            "supported_efforts": [
+                "low",
+                "high",
+                "max"
+            ],
+            "cost_multiplier": "≈0.05×",
+            "cost_summary": "Input $0.13 · Output $0.26 per 1M tokens",
+            "offered": false,
+            "context_window": 1048000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+            "display_name": "Deepseek V4.1 Flash 1017 Fast",
+            "supported_efforts": [],
+            "cost_multiplier": "≈0.27×",
+            "cost_summary": "Input $0.60 · Output $2.40 per 1M tokens",
+            "offered": true,
+            "context_window": 1048000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-4.1",
+            "display_name": "GPT-4.1",
+            "supported_efforts": [],
+            "cost_multiplier": "≈0.9×",
+            "cost_summary": "Input $2 · Output $8 per 1M tokens",
+            "offered": false,
+            "context_window": 1047576,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-4o",
+            "display_name": "GPT-4o",
+            "supported_efforts": [],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $2.50 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 128000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-4o-2024-08-06",
+            "display_name": "GPT-4o (2024-08-06)",
+            "supported_efforts": [],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $2.50 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 128000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-4o-2024-11-20",
+            "display_name": "GPT-4o (2024-11-20)",
+            "supported_efforts": [],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $2.50 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 128000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5",
+            "display_name": "GPT-5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high"
+            ],
+            "cost_multiplier": "≈0.81×",
+            "cost_summary": "Input $1.25 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 400000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5-mini",
+            "display_name": "GPT-5 Mini",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high"
+            ],
+            "cost_multiplier": "≈0.16×",
+            "cost_summary": "Input $0.25 · Output $2 per 1M tokens",
+            "offered": false,
+            "context_window": 400000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.1",
+            "display_name": "GPT-5.1",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high"
+            ],
+            "cost_multiplier": "≈0.81×",
+            "cost_summary": "Input $1.25 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 400000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.2",
+            "display_name": "GPT-5.2",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+            ],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $1.75 · Output $14 per 1M tokens",
+            "offered": false,
+            "context_window": 400000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.3-codex",
+            "display_name": "GPT-5.3 Codex",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+            ],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $1.75 · Output $14 per 1M tokens",
+            "offered": false,
+            "context_window": 400000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.4",
+            "display_name": "GPT-5.4",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+            ],
+            "cost_multiplier": "≈1.4×",
+            "cost_summary": "Input $2.50 · Output $15 per 1M tokens",
+            "offered": false,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.5",
+            "display_name": "GPT-5.5",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+            ],
+            "cost_multiplier": "≈2.8×",
+            "cost_summary": "Input $5 · Output $30 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.6-luna",
+            "display_name": "GPT-5.6 Luna",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "≈0.11×",
+            "cost_summary": "Input $0.20 · Output $1.20 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.6-sol",
+            "display_name": "GPT-5.6 Sol",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "2×",
+            "cost_summary": "Input $4 · Output $20 per 1M tokens",
+            "offered": false,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.6-terra",
+            "display_name": "GPT-5.6 Terra",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "≈1.1×",
+            "cost_summary": "Input $2 · Output $12 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6-astra",
+            "display_name": "GPT-6 Astra",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "5×",
+            "cost_summary": "Input $10 · Output $50 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6-luna",
+            "display_name": "GPT-6 Luna",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "0.05×",
+            "cost_summary": "Input $0.10 · Output $0.50 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6-sol",
+            "display_name": "GPT-6 Sol",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": false,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6.1-sol",
+            "display_name": "GPT-6.1 Sol",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6.2-astra",
+            "display_name": "GPT-6.2 Astra",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "4×",
+            "cost_summary": "Input $8 · Output $40 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "codex",
+            "model": "gpt-6.2-sol",
+            "display_name": "GPT-6.2 Sol",
+            "supported_efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+            ],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": true,
+            "context_window": 1050000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "moonshotai/kimi-k3",
+            "display_name": "Kimi K3",
+            "supported_efforts": [],
+            "cost_multiplier": "1.5×",
+            "cost_summary": "Input $3 · Output $15 per 1M tokens",
+            "offered": false,
+            "context_window": 1048576,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "moonshotai/kimi-k3.1-pro",
+            "display_name": "Kimi K3.1 Pro",
+            "supported_efforts": [],
+            "cost_multiplier": "1×",
+            "cost_summary": "Input $2 · Output $10 per 1M tokens",
+            "offered": true,
+            "context_window": 1048576,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "zai-org/glm-5.2",
+            "display_name": "GLM-5.2",
+            "supported_efforts": [],
+            "cost_multiplier": "≈0.57×",
+            "cost_summary": "Input $1.40 · Output $4.40 per 1M tokens",
+            "offered": false,
+            "context_window": 262144,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "zai-org/glm-5.3",
+            "display_name": "GLM-5.3",
+            "supported_efforts": [
+                "low",
+                "high",
+                "max"
+            ],
+            "cost_multiplier": "≈0.57×",
+            "cost_summary": "Input $1.40 · Output $4.40 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        },
+        {
+            "runtime_adapter": "claude",
+            "model": "zai-org/glm-5.3-flash",
+            "display_name": "GLM-5.3-Flash",
+            "supported_efforts": [],
+            "cost_multiplier": "≈0.06×",
+            "cost_summary": "Input $0.15 · Output $0.50 per 1M tokens",
+            "offered": true,
+            "context_window": 1000000,
+            "allowed": true
+        }
+    ],
+    "cost_baseline": "Claude Sonnet 5"
+}

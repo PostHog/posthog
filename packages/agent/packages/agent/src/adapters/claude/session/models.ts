@@ -1,5 +1,6 @@
 import {
   DEFAULT_OPTION_META_KEY,
+  isAnthropicModelId,
   OPTION_DOCS_URL_META_KEY,
   supports1MContext,
   supportsFastMode,
@@ -8,7 +9,10 @@ import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
 } from "@posthog/agent-contracts/domain-types";
-import { reasoningEffortsForModel } from "@posthog/agent-contracts/model-catalog";
+import {
+  listedModelFor,
+  reasoningEffortsForModel,
+} from "@posthog/agent-contracts/model-catalog";
 import type { EffortLevel, NewSessionMeta } from "../types";
 
 export const DEFAULT_MODEL = "opus";
@@ -93,7 +97,11 @@ export function resolveEffortForModel(
   effort: EffortLevel | undefined,
 ): EffortLevel | undefined {
   if (effort) return effort;
-  return supportsEffort(modelId) ? DEFAULT_EFFORT : undefined;
+  if (supportsEffort(modelId)) return DEFAULT_EFFORT;
+  // Claude's current models reject a request with thinking off, so one the listing never described keeps the default.
+  return listedModelFor(modelId) === undefined && isAnthropicModelId(modelId)
+    ? DEFAULT_EFFORT
+    : undefined;
 }
 
 export function supportsXhighEffort(modelId: string): boolean {

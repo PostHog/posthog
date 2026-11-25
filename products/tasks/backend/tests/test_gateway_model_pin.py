@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from syrupy.extensions.json import JSONSnapshotExtension
@@ -8,6 +11,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     MAX_GATEWAY_PIN_LENGTH,
     PRODUCT_ALLOWED_MODELS,
     FamilyModels,
+    admitted_listing,
     family_models,
     gateway_pin,
     model_allowed_by_product_pin,
@@ -166,16 +170,27 @@ def test_a_live_run_keeps_to_the_models_its_token_was_minted_with(
 
 
 @pytest.mark.parametrize(
-    "product,expected",
+    "product,offered,admitted",
     [
-        pytest.param("signals_scout", ["gpt-6.3-sol", "claude-sonnet-5", "gpt-4o"], id="product_with_no_pin"),
-        pytest.param("onboarding", ["claude-sonnet-5"], id="product_with_a_fixed_list"),
-        pytest.param("slack_app", ["gpt-6.3-sol", "claude-sonnet-5"], id="product_with_families"),
+        pytest.param(
+            "signals_scout",
+            ["gpt-6.2-sol", "gpt-6.3-sol", "gpt-6.4-sol", "claude-sonnet-5", "gpt-4o"],
+            ["gpt-6.2-sol", "gpt-6.3-sol", "gpt-6.4-sol", "claude-sonnet-5", "gpt-4o"],
+            id="product_with_no_pin",
+        ),
+        pytest.param("onboarding", ["claude-sonnet-5"], ["claude-sonnet-5"], id="product_with_a_fixed_list"),
+        pytest.param(
+            "slack_app",
+            ["gpt-6.3-sol", "gpt-6.4-sol", "claude-sonnet-5"],
+            ["gpt-6.2-sol", "gpt-6.3-sol", "gpt-6.4-sol", "claude-sonnet-5"],
+            id="product_with_families",
+        ),
     ],
 )
-def test_what_a_product_is_offered(product: str, expected: list[str]) -> None:
-    listing = (_V3, _listed("claude-sonnet-5", family="claude-sonnet"), _listed("gpt-4o", family="gpt-omni"))
-    assert [listed.id for listed in offered_listing(product, listing)] == expected
+def test_what_a_product_is_offered_and_may_call(product: str, offered: list[str], admitted: list[str]) -> None:
+    listing = (_V2, _V3, _V4, _listed("claude-sonnet-5", family="claude-sonnet"), _listed("gpt-4o", family="gpt-omni"))
+    assert [listed.id for listed in offered_listing(product, listing)] == offered
+    assert [listed.id for listed in admitted_listing(product, listing)] == admitted
 
 
 def test_family_models_never_push_the_pin_past_the_gateway_limit() -> None:
@@ -256,3 +271,18 @@ def test_what_each_product_may_call_and_offer_from_the_saved_listing(snapshot) -
         for product in sorted(PRODUCT_ALLOWED_MODELS)
     }
     assert recorded == snapshot(extension_class=JSONSnapshotExtension)
+
+
+_AGENT_TESTING = Path(__file__).resolve().parents[4] / "packages" / "agent" / "packages" / "agent-contracts" / "testing"
+
+
+def test_the_agent_workspace_reads_this_saved_listing() -> None:
+    backend_copy = Path(__file__).parent / "fixtures" / "gateway_models.json"
+
+    assert json.loads((_AGENT_TESTING / "gateway-models.json").read_text()) == json.loads(backend_copy.read_text())
+
+
+def test_the_agent_workspace_expects_what_the_desktop_product_offers() -> None:
+    offered = sorted(listed.id for listed in offered_listing("posthog_code", saved_gateway_listing()))
+
+    assert json.loads((_AGENT_TESTING / "offered-models.json").read_text()) == offered

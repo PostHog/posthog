@@ -1,8 +1,11 @@
+import { useValues } from 'kea'
+
 import { Text } from '@posthog/quill'
 
-import { COST_BASELINE_LABEL } from 'products/tasks/frontend/modelCatalog.generated'
+import { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 
 export function QuillModelCostFooter(): JSX.Element {
+    const { costBaselineLabel } = useValues(modelCatalogueLogic)
     return (
         <Text
             size="xxs"
@@ -11,7 +14,7 @@ export function QuillModelCostFooter(): JSX.Element {
             data-attr="model-cost-legend"
             render={<div className="m-0" />}
         >
-            × is cost per token vs {COST_BASELINE_LABEL}
+            × is cost per token vs {costBaselineLabel}
         </Text>
     )
 }

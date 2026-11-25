@@ -119,6 +119,7 @@ from products.tasks.backend.facade.metrics import (
 from products.tasks.backend.facade.model_catalogue import (
     FREE_TIER_PIN_KEY,
     TASK_RUN_GATEWAY_PRODUCT,
+    cost_baseline_label,
     plan_model_choices,
 )
 from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
@@ -151,6 +152,7 @@ from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
+    ModelCatalogueQuerySerializer,
     ModelCatalogueResponseSerializer,
     PinnedTaskIdsResponseSerializer,
     RepositoryReadinessQuerySerializer,
@@ -1329,8 +1331,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ).data
         )
 
-    @extend_schema(
-        responses={200: ModelCatalogueResponseSerializer},
+    @validated_request(
+        query_serializer=ModelCatalogueQuerySerializer,
+        responses={200: OpenApiResponse(response=ModelCatalogueResponseSerializer)},
         summary="List available models",
         description=(
             "Return the models a task run may use, with the reasoning efforts each one supports. "
@@ -1343,8 +1346,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
     def models(self, request, **kwargs):
         plan_pin = FREE_TIER_PIN_KEY if posthog_code_plan(self.team) == "free" else TASK_RUN_GATEWAY_PRODUCT
-        choices = plan_model_choices(TASK_RUN_GATEWAY_PRODUCT, plan_pin)
-        return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
+        choices = plan_model_choices(
+            TASK_RUN_GATEWAY_PRODUCT, plan_pin, include_unoffered=request.validated_query_data["include_unoffered"]
+        )
+        return Response(
+            ModelCatalogueResponseSerializer({"models": choices, "cost_baseline": cost_baseline_label()}).data
+        )
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])

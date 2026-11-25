@@ -11,7 +11,6 @@ import { iconSizes, radii, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import {
-    COST_BASELINE_LABEL,
     catalogueEntry,
     defaultModelSelection,
     EFFORT_LABELS,
@@ -151,8 +150,8 @@ export function ModelPage({
                                         ))}
                                 </View>
                             ))}
-                            {showsCost ? (
-                                <Text style={styles.footnote}>× is cost per token vs {COST_BASELINE_LABEL}</Text>
+                            {showsCost && catalogue.costBaseline ? (
+                                <Text style={styles.footnote}>× is cost per token vs {catalogue.costBaseline}</Text>
                             ) : null}
                         </ScrollView>
                     </GestureDetector>

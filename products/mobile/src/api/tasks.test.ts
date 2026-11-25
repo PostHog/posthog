@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { listMySessions, SESSION_LIST_LIMIT } from './tasks'
+import { getTaskModels, listMySessions, SESSION_LIST_LIMIT } from './tasks'
 
 describe('listMySessions', () => {
     afterEach(() => {
@@ -30,5 +30,39 @@ describe('listMySessions', () => {
             limit: String(SESSION_LIST_LIMIT),
             exclude_origin_product: 'signals_scout',
         })
+    })
+})
+
+describe('getTaskModels', () => {
+    afterEach(() => {
+        setAuthProvider(null)
+    })
+
+    test.each([
+        ['a row from an older server that sends no offered field', {}, true],
+        ['an offered row', { offered: true }, true],
+        ['a row the server no longer offers', { offered: false }, false],
+    ])('reads %s', async (_case, sent, offered) => {
+        setAuthProvider({
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
+            refreshAccessToken: async () => null,
+        })
+        const row = {
+            runtime_adapter: 'claude',
+            model: 'claude-opus-5-5',
+            display_name: 'Claude Opus 5.5',
+            supported_efforts: [],
+            ...sent,
+        }
+        globalThis.fetch = jest.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => JSON.stringify({ models: [row] }),
+        })) as unknown as typeof fetch
+
+        const catalogue = await getTaskModels({ host: 'https://app.example.com', projectId: 2 })
+
+        expect(catalogue).toEqual({ costBaseline: null, models: [{ ...row, offered }] })
     })
 })

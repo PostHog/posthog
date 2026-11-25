@@ -83,7 +83,7 @@ function PreferenceEditor({
         }))
         // On the last group, so it reads as closing the whole list rather than that one harness.
         const last = groups.at(-1)
-        const anyCost = groups.some((group) => group.options.some((option) => getModelCost(option.value)))
+        const anyCost = groups.some((group) => group.options.some((option) => getModelCost(catalogue, option.value)))
         if (last && anyCost) {
             return [
                 ...groups.slice(0, -1),
@@ -91,7 +91,7 @@ function PreferenceEditor({
             ]
         }
         return groups
-    }, [offeredModels, todayRailNav])
+    }, [catalogue, offeredModels, todayRailNav])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
     const editingDisabled = restrictionReason ?? (saving ? 'Saving…' : undefined)
 

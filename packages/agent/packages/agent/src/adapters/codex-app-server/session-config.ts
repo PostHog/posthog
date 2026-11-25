@@ -7,6 +7,7 @@ import {
   type CodexModePreset,
   DEFAULT_OPTION_META_KEY,
   type ExecutionMode,
+  gatewayListingMeta,
   resolveCloudInitialPermissionMode,
   restrictedModelMeta,
 } from "@posthog/agent-contracts";
@@ -199,6 +200,7 @@ export function buildConfigOptions(s: ConfigSelectors): SessionConfigOption[] {
       id: "model",
       name: "Model",
       category: "model",
+      _meta: gatewayListingMeta(),
       currentValue: s.model,
       options: models.map(
         (m): SessionConfigSelectOption => ({

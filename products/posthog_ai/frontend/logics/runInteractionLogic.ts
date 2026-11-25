@@ -25,6 +25,7 @@ import { type AttachedContextItem, attachedContextItemKey } from '~/layout/ai/at
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 import {
+    type RunningSelection,
     buildRunCreateRequest,
     getDefaultModelForTaskRuntime,
     getRuntimeAdapterForModel,
@@ -255,6 +256,7 @@ export interface runInteractionLogicValues {
     queueHold: QueueHold
     queuedMessages: QueuedMessage[]
     replySuggestion: string | null
+    runningSelection: RunningSelection
     selectedEffort: ReasoningEffortEnumApi
     selectedMode: PermissionMode
     selectedModel: string
@@ -625,6 +627,7 @@ export interface runInteractionLogicMeta {
             selectedModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
+        runningSelection: (arg: any, arg2: any, sessionBaseline: SessionBaseline) => RunningSelection
         selectedMode: (
             unsentStartupMode: PermissionMode | null,
             modeOverride: PermissionMode | null,
@@ -1190,6 +1193,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ): ReasoningEffortEnumApi =>
                 resolveEffortForModel(catalogue, override ?? sessionEffort ?? current ?? baseline.effort, model),
         ],
+        runningSelection: [
+            (s) => [(_, p) => p.currentRuntimeAdapter, (_, p) => p.currentEffort, s.sessionBaseline],
+            (
+                adapter: string | null | undefined,
+                effort: string | null | undefined,
+                baseline: SessionBaseline
+            ): RunningSelection => ({ adapter, effort: effort ?? baseline.effort }),
+        ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
         // default. The wire values are narrowed via `getModeOption` — an unrecognized mode string (a future
@@ -1361,12 +1372,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedModel,
                 values.selectedEffort,
                 values.selectedMode,
-                { resume_from_run_id: props.runId }
+                { resume_from_run_id: props.runId },
+                values.runningSelection
             )
             getWarmLogic()?.actions.noteDraft(
                 Boolean(values.composerForm.draft.trim()),
                 createRequest as WarmTaskResumeRequestApi,
-                !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel))
+                !usesChatGptPlan(
+                    getRuntimeAdapterForModel(values.catalogue, values.selectedModel, props.currentRuntimeAdapter)
+                )
             )
         }
 
@@ -1785,7 +1799,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         mode: TaskExecutionModeEnumApi.Interactive,
                     }
                     const codexModelAccess = pickedCodexModelAccess(
-                        getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
+                        getRuntimeAdapterForModel(values.catalogue, values.selectedModel, props.currentRuntimeAdapter)
                     )
                     const createRequest = isPiTaskRuntime(props.taskRuntime)
                         ? {
@@ -1801,7 +1815,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                               {
                                   ...resumeRequest,
                                   ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
-                              }
+                              },
+                              values.runningSelection
                           )
                     // The task already exists here, so staged artifacts hold the files whether this request
                     // activates a warm run or cold-boots one.

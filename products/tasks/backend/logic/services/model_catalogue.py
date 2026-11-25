@@ -67,6 +67,8 @@ class ModelChoice:
     label: str
     supported_efforts: tuple[str, ...]
     cost_multiplier: str | None = None
+    cost_summary: str | None = None
+    offered: bool = True
     context_window: int = 0
     allowed: bool = True
 
@@ -154,7 +156,9 @@ def _cost(listed: GatewayModel | None) -> model_catalog.ModelCost | None:
     return model_catalog.ModelCost(listed.input_per_mtok, listed.output_per_mtok)
 
 
-def _choices(rows: Iterable[GatewayModel], listing: tuple[GatewayModel, ...]) -> tuple[ModelChoice, ...]:
+def _choices(
+    rows: Iterable[GatewayModel], listing: tuple[GatewayModel, ...], offered: frozenset[str] | None = None
+) -> tuple[ModelChoice, ...]:
     baseline = _cost(next((listed for listed in listing if listed.id == COST_BASELINE_MODEL), None))
     choices = []
     for listed in rows:
@@ -171,13 +175,15 @@ def _choices(rows: Iterable[GatewayModel], listing: tuple[GatewayModel, ...]) ->
                 cost_multiplier=model_catalog.cost_multiplier_label_for_cost(cost, baseline)
                 if cost and baseline
                 else None,
+                cost_summary=model_catalog.format_cost_rates(cost) if cost and baseline else None,
+                offered=offered is None or listed.id in offered,
                 context_window=listed.context_window,
             )
         )
     return tuple(choices)
 
 
-def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
+def available_model_choices(product: Product, *, include_unoffered: bool = False) -> tuple[ModelChoice, ...]:
     """Every model a run on the given gateway product may use.
 
     Empty when the gateway is unreachable — callers must treat that as "no choice to
@@ -185,13 +191,20 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     a run to a model the gateway would reject anyway.
     """
     listing = list_gateway_models(product)
-    return _choices(offered_listing(product, listing), listing)
+    offered = offered_listing(product, listing)
+    if not include_unoffered:
+        return _choices(offered, listing)
+    return _choices(admitted_listing(product, listing), listing, frozenset(listed.id for listed in offered))
 
 
-def plan_model_choices(product: Product, plan_pin: str) -> tuple[ModelChoice, ...]:
+def cost_baseline_label() -> str:
+    return display_name_for_model(COST_BASELINE_MODEL)
+
+
+def plan_model_choices(product: Product, plan_pin: str, *, include_unoffered: bool = False) -> tuple[ModelChoice, ...]:
     return tuple(
         replace(choice, allowed=model_allowed_by_product_pin(plan_pin, choice.model))
-        for choice in available_model_choices(product)
+        for choice in available_model_choices(product, include_unoffered=include_unoffered)
     )
 
 
@@ -272,6 +285,7 @@ __all__ = [
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
+    "cost_baseline_label",
     "models_for_runtime_adapter",
     "offered_model_choices",
     "plan_model_choices",

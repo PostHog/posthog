@@ -206,7 +206,7 @@ import {
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, rememberGatewayListingFrom } from "@posthog/shared";
 import { sandboxProxyHtml } from "@posthog/shared/mcp-sandbox-proxy";
 import { authUiModule } from "@posthog/ui/features/auth/auth.module";
 import {
@@ -867,6 +867,7 @@ container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
         apiHost,
         adapter,
       });
+      rememberGatewayListingFrom(options);
       return selectModelFromOptions(options, preferredModel);
     } catch (error) {
       reportModelResolverLog.warn("Failed to resolve default model", {

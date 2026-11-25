@@ -16,7 +16,10 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**"],
     isolate: true,
     // Session options write a settings file under the Claude config dir.
-    setupFiles: ["src/test/per-worker-claude-config.ts"],
+    setupFiles: [
+      "src/test/per-worker-claude-config.ts",
+      "src/test/saved-gateway-listing.ts",
+    ],
     env: { LLM_GATEWAY_URL: "http://llm-gateway.internal:8080" },
     coverage: {
       provider: "v8",

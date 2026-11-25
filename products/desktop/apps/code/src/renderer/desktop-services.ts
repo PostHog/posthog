@@ -74,6 +74,7 @@ import {
   type Adapter,
   AUTORESEARCH_FLAG,
   type CloudRegion,
+  rememberGatewayListingFrom,
 } from "@posthog/shared";
 import {
   AUTH_SIDE_EFFECTS,
@@ -174,6 +175,7 @@ container.bind<ReportModelResolver>(REPORT_MODEL_RESOLVER).toConstantValue({
         apiHost,
         adapter,
       });
+      rememberGatewayListingFrom(options);
       return selectModelFromOptions(options, preferredModel);
     } catch (error) {
       reportModelResolverLog.warn("Failed to resolve default model", {

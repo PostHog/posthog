@@ -1,5 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "include_unoffered": {
+            "default": false,
+            "description": "Also list the models a run may still use that no picker offers, such as older versions of a model family. Each row's `offered` field tells the two apart. Defaults to false.",
+            "type": "boolean"
+        }
+    },
     "type": "object"
 }

@@ -9,11 +9,10 @@ import {
     TaskRunCreateRequestSchemaApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
     CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
-    MODELS,
     REASONING_EFFORT_LABELS,
     RUNTIME_OPTIONS,
 } from 'products/tasks/frontend/modelCatalog.generated'
@@ -24,14 +23,6 @@ export interface ComposerEffortOption {
     value: ReasoningEffortEnumApi
     label: string
 }
-
-// What a thinking model supports at minimum. Only reached for a model the catalogue does not describe, which now means
-// a run started on a model since retired from the catalog.
-const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
-    ReasoningEffortEnumApi.Low,
-    ReasoningEffortEnumApi.Medium,
-    ReasoningEffortEnumApi.High,
-]
 
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
@@ -58,7 +49,7 @@ export function getEffortsForModel(
     catalogue: ModelChoiceApi[],
     model: string | null | undefined
 ): ComposerEffortOption[] {
-    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? FALLBACK_EFFORTS
+    const efforts = catalogueEntry(catalogue, model)?.supported_efforts ?? []
     return efforts.map((value) => ({ value, label: EFFORT_LABELS[value] ?? value }))
 }
 
@@ -67,9 +58,11 @@ export function getEffortsForModel(
 // model the catalogue hasn't described — the fallback lineup is Claude-only.
 export function getRuntimeAdapterForModel(
     catalogue: ModelChoiceApi[],
-    model: string | null | undefined
+    model: string | null | undefined,
+    runningAdapter?: string | null
 ): RuntimeAdapterEnumApi {
-    return catalogueEntry(catalogue, model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
+    const running = Object.values(RuntimeAdapterEnumApi).find((adapter) => adapter === runningAdapter)
+    return catalogueEntry(catalogue, model)?.runtime_adapter ?? running ?? RuntimeAdapterEnumApi.Claude
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
@@ -100,7 +93,7 @@ export function modelsForRuntimeAdapter(
 // every keystroke.
 export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
     const selected = catalogueEntry(catalogue, selectedModel)
-    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+    return catalogue.filter((option) => option.offered || option.model === selected?.model)
 }
 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
@@ -169,15 +162,12 @@ export interface ModelCostDisplay {
 }
 
 /** What a model costs, or `null` where the catalog quotes no rate and a picker shows none. */
-export function getModelCost(model: string | null | undefined): ModelCostDisplay | null {
-    if (!model) {
+export function getModelCost(catalogue: ModelChoiceApi[], model: string | null | undefined): ModelCostDisplay | null {
+    const entry = catalogueEntry(catalogue, model)
+    if (!entry?.cost_multiplier || !entry.cost_summary) {
         return null
     }
-    const entry = MODELS.find((candidate) => candidate.id === normalizeModelId(model))
-    if (!entry?.costMultiplier || !entry.costSummary) {
-        return null
-    }
-    return { multiplier: entry.costMultiplier, summary: entry.costSummary }
+    return { multiplier: entry.cost_multiplier, summary: entry.cost_summary }
 }
 
 // Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of
@@ -235,18 +225,26 @@ export function buildServerResolvedRunCreateRequest(
  * differently — so which runtime a model belongs to has to be decided in one place rather than assumed at each
  * call site. Everything else the caller needs (branch, resume id, message) rides along in `rest`.
  */
+export interface RunningSelection {
+    adapter?: string | null
+    effort?: string | null
+}
+
 export function buildRunCreateRequest(
     catalogue: ModelChoiceApi[],
     model: string,
     reasoningEffort: ReasoningEffortEnumApi,
     permissionMode: PermissionMode,
-    rest: Partial<TaskRunCreateRequestSchemaApi>
+    rest: Partial<TaskRunCreateRequestSchemaApi>,
+    running: RunningSelection = {}
 ): TaskRunCreateRequestSchemaApi {
     // A model with no effort control rejects any effort at all — `get_reasoning_effort_error` answers
     // "Supported values: none" — so the field is left off rather than sent with a display fallback.
-    const effort = getEffortsForModel(catalogue, model).length ? reasoningEffort : undefined
+    const entry = catalogueEntry(catalogue, model)
+    const runningEffort = Object.values(ReasoningEffortEnumApi).find((candidate) => candidate === running.effort)
+    const effort = entry ? (entry.supported_efforts.length ? reasoningEffort : undefined) : runningEffort
 
-    if (getRuntimeAdapterForModel(catalogue, model) === CodexRuntimeAdapterEnumApi.Codex) {
+    if (getRuntimeAdapterForModel(catalogue, model, running.adapter) === CodexRuntimeAdapterEnumApi.Codex) {
         return {
             ...rest,
             runtime_adapter: CodexRuntimeAdapterEnumApi.Codex,

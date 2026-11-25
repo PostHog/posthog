@@ -3,80 +3,33 @@ import {
   getCapabilityLadder,
   getContextWindowOptions,
   getFastModeOptions,
-  isLaunchableReasoningEffort,
   isSupportedReasoningEffort,
 } from "./reasoning-effort";
 
-describe("isLaunchableReasoningEffort", () => {
+describe("isSupportedReasoningEffort", () => {
   it.each([
+    ["codex", "gpt-5.5", "xhigh", true],
+    ["codex", "gpt-5.5", "max", false],
+    ["codex", "gpt-5.5", "ultra", false],
+    ["codex", "gpt-5.3-codex", "xhigh", true],
+    ["codex", "gpt-5.6-luna", "xhigh", true],
+    ["codex", "gpt-5.6-sol", "max", true],
+    ["claude", "claude-opus-4-8", "xhigh", true],
+    ["claude", "claude-sonnet-4-6", "xhigh", false],
+    ["claude", "claude-sonnet-4-6", "max", true],
+    ["claude", "deepseek-ai/deepseek-v4-flash-0731", "high", true],
+    ["claude", "gpt-5.5", "high", false],
     ["codex", "gpt-6.3-sol", "max", true],
     ["codex", "openai/gpt-6.3-sol", "max", true],
     ["codex", "gpt-6.3-sol", "ultracode", false],
     ["codex", "gpt-6.3-sol", "ultra", false],
+    ["codex", "gpt-5.5-codex", "xhigh", true],
     ["claude", "claude-opus-9", "ultracode", true],
-    ["codex", "gpt-5.5", "xhigh", true],
-    ["codex", "gpt-5.5", "max", true],
-    ["claude", "claude-sonnet-4-6", "max", true],
-    ["claude", "deepseek-ai/deepseek-v4-flash-0731", "high", true],
-  ] as const)(
-    "launches %s %s at %s: %s",
-    (adapter, modelId, effort, expected) => {
-      expect(isLaunchableReasoningEffort(adapter, modelId, effort)).toBe(
-        expected,
-      );
-    },
-  );
-});
-
-describe("isSupportedReasoningEffort", () => {
-  it("accepts xhigh for the codex gpt-5.5 family", () => {
-    expect(isSupportedReasoningEffort("codex", "gpt-5.5", "xhigh")).toBe(true);
-    expect(isSupportedReasoningEffort("codex", "gpt-5.5-codex", "xhigh")).toBe(
-      true,
-    );
-  });
-
-  it("rejects xhigh for other codex models", () => {
-    expect(isSupportedReasoningEffort("codex", "gpt-5.3-codex", "xhigh")).toBe(
-      false,
-    );
-  });
-
-  it("accepts xhigh and max for the codex gpt-5.6 family", () => {
-    expect(isSupportedReasoningEffort("codex", "gpt-5.6-luna", "xhigh")).toBe(
-      true,
-    );
-    expect(isSupportedReasoningEffort("codex", "gpt-5.6-sol", "max")).toBe(
-      true,
-    );
-  });
-
-  it("rejects unknown effort values", () => {
-    expect(isSupportedReasoningEffort("codex", "gpt-5.5", "ultra")).toBe(false);
-    expect(isSupportedReasoningEffort("codex", "gpt-5.6-sol", "ultra")).toBe(
-      false,
-    );
-  });
-
-  it("gates xhigh on Claude models by id", () => {
-    expect(
-      isSupportedReasoningEffort("claude", "claude-opus-4-8", "xhigh"),
-    ).toBe(true);
-    expect(
-      isSupportedReasoningEffort("claude", "claude-sonnet-4-6", "xhigh"),
-    ).toBe(false);
-  });
-
-  it.each([
-    ["high", true],
-    ["max", true],
-    ["low", false],
-    ["medium", false],
-    ["xhigh", false],
-  ])("validates GLM 5.2 effort %s", (effort, expected) => {
-    expect(
-      isSupportedReasoningEffort("claude", "@cf/zai-org/glm-5.2", effort),
-    ).toBe(expected);
+    ["claude", "@cf/zai-org/glm-5.2", "high", true],
+    ["claude", "@cf/zai-org/glm-5.2", "low", true],
+    ["claude", "@cf/zai-org/glm-5.2", "ultracode", false],
+  ] as const)("takes %s %s at %s: %s", (adapter, modelId, effort, expected) => {
+    expect(isSupportedReasoningEffort(adapter, modelId, effort)).toBe(expected);
   });
 
   it.each([

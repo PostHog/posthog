@@ -1,6 +1,9 @@
 import type { Adapter } from "./adapter";
 import { EFFORT_LEVEL_LABELS, type EffortLevel } from "./domain-types";
-import { reasoningEffortsForModel } from "./model-catalog";
+import {
+  reasoningEffortsForModel,
+  takesReasoningEffort,
+} from "./model-catalog";
 import {
   CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
   type CapabilityNotch,
@@ -31,11 +34,7 @@ export function isSupportedReasoningEffort(
   modelId: string,
   value: string,
 ): value is SupportedReasoningEffort {
-  return (
-    getReasoningEffortOptions(adapter, modelId)?.some(
-      (option) => option.value === value,
-    ) ?? false
-  );
+  return takesReasoningEffort(adapter, modelId, value);
 }
 
 export type { CapabilityNotch };

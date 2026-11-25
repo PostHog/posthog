@@ -1,17 +1,12 @@
-import { isCustomModelOption } from "@posthog/shared";
+import { formatModelId, isCustomModelOption } from "@posthog/shared";
 import {
-  COST_BASELINE_LABEL,
   COST_BASELINE_MODEL,
-  catalogModelFor,
+  costBaselineLabel,
+  costForModel,
+  costMultiplierLabel,
+  formatCostRates,
   type ModelCost,
 } from "@posthog/shared/model-catalog";
-
-/**
- * Rates and rendered strings both come from the generated catalog, which takes
- * them from products/tasks/backend/model_catalog.py, which pins them against
- * services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py.
- * That chain is what makes a price on a chip the price the user is charged.
- */
 
 export type ModelListPrice = ModelCost;
 
@@ -47,17 +42,14 @@ export type ModelPickerOption =
   | CustomModelPickerOption
   | UnpricedModelPickerOption;
 
-/** The 1× anchor every multiplier is stated against. */
-export const MODEL_COST_BASELINE_NAME = COST_BASELINE_LABEL;
-
-export function modelListPrice(modelId: string): ModelListPrice | null {
-  return catalogModelFor(modelId)?.cost ?? null;
+export function modelCostBaselineName(): string {
+  return costBaselineLabel() ?? formatModelId(COST_BASELINE_MODEL);
 }
 
-/**
- * The quantity the catalog renders into `costMultiplier`, as a number, for the
- * callers that rank models by cost instead of naming one.
- */
+export function modelListPrice(modelId: string): ModelListPrice | null {
+  return costForModel(modelId) ?? null;
+}
+
 export function modelCostMultiplier(modelId: string): number | null {
   const price = modelListPrice(modelId);
   const baseline = modelListPrice(COST_BASELINE_MODEL);
@@ -68,12 +60,13 @@ export function modelCostMultiplier(modelId: string): number | null {
 }
 
 export function modelCostInfo(modelId: string): ModelCostInfo | null {
-  const model = catalogModelFor(modelId);
-  if (!model?.cost || !model.costMultiplier || !model.costSummary) return null;
+  const price = modelListPrice(modelId);
+  const baseline = modelListPrice(COST_BASELINE_MODEL);
+  if (!price || !baseline) return null;
   return {
-    price: model.cost,
-    multiplierLabel: model.costMultiplier,
-    summary: model.costSummary,
+    price,
+    multiplierLabel: costMultiplierLabel(price, baseline),
+    summary: formatCostRates(price),
   };
 }
 

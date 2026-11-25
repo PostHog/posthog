@@ -116,7 +116,7 @@ import {
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
-import { isLaunchableReasoningEffort } from "../adapters/reasoning-effort";
+import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -566,6 +566,7 @@ export class AgentServer {
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
   private stampedRunTraceId: string | null = null;
+  private gatewayListing: Promise<unknown> = Promise.resolve();
   private productSession: SessionBehavior = {};
   private productLaunch: ProductLaunchConfiguration;
   private taskRepositories: string[] = [];
@@ -1201,6 +1202,7 @@ export class AgentServer {
     }
 
     try {
+      await this.gatewayListing;
       const { hasSession } = await hydrateSessionJsonl({
         sessionId: priorSessionId,
         cwd,
@@ -2301,10 +2303,10 @@ export class AgentServer {
     this.stampedRunTraceId =
       gatewayEnv?.openaiCustomHeaders?.["X-PostHog-Trace-Id"] ?? null;
 
-    if (this.config.repoReadyFile && gatewayEnv?.anthropicBaseUrl) {
+    if (gatewayEnv?.anthropicBaseUrl) {
       // Authed so this cache-warm matches the session's own authed fetch
       // (the models cache is keyed on auth presence).
-      void fetchGatewayModels({
+      this.gatewayListing = fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
         projectId: Number(gatewayEnv.posthogProjectId) || undefined,
@@ -2451,7 +2453,7 @@ export class AgentServer {
               // Claude-only levels like ultracode must not leak into codex.
               reasoningEffort:
                 this.config.reasoningEffort &&
-                isLaunchableReasoningEffort(
+                isSupportedReasoningEffort(
                   "codex",
                   this.config.model ?? DEFAULT_CODEX_MODEL,
                   this.config.reasoningEffort,

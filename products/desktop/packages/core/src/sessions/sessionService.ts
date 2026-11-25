@@ -48,6 +48,7 @@ import {
   type OptimisticItem,
   type PermissionRequest,
   type QueuedMessage,
+  rememberGatewayListingFrom,
   resolveBypassRevertMode,
   type StoredLogEntry,
   sendableQueuePrefixLength,
@@ -2300,6 +2301,7 @@ export class SessionService {
       session.logUrl = logUrl;
     }
     if (persistedConfigOptions) {
+      rememberGatewayListingFrom(persistedConfigOptions);
       session.configOptions = persistedConfigOptions;
     }
     if (resolvedAdapter) {
@@ -2426,6 +2428,7 @@ export class SessionService {
         const liveConfigOptions = result.configOptions as
           | SessionConfigOption[]
           | undefined;
+        rememberGatewayListingFrom(liveConfigOptions ?? []);
 
         // Only restore persisted options the resumed session still supports:
         // it must advertise an option with the same id and still offer the
@@ -2861,6 +2864,7 @@ export class SessionService {
     const configOptions = result.configOptions as
       | SessionConfigOption[]
       | undefined;
+    rememberGatewayListingFrom(configOptions ?? []);
     session.configOptions = configOptions;
     Object.assign(session, readCapabilities(result));
 
@@ -3950,6 +3954,7 @@ export class SessionService {
         params.update.configOptions
       ) {
         const configOptions = params.update.configOptions;
+        rememberGatewayListingFrom(configOptions);
         this.d.store.updateSession(taskRunId, {
           configOptions,
         });
@@ -6685,6 +6690,10 @@ export class SessionService {
           apiHost,
           adapter,
           ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
+        .then((options) => {
+          rememberGatewayListingFrom(options);
+          return options;
         })
         .catch((err: unknown) => {
           this.d.log.warn(

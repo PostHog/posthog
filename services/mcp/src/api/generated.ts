@@ -76704,6 +76704,13 @@ export namespace Schemas {
          * @nullable
          */
       cost_multiplier?: string | null;
+      /**
+         * The list rates behind the multiplier, ready to display, such as 'Input $2 · Output $10 per 1M tokens'. Null wherever cost_multiplier is null.
+         * @nullable
+         */
+      cost_summary?: string | null;
+      /** Whether a picker should offer this model. False for an older version a run may still use, which is listed only when include_unoffered is set. */
+      offered: boolean;
       /** Largest context window the model accepts, in tokens. */
       context_window?: number;
       /** Whether the project's plan may run this model. A free plan may run only the free-tier models. */
@@ -76713,6 +76720,8 @@ export namespace Schemas {
     export interface ModelCatalogueResponse {
       /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
       models: ModelChoice[];
+      /** Display name of the model every cost_multiplier is measured against, such as 'Claude Sonnet 5'. */
+      cost_baseline: string;
     }
 
     export interface ModelStatusModel {
@@ -153648,6 +153657,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TasksModelsRetrieveParams = {
+    /**
+     * Also list the models a run may still use that no picker offers, such as older versions of a model family. Each row's `offered` field tells the two apart. Defaults to false.
+     */
+    include_unoffered?: boolean;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {

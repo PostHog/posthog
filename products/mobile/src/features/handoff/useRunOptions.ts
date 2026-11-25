@@ -13,6 +13,7 @@ import {
 } from '@/api/tasks'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
+import { DEMO_COST_BASELINE, DEMO_MODEL_CATALOGUE } from '@/demo/models'
 import { track } from '@/lib/analytics'
 import { OfflineError, whileOnline } from '@/lib/connectivity'
 
@@ -25,7 +26,6 @@ import {
     type PinnedModel,
     pinModel,
     type RunOptions,
-    STATIC_CATALOGUE,
 } from './runOptions'
 import { useRunOptionsStore } from './runOptionsStore'
 
@@ -48,6 +48,7 @@ const DEMO_DEFAULTS: ResolvedAiRunDefaultsApi = {
 
 export interface ModelCatalogueState {
     catalogue: ModelChoiceApi[]
+    costBaseline: string | null
     loading: boolean
     /** True when the request failed or the gateway listed nothing. The run then uses the default model. */
     unavailable: boolean
@@ -63,14 +64,15 @@ export function useModelCatalogue(enabled: boolean, keepModel: string | undefine
         staleTime: CATALOGUE_STALE_MS,
     })
     const catalogue = useMemo(
-        () => offeredModels(demo ? STATIC_CATALOGUE : (query.data ?? []), keepModel),
+        () => offeredModels(demo ? DEMO_MODEL_CATALOGUE : (query.data?.models ?? []), keepModel),
         [demo, query.data, keepModel]
     )
     if (demo) {
-        return { catalogue, loading: false, unavailable: false }
+        return { catalogue, costBaseline: DEMO_COST_BASELINE, loading: false, unavailable: false }
     }
     return {
         catalogue,
+        costBaseline: query.data?.costBaseline ?? null,
         loading: query.isPending && query.fetchStatus !== 'idle',
         unavailable: query.isError || (query.isSuccess && catalogue.length === 0),
     }

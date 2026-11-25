@@ -29,6 +29,11 @@ import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import {
+    TEST_MODEL_LISTING,
+    TEST_MODEL_LISTING_ROUTE,
+    loadTestModelCatalogue,
+} from '../../logics/modelCatalogueFixture'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
@@ -92,6 +97,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
+                [TEST_MODEL_LISTING_ROUTE]: TEST_MODEL_LISTING,
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
                 '/api/projects/:team/integrations/': { results: [] },
             },
@@ -111,6 +117,7 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        loadTestModelCatalogue()
         // Without PostHog AI 2.0 the scene sends `/tasks` URLs to classic PostHog AI.
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
             [FEATURE_FLAGS.TASKS]: true,

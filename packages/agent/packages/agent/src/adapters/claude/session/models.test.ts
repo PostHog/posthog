@@ -73,9 +73,9 @@ describe("model capability flags", () => {
     },
     {
       modelId: "claude-opus-4-6",
-      oneMContext: false,
+      oneMContext: true,
       effort: true,
-      xhighEffort: true,
+      xhighEffort: false,
       mcpInjection: true,
     },
     {
@@ -144,7 +144,7 @@ describe("model capability flags", () => {
     {
       modelId: "@cf/zai-org/glm-5.2",
       oneMContext: false,
-      effort: true,
+      effort: false,
       xhighEffort: false,
       mcpInjection: true,
     },
@@ -158,7 +158,7 @@ describe("model capability flags", () => {
     {
       modelId: "zai-org/glm-5.3-flash",
       oneMContext: false,
-      effort: true,
+      effort: false,
       xhighEffort: false,
       mcpInjection: true,
     },
@@ -186,12 +186,14 @@ describe("resolveEffortForModel", () => {
     ["claude-opus-5", undefined, "high"],
     ["claude-sonnet-4-6", undefined, "high"],
     ["claude-sonnet-5", undefined, "high"],
-    ["@cf/zai-org/glm-5.2", undefined, "high"],
     ["zai-org/glm-5.3", undefined, "high"],
     ["claude-opus-4-6", undefined, "high"],
     // Models without effort support stay unset (SDK disables thinking).
     ["claude-haiku-4-5", undefined, undefined],
     ["moonshotai/kimi-k3", undefined, undefined],
+    ["@cf/zai-org/glm-5.2", undefined, undefined],
+    ["claude-opus-9", undefined, "high"],
+    ["zai-org/glm-9", undefined, undefined],
     // An explicit choice is always honored, including on adaptive-only models.
     ["claude-opus-4-8", "low", "low"],
     ["claude-fable-5", "max", "max"],
@@ -207,19 +209,18 @@ describe("resolveEffortForModel", () => {
 describe("getEffortOptions", () => {
   it("returns null for models without effort support", () => {
     expect(getEffortOptions("claude-haiku-4-5")).toBeNull();
-    // Named by the catalog, but with no effort control at all.
     expect(getEffortOptions("moonshotai/kimi-k3")).toBeNull();
+    expect(getEffortOptions("@cf/zai-org/glm-5.2")).toBeNull();
+    expect(getEffortOptions("zai-org/glm-5.3-flash")).toBeNull();
   });
 
   it.each([
-    ["claude-sonnet-4-6", ["low", "medium", "high"]],
-    ["claude-opus-4-6", ["low", "medium", "high", "xhigh", "max"]],
+    ["claude-sonnet-4-6", ["low", "medium", "high", "max"]],
+    ["claude-opus-4-6", ["low", "medium", "high", "max"]],
     ["claude-opus-4-7", ["low", "medium", "high", "xhigh", "max", "ultracode"]],
-    ["@cf/zai-org/glm-5.2", ["high", "max"]],
-    ["zai-org/glm-5.3", ["high", "max"]],
-    ["zai-org/glm-5.3-flash", ["high", "max"]],
+    ["zai-org/glm-5.3", ["low", "high", "max"]],
     // A provider-qualified id resolves to the same model as the bare one.
-    ["anthropic/claude-sonnet-4-6", ["low", "medium", "high"]],
+    ["anthropic/claude-sonnet-4-6", ["low", "medium", "high", "max"]],
   ])("returns the exact effort levels for %s", (modelId, expected) => {
     expect(getEffortOptions(modelId)?.map((o) => o.value)).toEqual(expected);
   });

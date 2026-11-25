@@ -1,0 +1,20 @@
+[
+  "claude-fable-5-1",
+  "claude-fable-5-2",
+  "claude-opus-5",
+  "claude-opus-5-5",
+  "claude-sonnet-5",
+  "claude-sonnet-5-5",
+  "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+  "gpt-5.5",
+  "gpt-5.6-luna",
+  "gpt-5.6-terra",
+  "gpt-6-astra",
+  "gpt-6-luna",
+  "gpt-6.1-sol",
+  "gpt-6.2-astra",
+  "gpt-6.2-sol",
+  "moonshotai/kimi-k3.1-pro",
+  "zai-org/glm-5.3",
+  "zai-org/glm-5.3-flash"
+]
