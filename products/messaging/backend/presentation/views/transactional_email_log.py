@@ -132,7 +132,7 @@ class TransactionalEmailLogDetailSerializer(TransactionalEmailLogEntrySerializer
     )
     tracked = serializers.BooleanField(
         help_text="False when the email went out with open and click tracking off, so it can never record an open "
-        "or a click."
+        "or a click. An email sent before PostHog recorded this setting reads true."
     )
 
 

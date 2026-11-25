@@ -30,7 +30,7 @@ function StepMarker({ state }: { state: DeliveryStep['state'] }): JSX.Element {
     )
 }
 
-function isWaiting(state: DeliveryStep['state']): boolean {
+function isNotReached(state: DeliveryStep['state']): boolean {
     return state === 'pending' || state === 'untracked'
 }
 
@@ -79,7 +79,7 @@ export function TransactionalEmailDeliveryStep({
                     <span
                         className={clsx(
                             'hidden @2xl:block h-px flex-1 mx-2',
-                            isWaiting(next.state) ? 'bg-border' : 'bg-border-bold'
+                            isNotReached(next.state) ? 'bg-border' : 'bg-border-bold'
                         )}
                     />
                 )}
@@ -88,7 +88,7 @@ export function TransactionalEmailDeliveryStep({
                 <span
                     className={clsx(
                         'text-sm font-semibold',
-                        isWaiting(step.state) && 'text-secondary',
+                        isNotReached(step.state) && 'text-secondary',
                         step.state === 'failed' && 'text-danger'
                     )}
                 >

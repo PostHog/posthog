@@ -74,6 +74,11 @@ describe('buildDeliverySteps', () => {
             ['sent:done', 'delivered:done', 'opened:untracked', 'clicked:untracked'],
         ],
         [
+            'response from an API without the tracked field',
+            { ...email('delivered', ['queued', 'sent', 'delivered']), tracked: undefined as unknown as boolean },
+            ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
+        ],
+        [
             'sensitive, still waiting for a click',
             email('delivered', ['queued', 'sent', 'delivered', 'opened'], true),
             ['sent:done', 'delivered:done', 'opened:done', 'clicked:pending'],
