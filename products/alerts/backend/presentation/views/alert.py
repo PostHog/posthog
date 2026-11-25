@@ -105,6 +105,7 @@ from products.alerts.backend.facade.api import (
     calls_ai_gateway,
     forecast_detector_access_error,
     forecast_rule,
+    key_scopes_lack_metrics,
     llm_detector_access_error,
     take_alert_ownership,
     validate_alert_write,
@@ -507,12 +508,7 @@ def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> N
 
 
 def _token_lacks_metrics_scope(request) -> bool:
-    # Session auth (no token scopes) is exempt: those users are gated by team membership and
-    # insight viewer access instead.
-    key_scopes = get_authenticator_scopes(request.successful_authenticator)
-    if key_scopes is None or "*" in key_scopes:
-        return False
-    return not any(scope in key_scopes for scope in ("metrics:read", "metrics:write"))
+    return key_scopes_lack_metrics(get_authenticator_scopes(request.successful_authenticator))
 
 
 def _require_write_scope_for_charged_simulation(request, detector_config: Any) -> None:

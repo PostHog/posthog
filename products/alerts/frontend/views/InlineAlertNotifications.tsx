@@ -260,15 +260,14 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                           type: destination.enabled ? 'success' : 'default',
                       },
             ],
-            viewAction:
-                hogFunctionId && destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
-                    ? {
-                          kind: 'icon',
-                          url: urls.hogFunction(hogFunctionId),
-                          tooltip: 'Open destination',
-                          targetBlank: true,
-                      }
-                    : undefined,
+            viewAction: hogFunctionId
+                ? {
+                      kind: 'icon',
+                      url: urls.hogFunction(hogFunctionId),
+                      tooltip: 'Open destination',
+                      targetBlank: true,
+                  }
+                : undefined,
             messageAction: offersMessageAction(destination)
                 ? destinationMessageAction({
                       messageCustomized: destination.message_customized,
