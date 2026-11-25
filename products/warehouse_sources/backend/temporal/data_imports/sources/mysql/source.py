@@ -3,6 +3,10 @@ from typing import TYPE_CHECKING, Optional, cast
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.models.ssh_tunnel import (
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE,
+    SSHGatewayClosedBeforeBannerError,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -738,6 +742,8 @@ class MySQLSource(
             # generic `except Exception` branch below already applies — instead of leaking the
             # internal wording to the wizard.
             ssh_error = e.value or ""
+            if isinstance(e, SSHGatewayClosedBeforeBannerError):
+                return False, SSH_GATEWAY_CLOSED_BEFORE_BANNER_SETUP_MESSAGE
             if _SSH_FORWARD_FAILED_ERROR in ssh_error:
                 # Stays out of `get_non_retryable_errors` — see that constant's definition — so it
                 # needs its own check here rather than falling out of the loop below.

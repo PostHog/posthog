@@ -79,7 +79,12 @@ from products.warehouse_sources.backend.source_status import effective_source_st
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import query_folder_staged_at
 from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
-from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
+from products.warehouse_sources.backend.webhook_registration import (
+    route_table_on_enabled_webhook,
+    schema_needs_webhook,
+    sources_missing_webhook,
+    webhook_issues,
+)
 
 from . import contracts
 
@@ -127,6 +132,8 @@ __all__ = [
     "saved_queries_feeding_consumers",
     "schema_needs_webhook",
     "sources_missing_webhook",
+    "webhook_issues",
+    "route_table_on_enabled_webhook",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",

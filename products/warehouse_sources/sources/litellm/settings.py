@@ -22,6 +22,8 @@ class LiteLLMEndpointConfig:
     primary_key: str
     data_selector: str
     page_size_param: str | None = None
+    # The response has no page count, so a page with fewer rows than asked for is the last one.
+    pages_without_total: bool = False
     partition_key: str | None = None
     # Off for responses that carry credentials before the row map masks them.
     capture: bool = True
@@ -61,6 +63,30 @@ LITELLM_ENDPOINTS: dict[str, LiteLLMEndpointConfig] = {
         capture=False,
     ),
     "models": LiteLLMEndpointConfig(name="models", path="/model/info", primary_key="model_id", data_selector="data"),
+    "budgets": LiteLLMEndpointConfig(
+        name="budgets",
+        path="/budget/list",
+        primary_key="budget_id",
+        data_selector="$",
+        partition_key="created_at",
+    ),
+    "organizations": LiteLLMEndpointConfig(
+        name="organizations",
+        path="/organization/list",
+        primary_key="organization_id",
+        data_selector="$",
+        partition_key="created_at",
+        capture=False,
+    ),
+    "tags": LiteLLMEndpointConfig(name="tags", path="/tag/list", primary_key="name", data_selector="$"),
+    "customers": LiteLLMEndpointConfig(
+        name="customers",
+        path="/customer/list",
+        primary_key="user_id",
+        data_selector="$",
+        page_size_param="page_size",
+        pages_without_total=True,
+    ),
 }
 
 ENDPOINTS = tuple(LITELLM_ENDPOINTS)

@@ -1,12 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.github_integration_base import ReauthorizationRequired
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -207,6 +209,62 @@ class TestSlackAppSettings(APIBaseTest):
 
         assert cleared.status_code == status.HTTP_200_OK
         assert not SlackChannelSettings.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand([("connected", True), ("not_connected", False)])
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_repository_options_come_from_the_persons_own_github(
+        self, _name: str, connected: bool, mock_github_class
+    ) -> None:
+        cache.clear()
+        if connected:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="gh-1",
+                config={},
+                sensitive_config={"access_token": "gh-token"},
+            )
+        mock_github_class.return_value.list_all_cached_repositories.return_value = [
+            {"full_name": "hedgebox/web"},
+            {"full_name": "Hedgebox/api"},
+        ]
+
+        response = self.client.get(self._url("repositories/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "repositories": ["Hedgebox/api", "hedgebox/web"] if connected else [],
+            "github_connected": connected,
+        }
+
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_repository_options_ask_to_reconnect_an_expired_github(self, mock_github_class) -> None:
+        cache.clear()
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-1",
+            config={},
+            sensitive_config={"access_token": "gh-token"},
+        )
+        mock_github_class.return_value.list_all_cached_repositories.side_effect = ReauthorizationRequired()
+
+        response = self.client.get(self._url("repositories/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "Reconnect GitHub" in response.json()["detail"]
+
+    @parameterized.expand(
+        [("project_scope_only", ["integration:read"], 403), ("with_user_scope", ["integration:read", "user:read"], 200)]
+    )
+    def test_repository_options_need_the_user_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        cache.clear()
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.get(self._url("repositories/"), HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        assert response.status_code == expected
 
     @parameterized.expand(
         [
