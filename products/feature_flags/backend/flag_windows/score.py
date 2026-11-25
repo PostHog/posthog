@@ -2,9 +2,9 @@
 
 The evidence goes from strongest to weakest:
 
-- Level 1 compares the error rate of the exposed people with the rest of the people with the flag. It uses the
-  sequential test of experiments, so the window can run it again on every tick. When the exposed people are worse, the
-  window is suspicious however much time has passed.
+- Level 1 compares the error rate of the exposed people with the rest of the people with the flag, by the value that
+  each event carries. It uses the sequential test of experiments, so the window can run it again on every tick. When the
+  exposed people are worse, the window is suspicious however much time has passed.
 - Level 2 makes the same comparison by the last value that each person had, for edits without watched conditions. So it
   includes the people of a flag that only a backend evaluates, whose events carry no value for level 1.
 - Level 4 checks that each step up in exposure brings errors up by the same amount.
@@ -28,15 +28,10 @@ from posthog.dataclasses import frozen
 from products.experiments.backend.facade.contracts import Proportion, ProportionTestResult
 from products.experiments.backend.facade.stats import sequential_proportion_test
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
-from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts
-from products.feature_flags.backend.flag_windows.exposure import (
-    ConditionExposure,
-    ExposureBucket,
-    ExposureCounts,
-    exposure_share,
-)
-from products.feature_flags.backend.flag_windows.last_values import LastValueBucket, LastValueCounts
-from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
+from products.feature_flags.backend.flag_windows.errors import ErrorCounts
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, ExposureCounts, exposure_share
+from products.feature_flags.backend.flag_windows.last_values import LastValueBucket
+from products.feature_flags.backend.flag_windows.query import ConditionMatch, SplitCounts, WatchedEdit
 
 
 @frozen
@@ -97,11 +92,12 @@ WEB_PARAMETERS = ScoreParameters(
 
 @frozen
 class WindowScore:
-    # None when the test can't run: no exposure, nobody exposed or nobody unexposed, fewer than 5 people in a group, or
-    # an edit with watched conditions when `condition_match` is None or the exposure or error query doesn't find it.
+    # None when the test can't run: no exposure, nobody exposed or nobody unexposed, fewer than 5 people in a group
+    # (in the sample of the unexposed on a large flag), or an edit with watched conditions when `condition_match` is None
+    # or the exposure query doesn't find it.
     level_1: ProportionTestResult | None
     # In [0, 1]. None without the counts by last value, when nobody is exposed or nobody is unexposed, below the minimum
-    # volume, or for an edit with watched conditions.
+    # volume, with too few unexposed people to compare, or for an edit with watched conditions.
     level_2: float | None
     # In [0, 1]. None without an error rise after an exposure step, or with fewer than two rises in exposure share of at
     # least `min_share_step` between two adjacent hours.
@@ -121,6 +117,15 @@ class WindowScore:
 class _Split:
     exposed: Proportion
     unexposed: Proportion
+    unexposed_one_in: int
+
+    @property
+    def sampled_unexposed(self) -> Proportion:
+        """The unexposed people at the size of their sample. The scaled counts would look more certain than it."""
+        return Proportion(
+            trials=self.unexposed.trials // self.unexposed_one_in,
+            successes=self.unexposed.successes // self.unexposed_one_in,
+        )
 
 
 @frozen
@@ -147,9 +152,9 @@ def score_window(
     edit to the latest bucket. `last_values` holds the one-hour buckets by last value, or None when their query ran out
     of time or memory. The exposure then comes from what the events carry, and level 2 is left out. `hours` holds the
     errors of the window by the start of each UTC hour, and `baseline` the same hours of earlier weeks.
-    `condition_match` is how the exposure and error queries found the watched conditions. For an edit with watched
-    conditions, level 1 compares only the people in them, so it needs the match. For an edit without them, level 1
-    compares everyone with the flag."""
+    `condition_match` is how the exposure query found the watched conditions. For an edit with watched conditions, level
+    1 compares only the people in them, so it needs the match. For an edit without them, level 1 compares everyone with
+    the flag."""
     curve: Sequence[ExposureBucket | LastValueBucket] = exposure if last_values is None else last_values
     for start in [*(bucket.start for bucket in (*exposure, *curve)), *hours]:
         # Queries return times in the team's time zone, which can be a half hour off UTC.
@@ -162,7 +167,7 @@ def score_window(
 
     level_1: ProportionTestResult | None = None
     level_1_confirms = False
-    split = _level_1_split(edit, exposure_since_edit, errors_since_edit, condition_match)
+    split = _level_1_split(edit, exposure_since_edit, condition_match)
     if split is not None:
         level_1 = _level_1(split, parameters.alpha)
         level_1_confirms = (
@@ -266,44 +271,30 @@ def _proximity(hour: datetime, exposure_steps: Sequence[datetime], parameters: S
     return math.exp(-(hour - latest_step) / parameters.decay)
 
 
-def _split_people(
-    *, exposed: int, unexposed: int, exposed_with_errors: int, unexposed_with_errors: int
-) -> _Split | None:
-    if exposed <= 0 or unexposed <= 0:
+def _split_people(counts: SplitCounts) -> _Split | None:
+    if counts.exposed <= 0 or counts.unexposed <= 0:
         return None
     # Separate `uniq` estimates can put the errors above the people, and the test raises on that.
     return _Split(
-        exposed=Proportion(trials=exposed, successes=min(exposed_with_errors, exposed)),
-        unexposed=Proportion(trials=unexposed, successes=min(unexposed_with_errors, unexposed)),
+        exposed=Proportion(trials=counts.exposed, successes=min(counts.exposed_with_errors, counts.exposed)),
+        unexposed=Proportion(trials=counts.unexposed, successes=min(counts.unexposed_with_errors, counts.unexposed)),
+        unexposed_one_in=counts.unexposed_one_in,
     )
 
 
-def _level_1_split(
-    edit: WatchedEdit, exposure: ExposureCounts | None, errors: ErrorCounts | None, match: ConditionMatch | None
-) -> _Split | None:
+def _level_1_split(edit: WatchedEdit, exposure: ExposureCounts | None, match: ConditionMatch | None) -> _Split | None:
     if exposure is None:
         return None
-    counts: ExposureCounts | ConditionExposure = exposure
-    error_counts: ErrorCounts | ConditionErrors | None = errors
     if match is not None and match in exposure.in_condition:
-        if errors is not None and match not in errors.in_condition:
-            # The error query lost these counts, and no errors in either group would compare as no difference.
-            return None
-        counts = exposure.in_condition[match]
-        error_counts = errors.in_condition[match] if errors else None
-    elif edit.conditions:
+        return _split_people(exposure.in_condition[match])
+    if edit.conditions:
         # Everyone with the flag would compare the people in the edited conditions with people outside them.
         return None
-    return _split_people(
-        exposed=counts.exposed,
-        unexposed=counts.unexposed,
-        exposed_with_errors=error_counts.exposed_with_errors if error_counts else 0,
-        unexposed_with_errors=error_counts.unexposed_with_errors if error_counts else 0,
-    )
+    return _split_people(exposure)
 
 
 def _level_1(split: _Split, alpha: float) -> ProportionTestResult | None:
-    groups = (split.exposed, split.unexposed)
+    groups = (split.exposed, split.sampled_unexposed)
     if min(group.trials for group in groups) < MIN_GROUP_SIZE:
         return None
     # A group at 0% or 100% has no variance, so five people would look significant and no errors would give no result.
@@ -311,21 +302,19 @@ def _level_1(split: _Split, alpha: float) -> ProportionTestResult | None:
     return sequential_proportion_test(exposed, unexposed, alpha=alpha)
 
 
-def _level_2(edit: WatchedEdit, counts: LastValueCounts | None, parameters: ScoreParameters) -> float | None:
+def _level_2(edit: WatchedEdit, counts: SplitCounts | None, parameters: ScoreParameters) -> float | None:
     if edit.conditions or counts is None:
         return None
-    split = _split_people(
-        exposed=counts.exposed,
-        unexposed=counts.unexposed,
-        exposed_with_errors=counts.exposed_with_errors,
-        unexposed_with_errors=counts.unexposed_with_errors,
-    )
+    split = _split_people(counts)
     if split is None or not _split_has_volume(split, parameters):
         return None
     exposed_rate = split.exposed.successes / split.exposed.trials
     unexposed_rate = split.unexposed.successes / split.unexposed.trials
     if not exposed_rate:
         return 0.0
+    # So few unexposed people can have no errors by chance, even at the error rate of the exposed.
+    if exposed_rate * split.sampled_unexposed.trials < parameters.min_with_errors:
+        return None
     # The share of the exposed errors that the flag explains: 0 when the exposed are no worse, 1 when only they err.
     return max(0.0, 1 - unexposed_rate / exposed_rate)
 

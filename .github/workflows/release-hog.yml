@@ -1814,21 +1814,24 @@ jobs:
                   thread_ts: ${{ needs.release.outputs.slack-ts }}
                   message: 'npm installs hog ${{ needs.release.outputs.version }}. Moving the GitHub release, the manifest and Homebrew to it.'
 
-            - name: Get the hog releaser token
-              id: app-token
+            # GitHub refuses to let an App create a tag whose workflow files differ from master's without the
+            # workflows permission, and master often changes workflows while a release signs and publishes.
+            - name: Get the hog releaser token for the release tag
+              id: release-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
                   owner: PostHog
-                  repositories: posthog,homebrew-tap
+                  repositories: posthog
                   permission-contents: write
+                  permission-workflows: write
 
             # After npm and before latest moves, so the GitHub mirror the install scripts fall back to has
             # the files. Creating the release creates the tag. A rerun uploads the files to the existing release.
             - name: Create or update the GitHub release
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
                   GH_REPO: ${{ github.repository }}
                   RELEASE_TAG: ${{ needs.release.outputs.release-tag }}
                   RELEASE_COMMIT: ${{ needs.release.outputs.release-commit }}
@@ -1869,12 +1872,23 @@ jobs:
                       --paths /hog/latest/manifest.json /hog/install.sh /hog/install.ps1 \
                       --query 'Invalidation.Id' --output text
 
+            - name: Get the hog releaser token for the Homebrew tap
+              id: tap-token
+              if: steps.latest.outputs.latest == 'true'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_HOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_HOG_RELEASER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: homebrew-tap
+                  permission-contents: write
+
             # Through the contents API, which signs the commit as the App. The tap has one formula and
             # no channels, so only the latest release moves it.
             - name: Update the Homebrew formula
               if: steps.latest.outputs.latest == 'true'
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.tap-token.outputs.token }}
               run: |
                   set -euo pipefail
                   path=Formula/hog.rb
