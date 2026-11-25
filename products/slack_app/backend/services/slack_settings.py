@@ -86,6 +86,11 @@ def _resolve_personal_mode(
         .values_list(column, flat=True)
         .first()
     )
+    return mode_from_stored(stored, mode_type, unset=unset, unknown=unknown)
+
+
+def mode_from_stored(stored: str | None, mode_type: type[_Mode], *, unset: _Mode, unknown: _Mode) -> _Mode:
+    """A stored column value as `mode_type`: `unset` for no value, `unknown` for a value it does not know."""
     if stored is None:
         return unset
     if stored in mode_type.values:
@@ -436,6 +441,7 @@ def set_external_channels_enabled(slack_workspace_id: str, enabled: bool) -> Non
 
 
 __all__ = [
+    "mode_from_stored",
     "ONBOARDING_VERSION",
     "OnboardingState",
     "parse_onboarding",

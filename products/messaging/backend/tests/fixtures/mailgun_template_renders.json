@@ -238,5 +238,121 @@
     },
     "liquid": "<a href=\"{{ variables.x | join: &quot;,&quot; }}\" title=y>z</a>",
     "expected": "<a href=\"https://example.com/?a=1&amp;b=&quot; onclick=&quot;c\" title=y>z</a>"
+  },
+  {
+    "name": "go values in attributes and the title",
+    "engine": "go",
+    "template": "<title>{{.name}}</title><a title=\"{{.name}}\">x</a><a href=\"https://example.com/?q={{.q}}\">y</a>",
+    "variables": {
+      "name": "N & <b>",
+      "plan": "pro",
+      "q": "a b&c",
+      "url": "https://example.com/?a=1&b=2",
+      "items": [
+        {
+          "name": "a<",
+          "tags": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "name": "b",
+          "tags": []
+        }
+      ],
+      "none": [],
+      "zero": 0,
+      "map": {}
+    },
+    "liquid": "{% assign go_value1 = variables.name | json | slice: 0 %}{% assign go_value2 = variables.q | json | slice: 0 %}<title>{% if go_value1 == \"[\" %}[{{ variables.name | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.name | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}</title><a title=\"{% if go_value1 == &quot;[&quot; %}[{{ variables.name | join: ' ' | escape | raw }}]{% elsif go_value1 == &quot;{&quot; %}map[{% for pair in variables.name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | raw }}:{{ pair[1] | escape | raw }}{% endfor %}]{% else %}{{ variables.name | escape | raw }}{% endif %}\">x</a><a href=\"https://example.com/?q={% if go_value2 == &quot;[&quot; %}[{{ variables.q | join: ' ' | cgi_escape | replace: &quot;+&quot;, &quot;%20&quot; }}]{% elsif go_value2 == &quot;{&quot; %}map[{% for pair in variables.q %}{% unless forloop.first %} {% endunless %}{{ pair[0] | cgi_escape | replace: &quot;+&quot;, &quot;%20&quot; }}:{{ pair[1] | cgi_escape | replace: &quot;+&quot;, &quot;%20&quot; }}{% endfor %}]{% else %}{{ variables.q | cgi_escape | replace: &quot;+&quot;, &quot;%20&quot; }}{% endif %}\">y</a>",
+    "expected": "<title>N &amp; &lt;b&gt;</title><a title=\"N &amp; &lt;b&gt;\">x</a><a href=\"https://example.com/?q=a%20b%26c\">y</a>"
+  },
+  {
+    "name": "go loops",
+    "engine": "go",
+    "template": "{{range .items}}<li>{{.name}} {{$.plan}}{{range .tags}}[{{.}}]{{else}}none{{end}}</li>{{end}}{{range $item := .items}}{{$item.name}}{{end}}{{range .none}}x{{else}}empty{{end}}",
+    "variables": {
+      "name": "N & <b>",
+      "plan": "pro",
+      "q": "a b&c",
+      "url": "https://example.com/?a=1&b=2",
+      "items": [
+        {
+          "name": "a<",
+          "tags": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "name": "b",
+          "tags": []
+        }
+      ],
+      "none": [],
+      "zero": 0,
+      "map": {}
+    },
+    "liquid": "{% assign go_value1 = variables.plan | json | slice: 0 %}{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<li>{% assign go_item1 = item.name | json | slice: 0 %}{% if go_item1 == \"[\" %}[{{ item.name | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_item1 == \"{\" %}map[{% for pair in item.name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ item.name | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %} {% if go_value1 == \"[\" %}[{{ variables.plan | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.plan %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.plan | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}{% assign values2 = item.tags | slice: 0, 0 %}{% assign string2 = item.tags | slice: 0, 16 %}{% assign shape2 = \"\" %}{% if values2 != \"\" %}{% assign shape2 = \"list\" %}{% elsif string2 == \"[object Object]\" and item.tags != string2 %}{% elsif string2 != \"\" %}{% assign shape2 = \"text\" %}{% endif %}{% if shape2 == \"text\" %}none{% else %}{% for raw2 in item.tags %}{% if shape2 == \"list\" %}{% assign item2 = raw2 %}{% else %}{% assign item2 = raw2[1] %}{% endif %}[{% assign go_item2 = item2 | json | slice: 0 %}{% if go_item2 == \"[\" %}[{{ item2 | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_item2 == \"{\" %}map[{% for pair in item2 %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ item2 | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}]{% else %}none{% endfor %}{% endif %}</li>{% endfor %}{% endif %}{% assign values3 = variables.items | slice: 0, 0 %}{% assign string3 = variables.items | slice: 0, 16 %}{% assign shape3 = \"\" %}{% if values3 != \"\" %}{% assign shape3 = \"list\" %}{% elsif string3 == \"[object Object]\" and variables.items != string3 %}{% elsif string3 != \"\" %}{% assign shape3 = \"text\" %}{% endif %}{% if shape3 == \"text\" %}{% else %}{% for raw3 in variables.items %}{% if shape3 == \"list\" %}{% assign item = raw3 %}{% else %}{% assign item = raw3[1] %}{% endif %}{% assign go_item3 = item.name | json | slice: 0 %}{% if go_item3 == \"[\" %}[{{ item.name | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_item3 == \"{\" %}map[{% for pair in item.name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ item.name | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}{% endfor %}{% endif %}{% assign values4 = variables.none | slice: 0, 0 %}{% assign string4 = variables.none | slice: 0, 16 %}{% assign shape4 = \"\" %}{% if values4 != \"\" %}{% assign shape4 = \"list\" %}{% elsif string4 == \"[object Object]\" and variables.none != string4 %}{% elsif string4 != \"\" %}{% assign shape4 = \"text\" %}{% endif %}{% if shape4 == \"text\" %}empty{% else %}{% for raw4 in variables.none %}{% if shape4 == \"list\" %}{% assign item = raw4 %}{% else %}{% assign item = raw4[1] %}{% endif %}x{% else %}empty{% endfor %}{% endif %}",
+    "expected": "<li>a&lt; pro[x][y]</li><li>b pronone</li>a&lt;bempty"
+  },
+  {
+    "name": "go conditions",
+    "engine": "go",
+    "template": "{{if .zero}}a{{else}}b{{end}}{{if .map}}a{{else}}b{{end}}{{if .missing}}a{{else}}b{{end}}{{if not .none}}c{{end}}{{if eq .plan \"free\"}}F{{else if .items}}I{{else}}N{{end}}{{with .items}}w{{end}}{{if\tnot .none}}d{{end}}",
+    "variables": {
+      "name": "N & <b>",
+      "plan": "pro",
+      "q": "a b&c",
+      "url": "https://example.com/?a=1&b=2",
+      "items": [
+        {
+          "name": "a<",
+          "tags": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "name": "b",
+          "tags": []
+        }
+      ],
+      "none": [],
+      "zero": 0,
+      "map": {}
+    },
+    "liquid": "{% if variables.zero != nil and variables.zero != false and variables.zero != 0 and variables.zero != empty %}a{% else %}b{% endif %}{% if variables.map != nil and variables.map != false and variables.map != 0 and variables.map != empty %}a{% else %}b{% endif %}{% if variables.missing != nil and variables.missing != false and variables.missing != 0 and variables.missing != empty %}a{% else %}b{% endif %}{% if variables.none == nil or variables.none == false or variables.none == 0 or variables.none == empty %}c{% endif %}{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"free\" %}F{% elsif variables.items != nil and variables.items != false and variables.items != 0 and variables.items != empty %}I{% else %}N{% endif %}{% if variables.items != nil and variables.items != false and variables.items != 0 and variables.items != empty %}w{% endif %}{% if variables.none == nil or variables.none == false or variables.none == 0 or variables.none == empty %}d{% endif %}",
+    "expected": "bbbcIwd"
+  },
+  {
+    "name": "go trims and comments",
+    "engine": "go",
+    "template": "<p> a {{- .plan -}} b {{/* c */}}</p>",
+    "variables": {
+      "name": "N & <b>",
+      "plan": "pro",
+      "q": "a b&c",
+      "url": "https://example.com/?a=1&b=2",
+      "items": [
+        {
+          "name": "a<",
+          "tags": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "name": "b",
+          "tags": []
+        }
+      ],
+      "none": [],
+      "zero": 0,
+      "map": {}
+    },
+    "liquid": "{% assign go_value1 = variables.plan | json | slice: 0 %}<p> a{% if go_value1 == \"[\" %}[{{ variables.plan | join: ' ' | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.plan %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.plan | escape | replace: \"=\", \"&amp;#x3D;\" | replace: \"`\", \"&amp;#x60;\" | raw }}{% endif %}b </p>",
+    "expected": "<p> aprob </p>"
   }
 ]

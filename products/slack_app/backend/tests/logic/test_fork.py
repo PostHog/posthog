@@ -105,13 +105,15 @@ class TestForkThreadPayload(TestCase):
             patch("products.mcp_store.backend.facade.api.has_slack_mcp_connected", return_value=mcp),
             # Real capture spins up (and synchronously shuts down) a PostHog client,
             # which is slow and tears down connections other tests are still using.
-            patch("products.slack_app.backend.analytics.capture_slack_event"),
+            patch("products.slack_app.backend.analytics.capture_slack_event") as capture,
             patch(f"{_FORK_MODULE}._ephemeral") as ephemeral,
             patch("products.slack_app.backend.api._start_mention_workflow") as start,
             patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
             patch("products.slack_app.backend.api.get_slack_email_for_user", return_value=self.user.email),
         ):
             start_fork(payload, target_channel=target_channel)
+        # Analytics events as (name, props), so a test asserts on what the dashboard will see.
+        self.captured = [(c.args[1], c.kwargs) for c in capture.call_args_list]
         return ephemeral, start
 
     def test_a_dm_fork_starts_the_run_in_the_dm_and_points_it_at_the_source_thread(self):
@@ -129,6 +131,7 @@ class TestForkThreadPayload(TestCase):
         assert (kwargs["fork_source_channel"], kwargs["fork_source_thread_ts"]) == ("C_SOURCE", "111.1")
         assert kwargs["fork_source_message_ts"] == "111.2"
         assert "Only you can see this" in ephemeral.call_args.args[1]
+        assert [(name, props["destination"]) for name, props in self.captured] == [("slack app fork created", "dm")]
 
     @parameterized.expand([("bot_already_in_channel", True), ("bot_joins_on_not_in_channel", False)])
     def test_a_channel_fork_starts_the_run_in_the_picked_channel(self, _name, bot_in_target):
@@ -258,45 +261,55 @@ class TestForkThreadPayload(TestCase):
 
     @parameterized.expand(
         [
-            ("flag_off", {"flag": False}, {}),
-            ("no_slack_mcp", {"mcp": False}, {}),
-            ("ext_shared_unapproved", {}, {"ext_shared": True}),
-            ("private_source_to_channel", {"target_channel": "C_TARGET"}, {"private": True}),
+            ("flag_off", {"flag": False}, {}, None),
+            ("no_slack_mcp", {"mcp": False}, {}, "no_slack_mcp"),
+            ("ext_shared_unapproved", {}, {"ext_shared": True}, "ext_shared_unapproved"),
+            ("private_source_to_channel", {"target_channel": "C_TARGET"}, {"private": True}, "source_not_public"),
             (
                 "bot_not_in_target_and_cannot_join",
                 {"target_channel": "C_TARGET"},
                 {"bot_in_target": False, "joinable": False},
+                "seed_post_failed",
             ),
             # The picker filters on the client; a channel can be shared by the time the submit lands.
             (
                 "target_became_slack_connect",
                 {"target_channel": "C_TARGET"},
                 {"target": {"is_private": False, "is_ext_shared": True}},
+                "target_not_public",
             ),
             (
                 "target_pending_slack_connect",
                 {"target_channel": "C_TARGET"},
                 {"target": {"is_private": False, "is_pending_ext_shared": True}},
+                "target_not_public",
             ),
-            ("target_private", {"target_channel": "C_TARGET"}, {"target": {"is_private": True}}),
+            ("target_private", {"target_channel": "C_TARGET"}, {"target": {"is_private": True}}, "target_not_public"),
             (
                 "target_org_shared",
                 {"target_channel": "C_TARGET"},
                 {"target": {"is_private": False, "is_org_shared": True}},
+                "target_not_public",
             ),
-            ("target_unresolved", {"target_channel": "C_TARGET"}, {"target": {}}),
+            ("target_unresolved", {"target_channel": "C_TARGET"}, {"target": {}}, "target_not_public"),
         ]
     )
-    def test_refusals_start_no_run(self, _name, run_kwargs, slack_kwargs):
+    def test_refusals_start_no_run(self, _name, run_kwargs, slack_kwargs, reason):
         slack = self._slack_mock(**slack_kwargs)
 
         ephemeral, start = self._run(self._payload(), slack, **run_kwargs)
 
         assert slack.posted == []
         start.assert_not_called()
-        if run_kwargs.get("flag", True):
-            # Every refusal is explained to the clicker, privately.
-            assert ephemeral.call_count == 1
+        if reason is None:
+            # Outside the rollout: silent, and invisible in analytics too.
+            assert self.captured == []
+            return
+        # Every refusal is explained to the clicker, privately, and counted for the dashboard.
+        assert ephemeral.call_count == 1
+        assert [(name, props["reason"], props["destination"]) for name, props in self.captured] == [
+            ("slack app fork refused", reason, "channel" if run_kwargs.get("target_channel") else "dm")
+        ]
 
     def test_a_dm_source_cannot_be_forked_to_a_channel(self):
         slack = self._slack_mock()

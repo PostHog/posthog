@@ -440,6 +440,12 @@ class TransactionalEmailLogEvent:
 
 
 @frozen
+class TransactionalEmailTracking:
+    opens: bool
+    clicks: bool
+
+
+@frozen
 class TransactionalEmailLogDetail:
     entry: TransactionalEmailLogEntry
     timeline: list[TransactionalEmailLogEvent]
@@ -450,6 +456,7 @@ class TransactionalEmailLogDetail:
     action_id: str
     # True when the template keeps no rendered body.
     sensitive: bool
+    tracking: TransactionalEmailTracking
 
 
 class EmailStatsInterval(LabeledStrEnum):
@@ -522,6 +529,7 @@ class TransactionalEmailImpact:
     clicked: int
     not_clicked: int
     untracked: int
+    clicks_untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
