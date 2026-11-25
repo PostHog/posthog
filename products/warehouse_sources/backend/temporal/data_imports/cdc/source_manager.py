@@ -12,7 +12,7 @@ be in memory when the generator resumes.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.db import transaction
@@ -32,6 +32,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_FLUSH_MAX_FILLED_EVENTS,
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     TOAST_OMITTED_COLUMN,
@@ -680,6 +681,39 @@ def _same_content(batch_row: dict[str, Any], held_row: dict[str, Any], skip: set
     return True
 
 
+def _filled_row_flags(table: pa.Table) -> list[bool] | None:
+    """Which rows the loader must fill from the Delta table: DELETEs and rows with TOAST-omitted columns."""
+    flags: pa.ChunkedArray | None = None
+    if CDC_OP_COLUMN in table.column_names:
+        flags = pc.fill_null(pc.equal(table.column(CDC_OP_COLUMN), "D"), False)
+    if TOAST_OMITTED_COLUMN in table.column_names:
+        omitted = pc.fill_null(pc.greater(pc.list_value_length(table.column(TOAST_OMITTED_COLUMN)), 0), False)
+        flags = omitted if flags is None else pc.or_(flags, omitted)
+    return None if flags is None else flags.to_pylist()
+
+
+def _slices_within_fill_limit(table: pa.Table, fill_limit: int) -> Iterator[tuple[pa.Table, int]]:
+    """Cut `table` into position-ordered slices that each hold at most `fill_limit` filled rows.
+
+    Yields each slice with its filled-row count. Capture caps each buffer file at the same limit,
+    but the consumer does not rely on that, because files already in the buffer can exceed it.
+    """
+    flags = _filled_row_flags(table)
+    if flags is None:
+        yield table, 0
+        return
+    start = 0
+    filled = 0
+    for index, flag in enumerate(flags):
+        if not flag:
+            continue
+        if filled == fill_limit:
+            yield table.slice(start, index - start), filled
+            start, filled = index, 0
+        filled += 1
+    yield table.slice(start), filled
+
+
 class CDCSourceManager:
     """Reads one schema's buffered change events in position order, deleting what is settled."""
 
@@ -827,6 +861,7 @@ class CDCSourceManager:
         *,
         batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
+        batch_fill_limit: int = CDC_FLUSH_MAX_FILLED_EVENTS,
     ) -> AsyncGenerator[pa.Table]:
         """Every buffered change, once, in position order — for all of this schema's lanes.
 
@@ -836,12 +871,17 @@ class CDCSourceManager:
 
         Files every table has settled are deleted here, before they are read, so the run that
         proves them consumed is never the one that deletes them.
+
+        A batch also closes at `batch_fill_limit` rows that the loader fills from the Delta table.
+        Those rows are only keys or partial rows here, so the row and byte limits cannot see that
+        the loader reads a full stored row back for each one.
         """
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
         tail = _listing_tail(files)
         await self.stamp_listing(listed_at, tail)
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
+        batch_filled = 0
 
         async with aget_s3_client() as s3:
             for file in files:
@@ -866,9 +906,16 @@ class CDCSourceManager:
                 if table.num_rows == 0:
                     continue
 
-                if batch.add(table):
-                    yield self._finalize_batch(batch.tables)
-                    batch.reset()
+                for piece, piece_filled in _slices_within_fill_limit(table, batch_fill_limit):
+                    if batch and batch_filled + piece_filled > batch_fill_limit:
+                        yield self._finalize_batch(batch.tables)
+                        batch.reset()
+                        batch_filled = 0
+                    batch_filled += piece_filled
+                    if batch.add(piece):
+                        yield self._finalize_batch(batch.tables)
+                        batch.reset()
+                        batch_filled = 0
 
             if batch:
                 yield self._finalize_batch(batch.tables)
