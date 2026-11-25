@@ -61,6 +61,7 @@ const PAGEVIEW = "event = '$pageview'"
 const SIGNUP = "event = 'user signed up'"
 const EXCEPTION = "event = '$exception'"
 const GENERATION = "event = '$ai_generation'"
+const AI_EVENT = "event in ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')"
 const AI_ERROR = 'properties.$ai_is_error = true'
 const AI_COST = 'toFloat(properties.$ai_total_cost_usd)'
 const AI_LATENCY = 'toFloat(properties.$ai_latency)'
@@ -104,7 +105,8 @@ const SQL = {
     sources: dailyBy('source', 'properties.$referring_domain', 'count() as pageviews', PAGEVIEW),
     devices: dailyBy('device', 'properties.$device_type', 'count() as pageviews', PAGEVIEW),
     countries: dailyBy('country', 'properties.$geoip_country_code', 'count() as pageviews', PAGEVIEW),
-    traces: total('count() as traces', "event = '$ai_trace'"),
+    // Many SDKs never send the `$ai_trace` root event, so a trace is any trace ID seen on an AI event.
+    traces: total('uniq(properties.$ai_trace_id) as traces', `${AI_EVENT} and notEmpty(properties.$ai_trace_id)`),
     generations: total('count() as generations', GENERATION),
     aiUsers: total('uniq(distinct_id) as users', GENERATION),
     aiCost: total(`sum(${AI_COST}) as cost`, GENERATION),
@@ -121,7 +123,11 @@ const SQL = {
     costPerUser: daily(`sum(${AI_COST}) / uniq(distinct_id) as cost_per_user`, GENERATION),
     aiErrorsOverTime: daily(`countIf(${AI_ERROR}) as errors`, GENERATION),
     requests: total('count() as requests', GENERATION),
-    requestRate: total("count() / dateDiff('second', min(timestamp), max(timestamp)) as per_second", GENERATION),
+    // Divides by the selected range, not the span between the first and last generation, so idle time counts.
+    requestRate: total(
+        "count() / greatest(dateDiff('second', {filters.dateRange.from}, least({filters.dateRange.to}, now())), 1) as per_second",
+        GENERATION
+    ),
     requestErrors: total(`countIf(${AI_ERROR}) as errors`, GENERATION),
     p95: total(`quantile(0.95)(${AI_LATENCY}) as p95_latency`, GENERATION),
     adClicks: total('count() as clicks', AD_CLICK),
