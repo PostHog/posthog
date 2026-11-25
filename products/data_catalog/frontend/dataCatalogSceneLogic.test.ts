@@ -99,6 +99,23 @@ describe('dataCatalogSceneLogic', () => {
         }
     )
 
+    it('opens a suggestions link on certifications in the classic layout, and on suggestions once the restructure flag arrives', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.dataCatalog('suggestions'))
+        logic = dataCatalogSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeTab).toBe('certifications')
+        expect(router.values.searchParams.tab).toBe('suggestions')
+
+        const flags = [...RESTRUCTURE, FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS]
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.activeTab).toBe('suggestions')
+    })
+
     it.each([
         [
             'classic layout',

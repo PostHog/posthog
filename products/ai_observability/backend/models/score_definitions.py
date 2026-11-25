@@ -41,6 +41,8 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
     updated_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
+    updated_by_project_key_id = models.CharField(max_length=50, null=True)
     current_version = models.ForeignKey(
         "ScoreDefinitionVersion",
         null=True,
@@ -60,6 +62,7 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
         *,
         config: dict[str, Any],
         created_by: User | None,
+        created_by_project_key_id: str | None = None,
         base_version: int | None = None,
         composition: dict[str, Any] | None = None,
     ) -> ScoreDefinitionVersion:
@@ -79,6 +82,7 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
             config=config,
             composition=composition,
             created_by=created_by,
+            created_by_project_key_id=created_by_project_key_id,
         )
         if composition is not None:
             ScoreDefinitionInput.objects.for_team(definition.team_id, canonical=True).bulk_create(
@@ -95,14 +99,17 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
 
         definition.current_version = version
         definition.updated_by = created_by
-        definition.save(update_fields=["current_version", "updated_at", "updated_by"])
+        definition.updated_by_project_key_id = created_by_project_key_id
+        definition.save(update_fields=["current_version", "updated_at", "updated_by", "updated_by_project_key_id"])
 
         self.current_version = version
         self.updated_by = created_by
+        self.updated_by_project_key_id = created_by_project_key_id
         return version
 
 
 class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
+    created_by_project_key_id = models.CharField(max_length=50, null=True)
     definition = models.ForeignKey(ScoreDefinition, on_delete=models.CASCADE, related_name="versions")
     version = models.PositiveIntegerField()
     config = models.JSONField(default=dict)

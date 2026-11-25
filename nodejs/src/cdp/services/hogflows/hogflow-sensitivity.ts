@@ -19,3 +19,20 @@ export const isSensitiveMessage = (
 ): boolean =>
     isTemplateMarkedSensitive(invocation.hogFunction?.metadata) ||
     (invocation.state?.send?.sensitive ?? invocation.hogFunction?.metadata?.sensitive === true)
+
+export const isClickTrackingEnabled = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
+): boolean => {
+    const sendClicks = invocation.state?.send?.tracking.clicks
+    if (sendClicks !== undefined) {
+        return sendClicks
+    }
+    const metadata = invocation.hogFunction?.metadata
+    if (invocation.state?.send?.sensitive === true && metadata?.sensitive !== true) {
+        return false
+    }
+    if (typeof metadata?.click_tracking_enabled === 'boolean') {
+        return metadata.click_tracking_enabled
+    }
+    return !isSensitiveMessage(invocation)
+}

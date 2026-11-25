@@ -1330,6 +1330,9 @@ class _Recommender:
                 continue
             if self._is_brand_query(query.query, query, 0) or self._mentions(query.query, competitors):
                 continue
+            # A one-word search says too little about intent to buy, even when the word converts inside longer searches.
+            if len(query.query.split()) == 1:
+                continue
             page = self.ranking_page.get(query.query)
             landing_campaign = landing_campaigns.get(_page_key(page)) if page else None
             words = [word for word in query.query.split() if _is_meaningful(word)]

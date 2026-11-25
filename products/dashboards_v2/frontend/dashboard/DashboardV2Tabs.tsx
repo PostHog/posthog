@@ -1,5 +1,7 @@
+import './DashboardV2Tabs.css'
+
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconExternal, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -36,6 +38,23 @@ export function DashboardV2Tabs(): JSX.Element | null {
     const [draft, setDraft] = useState<TabDraft | null>(null)
     const [draggedId, setDraggedId] = useState<string | null>(null)
     const [insert, setInsert] = useState<TabInsert | null>(null)
+    // Kept in state, not a ref, so the wheel listener attaches whenever the row mounts, even after a render without it.
+    const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+    useEffect(() => {
+        if (!scroller) {
+            return
+        }
+        // Most mice only scroll vertically. Not passive, or the page scrolls down at the same time.
+        const onWheel = (event: WheelEvent): void => {
+            if (Math.abs(event.deltaX) >= Math.abs(event.deltaY) || scroller.scrollWidth <= scroller.clientWidth) {
+                return
+            }
+            event.preventDefault()
+            scroller.scrollLeft += event.deltaY
+        }
+        scroller.addEventListener('wheel', onWheel, { passive: false })
+        return () => scroller.removeEventListener('wheel', onWheel)
+    }, [scroller])
     const canMove = can('moveTab')
     const tabIds = dashboard.tabs.map((tab) => tab.id)
 
@@ -82,7 +101,12 @@ export function DashboardV2Tabs(): JSX.Element | null {
     }
     return (
         <div className="flex items-center gap-2 border-b">
-            <Tabs value={activeTab.id} onValueChange={(value) => onActiveTabChange(String(value))}>
+            <Tabs
+                ref={setScroller}
+                className="DashboardV2Tabs__scroller hide-scrollbar min-w-0 overflow-x-auto"
+                value={activeTab.id}
+                onValueChange={(value) => onActiveTabChange(String(value))}
+            >
                 <TabsList variant="line" data-attr="dashboard-v2-tabs">
                     {dashboard.tabs.map((tab, position) => {
                         if (draft?.id === tab.id) {
@@ -114,7 +138,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
                         const insertClass =
-                            insert?.id === tab.id ? `DashboardV2__tab--insert-${insert.side}` : undefined
+                            insert?.id === tab.id ? `DashboardV2Tabs__tab--insert-${insert.side}` : undefined
                         const moves = [
                             {
                                 key: 'left',
@@ -187,7 +211,10 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                 key={tab.id}
                                 value={tab.id}
                                 data-dv2-tab={tab.id === activeTab.id ? undefined : tab.id}
-                                className={isDropTarget ? 'DashboardV2__tab--drop-target' : insertClass}
+                                className={isDropTarget ? 'DashboardV2Tabs__tab--drop-target' : insertClass}
+                                onClick={(event) =>
+                                    event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+                                }
                                 onDoubleClick={() => startRename(tab.id, tab.title)}
                                 {...dragProps}
                             >
@@ -247,6 +274,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
             {can('addTab') && (
                 <Button
                     size="xs"
+                    className="shrink-0"
                     data-attr="dashboard-v2-add-tab"
                     disabledReason={addDisabledReason ?? undefined}
                     onClick={() => onEdit({ edit: 'addTab', title: 'New tab' })}
