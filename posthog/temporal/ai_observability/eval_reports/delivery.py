@@ -8,6 +8,7 @@ email HTML body and Slack Block Kit payloads from that shape.
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import escape
 from urllib.parse import quote, urlencode
 
 import structlog
@@ -35,8 +36,8 @@ logger = structlog.get_logger(__name__)
 # to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
 _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 
-# html=False escapes any raw HTML in the markdown source — defense in depth
-# even though the markdown is produced by our own LLM agent via structured tools.
+# html=False escapes any raw HTML in the markdown source. The agent writes the markdown, but it reads
+# customer trace content, so a prompt injection can steer what it writes.
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 _slack_converter = SlackMarkdownConverter()
 
@@ -292,7 +293,7 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
     content_with_links = _linkify_citations(content, project_id, citation_map)
     html_content = _md.render(content_with_links)
     html_content = _inline_email_styles(html_content)
-    return f"<h2>{title}</h2>\n{html_content}\n"
+    return f"<h2>{escape(title)}</h2>\n{html_content}\n"
 
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:

@@ -176,6 +176,12 @@ class TestRenderSectionHtml(SimpleTestCase):
         html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
         self.assertIn("<h2>Volume drop at 14:00</h2>", html)
 
+    def test_escapes_html_in_title(self):
+        html = _render_section_html(
+            'Drop <a href="https://example.com">sign in</a>', "body", project_id=1, citation_map={}
+        )
+        self.assertIn("<h2>Drop &lt;a href=&quot;https://example.com&quot;&gt;sign in&lt;/a&gt;</h2>", html)
+
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
         self.assertIn("<strong>Pass rate</strong>", html)
