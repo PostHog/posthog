@@ -231,7 +231,6 @@ drives	web_analytics:backend/hogql_queries/	products.product_analytics.backend.t
 drives	web_analytics:backend/hogql_queries/	products.product_analytics.backend.tests.test_insight_write_validation	query-kind(TrendsQuery)	4
 drives	web_analytics:backend/hogql_queries/	products.signals.backend.test.test_scout_report_api	query-kind(TrendsQuery)	1
 drives	web_analytics:backend/hogql_queries/	products.tasks.backend.tests.test_api	query-kind(TrendsQuery)	3
-export-shape	django.db.models.query.QuerySet	products.conversations.backend.facade.api	export-denied(queryset)	1
 export-shape	django.db.models.query.QuerySet	products.customer_analytics.backend.facade.queries	export-denied(queryset)	1
 export-shape	django.db.models.query.QuerySet	products.signals.backend.facade.spend	export-denied(queryset)	1
 export-shape	posthog.event_usage.AnalyticsProps	products.alerts.backend.facade.api	export-shape(class)	1
@@ -313,7 +312,6 @@ export-shape	products.access_control.backend.facade.user_access_control.UserAcce
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.canvas.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.customer_analytics.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.customer_analytics.backend.facade.persons	export-shape(class)	1
-export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.customer_analytics.backend.facade.workflow_customer_tasks	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.data_catalog.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.data_modeling.backend.facade.api	export-shape(class)	1
@@ -393,7 +391,6 @@ export-shape	products.cdp.backend.models.hog_invocation_results_sql.HOG_INVOCATI
 export-shape	products.cdp.backend.models.hog_invocation_results_sql.KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL	products.cdp.backend.facade.clickhouse	export-unknown	1
 export-shape	products.cohorts.backend.realtime_join.RealtimeCohortsJoinState	products.cohorts.backend.facade.realtime_join	export-shape(class)	1
 export-shape	products.context_layer.backend.store.DREAM_BRANCH_RE	products.context_layer.backend.facade.api	export-unknown	1
-export-shape	products.conversations.backend.models.ticket.Ticket	products.conversations.backend.facade.api	export-denied(model)	1
 export-shape	products.customer_analytics.backend.constants.CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES	products.customer_analytics.backend.facade.constants	export-unknown	1
 export-shape	products.customer_analytics.backend.constants.CUSTOM_PROPERTY_OPTION_COLORS	products.customer_analytics.backend.facade.constants	export-unknown	1
 export-shape	products.customer_analytics.backend.facade.contracts.FeatureRequestHistoryChange	products.customer_analytics.backend.facade.api	export-shape(class)	1
@@ -913,9 +910,7 @@ facade-no-state	products.conversations.backend.models.email_thread.EmailThreadAc
 facade-no-state	products.conversations.backend.models.email_thread.EmailThreadAccountLink	products.conversations.backend.facade.api	write(bulk_create)	1
 facade-no-state	products.conversations.backend.models.email_thread.EmailThreadAccountLink	products.conversations.backend.facade.api	write(update_or_create)	1
 facade-no-state	products.conversations.backend.models.ticket.Ticket	products.conversations.backend.facade.api	lock	1
-facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.api	instance-many(filter)	3
 facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.api	instance-many(iterator)	1
-facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.api	instance-many(none)	1
 facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.api	instance-single	1
 facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.api	write(create)	1
 facade-no-state	products.customer_analytics.backend.models.account.Account	products.customer_analytics.backend.facade.email_matching	lock	1
