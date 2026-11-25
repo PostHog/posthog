@@ -656,6 +656,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("brand_campaign_pays_for_the_clicks", 2.0, 280, "estimated", "at a lower cost."),
             ("brand_campaign_pays_more_per_click", 40.0, None, "estimated", "without an ad."),
             ("paused_brand_campaign_serves_nothing", 2.0, 300, "measured", "without an ad.", "PAUSED"),
+            ("brand_campaign_blocks_its_brand_search", 2.0, 300, "measured", "without an ad.", "ELIGIBLE", True),
         ]
     )
     def test_brand_leak_saving_leaves_out_what_the_brand_campaign_pays_for_the_same_clicks(
@@ -666,6 +667,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         impact_type: str,
         reason_end: str,
         brand_status: str = "ELIGIBLE",
+        brand_blocks_search: bool = False,
     ) -> None:
         campaigns: tuple[CampaignStats, ...] = (_campaign(id="generic", name="Generic", cost=2000, conversions=20),)
         terms: tuple[SearchTermStats, ...] = (
@@ -676,7 +678,10 @@ class TestMarketingRecommendations(SimpleTestCase):
             campaigns += (_campaign(id="brand", name="Brand", primary_status=brand_status),)
             terms += (_term("example", "brand", cost=100 * brand_cpc, conversions=5, clicks=100),)
 
-        leaks = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "brand_leak"]
+        excluded = frozenset({ExcludedSearch(term="example", campaign_id="brand")} if brand_blocks_search else ())
+        inputs = replace(_inputs(campaigns, terms), excluded_searches=excluded)
+
+        leaks = [rec for rec in recommend(inputs) if rec.rule == "brand_leak"]
 
         assert [(rec.subject, rec.impact, rec.impactType) for rec in leaks] == [("Generic", impact, impact_type)]
         assert leaks[0].reason.endswith(reason_end)

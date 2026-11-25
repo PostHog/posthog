@@ -1587,16 +1587,20 @@ class _Recommender:
         }
 
     def _brand_cpc(self) -> float | None:
-        serving = [
-            spend
+        serving = {
+            campaign.id
             for campaign in self.campaigns.values()
             if campaign.id not in self.leaks
             and campaign.primary_status not in INACTIVE_STATUSES
             and self._is_brand_campaign(campaign, self.brand_spend)
-            and (spend := self.brand_spend.get(campaign.id))
+        }
+        rows = [
+            row
+            for row in self.inputs.search_terms
+            if row.campaign_id in serving and row.term in self.brand_terms and not self._is_excluded(row)
         ]
-        clicks = sum(spend.clicks for spend in serving)
-        return sum(spend.cost for spend in serving) / clicks if clicks else None
+        clicks = sum(row.clicks for row in rows)
+        return sum(row.cost for row in rows) / clicks if clicks else None
 
     def _leak_saving(self, cost: float, clicks: float) -> tuple[float | None, Literal["measured", "estimated"]]:
         if self.brand_cpc is None:
