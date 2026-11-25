@@ -715,6 +715,33 @@ def test_lint_all_fails_when_the_served_skills_file_does_not_match_the_headers(
 
 
 @pytest.mark.parametrize(
+    "audience,body,warns",
+    [
+        ("customer", "x" * 30_000, True),
+        ("customer", "x\n" * 600, True),
+        ("scout", "x" * 30_000, True),
+        ("customer", "short", False),
+        ("internal", "x" * 30_000, False),
+    ],
+    ids=["customer-over-5000-tokens", "customer-over-500-lines", "scout-long", "customer-short", "internal-long"],
+)
+def test_lint_all_warns_about_a_large_served_skill_without_failing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], audience: str, body: str, warns: bool
+) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "some-skill"
+    skill_dir.mkdir(parents=True)
+    header = f"metadata:\n  audience: {audience}\n"
+    (skill_dir / "SKILL.md").write_text(f"---\nname: some-skill\n{header}description: A skill\n---\n{body}\n")
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    builder.write_served_skills()
+
+    assert builder.lint_all() is True
+    captured = capsys.readouterr()
+    assert ("move detail into references/" in captured.out + captured.err) is warns
+
+
+@pytest.mark.parametrize(
     "relpath,reserved_name,content",
     [
         (

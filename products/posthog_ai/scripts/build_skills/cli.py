@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import argparse
 from pathlib import Path
 
 from . import (
     __doc__ as PACKAGE_DOC,
     skill_builder,
+    upkeep,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -91,6 +93,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Create SKILL.md.j2 instead of SKILL.md (use with --init)",
     )
     parser.add_argument(
+        "--report",
+        action="store_true",
+        help="Print the upkeep report on the skills that the MCP `learn` command serves",
+    )
+    parser.add_argument(
+        "--before-root",
+        type=Path,
+        help="A checkout of an older commit, to measure how each served skill grew (use with --report)",
+    )
+    parser.add_argument(
+        "--summary-file",
+        type=Path,
+        help="Write the report's counts to this JSON file (use with --report)",
+    )
+    parser.add_argument(
         "--sync",
         action="store_true",
         help="Build a skill and sync it to .agents/skills/ for local testing",
@@ -159,6 +176,11 @@ def main() -> None:
             print(f"Wrote {builder.write_served_skills().relative_to(REPO_ROOT)}")
         if not builder.lint_all():
             sys.exit(1)
+    elif args.report:
+        report = upkeep.build_report(REPO_ROOT, builder.discoverer.discover(), args.before_root)
+        print(upkeep.render_markdown(report))
+        if args.summary_file:
+            args.summary_file.write_text(json.dumps(upkeep.summary(report)))
     elif args.sync:
         _run_sync(builder, args)
     elif args.list:
