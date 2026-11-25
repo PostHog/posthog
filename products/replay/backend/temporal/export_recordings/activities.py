@@ -1,4 +1,6 @@
+import io
 import re
+import gzip
 import json
 import bisect
 import asyncio
@@ -19,8 +21,10 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -34,6 +38,7 @@ from posthog.session_recordings.recordings.errors import BlockFetchError, BlockN
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.batch_exports.backend.facade.contracts import AWSCredentials
@@ -46,6 +51,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
 )
 from products.replay.backend.temporal.export_recordings.types import (
     CheckDestinationInput,
+    DayViewportsInput,
     ExportDestination,
     ExportShardInput,
     ExportTotals,
@@ -71,8 +77,8 @@ RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
 # S3 needs at least 5 MiB for every multipart part except the last.
 UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
-METADATA_BATCH_SIZE = 100
-VIEWPORT_ROW_LIMIT = 50000
+PERSON_ROW_LIMIT = 50000
+VIEWPORTS_QUERY_TIMEOUT_SECONDS = 2 * 60 * 60
 SHARD_BLOCK_BUFFER_BYTES = 256 * 1024 * 1024
 
 # Formats that cannot carry an IAM wildcard into the session policy.
@@ -112,28 +118,40 @@ HAVING max(is_deleted) = 0
 ORDER BY session_id
 """
 
-# A row per viewport state and minute keeps the result small and still follows resizes.
-VIEWPORTS_QUERY = """
+# One query reads a day's viewports for all its shards, because events has no session ID in its sort key and
+# so every viewport query scans its whole time range. The event filter is in the sort key, so ClickHouse reads
+# only those events. A session lasts at most a day, so two days hold every event of the sessions that started
+# on the first. A row per viewport state and minute keeps the result small and still follows resizes.
+DAY_VIEWPORTS_QUERY = """
 SELECT
-    `$session_id`,
-    toUnixTimestamp64Milli(min(timestamp)),
+    cityHash64(`$session_id`) % {shards_per_day} AS shard,
+    `$session_id` AS session_id,
+    toUnixTimestamp64Milli(min(timestamp)) AS first_ms,
     toString(properties.$viewport_width) AS width,
     toString(properties.$viewport_height) AS height,
     toString(properties.$current_url) AS href
 FROM events
-WHERE timestamp >= {start} AND timestamp < {end}
-    AND `$session_id` IN {session_ids}
+WHERE event IN ('$pageview', '$screen')
+    AND timestamp >= {start} AND timestamp < {end}
+    AND notEmpty(`$session_id`)
     AND isNotNull(properties.$viewport_width) AND isNotNull(properties.$viewport_height)
-GROUP BY `$session_id`, width, height, href, toStartOfMinute(timestamp)
-ORDER BY `$session_id`, min(timestamp)
+GROUP BY shard, session_id, width, height, href, toStartOfMinute(timestamp)
+ORDER BY shard, session_id, first_ms
+"""
+
+# Two lookups on the sort keys. Joining person onto person_distinct_ids instead reads all of the team's persons.
+PERSON_IDS_QUERY = """
+SELECT distinct_id, person_id
+FROM person_distinct_ids
+WHERE distinct_id IN {distinct_ids}
 LIMIT {limit}
 """
 
 PERSONS_QUERY = """
-SELECT distinct_id, person.id, person.created_at, person.properties
-FROM person_distinct_ids
-WHERE distinct_id IN {distinct_ids}
-LIMIT 50000
+SELECT id, created_at, properties
+FROM persons
+WHERE id IN {person_ids}
+LIMIT {limit}
 """
 
 
@@ -222,6 +240,14 @@ def session_ids_shard_key(prefix: str, day: str, shard: int) -> str:
     return f"{prefix}/{day}/{shard:04d}.txt"
 
 
+def viewports_day_prefix(team_id: int, run_id: str, day: str) -> str:
+    return f"session_recording_exports/viewports/{team_id}/{run_id}/{day}"
+
+
+def viewports_shard_key(team_id: int, run_id: str, day: str, shard: int) -> str:
+    return f"{viewports_day_prefix(team_id, run_id, day)}/{shard:04d}.jsonl.gz"
+
+
 def list_shard_sessions(input: ExportShardInput, listed: tuple[str, ...], after: str = "") -> list[SessionRow]:
     """Return the next page of the shard's listed sessions after a session ID, skipping deleted ones."""
     remaining = listed[bisect.bisect_right(listed, after) :]
@@ -251,8 +277,8 @@ def list_shard_sessions(input: ExportShardInput, listed: tuple[str, ...], after:
     return []
 
 
-def load_shard_session_ids(input: ExportShardInput) -> tuple[str, ...]:
-    key = session_ids_shard_key(input.session_ids_prefix, input.day, input.shard)
+def load_shard_session_ids(session_ids_prefix: str, day: str, shard: int) -> tuple[str, ...]:
+    key = session_ids_shard_key(session_ids_prefix, day, shard)
     # read() returns None for an empty file too, and a shard without sessions has one.
     content = object_storage.read_bytes(key, missing_ok=True)
     if content is None:
@@ -260,60 +286,169 @@ def load_shard_session_ids(input: ExportShardInput) -> tuple[str, ...]:
     return tuple(sorted({line.strip() for line in content.decode().splitlines() if line.strip()}))
 
 
-SessionMetadata = tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]
+Viewport = dict[str, Any]
+SessionMetadata = tuple[dict[str, list[Viewport]], dict[str, dict[str, Any]]]
 
 
-def load_viewports(team: Team, sessions: list[SessionRow], viewports: dict[str, list[dict[str, Any]]]) -> None:
+def day_viewports_sql(team: Team, input: DayViewportsInput) -> tuple[str, dict[str, Any]]:
+    day_start = datetime.fromisoformat(input.day).replace(tzinfo=UTC)
+    context = HogQLContext(team_id=team.pk, team=team, enable_select_queries=True, limit_top_select=False)
+    context.output_format = "JSONEachRow"
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            DAY_VIEWPORTS_QUERY,
+            placeholders={
+                "shards_per_day": ast.Constant(value=input.shards_per_day),
+                "start": ast.Constant(value=day_start),
+                "end": ast.Constant(value=day_start + timedelta(days=2)),
+            },
+        ),
+        context,
+        "clickhouse",
+        settings=HogQLGlobalSettings(max_execution_time=VIEWPORTS_QUERY_TIMEOUT_SECONDS),
+    )
+    return sql, context.values
+
+
+class ViewportFileWriter:
+    """Writes each shard's viewports, sorted by session ID, keeping only the sessions the shard exports."""
+
+    def __init__(self, input: DayViewportsInput) -> None:
+        self.input = input
+        self.written: set[int] = set()
+        self.shard: int | None = None
+        self.listed: frozenset[str] = frozenset()
+        self.buffer = io.BytesIO()
+
+    async def add(self, row: dict[str, Any]) -> None:
+        shard = int(row["shard"])
+        if shard != self.shard:
+            await self.flush()
+            self.shard = shard
+            self.listed = frozenset(
+                await database_sync_to_async_pool(load_shard_session_ids)(
+                    self.input.session_ids_prefix, self.input.day, shard
+                )
+            )
+        if row["session_id"] in self.listed:
+            viewport = {
+                # JSONEachRow quotes 64-bit integers, and file playback needs a number.
+                "timestamp": int(row["first_ms"]),
+                "width": row["width"],
+                "height": row["height"],
+                "href": row["href"],
+            }
+            self.buffer.write(json.dumps([row["session_id"], viewport]).encode() + b"\n")
+
+    async def flush(self) -> None:
+        if self.shard is not None:
+            key = viewports_shard_key(self.input.team_id, self.input.run_id, self.input.day, self.shard)
+            await database_sync_to_async_pool(object_storage.write)(key, gzip.compress(self.buffer.getvalue()))
+            self.written.add(self.shard)
+        self.shard = None
+        self.buffer = io.BytesIO()
+
+    async def finish(self) -> None:
+        await self.flush()
+        # Every shard gets a file, so a shard that finds none knows this activity did not run.
+        for shard in range(self.input.shards_per_day):
+            if shard not in self.written:
+                self.shard = shard
+                await self.flush()
+
+
+@activity.defn
+async def load_day_viewports(input: DayViewportsInput) -> None:
+    tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=input.team_id)
+    done_key = f"{viewports_day_prefix(input.team_id, input.run_id, input.day)}/done"
+    # A day whose shards straddle a continue-as-new comes here twice in the same run.
+    if await database_sync_to_async_pool(object_storage.read_bytes)(done_key, missing_ok=True) is not None:
+        return
+    team = await Team.objects.aget(id=input.team_id)
+    sql, values = await database_sync_to_async_pool(day_viewports_sql)(team, input)
+    writer = ViewportFileWriter(input)
+    async with Heartbeater(), get_client(team_id=input.team_id, workload=Workload.OFFLINE) as client:
+        # Reading line by line keeps the day's rows out of memory.
+        async with client.apost_query(sql, query_parameters=values, query_id=None) as response:
+            async for line in response.content:
+                if line.strip():
+                    await writer.add(json.loads(line))
+        await writer.finish()
+    await database_sync_to_async_pool(object_storage.write)(done_key, b"done")
+
+
+class ViewportReader:
+    """Reads a shard's viewport file in session ID order, alongside the shard's pages."""
+
+    def __init__(self, content: bytes) -> None:
+        self.lines = gzip.GzipFile(fileobj=io.BytesIO(content), mode="rb")
+        self.pending: tuple[str, Viewport] | None = None
+
+    @classmethod
+    def load(cls, team_id: int, run_id: str, day: str, shard: int) -> "ViewportReader":
+        key = viewports_shard_key(team_id, run_id, day, shard)
+        content = object_storage.read_bytes(key, missing_ok=True)
+        if content is None:
+            raise ApplicationError(f"Viewport file {key} does not exist", non_retryable=True)
+        return cls(content)
+
+    def take(self, last_session_id: str) -> dict[str, list[Viewport]]:
+        """Return the viewports of the sessions up to and including a session ID, and skip past them."""
+        viewports: dict[str, list[Viewport]] = {}
+        while True:
+            if self.pending is None:
+                line = self.lines.readline()
+                if not line:
+                    return viewports
+                session_id, viewport = json.loads(line)
+                self.pending = (session_id, viewport)
+            session_id, viewport = self.pending
+            if session_id > last_session_id:
+                return viewports
+            viewports.setdefault(session_id, []).append(viewport)
+            self.pending = None
+
+
+def load_persons(team: Team, distinct_ids: list[str]) -> dict[str, dict[str, Any]]:
+    person_ids = execute_hogql_query(
+        parse_select(PERSON_IDS_QUERY),
+        team,
+        placeholders={"distinct_ids": ast.Constant(value=distinct_ids), "limit": ast.Constant(value=PERSON_ROW_LIMIT)},
+        limit_context=LimitContext.EXPORT,
+        workload=Workload.OFFLINE,
+    ).results
+    if not person_ids:
+        return {}
     rows = execute_hogql_query(
-        parse_select(VIEWPORTS_QUERY),
+        parse_select(PERSONS_QUERY),
         team,
         placeholders={
-            "start": ast.Constant(value=min(s.start_time for s in sessions) - timedelta(minutes=5)),
-            "end": ast.Constant(value=max(s.end_time for s in sessions) + timedelta(minutes=5)),
-            "session_ids": ast.Constant(value=[s.session_id for s in sessions]),
-            "limit": ast.Constant(value=VIEWPORT_ROW_LIMIT),
+            "person_ids": ast.Constant(value=sorted({str(person_id) for _, person_id in person_ids})),
+            "limit": ast.Constant(value=PERSON_ROW_LIMIT),
         },
         limit_context=LimitContext.EXPORT,
         workload=Workload.OFFLINE,
     ).results
-    if len(rows) >= VIEWPORT_ROW_LIMIT and len(sessions) > 1:
-        # The batch hit the row limit, so some sessions would get partial viewports. Query each half instead.
-        middle = len(sessions) // 2
-        load_viewports(team, sessions[:middle], viewports)
-        load_viewports(team, sessions[middle:], viewports)
-        return
-    if len(rows) >= VIEWPORT_ROW_LIMIT:
-        logger.warning("export_recordings.viewports_truncated", session_id=sessions[0].session_id)
-    for session_id, timestamp, width, height, href in rows:
-        viewports.setdefault(session_id, []).append(
-            {"timestamp": timestamp, "width": width, "height": height, "href": href}
-        )
+    persons = {
+        str(person_id): {
+            "id": str(person_id),
+            "uuid": str(person_id),
+            "created_at": created_at.isoformat() if created_at else None,
+            "properties": json.loads(properties) if isinstance(properties, str) else properties,
+        }
+        for person_id, created_at, properties in rows
+    }
+    return {
+        distinct_id: {**persons[str(person_id)], "distinct_ids": [distinct_id]}
+        for distinct_id, person_id in person_ids
+        if str(person_id) in persons
+    }
 
 
-def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMetadata:
+def load_session_metadata(team_id: int, sessions: list[SessionRow], viewports: ViewportReader) -> SessionMetadata:
     """Return the viewports per session and the person per distinct ID, which file playback cannot load."""
     team = Team.objects.get(id=team_id)
-    viewports: dict[str, list[dict[str, Any]]] = {}
-    persons: dict[str, dict[str, Any]] = {}
-    for batch_start in range(0, len(sessions), METADATA_BATCH_SIZE):
-        batch = sessions[batch_start : batch_start + METADATA_BATCH_SIZE]
-        load_viewports(team, batch, viewports)
-        person_rows = execute_hogql_query(
-            parse_select(PERSONS_QUERY),
-            team,
-            placeholders={"distinct_ids": ast.Constant(value=sorted({s.distinct_id for s in batch}))},
-            limit_context=LimitContext.EXPORT,
-            workload=Workload.OFFLINE,
-        ).results
-        for distinct_id, person_id, created_at, properties in person_rows:
-            persons[distinct_id] = {
-                "id": str(person_id),
-                "uuid": str(person_id),
-                "distinct_ids": [distinct_id],
-                "created_at": created_at.isoformat() if created_at else None,
-                "properties": json.loads(properties) if isinstance(properties, str) else properties,
-            }
-    return viewports, persons
+    return viewports.take(sessions[-1].session_id), load_persons(team, sorted({s.distinct_id for s in sessions}))
 
 
 @frozen
@@ -696,13 +831,19 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
     def load_page(listed: tuple[str, ...], after: str) -> asyncio.Task[tuple[list[SessionRow], SessionMetadata]]:
         def load() -> tuple[list[SessionRow], SessionMetadata]:
             sessions = list_shard_sessions(input, listed, after=after)
-            return sessions, load_session_metadata(input.team_id, sessions) if sessions else ({}, {})
+            return sessions, load_session_metadata(input.team_id, sessions, viewports) if sessions else ({}, {})
 
         return asyncio.create_task(database_sync_to_async_pool(load)())
 
     # Heartbeat from the start: the first listing can take minutes on a large day.
     async with Heartbeater(details=(checkpoint,)) as heartbeater:
-        listed = await database_sync_to_async_pool(load_shard_session_ids)(input)
+        listed = await database_sync_to_async_pool(load_shard_session_ids)(
+            input.session_ids_prefix, input.day, input.shard
+        )
+        # Pages load one after another in session ID order, so they read the file once, front to back.
+        viewports = await database_sync_to_async_pool(ViewportReader.load)(
+            input.team_id, input.run_id, input.day, input.shard
+        )
         page = load_page(listed, checkpoint.last_session_id)
         try:
             async with (
@@ -720,7 +861,7 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
 
                 prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
                 while True:
-                    chunk, (viewports, persons) = await page
+                    chunk, (page_viewports, persons) = await page
                     if not chunk:
                         break
                     # The next page lists and loads its metadata while this page exports.
@@ -731,7 +872,7 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
                         async with asyncio.TaskGroup() as group:
                             tasks = [
                                 group.create_task(
-                                    export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id))
+                                    export_one(s, page_viewports.get(s.session_id, []), persons.get(s.distinct_id))
                                 )
                                 for s in chunk
                             ]
