@@ -1,4 +1,5 @@
 import datetime as dt
+from decimal import Decimal
 from typing import Any
 
 import time_machine
@@ -340,7 +341,7 @@ class TestFrameConverters(SimpleTestCase):
         assert frames_for(QueryBatchLanguage.QUERY, {"kind": "FunnelsQuery", "series": []}, {"results": []}) is None
 
     def test_hash_changes_with_content_and_end_is_the_last_time(self) -> None:
-        def frame(values: list[float]) -> Frame:
+        def frame(values: list[Any]) -> Frame:
             return Frame(
                 name="a",
                 labels={},
@@ -354,4 +355,5 @@ class TestFrameConverters(SimpleTestCase):
         first, same, changed = frame_json(frame([1, 2])), frame_json(frame([1, 2])), frame_json(frame([1, 3]))
 
         assert first["hash"] == same["hash"] != changed["hash"]
+        assert frame_json(frame([Decimal("1.5"), 2]))["hash"] == frame_json(frame([1.5, 2]))["hash"]
         assert first["meta"]["end"] == 2000

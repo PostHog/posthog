@@ -16,7 +16,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import orjson
 from pydantic import ValidationError
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.schema import ChartDisplayType, TrendsQuery
 
@@ -162,20 +164,18 @@ def frame_json(frame: Frame) -> dict[str, Any]:
         meta["previous"] = True
     if frame.meta.truncated:
         meta["truncated"] = True
-    content = json.dumps(
+    # Encoded as the response encodes it, so a fresh Decimal and the float a cache hit reads back hash alike.
+    content = orjson.dumps(
         {"name": frame.name, "labels": frame.labels, "fields": fields},
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-        # Escaping non-ASCII would grow a label up to six times before it is hashed.
-        ensure_ascii=False,
+        default=JSONEncoder().default,
+        option=orjson.OPT_SORT_KEYS | orjson.OPT_UTC_Z,
     )
     return {
         "name": frame.name,
         "labels": frame.labels,
         "fields": fields,
         "meta": meta,
-        "hash": hashlib.sha256(content.encode()).hexdigest()[:16],
+        "hash": hashlib.sha256(content).hexdigest()[:16],
     }
 
 
