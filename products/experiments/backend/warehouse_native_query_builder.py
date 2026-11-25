@@ -13,7 +13,7 @@ from posthog.schema import (
 
 from posthog.hogql.direct_sql.bigquery_adapter import ensure_read_only_raw_bigquery_statement
 from posthog.hogql.direct_sql.raw_sql import nestable_direct_statement
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
@@ -64,23 +64,26 @@ class WarehouseNativeQueryBuilder:
         self,
         *,
         exposure: ExperimentWarehouseNativeExposureConfig,
-        metric: ExperimentMeanMetric | ExperimentRatioMetric,
         variants: tuple[str, ...],
         date_from: datetime,
         date_to: datetime,
         multiple_variant_handling: MultipleVariantHandling,
+        metric: ExperimentMeanMetric | ExperimentRatioMetric | None = None,
     ):
+        """Without a metric the builder can only build the exposures statement."""
         self.exposure = exposure
         self.metric = metric
         self.variants = variants
         self.date_from = date_from
         self.date_to = date_to
         self.multiple_variant_handling = multiple_variant_handling
-        self.conversion_window_seconds = get_conversion_window_seconds(metric)
+        self.conversion_window_seconds = get_conversion_window_seconds(metric) if metric is not None else 0
 
     @cached_property
     def _sources(self) -> dict[str, ExperimentWarehouseNativeNode]:
         candidates: dict[str, object]
+        if self.metric is None:
+            return {}
         if isinstance(self.metric, ExperimentRatioMetric):
             candidates = {"numerator": self.metric.numerator, "denominator": self.metric.denominator}
         else:
@@ -110,6 +113,7 @@ class WarehouseNativeQueryBuilder:
 
     def _refuse_unsupported_options(self) -> None:
         """A statement that ignored one of these options would return a result that the user did not ask for."""
+        assert self.metric is not None
         if isinstance(self.metric, ExperimentRatioMetric):
             winsorized = any(
                 bounds is not None
@@ -278,7 +282,22 @@ SELECT
 FROM {entity_metrics}
 GROUP BY {entity_metrics}.variant"""
 
+    def build_exposures(self, timezone: str) -> str:
+        """One row per day and variant: how many entities were first exposed that day. The day is in the
+        team's timezone, which is how the results page counts days."""
+        exposures = f"{self._prefix}exposures"
+        return f"""WITH {",\n".join(self._exposure_ctes())}
+SELECT
+    DATE({exposures}.first_exposure_time, {_string_literal(timezone)}) AS day,
+    {exposures}.variant AS variant,
+    COUNT({exposures}.entity_id) AS exposures
+FROM {exposures}
+GROUP BY 1, 2
+ORDER BY 1, 2"""
+
     def build(self) -> str:
+        if self.metric is None:
+            raise InternalHogQLError("The metric statement needs a metric.")
         self._refuse_unsupported_options()
         if isinstance(self.metric, ExperimentRatioMetric):
             return self._build_ratio_query()

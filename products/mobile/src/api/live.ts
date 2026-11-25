@@ -1,12 +1,13 @@
 import { hostKind } from '@/lib/environment'
 import { isRecord } from '@/lib/records'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS, type LiveTrafficFilters } from '@/model/liveTrafficFilters'
+import type { WebPropertyFilter } from '@/model/views'
 import { apiJson, projectPath, scopedPath } from './client'
 import { runQuery } from './query'
 import type { ProjectScope } from './reports'
 
 // The Live screen's reads. The HogQL text follows `loadQueryData` in the web's
-// `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsLogic.tsx`, in its unfiltered form
-// (`values` for the window instead of `{filters}`), without the bot traffic columns.
+// `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsLogic.tsx`.
 
 export type LiveQueryKey =
     | 'platforms'
@@ -89,13 +90,51 @@ const DEVICE_ID = `if(
     properties.$device_id
 )`
 
+function livePropertyFilters(filters: LiveTrafficFilters): WebPropertyFilter[] {
+    const properties: WebPropertyFilter[] = []
+    if (filters.excludeBots) {
+        properties.push({ key: '$virt_is_bot', type: 'event', operator: 'exact', value: 'false' })
+    }
+    if (filters.hostname) {
+        properties.push({ key: '$host', type: 'event', operator: 'exact', value: filters.hostname })
+    }
+    if (filters.pathPrefix && filters.pathMode === 'exact') {
+        properties.push({ key: '$pathname', type: 'event', operator: 'exact', value: filters.pathPrefix })
+    } else if (filters.pathPrefix) {
+        // The property starts_with operator uses ILIKE, where % and _ are wildcards. URL paths are case-sensitive.
+        const literalPrefix = filters.pathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        properties.push({ key: '$pathname', type: 'event', operator: 'regex', value: `^${literalPrefix}` })
+    }
+    if (filters.countryCode) {
+        properties.push({ key: '$geoip_country_code', type: 'event', operator: 'exact', value: filters.countryCode })
+    }
+    if (filters.deviceType) {
+        properties.push({ key: '$device_type', type: 'event', operator: 'exact', value: filters.deviceType })
+    }
+    // Both query types resolve session properties through the lazy events.session join.
+    if (filters.channelType) {
+        properties.push({ key: '$channel_type', type: 'session', operator: 'exact', value: filters.channelType })
+    }
+    if (filters.referringDomain) {
+        properties.push({
+            key: '$entry_referring_domain',
+            type: 'session',
+            operator: 'exact',
+            value: filters.referringDomain,
+        })
+    }
+    return properties
+}
+
 function topViewsQuery(
     event: string,
     breakdown: string,
     name: string,
     window: LiveWindow,
     pathCleaning: boolean,
-    filterTestAccounts: boolean
+    filterTestAccounts: boolean,
+    properties: WebPropertyFilter[],
+    webOnly = false
 ): Record<string, unknown> {
     return {
         kind: 'TrendsQuery',
@@ -109,7 +148,21 @@ function topViewsQuery(
             breakdown_path_cleaning: pathCleaning,
         },
         dateRange: { date_from: window.dateFrom, date_to: window.dateTo },
-        properties: [],
+        properties: webOnly
+            ? {
+                  type: 'AND',
+                  values: [
+                      {
+                          type: 'OR',
+                          values: [
+                              { key: '$lib', type: 'event', operator: 'exact', value: ['web', 'js', 'posthog-js', ''] },
+                              { key: '$lib', type: 'event', operator: 'is_not_set' },
+                          ],
+                      },
+                      ...(properties.length ? [{ type: 'AND', values: properties }] : []),
+                  ],
+              }
+            : properties,
         filterTestAccounts,
         tags: tags(name),
     }
@@ -121,21 +174,30 @@ export interface LiveQueryOptions {
     mobileOnly?: boolean
     webOnly?: boolean
     filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
 }
 
 export function liveQuery(
     key: LiveQueryKey,
-    { window, pathCleaning, mobileOnly = false, webOnly = false, filterTestAccounts = false }: LiveQueryOptions
+    {
+        window,
+        pathCleaning,
+        mobileOnly = false,
+        webOnly = false,
+        filterTestAccounts = false,
+        trafficFilters = DEFAULT_LIVE_TRAFFIC_FILTERS,
+    }: LiveQueryOptions
 ): Record<string, unknown> {
     const audienceWhere = mobileOnly ? MOBILE_EVENT : webOnly ? WEB_EVENT : null
     const visibleWhere = audienceWhere ? `${WHERE_VISIBLE_MINUTES} AND ${audienceWhere}` : WHERE_VISIBLE_MINUTES
     const windowWhere = audienceWhere ? `${WHERE_WINDOW} AND ${audienceWhere}` : WHERE_WINDOW
-    const accountPredicate = filterTestAccounts ? ' AND {filters}' : ''
+    const properties = livePropertyFilters(trafficFilters)
+    const filterPredicate = filterTestAccounts || properties.length ? ' AND {filters}' : ''
     const hogql = (query: string, name: string, useWindow = true): Record<string, unknown> => ({
         kind: 'HogQLQuery',
         query,
         ...(useWindow ? { values: { dateFrom: window.dateFrom, dateTo: window.dateTo } } : {}),
-        ...(filterTestAccounts ? { filters: { filterTestAccounts } } : {}),
+        ...(filterPredicate ? { filters: { filterTestAccounts, ...(properties.length ? { properties } : {}) } } : {}),
         tags: tags(name),
     })
     const breakdownQuery = (category: string, id: string, name: string, where: string): Record<string, unknown> =>
@@ -144,7 +206,7 @@ export function liveQuery(
             FROM (
                 SELECT ${category} AS category, uniqExact(${id}) AS visitor_count
                 FROM events
-                WHERE ${where}${accountPredicate}
+                WHERE ${where}${filterPredicate}
                 GROUP BY category
             )`,
             name
@@ -160,12 +222,12 @@ export function liveQuery(
             )
         case 'mobileSessions':
             return hogql(
-                `SELECT uniqExactIf(properties.$session_id, properties.$session_id IS NOT NULL AND properties.$session_id != ''), countIf(properties.$session_id IS NOT NULL AND properties.$session_id != '') FROM events WHERE ${WHERE_VISIBLE_MINUTES} AND ${MOBILE_EVENT}${accountPredicate}`,
+                `SELECT uniqExactIf(properties.$session_id, properties.$session_id IS NOT NULL AND properties.$session_id != ''), countIf(properties.$session_id IS NOT NULL AND properties.$session_id != '') FROM events WHERE ${WHERE_VISIBLE_MINUTES} AND ${MOBILE_EVENT}${filterPredicate}`,
                 'live_mobile_sessions'
             )
         case 'mobileMetrics':
             return hogql(
-                `SELECT uniqIf(distinct_id, timestamp >= now() - INTERVAL 1 DAY), uniq(distinct_id), countIf(event = 'Application Installed' AND timestamp >= now() - INTERVAL 1 DAY), countIf(event = 'Application Installed'), count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND timestamp <= now() AND ${MOBILE_EVENT}${accountPredicate}`,
+                `SELECT uniqIf(distinct_id, timestamp >= now() - INTERVAL 1 DAY), uniq(distinct_id), countIf(event = 'Application Installed' AND timestamp >= now() - INTERVAL 1 DAY), countIf(event = 'Application Installed'), count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND timestamp <= now() AND ${MOBILE_EVENT}${filterPredicate}`,
                 'live_mobile_metrics',
                 false
             )
@@ -184,7 +246,7 @@ export function liveQuery(
                         countIf(event = '$screen') AS minute_screenviews,
                         min(minute_bucket) OVER (PARTITION BY distinct_id) AS first_minute
                     FROM events
-                    WHERE ${visibleWhere}${accountPredicate}
+                    WHERE ${visibleWhere}${filterPredicate}
                     GROUP BY distinct_id, minute_bucket
                 )
                 GROUP BY minute_bucket
@@ -206,39 +268,33 @@ export function liveQuery(
                 visibleWhere
             )
         case 'paths':
-            return {
-                ...topViewsQuery('$pageview', '$pathname', 'live_paths', window, pathCleaning, filterTestAccounts),
-                ...(webOnly
-                    ? {
-                          properties: {
-                              type: 'AND',
-                              values: [
-                                  {
-                                      type: 'OR',
-                                      values: [
-                                          {
-                                              key: '$lib',
-                                              type: 'event',
-                                              operator: 'exact',
-                                              value: ['web', 'js', 'posthog-js', ''],
-                                          },
-                                          { key: '$lib', type: 'event', operator: 'is_not_set' },
-                                      ],
-                                  },
-                              ],
-                          },
-                      }
-                    : {}),
-            }
+            return topViewsQuery(
+                '$pageview',
+                '$pathname',
+                'live_paths',
+                window,
+                pathCleaning,
+                filterTestAccounts,
+                properties,
+                webOnly
+            )
         case 'screens':
             // The `$screen` form of `paths`, for projects that send app events and no pageviews. Path cleaning rules
             // are written for URL paths, so they do not apply to screen names.
             return mobileOnly
                 ? hogql(
-                      `SELECT properties.$screen_name, count(), sum(count()) OVER () AS total_views FROM events WHERE ${visibleWhere}${accountPredicate} AND event = '$screen' GROUP BY properties.$screen_name ORDER BY count() DESC LIMIT 10`,
+                      `SELECT properties.$screen_name, count(), sum(count()) OVER () AS total_views FROM events WHERE ${visibleWhere}${filterPredicate} AND event = '$screen' GROUP BY properties.$screen_name ORDER BY count() DESC LIMIT 10`,
                       'live_screens'
                   )
-                : topViewsQuery('$screen', '$screen_name', 'live_screens', window, false, filterTestAccounts)
+                : topViewsQuery(
+                      '$screen',
+                      '$screen_name',
+                      'live_screens',
+                      window,
+                      false,
+                      filterTestAccounts,
+                      properties
+                  )
         case 'referrer':
             return hogql(
                 `SELECT
@@ -246,7 +302,7 @@ export function liveQuery(
                     if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
                     count() AS view_count
                 FROM events
-                WHERE ${windowWhere}${accountPredicate}
+                WHERE ${windowWhere}${filterPredicate}
                     AND event = '$pageview'
                 GROUP BY minute_bucket, referring_domain
                 ORDER BY minute_bucket ASC`,
@@ -266,7 +322,7 @@ export function liveQuery(
                 `SELECT uuid, event, distinct_id, toUnixTimestamp64Milli(timestamp),
                     properties.$current_url, properties.$screen_name, properties.$pathname, properties.$session_id
                 FROM events
-                WHERE ${windowWhere}${accountPredicate}
+                WHERE ${windowWhere}${filterPredicate}
                 ORDER BY timestamp DESC
                 LIMIT 50`,
                 'live_recent_events'
@@ -277,7 +333,7 @@ export function liveQuery(
                 `SELECT uniq(distinct_id)
                     FROM events
                     WHERE timestamp > now() - INTERVAL 1 MINUTE
-                        AND timestamp < now() + INTERVAL 1 MINUTE${audienceWhere ? ` AND ${audienceWhere}` : ''}${accountPredicate}`,
+                        AND timestamp < now() + INTERVAL 1 MINUTE${audienceWhere ? ` AND ${audienceWhere}` : ''}${filterPredicate}`,
                 'live_users_count',
                 false
             )

@@ -1,9 +1,20 @@
-"""Dataclass inputs/outputs for evaluation reports activities."""
+"""Types for evaluation report activities."""
 
 import dataclasses
 from typing import Any
 
+from temporalio.exceptions import ApplicationError
+
 from posthog.dataclasses import frozen
+
+
+class AIDataProcessingNotApproved(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Evaluation reports need AI data processing to be approved in organization settings.",
+            type="AIDataProcessingNotApproved",
+            non_retryable=True,
+        )
 
 
 @dataclasses.dataclass

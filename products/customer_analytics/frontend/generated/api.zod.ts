@@ -1136,6 +1136,9 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
 export const customerTasksCreateBodyNameMax = 400
 
 export const customerTasksCreateBodyStatusDefault = `open`
+export const customerTasksCreateBodyTagsItemMax = 255
+
+export const customerTasksCreateBodyTagsMax = 100
 
 export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
     account_id: zod.uuid().nullish().describe('UUID of a visible account, or null for an accountless task.'),
@@ -1152,7 +1155,16 @@ export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    tags: zod
+        .array(zod.string().max(customerTasksCreateBodyTagsItemMax))
+        .max(customerTasksCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names for the task, up to 100.'),
 })
+
+export const customerTasksUpdateBodyTagsItemMax = 255
+
+export const customerTasksUpdateBodyTagsMax = 100
 
 export const customerTasksUpdateBodyNameMax = 400
 
@@ -1172,9 +1184,18 @@ export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    tags: zod
+        .array(zod.string().max(customerTasksUpdateBodyTagsItemMax))
+        .max(customerTasksUpdateBodyTagsMax)
+        .optional()
+        .describe('Replacement tag names, up to 100. An empty list removes every tag.'),
     name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
+
+export const customerTasksPartialUpdateBodyTagsItemMax = 255
+
+export const customerTasksPartialUpdateBodyTagsMax = 100
 
 export const customerTasksPartialUpdateBodyNameMax = 400
 
@@ -1194,6 +1215,11 @@ export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    tags: zod
+        .array(zod.string().max(customerTasksPartialUpdateBodyTagsItemMax))
+        .max(customerTasksPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Replacement tag names, up to 100. An empty list removes every tag.'),
     name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
     description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
@@ -1202,6 +1228,10 @@ export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Update selected tasks in one transaction. No tasks change if any task fails validation.
  */
 export const customerTasksBulkUpdateCreateBodyTaskIdsMax = 100
+
+export const customerTasksBulkUpdateCreateBodyUpdatesOneTagsItemMax = 255
+
+export const customerTasksBulkUpdateCreateBodyUpdatesOneTagsMax = 100
 
 export const CustomerTasksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
     task_ids: zod
@@ -1226,7 +1256,19 @@ export const CustomerTasksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
                 ),
+            tags: zod
+                .array(zod.string().max(customerTasksBulkUpdateCreateBodyUpdatesOneTagsItemMax))
+                .max(customerTasksBulkUpdateCreateBodyUpdatesOneTagsMax)
+                .optional()
+                .describe('Replacement tag names, up to 100. An empty list removes every tag.'),
             archived: zod.boolean().optional().describe('Archive tasks when true, or restore them when false.'),
+            tags_mode: zod
+                .enum(['add', 'remove', 'set'])
+                .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+                .optional()
+                .describe(
+                    'How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set'
+                ),
         })
         .describe('Changes to apply to every selected task.'),
 })
@@ -1966,7 +2008,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, or follow a project or role default when followed_default is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax = 64
@@ -1994,6 +2036,20 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .optional()
         .describe(
             'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
+        ),
+    followed_default: zod
+        .object({
+            kind: zod
+                .enum(['project', 'role'])
+                .describe('\* `project` - Project\n\* `role` - Role')
+                .describe(
+                    "Follow the project default or the default of one of the requesting user's roles.\n\n\* `project` - Project\n\* `role` - Role"
+                ),
+            role_id: zod.uuid().nullish().describe('Role whose default to follow. Required when kind is role.'),
+        })
+        .optional()
+        .describe(
+            'Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties.'
         ),
     task_digest: zod
         .object({

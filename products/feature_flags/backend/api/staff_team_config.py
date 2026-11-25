@@ -20,7 +20,11 @@ from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import (
+    FlagEvaluationsConfig,
+    get_organization_flag_evaluations_config,
+    get_organization_flag_evaluations_configs,
+)
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -33,7 +37,6 @@ from products.feature_flags.backend.flag_limits import (
     resolve_max_feature_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
     PropertyMatchingVersion,
@@ -60,7 +63,7 @@ def _config_row(
     minimal_flag_called_events: bool,
     property_matching_version: int,
     max_feature_flags_override: int | None,
-    flag_evaluations_mode: int,
+    flag_evaluations_config: FlagEvaluationsConfig,
     feature_flag_count: int,
 ) -> dict[str, Any]:
     """Build the row shape shared by list() and set(), which both feed the same staff tools table."""
@@ -70,7 +73,8 @@ def _config_row(
         "property_matching_version": property_matching_version,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
-        "flag_evaluations_mode": flag_evaluations_mode,
+        "flag_evaluations_mode": flag_evaluations_config.mode,
+        "keep_writing_flag_calls_to_events": flag_evaluations_config.keeps_events_writes,
         "feature_flag_count": feature_flag_count,
     }
 
@@ -113,8 +117,16 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
-            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway."
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. "
+            "An organization on 0 or 1 whose every team reads the native JSON events table reads as 2 with its events writes kept, "
+            "so that setting moves it back to events as well."
         ),
+    )
+    keep_writing_flag_calls_to_events = serializers.BooleanField(
+        help_text=(
+            "Whether ingestion keeps writing $feature_flag_called to the events table for the organization of this "
+            "team while it is on mode 2. Always false on modes 0 and 1."
+        )
     )
     feature_flag_count = serializers.IntegerField(
         help_text=(
@@ -188,6 +200,14 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
             "for the time the organization spent on 2."
         ),
     )
+    keep_writing_flag_calls_to_events = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader "
+            "behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a "
+            "read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it."
+        ),
+    )
     dry_run = serializers.BooleanField(
         default=False,
         help_text="Report what the write would change, and write nothing.",
@@ -209,7 +229,13 @@ class StaffOrganizationModeChangeSerializer(DataclassSerializer):
             "organization_name": {"help_text": "Organization name."},
             "team_count": {"help_text": "Teams of the organization. They all read the organization's mode."},
             "running_experiments_needing_flag_calls_in_events": {
-                "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls."
+                "help_text": "Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes unless they are kept, and either way the events copy lacks the calls from before the writes stopped or were kept."
+            },
+            "current_keeps_events_writes": {
+                "help_text": "True when ingestion kept writing $feature_flag_called to events for the organization before the write."
+            },
+            "target_keeps_events_writes": {
+                "help_text": "True when ingestion keeps writing $feature_flag_called to events for the organization after the write."
             },
             "changed": {
                 "help_text": "True when the write moved the organization to the target mode, or would on a dry run."
@@ -286,9 +312,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 "team_id", "max_feature_flags_override"
             )
         )
-        organization_config_by_id = OrganizationFeatureFlagsConfig.objects.in_bulk(
-            set(organization_id_by_team_id.values())
-        )
+        organization_config_by_id = get_organization_flag_evaluations_configs(set(organization_id_by_team_id.values()))
         # FeatureFlag.objects excludes soft-deleted rows, so counting the root team gives the
         # number check_flag_limits_for_team compares against the limit. Staff reading this number
         # next to the limit have to see the number the validator sees.
@@ -307,16 +331,13 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             # An unsaved instance stands in for a legacy team whose row predates this extension,
             # so the model's own field defaults answer for it rather than a second copy here.
             config = config_by_team_id.get(team_id) or TeamFeatureFlagsConfig()
-            organization_config = (
-                organization_config_by_id.get(organization_id_by_team_id[team_id]) or OrganizationFeatureFlagsConfig()
-            )
             results.append(
                 _config_row(
                     team_id=team_id,
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
-                    flag_evaluations_mode=organization_config.flag_evaluations_mode,
+                    flag_evaluations_config=organization_config_by_id[organization_id_by_team_id[team_id]],
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
@@ -408,7 +429,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     if team.parent_team_id is None
                     else get_max_feature_flags_override_for_team(team.parent_team_id)
                 ),
-                flag_evaluations_mode=get_organization_flag_evaluations_mode(team.organization_id),
+                flag_evaluations_config=get_organization_flag_evaluations_config(team.organization_id),
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )
@@ -433,7 +454,11 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # One transaction across organizations, so the request applies in full or not at all.
         with transaction.atomic():
             changes = set_organizations_flag_evaluations_mode(
-                organizations, mode, allow_downgrade=allow_downgrade, dry_run=dry_run
+                organizations,
+                mode,
+                allow_downgrade=allow_downgrade,
+                dry_run=dry_run,
+                keep_writing_flag_calls_to_events=validated["keep_writing_flag_calls_to_events"],
             )
 
         if not dry_run:
@@ -443,6 +468,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 was_impersonated=is_impersonated(request),
                 flag_evaluations_mode=mode.value,
                 allow_downgrade=allow_downgrade,
+                keep_writing_flag_calls_to_events=validated["keep_writing_flag_calls_to_events"],
                 team_ids=team_ids,
                 organization_ids=[str(organization.id) for organization in organizations],
                 organizations_changed=sum(change.changed for change in changes),

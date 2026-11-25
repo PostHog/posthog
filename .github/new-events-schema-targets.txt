@@ -10,8 +10,9 @@
 # Three kinds of code can:
 #   - code that reads event properties, through HogQL or through its own SQL
 #   - code that branches on use_new_events_schema() or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-#   - callers of flag_calls_only_in_flag_evaluations() and reads_flag_calls_from_flag_evaluations()
-#     in products/feature_flags/backend/facade/flags.py. Both return True on every flag evaluations
+#   - callers of events_lack_new_flag_calls(), reads_flag_calls_from_flag_evaluations() and
+#     reads_flag_calls_without_events_fallback() in products/feature_flags/backend/facade/flags.py,
+#     and of HogQLContext.flag_calls_only_in_flag_evaluations(). Each returns True on every flag evaluations
 #     mode for a team that reads the native JSON events table and has the flag_evaluations table
 #     enabled, because the JSON events table holds no flag calls.
 # The list also holds the modules that own a *.new_events_schema.ambr snapshot. A module outside
@@ -35,20 +36,25 @@ posthog/hogql
 posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
+posthog/query_scan/test/test_stub_printing.py
+posthog/temporal/ai_observability/trace_summarization/tests/test_workflow.py
 ee/clickhouse
 ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_facade_list_traces.py
+products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views
 products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/customer_analytics/backend/test/test_account_automations.py
 products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
+products/data_quality/backend/tests/test_staged_audit.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
+products/error_tracking/backend/tests/test_issue_tag_rule_sweep.py
 products/error_tracking/backend/tests/test_issue_tagger_rerun.py
 products/experiments
 products/groups/backend/tests
@@ -85,7 +91,6 @@ posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_team_event_volume.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
-posthog/temporal/tests/session_replay/copy_recording/test_activities.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
 posthog/temporal/ai_observability/test_run_trace_evaluation.py
 posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py

@@ -23,14 +23,15 @@ from products.visual_review.backend.facade.contracts import (
 )
 from products.visual_review.backend.facade.enums import (
     ActorType,
+    BaselineMode,
     ReviewState,
     RunPurpose,
     RunStatus,
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
-from products.visual_review.backend.models import Run, RunSnapshot
+from products.visual_review.backend.logic import artifact_store, ci_status, errors, github_api, quarantine, runs
+from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
@@ -602,6 +603,71 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # The comment is always dispatched; the flag only forwards whether to embed images.
         self.assertTrue(delay.called)
         self.assertEqual(delay.call_args.args[2], expect_add_images)
+
+    @parameterized.expand(
+        [
+            ("posted", "visual_review:write", "a" * 40, ci_status.StatusPost.POSTED, status.HTTP_200_OK),
+            (
+                "refused_by_github",
+                "visual_review:write",
+                "a" * 40,
+                ci_status.StatusPost.REFUSED,
+                status.HTTP_502_BAD_GATEWAY,
+            ),
+            ("read_scope", "visual_review:read", "a" * 40, ci_status.StatusPost.POSTED, status.HTTP_403_FORBIDDEN),
+            (
+                "path_segments",
+                "visual_review:write",
+                "../../pulls/1",
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "fragment_suffix",
+                "visual_review:write",
+                "a" * 40 + "#x",
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("short_sha", "visual_review:write", "abc123", ci_status.StatusPost.POSTED, status.HTTP_400_BAD_REQUEST),
+            (
+                "uppercase_sha",
+                "visual_review:write",
+                "A" * 40,
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_skip_reports_a_commit_that_needs_no_run(
+        self, _name: str, scope: str, commit_sha: str, post, expected_status: int
+    ):
+        Repo.objects.filter(id=self.vr_project.id).update(
+            baseline_mode=BaselineMode.LEDGER, commit_status_gate_enabled=True
+        )
+        key = self.create_personal_api_key_with_scopes([scope])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        with patch.object(ci_status, "_send_commit_status", return_value=post):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/runs/skip/",
+                {
+                    "repo_id": str(self.vr_project.id),
+                    "run_type": "storybook",
+                    "commit_sha": commit_sha,
+                    "branch": "feat",
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["outcome"] == "posted"
+        if expected_status == status.HTTP_502_BAD_GATEWAY:
+            assert "Re-run this job" in response.json()["detail"]
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "commit_sha"
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         artifact_store.get_or_create_artifact(

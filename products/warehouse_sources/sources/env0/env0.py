@@ -173,6 +173,20 @@ def _projects_parent() -> EndpointResource:
     }
 
 
+def _modules_parent() -> EndpointResource:
+    """Modules list (one request per organization) used only to resolve module ids for the
+    module-level fan-out."""
+    modules_config = ENV0_ENDPOINTS["modules"]
+    return {
+        "name": "modules",
+        "endpoint": {
+            "path": f"{modules_config.path}?{modules_config.org_id_param}={{org_id}}",
+            "params": {"org_id": {"type": "resolve", "resource": "organizations", "field": "id"}},
+            "paginator": SinglePagePaginator(),
+        },
+    }
+
+
 def _deployments_parent(date_window_params: dict[str, str]) -> EndpointResource:
     """Deployments list (one request chain per environment) used only to resolve deployment ids for
     the deployment-level fan-out. The incremental window lands here rather than on the child, so a
@@ -214,7 +228,7 @@ def _target_resource(
     endpoint: Endpoint = {"path": path, "params": params, "paginator": _paginator_for(config)}
     if config.data_key:
         endpoint["data_selector"] = config.data_key
-    if config.scope in ("project", "environment", "deployment"):
+    if config.scope in ("project", "environment", "deployment", "module"):
         # A 404 deep in the fan-out means the parent was deleted mid-sync or (for costs) cost
         # monitoring isn't configured, so skip it rather than failing the sync.
         endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
@@ -237,6 +251,8 @@ def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, s
             _environments_parent(),
             _target_resource(config, "environments", date_window_params),
         ]
+    if config.scope == "module":
+        return [_organizations_parent(), _modules_parent(), _target_resource(config, "modules", {})]
     if config.scope == "deployment":
         return [
             _organizations_parent(),

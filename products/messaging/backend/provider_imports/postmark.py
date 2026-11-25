@@ -121,8 +121,9 @@ class PostmarkImportProvider(ImportProvider):
     )
     api_key_url = "https://account.postmarkapp.com/api_tokens"
     not_imported = (
-        "Postmark has no automations or contact lists to import. Domains, senders, webhooks, inbound streams, SMTP "
-        "settings, send history, stats and tokens stay in Postmark, so rebuild what you need."
+        "Postmark has no automations or contact lists to import. Domains, senders and webhooks are listed so you can "
+        "set them up again in PostHog, but they aren't copied. Inbound streams, SMTP settings, send history, stats "
+        "and tokens stay in Postmark."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
@@ -191,23 +192,22 @@ class PostmarkImportProvider(ImportProvider):
         ),
         ImportStepSpec(
             key="domains",
-            label="Sending domains and senders",
+            label="Sending domains and senders (account token only)",
             description=(
                 "Lists your Postmark domains and sender signatures and which can already send from PostHog. PostHog "
-                "signs mail with its own keys, so each one needs new DNS records. This needs the account token."
+                "signs mail with its own keys, so each one needs new DNS records. A server token skips this step."
             ),
             count_labels=(
                 ("ready", "Ready to send from PostHog"),
                 ("needs_setup", "Need new DNS records"),
                 ("senders", "Sender signatures"),
-                ("needs_account_token", "Not read, because this needs the account token"),
             ),
         ),
         ImportStepSpec(
             key="webhooks",
             label="Webhooks",
-            description="Lists each webhook so you can rebuild it. Webhooks stay in Postmark.",
-            count_labels=(("listed", "Webhooks to rebuild"),),
+            description="Lists each webhook so you can set it up again. Nothing changes in Postmark.",
+            count_labels=(("listed", "Webhooks to set up again"),),
         ),
     )
 
@@ -778,10 +778,9 @@ def _fetch_domains(
 def _save_needs_account_token() -> SavedPage:
     return SavedPage(
         imported=0,
-        counts={"needs_account_token": 1},
         warnings=(
-            "A server token can't read domains or sender signatures. Import this step with the account token, or add "
-            "your domains in PostHog by hand.",
+            "Skipped, because a server token can't read domains or sender signatures. To list them, import this step "
+            "again with the account token, or add your domains in PostHog by hand.",
         ),
     )
 
@@ -879,20 +878,32 @@ def _fetch_webhooks(
 
 
 def _save_webhooks(server: PostmarkServer, webhooks: list[dict[str, Any]]) -> SavedPage:
-    items = tuple(_webhook_item(server, webhook) for webhook in webhooks)
-    return SavedPage(imported=0, counts={"listed": len(items)}, items=items)
+    labels = [_webhook_label(server, webhook) for webhook in webhooks]
+    totals = Counter(labels)
+    seen: Counter[str] = Counter()
+    items: list[ImportItem] = []
+    for label, webhook in zip(labels, webhooks):
+        seen[label] += 1
+        # Two webhooks on one stream to one host only differ by their path or triggers, and the path stays private.
+        shown = f"{label} ({seen[label]} of {totals[label]})" if totals[label] > 1 else label
+        items.append(_webhook_item(shown, webhook))
+    return SavedPage(imported=0, counts={"listed": len(items)}, items=tuple(items))
 
 
-def _webhook_item(server: PostmarkServer, webhook: dict[str, Any]) -> ImportItem:
+def _webhook_label(server: PostmarkServer, webhook: dict[str, Any]) -> str:
+    # A webhook URL or its auth can hold a secret, so only the host reaches the run's stored progress.
+    host = urlparse(str(webhook.get("Url") or "")).hostname or "unknown host"
+    return f"{server.name}: {webhook.get('MessageStream') or 'all streams'} to {host}"
+
+
+def _webhook_item(label: str, webhook: dict[str, Any]) -> ImportItem:
     triggers = [
         name
         for name, config in (webhook.get("Triggers") or {}).items()
         if isinstance(config, dict) and config.get("Enabled")
     ]
-    # A webhook URL or its auth can hold a secret, so only the host reaches the run's stored progress.
-    host = urlparse(str(webhook.get("Url") or "")).hostname or "unknown host"
     return ImportItem(
-        label=f"{server.name}: {webhook.get('MessageStream') or 'all streams'} to {host}",
+        label=label,
         status="listed",
-        notes=(f"Rebuild this webhook. It fires on: {', '.join(triggers) or 'nothing'}.",),
+        notes=(f"Set this webhook up again. It fires on: {', '.join(triggers) or 'nothing'}.",),
     )

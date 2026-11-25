@@ -66,6 +66,59 @@ def test_paginated_tables_extract_rows_and_commit_the_next_page(
     assert "test-token" in result.session_options[1]["redact_values"]
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "row"),
+    [
+        ("orders", {"yotpo_id": 1, "created_at": "2020-01-02T00:00:00Z", "total_price": 10.5}),
+        ("products", {"yotpo_id": 2, "created_at": "2020-01-02T00:00:00Z", "name": "Test product"}),
+        ("customers", {"external_id": None, "email": "person@example.com", "yotpo_ugc": None}),
+    ],
+)
+def test_core_tables_follow_the_page_info_cursor(endpoint: str, row: dict[str, object]) -> None:
+    until = datetime.now(UTC).date().isoformat()
+    result = SourceDriver(
+        YotpoSource(), YotpoSourceConfig(app_key="test-store", api_secret="test-secret", start_date="2020-01-01")
+    ).run(
+        endpoint,
+        [
+            ScriptedResponse(json={"access_token": "test-token"}),
+            ScriptedResponse(json={endpoint: [row], "pagination": {"next_page_info": "cursor-1"}}),
+            ScriptedResponse(json={endpoint: [row], "pagination": {"next_page_info": "cursor-2"}}),
+            ScriptedResponse(json={endpoint: [row], "pagination": {"next_page_info": None}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [row, row, row]
+    assert result.paths[1:] == [f"/core/v3/stores/test-store/{endpoint}"] * 3
+    assert result.params("page_info")[1:] == [None, "cursor-1", "cursor-2"]
+    assert result.params("limit")[1:] == ["100", "100", "100"]
+    assert result.params("page")[1:] == [None, None, None]
+    assert all(request.headers["x-yotpo-token"] == "test-token" for request in result.requests[1:])
+    assert result.committed_states == [
+        YotpoResumeConfig(cursor="cursor-1", until=until),
+        YotpoResumeConfig(cursor="cursor-2", until=until),
+    ]
+
+
+def test_customer_segments_read_the_profile_groups_list() -> None:
+    row = {"id": 1, "name": "Test segment", "type": "Segment"}
+    result = SourceDriver(
+        YotpoSource(), YotpoSourceConfig(app_key="test-store", api_secret="test-secret", start_date="2020-01-01")
+    ).run(
+        "customer_segments",
+        [
+            ScriptedResponse(json={"access_token": "test-token"}),
+            ScriptedResponse(json={"profileGroups": [row], "populationSize": None}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [row]
+    assert result.paths[1:] == ["/core/v3/stores/test-store/profile_groups"]
+    assert result.requests[1].headers["x-yotpo-token"] == "test-token"
+
+
 def test_email_analytics_requests_daily_buckets_with_an_explicit_date_range() -> None:
     row = {"since": "2020-01-01", "until": "2020-01-01", "values": {"map": 4}}
     result = SourceDriver(
@@ -87,18 +140,27 @@ def test_email_analytics_requests_daily_buckets_with_an_explicit_date_range() ->
     assert len(result.requests) == 2
 
 
-def test_resume_preserves_the_email_window_and_skips_written_pages() -> None:
-    resume = YotpoResumeConfig(page=4, until="2020-02-01")
+@pytest.mark.parametrize(
+    ("endpoint", "resume", "envelope", "param", "expected"),
+    [
+        ("raw_data", YotpoResumeConfig(page=4, until="2020-02-01"), "records", "page", "4"),
+        ("orders", YotpoResumeConfig(cursor="test-cursor", until="2020-02-01"), "orders", "page_info", "test-cursor"),
+    ],
+)
+def test_resume_skips_written_pages(
+    endpoint: str, resume: YotpoResumeConfig, envelope: str, param: str, expected: str
+) -> None:
     result = SourceDriver(
         YotpoSource(), YotpoSourceConfig(app_key="test-store", api_secret="test-secret", start_date="2020-01-01")
     ).run(
-        "raw_data",
-        [ScriptedResponse(json={"access_token": "test-token"}), ScriptedResponse(json={"records": []})],
+        endpoint,
+        [ScriptedResponse(json={"access_token": "test-token"}), ScriptedResponse(json={envelope: []})],
         resume_state=resume,
     )
     assert result.raised is None
-    assert result.requests[1].param("page") == "4"
-    assert result.requests[1].param("until") == "2020-02-01"
+    assert result.requests[1].param(param) == expected
+    if endpoint == "raw_data":
+        assert result.requests[1].param("until") == "2020-02-01"
 
 
 def test_a_failed_next_page_keeps_the_cursor_of_the_written_batch() -> None:

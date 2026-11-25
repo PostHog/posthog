@@ -64,6 +64,8 @@ class ImportStepSpec:
     requires: tuple[str, ...] = ()
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
+    # Creates or updates people, and each of those counts as an event on the bill.
+    counts_as_events: bool = False
 
 
 @frozen
@@ -129,6 +131,8 @@ class PeopleImportPlan:
     send_events: bool
     # Set by the runner. The workflow checks this person can still edit persons before each write.
     created_by_id: int | None = None
+    provider: str = ""
+    step: str = ""
 
 
 @frozen

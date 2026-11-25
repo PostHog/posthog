@@ -54,6 +54,9 @@ class CallRailEndpointConfig:
     # request instead of pages. A "summary" report carries no date on its rows, so each row gets the
     # window it covers.
     report: Optional[Literal["timeseries", "summary"]] = None
+    # Response fields removed from every fan-out child row before it reaches the warehouse, for
+    # fields that can hold third-party credentials.
+    drop_fields: tuple[str, ...] = ()
 
     @property
     def requires_account(self) -> bool:
@@ -79,7 +82,7 @@ _PAGE_VIEWS_FANOUT = DependentEndpointConfig(
     child_response_actions=_CHILD_404_IGNORE,
 )
 
-_CALLER_IDS_FANOUT = DependentEndpointConfig(
+_COMPANIES_FANOUT = DependentEndpointConfig(
     parent_name="companies",
     resolve_param="company_id",
     resolve_field="id",
@@ -209,6 +212,21 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
             },
         ],
     ),
+    "integrations": CallRailEndpointConfig(
+        name="integrations",
+        # `company_id` is a required query param, bound per company row by the fan-out.
+        path="/a/{account_id}/integrations.json?company_id={company_id}",
+        response_key="integrations",
+        primary_keys=["company_id", "id"],
+        fanout=_COMPANIES_FANOUT,
+        # One request per company against a 1,000/hour account-wide budget, so leave it to the user
+        # to opt in rather than enabling it on every new connection.
+        should_sync_default=False,
+        # `config` holds the third-party API keys and webhook settings of each integration, and
+        # `signing_key` is the webhook secret, so neither belongs in the warehouse.
+        drop_fields=("config", "signing_key"),
+        incremental_fields=[],
+    ),
     "leads": CallRailEndpointConfig(
         name="leads",
         path="/a/{account_id}/leads.json",
@@ -246,6 +264,19 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
             },
         ],
     ),
+    "message_flows": CallRailEndpointConfig(
+        name="message_flows",
+        path="/a/{account_id}/message-flows.json",
+        response_key="message-flows",
+        # The listing takes no sort or date filter, and `updated_at` changes on every edit.
+        incremental_fields=[],
+    ),
+    "notifications": CallRailEndpointConfig(
+        name="notifications",
+        path="/a/{account_id}/notifications.json",
+        response_key="notifications",
+        incremental_fields=[],
+    ),
     "outbound_caller_ids": CallRailEndpointConfig(
         name="outbound_caller_ids",
         # `company_id` is a required query param, bound per company row by the fan-out.
@@ -253,7 +284,7 @@ CALLRAIL_ENDPOINTS: dict[str, CallRailEndpointConfig] = {
         response_key="caller_ids",
         partition_key="created_at",
         primary_keys=["company_id", "id"],
-        fanout=_CALLER_IDS_FANOUT,
+        fanout=_COMPANIES_FANOUT,
         # One request per company against a 1,000/hour account-wide budget, so leave it to the user
         # to opt in rather than enabling it on every new connection.
         should_sync_default=False,

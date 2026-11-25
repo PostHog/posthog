@@ -72,6 +72,7 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
             alert_url=lambda team_id, alert_id: f"https://example.com/{team_id}/{alert_id}",
             native=NativeAlertLifecycle(
                 check_interval_minutes=5,
+                platform_destinations=False,
                 remove_destinations=self.remove_destinations,
             ),
         )

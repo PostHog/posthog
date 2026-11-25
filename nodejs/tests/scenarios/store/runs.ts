@@ -85,7 +85,13 @@ const jsonOrNull = (value: unknown): string | null => (value == null ? null : JS
 export class RunStore {
     constructor(private readonly pool: Pool) {}
 
-    async put({ scorecard, series, topology, manifest, host }: RunReport): Promise<'created' | 'updated'> {
+    async put({
+        scorecard,
+        series,
+        topology,
+        manifest,
+        host,
+    }: RunReport): Promise<'created' | 'updated' | 'elsewhere'> {
         const { rows } = await this.pool.query<{ created: boolean }>(
             `INSERT INTO runs (run_id, card_id, status, adapters, owners, target, host, head_sha, card_hash,
                                started_at, ended_at, scorecard, series, topology, manifest, evidence_dir)
@@ -107,6 +113,7 @@ export class RunStore {
                 manifest = COALESCE(EXCLUDED.manifest, runs.manifest),
                 evidence_dir = EXCLUDED.evidence_dir,
                 updated_at = now()
+             WHERE runs.evidence_dir IS NOT DISTINCT FROM EXCLUDED.evidence_dir
              RETURNING (xmax = 0) AS created`,
             [
                 scorecard.run_id,
@@ -127,6 +134,9 @@ export class RunStore {
                 scorecard.evidence_dir ?? null,
             ]
         )
+        if (rows.length === 0) {
+            return 'elsewhere'
+        }
         return rows[0].created ? 'created' : 'updated'
     }
 

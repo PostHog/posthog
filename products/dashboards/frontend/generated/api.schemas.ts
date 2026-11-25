@@ -312,6 +312,88 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `insight` - Insight
+ * * `hogql` - HogQL
+ */
+export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
+
+export const QueryBatchLanguageEnumApi = {
+    Insight: 'insight',
+    Hogql: 'hogql',
+} as const
+
+export interface QueryBatchTargetApi {
+    /**
+     * The panel's ID for this query. Not used for caching.
+     * @maxLength 200
+     */
+    refId: string
+    /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+     *
+     * * `insight` - Insight
+     * * `hogql` - HogQL */
+    language: QueryBatchLanguageEnumApi
+    /**
+     * The query text, read according to `language`.
+     * @maxLength 200000
+     */
+    query: string
+}
+
+export interface QueryBatchTimeApi {
+    /**
+     * End of the range: `now`, `now-1h`, or ISO 8601.
+     * @maxLength 100
+     */
+    to: string
+    /**
+     * Start of the range: `now-7d`, `now-30m`, or ISO 8601.
+     * @maxLength 100
+     */
+    from: string
+}
+
+/**
+ * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+ * @nullable
+ */
+export type QueryBatchQueryApiVariables = { [key: string]: unknown } | null
+
+export interface QueryBatchQueryApi {
+    /** What to run. */
+    target: QueryBatchTargetApi
+    /** The panel's time range. Relative expressions keep the cache key the same across reloads. */
+    time: QueryBatchTimeApi
+    /**
+     * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+     * @nullable
+     */
+    variables?: QueryBatchQueryApiVariables
+    /**
+     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+     * @maxLength 20
+     */
+    interval?: string
+    /** Serve a stale cached result at once and recompute it in the background for the next read. */
+    swr?: boolean
+    /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
+    cacheOnly?: boolean
+}
+
+export interface QueryBatchRequestApi {
+    /**
+     * The panels' queries, at most 500.
+     * @maxItems 500
+     */
+    queries: QueryBatchQueryApi[]
+    /**
+     * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
+     * @nullable
+     */
+    dashboard?: number | null
+}
+
+/**
  * * `default` - Default
  * * `template` - Template
  * * `duplicate` - Duplicate
@@ -2524,6 +2606,8 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
+    /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+    sessionFilterGlobalJoin?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -7441,6 +7525,8 @@ export interface HogQLQueryApi {
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
+    /** Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
@@ -8617,6 +8703,13 @@ export interface ErrorTrackingIssueTagFilterApi {
     key: string
 }
 
+export interface ErrorTrackingIssueTagsFilterApi {
+    /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+    has?: string[] | null
+    /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+    hasNot?: string[] | null
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8679,8 +8772,9 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
-    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilterApi | null
+    /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+    issueTags?: ErrorTrackingIssueTagsFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -10267,6 +10361,81 @@ export interface CachedTileInsightResultApi {
     query?: _InsightQuerySchemaApi | null
 }
 
+/**
+ * * `frames` - Frames
+ * * `result` - Result
+ */
+export type CachedTileFormatEnumApi = (typeof CachedTileFormatEnumApi)[keyof typeof CachedTileFormatEnumApi]
+
+export const CachedTileFormatEnumApi = {
+    Frames: 'frames',
+    Result: 'result',
+} as const
+
+export interface FrameMetaApi {
+    /**
+     * Bucket size as a PostHog interval name, e.g. 'minute_5', 'hour' or 'day'.
+     * @nullable
+     */
+    interval: string | null
+    /**
+     * Start of the range the frame covers.
+     * @nullable
+     */
+    date_from: string | null
+    /**
+     * End of the range the frame covers.
+     * @nullable
+     */
+    date_to: string | null
+    /** Whether the frame is the compared period. Its dates are that period's dates. */
+    previous: boolean
+}
+
+/**
+ * * `time` - Time
+ * * `number` - Number
+ */
+export type FrameFieldTypeEnumApi = (typeof FrameFieldTypeEnumApi)[keyof typeof FrameFieldTypeEnumApi]
+
+export const FrameFieldTypeEnumApi = {
+    Time: 'time',
+    Number: 'number',
+} as const
+
+export interface FrameFieldApi {
+    /** Field name: 'time' for the time field, 'value' for a number field. */
+    name: string
+    /** What the values are.
+     *
+     * * `time` - Time
+     * * `number` - Number */
+    type: FrameFieldTypeEnumApi
+    /** A time field holds epoch milliseconds. A number field holds null for a gap. */
+    values: (number | null)[]
+    /**
+     * UCUM unit of the values, e.g. 'By' or 'ms'.
+     * @nullable
+     */
+    unit: string | null
+}
+
+/**
+ * Label values that identify the series within the tile.
+ */
+export type FrameApiLabels = { [key: string]: string }
+
+export interface FrameApi {
+    /** Series name, as the chart legend shows it. */
+    name: string
+    /** Label values that identify the series within the tile. */
+    labels: FrameApiLabels
+    /** Interval and date range of the frame. */
+    meta: FrameMetaApi
+    /** A time field, then one number field. */
+    fields: FrameFieldApi[]
+}
+
 export interface CachedTileResultApi {
     /** Dashboard tile ID. */
     id: number
@@ -10279,6 +10448,13 @@ export interface CachedTileResultApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `frames` - Frames
+     * * `result` - Result */
+    format?: CachedTileFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
 }
 
 export interface CachedTilesResponseApi {
@@ -10890,6 +11066,13 @@ export interface DashboardStreamCachedTileApi {
     status: CachedTileStatusEnumApi
     /** The cached result. Present only when status is 'hit'. */
     insight?: CachedTileInsightResultApi
+    /** Present on a hit when the request asks for `format=frames`. 'frames' means `frames` replaces `insight.result`. 'result' means the tile's kind has no frames yet, so `insight.result` is unchanged.
+     *
+     * * `frames` - Frames
+     * * `result` - Result */
+    format?: CachedTileFormatEnumApi
+    /** Chart-ready frames, one per series. Present when format is 'frames'. */
+    frames?: FrameApi[]
     /** Present on hits: whether the cached result is past its target age. */
     stale?: boolean
 }
@@ -11751,6 +11934,10 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     filters_override?: string
     /**
+     * 'frames' returns chart-ready frames instead of `insight.result` for trends line, area and bar tiles and for metrics tiles. Other tiles keep their result, with `format` 'result'.
+     */
+    format?: DashboardsCachedTilesRetrieveFormat
+    /**
      * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
      */
     tile_ids: string
@@ -11759,6 +11946,14 @@ export type DashboardsCachedTilesRetrieveParams = {
      */
     variables_override?: string
 }
+
+export type DashboardsCachedTilesRetrieveFormat =
+    (typeof DashboardsCachedTilesRetrieveFormat)[keyof typeof DashboardsCachedTilesRetrieveFormat]
+
+export const DashboardsCachedTilesRetrieveFormat = {
+    Frames: 'frames',
+    Json: 'json',
+} as const
 
 export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat
