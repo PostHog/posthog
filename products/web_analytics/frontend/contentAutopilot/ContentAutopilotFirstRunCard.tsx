@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetupCostNote } from './ContentAutopilotSetupCostNote'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
@@ -112,31 +113,31 @@ export const ContentAutopilotFirstRunCard = ({
                 </>
             )}
             {startError ? (
-                <LemonBanner type="error" className="mt-4">
+                <AiVisibilityBanner type="error" className="mt-4">
                     {startError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : firstRunStep?.status === 'failed' ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     className="mt-4"
                     action={{ children: 'Try again', onClick: () => startFirstRun(paused) }}
                 >
                     {firstRunStep.detail || "The checks couldn't be queued. Try again."}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : skipReason && !firstRunQueued ? (
-                <LemonBanner type="info" className="mt-4" onClose={dismissJob}>
+                <AiVisibilityBanner type="info" className="mt-4" onClose={dismissJob}>
                     {skipReason}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             {pollError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     className="mt-4"
                     action={{ children: 'Try again', onClick: retryJob }}
                     onClose={dismissJob}
                 >
                     {pollError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             <ul className="m-0 mt-5 flex list-none flex-col gap-2 border-t p-0 pt-4">
                 {CHECKLIST.map((item) => (

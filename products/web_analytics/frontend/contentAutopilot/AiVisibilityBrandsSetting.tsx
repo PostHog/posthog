@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonBanner,
     LemonButton,
     LemonInput,
     LemonInputSelect,
@@ -12,6 +11,7 @@ import {
 
 import type { AEOBrandApi, BrandKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { BRANDS_PAGE_SIZE, aiVisibilityBrandsLogic } from './aiVisibilityBrandsLogic'
 
 const KIND_OPTIONS: { value: BrandKindEnumApi; label: string }[] = [
@@ -51,12 +51,12 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                 />
             </div>
             {brandsError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{ children: 'Try again', onClick: loadBrands, loading: brandsLoading }}
                 >
                     Couldn't load the brands. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             <LemonTable<AEOBrandApi>
                 size="small"

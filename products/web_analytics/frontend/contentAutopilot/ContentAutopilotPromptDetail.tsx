@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
@@ -153,22 +155,25 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                 actions={actions}
             />
             {detailError === 'failed' ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}
+                >
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : !reportReady ? (
                 <ContentAutopilotPromptDetailSkeleton />
             ) : (
                 <div className="@container/prompt-report flex flex-col gap-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                         {prompt.topic ? (
-                            <LemonTag>{prompt.topic}</LemonTag>
+                            <AiVisibilityTag>{prompt.topic}</AiVisibilityTag>
                         ) : (
-                            <LemonTag type="muted">No topic</LemonTag>
+                            <AiVisibilityTag type="muted">No topic</AiVisibilityTag>
                         )}
-                        <LemonTag type="muted">Version {prompt.current_version}</LemonTag>
+                        <AiVisibilityTag type="muted">Version {prompt.current_version}</AiVisibilityTag>
                         {prompt.archived_at ? (
-                            <LemonTag type="muted">Archived</LemonTag>
+                            <AiVisibilityTag type="muted">Archived</AiVisibilityTag>
                         ) : (
                             <ContentAutopilotPromptActiveSwitch
                                 promptId={prompt.id}

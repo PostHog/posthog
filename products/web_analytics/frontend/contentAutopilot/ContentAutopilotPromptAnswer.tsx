@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
 import { ContentAutopilotAnswerSentimentTag } from './ContentAutopilotAnswerSentimentTag'
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
@@ -63,7 +65,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                 <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                         {shownCheck.mode === 'no_search' && !shownCheck.check_failed ? (
-                            <LemonTag type="muted">No search</LemonTag>
+                            <AiVisibilityTag type="muted">No search</AiVisibilityTag>
                         ) : (
                             <ContentAutopilotCheckResult
                                 cited={shownCheck.cited}
@@ -143,9 +145,9 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                                             />
                                         ) : null}
                                         {shownCheck.target_urls.includes(url) ? (
-                                            <LemonTag type="success" size="small" className="ml-2">
+                                            <AiVisibilityTag type="success" size="small" className="ml-2">
                                                 Your site
-                                            </LemonTag>
+                                            </AiVisibilityTag>
                                         ) : null}
                                     </li>
                                 ))}
@@ -185,7 +187,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
             ) : latestChecksLoading ? (
                 <LemonSkeleton className="h-40 w-full" />
             ) : latestChecksFailed ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{
                         children: 'Try again',
@@ -193,7 +195,7 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                     }}
                 >
                     Couldn't load the latest answers. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : (
                 <span className="text-muted">No answers yet. The prompt runs in the next daily check.</span>
             )}

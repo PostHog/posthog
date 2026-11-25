@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
@@ -19,6 +19,7 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
@@ -75,12 +76,12 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     }
     if (rankingsError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadRankings, loading: rankingsLoading }}
             >
                 Couldn't load the rankings. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     if (!rankings) {

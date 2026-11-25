@@ -1,24 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonSegmentedButton,
-    LemonSwitch,
-    LemonTable,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSegmentedButton, LemonSwitch, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { promptsTabFilters } from './aiVisibilityFilters'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
@@ -159,12 +151,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
             </div>
 
             {promptsError === 'failed' ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{ children: 'Try again', onClick: loadAeoPrompts, loading: promptsLoading }}
                 >
                     Couldn't load prompts. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
 
             {prompts === null && promptsError ? null : prompts !== null &&
@@ -218,14 +210,14 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                         {prompt.prompt}
                                     </Link>
                                     {prompt.branded ? (
-                                        <LemonTag
+                                        <AiVisibilityTag
                                             type="muted"
                                             size="small"
                                             className="ml-2 align-middle"
                                             title="This prompt names your brand, so answers to it almost always mention you."
                                         >
                                             Branded
-                                        </LemonTag>
+                                        </AiVisibilityTag>
                                     ) : null}
                                     <PromptSearchesLine prompt={prompt} />
                                 </div>
@@ -264,7 +256,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                             key: 'active',
                             render: (_, { id, active, archived_at }) =>
                                 archived_at ? (
-                                    <LemonTag type="muted">Archived</LemonTag>
+                                    <AiVisibilityTag type="muted">Archived</AiVisibilityTag>
                                 ) : (
                                     <ContentAutopilotPromptActiveSwitch promptId={id} active={active} />
                                 ),

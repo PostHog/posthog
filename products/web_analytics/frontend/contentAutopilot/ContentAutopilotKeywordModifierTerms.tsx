@@ -1,4 +1,4 @@
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
 
@@ -7,6 +7,7 @@ import type {
     BrandedSegmentEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
@@ -57,9 +58,9 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <span className="flex items-center justify-end gap-2 tabular-nums">
                         {isCitationGap(modifier, baselineCitedRate) ? (
-                            <LemonTag type="danger" size="small">
+                            <AiVisibilityTag type="danger" size="small">
                                 Gap
-                            </LemonTag>
+                            </AiVisibilityTag>
                         ) : null}
                         {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
                         {baselineCitedRate !== null ? (

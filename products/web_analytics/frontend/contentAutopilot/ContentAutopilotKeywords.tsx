@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
+import { LemonCard } from '@posthog/lemon-ui'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
 import { ContentAutopilotKeywordModifiers } from './ContentAutopilotKeywordModifiers'
 import { ContentAutopilotKeywordReportTable } from './ContentAutopilotKeywordReportTable'
@@ -21,12 +22,12 @@ export const ContentAutopilotKeywords = (): JSX.Element => {
     }
     if (keywordsError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadKeywords, loading: keywordsLoading }}
             >
                 Couldn't load your keywords. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     if (!keywords) {

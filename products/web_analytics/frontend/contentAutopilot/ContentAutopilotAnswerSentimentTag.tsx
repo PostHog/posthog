@@ -1,8 +1,8 @@
-import { LemonTag, type LemonTagType } from '@posthog/lemon-ui'
-
+import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils/numbers'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { SENTIMENT_LABELS } from './answerSentiment'
 
 const TAG_TYPES: Record<string, LemonTagType> = { positive: 'success', negative: 'danger' }
@@ -21,18 +21,21 @@ export const ContentAutopilotAnswerSentimentTag = ({
     if (!sentiment) {
         return namesBrand ? (
             <Tooltip title="Answers that mention you are scored a few minutes after each check.">
-                <LemonTag type="muted" data-attr="content-autopilot-prompt-answer-sentiment">
+                <AiVisibilityTag type="muted" data-attr="content-autopilot-prompt-answer-sentiment">
                     Sentiment not scored yet
-                </LemonTag>
+                </AiVisibilityTag>
             </Tooltip>
         ) : null
     }
     return (
         <Tooltip title="Sentiment of the sentences that mention you, averaged. Hover a highlighted sentence to see its own.">
-            <LemonTag type={TAG_TYPES[sentiment] ?? 'default'} data-attr="content-autopilot-prompt-answer-sentiment">
+            <AiVisibilityTag
+                type={TAG_TYPES[sentiment] ?? 'default'}
+                data-attr="content-autopilot-prompt-answer-sentiment"
+            >
                 {SENTIMENT_LABELS[sentiment] ?? sentiment} about you
                 {score !== null ? ` (${percentage(score, 0)} confidence)` : ''}
-            </LemonTag>
+            </AiVisibilityTag>
         </Tooltip>
     )
 }

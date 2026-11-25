@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonSkeleton,
     LemonTable,
@@ -20,6 +19,7 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
@@ -242,13 +242,13 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                 }
             />
             {reportError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     className="m-3"
                     action={{ children: 'Try again', onClick: loadReport, loading: reportLoading }}
                 >
                     Couldn't load the keyword report. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : !report ? (
                 <LemonSkeleton className="h-32 m-3" />
             ) : report.answers === 0 ? (

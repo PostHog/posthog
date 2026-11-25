@@ -1,11 +1,10 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
-
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { contentAutopilotMoversLogic } from './contentAutopilotMoversLogic'
 import { ContentAutopilotPageMoversTable } from './ContentAutopilotPageMoversTable'
 import { ContentAutopilotPromptMoversTable } from './ContentAutopilotPromptMoversTable'
@@ -27,14 +26,14 @@ export const ContentAutopilotMovers = (): JSX.Element | null => {
     }
     if (moversError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadMovers, loading: moversLoading }}
                 data-attr="content-autopilot-movers-error"
             >
                 Couldn't load the prompts and pages that moved most. Try again, and if it keeps happening contact
                 support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     if (!movers) {

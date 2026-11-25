@@ -1,11 +1,12 @@
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { percentage } from 'lib/utils/numbers'
 
 import type { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { CITATIONS_MAX_DATE_FROM, type CitationsLookup } from './contentAutopilotCitationsModalLogic'
 import { PROMPT_CITATION_COLUMNS, PROMPT_SOURCE_COLUMNS } from './promptReportQueries'
@@ -27,9 +28,9 @@ const lookupFor = (kind: CitationsLookup['kind'], value: string): CitationsLooku
 })
 
 const TargetTag = (): JSX.Element => (
-    <LemonTag type="success" size="small" className="shrink-0">
+    <AiVisibilityTag type="success" size="small" className="shrink-0">
         Your site
-    </LemonTag>
+    </AiVisibilityTag>
 )
 
 const DomainCell: QueryContextColumnComponent = ({ value, record }) => {

@@ -1,7 +1,8 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import type { AnswerMention } from './answerMentions'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
@@ -41,18 +42,18 @@ export const ContentAutopilotAnswerMentionList = ({
                             ) : (
                                 <span className="flex items-center gap-1.5">
                                     <span className="font-semibold">{brand.name}</span>
-                                    <LemonTag type="success" size="small">
+                                    <AiVisibilityTag type="success" size="small">
                                         You
-                                    </LemonTag>
+                                    </AiVisibilityTag>
                                 </span>
                             )}
                         </span>
                         <span className="flex items-center gap-2 text-xs text-secondary whitespace-nowrap">
                             {pluralize(count, 'mention')}
                             {cited ? (
-                                <LemonTag type="highlight" size="small">
+                                <AiVisibilityTag type="highlight" size="small">
                                     Cited
-                                </LemonTag>
+                                </AiVisibilityTag>
                             ) : null}
                         </span>
                     </li>

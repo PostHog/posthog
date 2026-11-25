@@ -1,9 +1,10 @@
-import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { AEOPromptCitationApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
@@ -69,9 +70,9 @@ export const ContentAutopilotCitationsTable = ({
                             position={citation.target_best_position}
                         />
                         {citation.mentioned && !citation.cited ? (
-                            <LemonTag type="success" size="small">
+                            <AiVisibilityTag type="success" size="small">
                                 Mentioned
-                            </LemonTag>
+                            </AiVisibilityTag>
                         ) : null}
                     </span>
                 ),

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { faviconUrl } from 'scenes/web-analytics/common'
+
+import { AiVisibilityTag } from './AiVisibilityTag'
 
 /** A cited site: its favicon, its name (the domain unless `children` replaces it) and whose site it is. */
 export const ContentAutopilotSiteLabel = ({
@@ -32,13 +32,13 @@ export const ContentAutopilotSiteLabel = ({
             )}
             <span className="min-w-0 truncate font-semibold">{children ?? domain}</span>
             {isTarget ? (
-                <LemonTag type="success" size="small">
+                <AiVisibilityTag type="success" size="small">
                     Your site
-                </LemonTag>
+                </AiVisibilityTag>
             ) : isCompetitor ? (
-                <LemonTag type="warning" size="small">
+                <AiVisibilityTag type="warning" size="small">
                     Competitor
-                </LemonTag>
+                </AiVisibilityTag>
             ) : null}
         </span>
     )

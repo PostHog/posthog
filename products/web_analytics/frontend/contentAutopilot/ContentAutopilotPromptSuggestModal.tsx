@@ -1,14 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonInput,
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Spinner,
     Tooltip,
@@ -30,6 +28,8 @@ import {
     aeoPromptsSuggestBodyDomainMax,
 } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import {
     SUGGESTION_COUNTS,
     contentAutopilotPromptSuggestionsLogic,
@@ -68,11 +68,13 @@ const SuggestionRow = ({ suggestion }: { suggestion: AEOPromptSuggestionApi }): 
             <div className="flex flex-col gap-1 min-w-0">
                 <span className="font-semibold break-words">{suggestion.prompt}</span>
                 <div className="flex flex-wrap items-center gap-1">
-                    {suggestion.topic ? <LemonTag>{suggestion.topic}</LemonTag> : null}
+                    {suggestion.topic ? <AiVisibilityTag>{suggestion.topic}</AiVisibilityTag> : null}
                     <Tooltip title={circle.description}>
-                        <LemonTag type={suggestion.branded ? 'muted' : 'highlight'}>{circle.label}</LemonTag>
+                        <AiVisibilityTag type={suggestion.branded ? 'muted' : 'highlight'}>
+                            {circle.label}
+                        </AiVisibilityTag>
                     </Tooltip>
-                    <LemonTag type="muted">{STAGES[suggestion.funnel_stage]}</LemonTag>
+                    <AiVisibilityTag type="muted">{STAGES[suggestion.funnel_stage]}</AiVisibilityTag>
                 </div>
                 {suggestion.reason ? <span className="text-xs text-muted">{suggestion.reason}</span> : null}
             </div>
@@ -92,7 +94,7 @@ const SuggestForm = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-4">
-            {startError ? <LemonBanner type="error">{startError}</LemonBanner> : null}
+            {startError ? <AiVisibilityBanner type="error">{startError}</AiVisibilityBanner> : null}
             <LemonField.Pure label="Site" help="PostHog reads this site to understand what you do and who it is for.">
                 <LemonInput
                     value={form.domain}
@@ -283,16 +285,18 @@ export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
                         </span>
                     </div>
                 ) : view === 'failed' ? (
-                    <LemonBanner type="error">{job?.error || "Couldn't suggest prompts. Try again."}</LemonBanner>
+                    <AiVisibilityBanner type="error">
+                        {job?.error || "Couldn't suggest prompts. Try again."}
+                    </AiVisibilityBanner>
                 ) : view === 'completed' ? (
                     <SuggestReview />
                 ) : (
                     <div className="flex flex-col gap-3">
                         {editingInputs && job?.status === 'completed' ? (
-                            <LemonBanner type="info">
+                            <AiVisibilityBanner type="info">
                                 Suggesting again replaces the {pluralize(job.suggestions.length, 'suggestion')} you have
                                 now.
-                            </LemonBanner>
+                            </AiVisibilityBanner>
                         ) : null}
                         <SuggestForm />
                     </div>

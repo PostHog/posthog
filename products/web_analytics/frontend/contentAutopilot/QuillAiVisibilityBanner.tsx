@@ -10,7 +10,7 @@ import {
 
 import type { AiVisibilityBannerProps } from './AiVisibilityBanner'
 
-const TONES = { error: 'destructive', info: 'info', warning: 'warning' } as const
+const TONES = { error: 'destructive', info: 'info', warning: 'warning', success: 'success' } as const
 
 export const QuillAiVisibilityBanner = ({
     type,

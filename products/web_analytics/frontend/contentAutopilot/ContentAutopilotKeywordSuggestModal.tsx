@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonInput,
     LemonModal,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Spinner,
     Tooltip,
@@ -23,6 +21,8 @@ import {
     aeoKeywordsSuggestBodyDomainMax,
 } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import {
     KEYWORD_SUGGESTION_COUNTS,
     contentAutopilotKeywordSuggestionsLogic,
@@ -45,7 +45,7 @@ const SuggestionRow = ({ suggestion }: { suggestion: AEOKeywordSuggestionApi }):
                     <span className="font-semibold break-words">{suggestion.keyword}</span>
                     {suggestion.searched_checks > 0 ? (
                         <Tooltip title="Recent answers where the engine searched the web for this keyword.">
-                            <LemonTag type="highlight">{`Searched in ${pluralize(suggestion.searched_checks, 'answer')}`}</LemonTag>
+                            <AiVisibilityTag type="highlight">{`Searched in ${pluralize(suggestion.searched_checks, 'answer')}`}</AiVisibilityTag>
                         </Tooltip>
                     ) : null}
                 </div>
@@ -61,7 +61,7 @@ const SuggestForm = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-4">
-            {startError ? <LemonBanner type="error">{startError}</LemonBanner> : null}
+            {startError ? <AiVisibilityBanner type="error">{startError}</AiVisibilityBanner> : null}
             <LemonField.Pure label="Site" help="PostHog reads this site if your prompts don't say enough about you.">
                 <LemonInput
                     value={form.domain}
@@ -231,16 +231,18 @@ export const ContentAutopilotKeywordSuggestModal = (): JSX.Element => {
                         </span>
                     </div>
                 ) : view === 'failed' ? (
-                    <LemonBanner type="error">{job?.error || "Couldn't suggest keywords. Try again."}</LemonBanner>
+                    <AiVisibilityBanner type="error">
+                        {job?.error || "Couldn't suggest keywords. Try again."}
+                    </AiVisibilityBanner>
                 ) : view === 'completed' ? (
                     <SuggestReview />
                 ) : (
                     <div className="flex flex-col gap-3">
                         {editingInputs && job?.status === 'completed' ? (
-                            <LemonBanner type="info">
+                            <AiVisibilityBanner type="info">
                                 Suggesting again replaces the {pluralize(job.suggestions.length, 'suggestion')} you have
                                 now.
-                            </LemonBanner>
+                            </AiVisibilityBanner>
                         ) : null}
                         <SuggestForm />
                     </div>

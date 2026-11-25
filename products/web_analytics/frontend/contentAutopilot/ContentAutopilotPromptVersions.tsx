@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 
 export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string }): JSX.Element => {
@@ -12,12 +14,12 @@ export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string 
 
     if (versionsFailed && !versions) {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: () => loadAeoPromptVersions(promptId) }}
             >
                 Couldn't load the versions of this prompt. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
 
@@ -39,9 +41,9 @@ export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string 
                         <div className="flex items-center gap-2 whitespace-nowrap">
                             <span>{version}</span>
                             {is_current ? (
-                                <LemonTag type="success" size="small">
+                                <AiVisibilityTag type="success" size="small">
                                     Current
-                                </LemonTag>
+                                </AiVisibilityTag>
                             ) : null}
                         </div>
                     ),

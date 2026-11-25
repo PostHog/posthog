@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotKeywordModifierTerms } from './ContentAutopilotKeywordModifierTerms'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { type ModifierGroup, isCitationGap, modifierGroups } from './keywordsReport'
@@ -40,12 +42,12 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                     />
                 </div>
                 {modifiersError ? (
-                    <LemonBanner
+                    <AiVisibilityBanner
                         type="error"
                         action={{ children: 'Try again', onClick: loadModifiers, loading: modifiersLoading }}
                     >
                         Couldn't load the search words. Try again, and if it keeps happening contact support.
-                    </LemonBanner>
+                    </AiVisibilityBanner>
                 ) : !modifiers ? (
                     <LemonSkeleton className="h-24" />
                 ) : modifiers.modifiers.length === 0 ? (
@@ -94,9 +96,9 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                         isCitationGap(modifier, modifiers.baseline_cited_rate)
                                     ).length
                                     return gaps ? (
-                                        <LemonTag type="danger" size="small">
+                                        <AiVisibilityTag type="danger" size="small">
                                             {pluralize(gaps, 'gap')}
-                                        </LemonTag>
+                                        </AiVisibilityTag>
                                     ) : (
                                         <span className="text-muted">-</span>
                                     )

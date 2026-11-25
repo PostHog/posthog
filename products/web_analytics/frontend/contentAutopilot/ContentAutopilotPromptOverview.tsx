@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
@@ -8,6 +8,7 @@ import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import type { AEOPromptStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerOutcomeChart } from './ContentAutopilotAnswerOutcomeChart'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
@@ -131,9 +132,9 @@ export const ContentAutopilotPromptOverview = ({
                         data-attr="content-autopilot-prompt-overview-searches"
                     >
                         {stats.top_words.map((word) => (
-                            <LemonTag key={word.word} size="small">
+                            <AiVisibilityTag key={word.word} size="small">
                                 {word.word} <span className="text-muted">{word.count}</span>
-                            </LemonTag>
+                            </AiVisibilityTag>
                         ))}
                     </div>
                 </PagePerformanceCard>

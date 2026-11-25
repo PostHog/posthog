@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 
 import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
@@ -121,13 +122,16 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
                         <p className="m-0 mt-1 text-muted">Confirm where PostHog may research content.</p>
                     </div>
                     {discoveredSite ? (
-                        <LemonBanner type={discoveredSite.sitemap_detected ? 'success' : 'warning'} className="mb-4">
+                        <AiVisibilityBanner
+                            type={discoveredSite.sitemap_detected ? 'success' : 'warning'}
+                            className="mb-4"
+                        >
                             {discoveredSite.sitemap_detected
                                 ? `Detected ${discoveredSite.source_urls.length} sitemap${
                                       discoveredSite.source_urls.length === 1 ? '' : 's'
                                   }.`
                                 : discoveredSite.warnings[0]}
-                        </LemonBanner>
+                        </AiVisibilityBanner>
                     ) : null}
                     <ContentAutopilotSourceFields draft={profileDraft} />
                     <div className="mt-6 flex justify-between">

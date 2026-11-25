@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import type { AEOEngineSettingApi, CheckFrequencyEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { aiVisibilityEnginesLogic } from './aiVisibilityEnginesLogic'
 import { engineLabel, unavailableEngineReason } from './utils'
 
@@ -20,12 +21,12 @@ export const AiVisibilityEnginesSetting = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-3" data-attr="ai-visibility-engines-setting">
             {enginesError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
                     action={{ children: 'Try again', onClick: loadEngines, loading: enginesLoading }}
                 >
                     Couldn't load the engines. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             <LemonTable<AEOEngineSettingApi>
                 size="small"

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotCitationsActions } from './ContentAutopilotCitationsActions'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { ContentAutopilotCitationsTable } from './ContentAutopilotCitationsTable'
@@ -46,12 +47,12 @@ export const ContentAutopilotCitationsModal = (): JSX.Element => {
                 <div className="flex flex-col gap-3" data-attr="content-autopilot-citations-modal">
                     <ContentAutopilotCitationsActions lookup={lookup} isOwnPage={isOwnPage} />
                     {citationsFailed && !citations ? (
-                        <LemonBanner
+                        <AiVisibilityBanner
                             type="error"
                             action={{ children: 'Try again', onClick: loadCitations, loading: citationsLoading }}
                         >
                             Couldn't load the answers. Try again, and if it keeps happening contact support.
-                        </LemonBanner>
+                        </AiVisibilityBanner>
                     ) : (
                         <>
                             {citations ? (

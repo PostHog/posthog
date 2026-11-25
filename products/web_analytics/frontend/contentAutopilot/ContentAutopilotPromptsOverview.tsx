@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
@@ -55,12 +56,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (overviewError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadPromptSetOverview, loading: overviewLoading }}
             >
                 Couldn't load the overview. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.

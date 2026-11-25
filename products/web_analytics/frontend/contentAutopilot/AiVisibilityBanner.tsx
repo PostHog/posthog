@@ -12,7 +12,7 @@ export interface AiVisibilityBannerAction {
 }
 
 export interface AiVisibilityBannerProps {
-    type: 'error' | 'info' | 'warning'
+    type: 'error' | 'info' | 'warning' | 'success'
     action?: AiVisibilityBannerAction
     onClose?: () => void
     className?: string
