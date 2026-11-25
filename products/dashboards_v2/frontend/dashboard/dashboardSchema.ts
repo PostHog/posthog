@@ -31,9 +31,13 @@ export type WidgetQuery =
     | { language: 'promql'; query: string }
     | { language: 'logql'; query: string }
 
+// The query batch endpoint's limits. A longer value fails the whole batch, and with it every other tile's query.
+const MAX_QUERY_TEXT = 200_000
+const MAX_TIME_END = 100
+
 // Only a node's kind is checked here. The node schemas are large, and PostHog checks the rest when it runs the query.
 export const widgetQuerySchema = z.union([
-    z.strictObject({ language: z.literal('hogql'), query: z.string().min(1) }),
+    z.strictObject({ language: z.literal('hogql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
     z.strictObject({
         language: z.literal('metrics'),
         query: z.looseObject({ kind: z.literal(NodeKind.MetricsQuery) }),
@@ -45,15 +49,18 @@ export const widgetQuerySchema = z.union([
         }),
     }),
     z.strictObject({ language: z.literal('insight'), query: z.looseObject({ kind: z.string().min(1) }) }),
-    z.strictObject({ language: z.literal('promql'), query: z.string().min(1) }),
-    z.strictObject({ language: z.literal('logql'), query: z.string().min(1) }),
+    z.strictObject({ language: z.literal('promql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
+    z.strictObject({ language: z.literal('logql'), query: z.string().min(1).max(MAX_QUERY_TEXT) }),
 ]) as unknown as z.ZodType<WidgetQuery>
 
 /**
  * The time range a query runs over. Each end is an expression such as `now-7d` or `now`, or an ISO 8601 time. Keep
  * relative ends relative, because the backend then caches the result under the same key on every reload.
  */
-export const timeRangeSchema = z.strictObject({ from: z.string().min(1), to: z.string().min(1) })
+export const timeRangeSchema = z.strictObject({
+    from: z.string().min(1).max(MAX_TIME_END),
+    to: z.string().min(1).max(MAX_TIME_END),
+})
 
 export const tilePlaceSchema = z.strictObject({
     x: z.int().nonnegative(),
