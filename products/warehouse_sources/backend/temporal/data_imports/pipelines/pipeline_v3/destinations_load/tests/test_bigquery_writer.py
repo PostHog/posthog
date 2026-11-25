@@ -421,6 +421,24 @@ class TestFullRefresh:
         assert table.types["note"] == "STRING"
         assert sorted((row["id"], row["note"]) for row in table.rows) == [(1, None), (2, "42")]
 
+    async def test_a_value_that_cannot_convert_between_batches_is_a_configuration_error_naming_the_run(
+        self,
+    ) -> None:
+        # Regression: the staging table is rebuilt every run and takes its types from whichever
+        # batch arrives first, so reusing the merge and append paths' wording ("change the
+        # column type in BigQuery") sent the customer to a fix that cannot work here — the next
+        # run rebuilds the same staging table from the same clashing batches.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "rate": [1]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="rate") as excinfo:
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1)
+
+        assert "BigQuery" not in str(excinfo.value)
+
 
 @pytest.mark.asyncio
 class TestIncremental:

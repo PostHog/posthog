@@ -446,7 +446,7 @@ class BigQueryDestinationWriter:
             # has load as a different type (e.g. a batch with every value null autodetected as
             # STRING, followed by a batch sending real integers), which fails the load outright
             # on every retry without this.
-            table = self._align_to_target(table, client.get_table(staging_ref))
+            table = self._align_to_target(table, client.get_table(staging_ref), staging=True)
 
         bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
         if first_chunk and staging_absent:
@@ -490,13 +490,16 @@ class BigQueryDestinationWriter:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
         return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
-    def _align_to_target(self, table: pa.Table, target: bigquery.Table) -> pa.Table:
-        """Cast each column to the type the live table holds it as.
+    def _align_to_target(self, table: pa.Table, target: bigquery.Table, *, staging: bool = False) -> pa.Table:
+        """Cast each column to the type `target` already holds it as.
 
-        The scratch table takes its schema from this chunk alone, but the live table keeps the
-        types of earlier runs. Upstream can send a column as text in one run, so without the cast
-        the `MERGE` fails on every retry. A value that cannot convert is a configuration error,
-        because only a change to the live table can let the chunk merge.
+        `target` is the live table for the append and merge paths, and the run's own staging
+        table for a full refresh. Either way it takes its types from data this chunk does not
+        carry, so upstream can send a column as a different type than it already settled on,
+        and without the cast the load fails on every retry. A value that cannot convert is a
+        configuration error: a live-table mismatch needs a change to the live table, and a
+        staging-table mismatch needs the source to send one type for the column for the whole
+        run, since the staging table is rebuilt fresh on the next run either way.
         """
         for field in target.schema:
             if field.name not in table.schema.names or field.mode == "REPEATED":
@@ -516,12 +519,19 @@ class BigQueryDestinationWriter:
                 if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
                     raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
             except pa.ArrowException as err:
-                raise DestinationConfigurationError(
-                    self._ctx.destination_name,
-                    f"The column {field.name} in {self._table_ref(self._ctx.table_name)} is {target_type}, but this "
-                    f"sync sent values that cannot convert to {target_type}. Change the column type in BigQuery to "
-                    "match the source, then run the sync again.",
-                ) from err
+                if staging:
+                    detail = (
+                        f"An earlier batch of this sync loaded the column {field.name} as {target_type}, but a "
+                        f"later batch sent a value that cannot convert to {target_type}. Fix the source so "
+                        f"{field.name} sends one type for the whole sync, then run the sync again."
+                    )
+                else:
+                    detail = (
+                        f"The column {field.name} in {self._table_ref(self._ctx.table_name)} is {target_type}, "
+                        f"but this sync sent values that cannot convert to {target_type}. Change the column type "
+                        "in BigQuery to match the source, then run the sync again."
+                    )
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
             table = table.set_column(index, pa.field(field.name, arrow_type), cast)
         return table
 
