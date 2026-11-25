@@ -38,6 +38,7 @@ from posthog.models.organization_external_project_link import OrganizationExtern
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
@@ -704,6 +705,9 @@ class TestOrganizationAPI(APIBaseTest):
         owner = User.objects.create_and_join(
             self.organization, "owner@hedgebox.net", None, level=OrganizationMembership.Level.OWNER
         )
+        service_account = User.objects.create_and_join(
+            self.organization, "deploys@hedgebox.net", None, type=UserType.SERVICE_ACCOUNT
+        )
 
         # The modal previews the removals with these filters, so the two must agree — an owner shown
         # there would promise a removal that never happens.
@@ -729,7 +733,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertTrue(self.organization.enforce_verified_domains)
         self.assertCountEqual(
             self.organization.memberships.values_list("user__email", flat=True),
-            [self.user.email, admitted.email, owner.email],
+            [self.user.email, admitted.email, owner.email, service_account.email],
         )
         self.assertFalse(blocked.organization_memberships.exists())
 

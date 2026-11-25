@@ -722,8 +722,8 @@ class UserSerializer(serializers.ModelSerializer):
             ):
                 # A member the org no longer admits can't point their session back at it — this
                 # endpoint is on the enforcement whitelist, so it must refuse on its own.
-                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
-                    self.context["request"].user.email, organization
+                if OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(
+                    self.context["request"].user, organization
                 ):
                     raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
@@ -1014,7 +1014,7 @@ class UserSerializer(serializers.ModelSerializer):
             organization_id = str(team.organization_id)
             if organization_id not in organization_admits:
                 organization_admits[organization_id] = not (
-                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(user, team.organization)
                     or organization_refuses_personal_api_key(request, team.organization)
                 )
             if (

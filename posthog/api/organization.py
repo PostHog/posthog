@@ -39,7 +39,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
-from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, domain_enforcement_admitted_q
 from posthog.ip_restrictions import (
     MAX_IP_RESTRICTIONS,
     get_ip_blocked_organization_ids,
@@ -590,7 +590,7 @@ class OrganizationSerializer(
             self.instance
             and request
             and isinstance(request.user, User)
-            and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(request.user.email, self.instance)
+            and OrganizationDomain.objects.is_user_blocked_by_domain_enforcement(request.user, self.instance)
         ):
             if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
                 raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
@@ -1076,10 +1076,11 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(organization, data={"enforce_verified_domains": True}, partial=True)
         serializer.is_valid(raise_exception=True)
 
-        blocked = organization.memberships.exclude(level=OrganizationMembership.Level.OWNER).select_related("user")
-        admitted = verified_domain_email_q(organization)
-        if admitted is not None:
-            blocked = blocked.exclude(admitted)
+        blocked = (
+            organization.memberships.exclude(level=OrganizationMembership.Level.OWNER)
+            .exclude(domain_enforcement_admitted_q(organization))
+            .select_related("user")
+        )
 
         removed = 0
         with transaction.atomic():

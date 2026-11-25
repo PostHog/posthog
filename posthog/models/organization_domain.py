@@ -16,6 +16,7 @@ from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
+from posthog.models.user import UserType
 from posthog.models.utils import UUIDTModel
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.utils import get_instance_available_sso_providers
@@ -129,6 +130,16 @@ class OrganizationDomainManager(models.Manager):
             return False
         return not self.is_domain_verified_for_organization(email, organization)
 
+    def is_user_blocked_by_domain_enforcement(self, user: "User", organization: Organization) -> bool:
+        """
+        Whether `user` is outside `organization`'s enforced verified domains. Only a human is checked:
+        any other account has an address the organization cannot own, such as a generated one, so
+        enforcing the setting must neither block it nor remove it.
+        """
+        if user.type != UserType.HUMAN:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+
     def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
         """
         Whether `user` should be denied access to the organization they're currently in.
@@ -139,7 +150,7 @@ class OrganizationDomainManager(models.Manager):
         organization = user.organization
         if organization is None:
             return False
-        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+        return self.is_user_blocked_by_domain_enforcement(user, organization)
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
