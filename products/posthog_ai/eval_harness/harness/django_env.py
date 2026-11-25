@@ -126,6 +126,7 @@ def _default_test_database_exists() -> bool:
     from django.db import connections  # noqa: PLC0415 — must import only after django.setup()
 
     connection = connections["default"]
-    with connection.cursor() as cursor:
+    # The non-test database may not exist, so the check uses the maintenance connection.
+    with connection._nodb_cursor() as cursor:
         cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", [connection.creation._get_test_db_name()])
         return cursor.fetchone() is not None
